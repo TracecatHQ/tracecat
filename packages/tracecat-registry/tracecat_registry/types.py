@@ -219,6 +219,55 @@ class CaseListResponse(TypedDict):
     total_estimate: int | None
 
 
+class CaseViewStaleRef(TypedDict):
+    """A deleted tag or dropdown option that a saved view still names."""
+
+    kind: Literal["tag", "dropdown"]
+    value: str
+
+
+class CaseViewEmptyRules(TypedDict):
+    """Rules of a view left with nothing to match after deletions."""
+
+    tags: bool
+    dropdown_refs: list[str]
+    filters: bool
+
+
+class CaseViewRead(TypedDict):
+    """A saved or built-in case view."""
+
+    id: str
+    kind: Literal["builtin", "custom"]
+    name: str
+    visibility: Literal["personal", "workspace"]
+    owner_id: UUID | None
+    query: dict[str, Any]
+    order_by: str | None
+    sort: Literal["asc", "desc"] | None
+    columns: list[str] | None
+    can_edit: bool
+    pinned: bool
+    pin_position: int | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    stale_refs: list[CaseViewStaleRef] | None
+    """Set only when a single view is read; None in lists."""
+    empty_rules: CaseViewEmptyRules | None
+    """Set only when a single view is read; None in lists."""
+
+
+class CaseViewListResponse(TypedDict):
+    """Paginated saved case view list."""
+
+    items: list[CaseViewRead]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+    total_estimate: int | None
+
+
 class CaseComment(TypedDict):
     """Case comment information."""
 

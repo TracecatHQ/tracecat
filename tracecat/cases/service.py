@@ -122,6 +122,7 @@ from tracecat.cases.triggers.audit import audit_comment_workflow_execution
 from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.cases.versions.schemas import CaseVersionRestoreRead
 from tracecat.cases.versions.service import CaseVersionsService
+from tracecat.cases.views.service import CaseViewsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
@@ -410,7 +411,14 @@ class CasesService(BaseWorkspaceService):
     async def query_cases(
         self, request: CaseSearchRequest
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Execute the canonical validated search contract."""
+        """Execute the canonical validated search contract.
+
+        A ``view_id`` runs that saved view: its criteria and sort replace the
+        request's, and the request's ``filters`` narrow it further.
+        """
+        request = await CaseViewsService(self.session, self.role).apply_to_query(
+            request
+        )
         return await self._search_service().query_cases(
             request,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
@@ -419,6 +427,7 @@ class CasesService(BaseWorkspaceService):
     @require_scope("case:read")
     async def query_case_aggregates(self, query: CaseQuery) -> CaseSearchAggregateRead:
         """Count the same authorized population as canonical search."""
+        query = await CaseViewsService(self.session, self.role).apply_to_query(query)
         return await self._search_service().query_aggregates(
             query,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy import cast, func, or_, select
+from sqlalchemy.dialects.postgresql import INTERVAL
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, raiseload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
@@ -38,11 +39,19 @@ from tracecat.cases.schemas import (
     CaseStatusGroupCounts,
 )
 from tracecat.cases.search_adapters import (
+    UNASSIGNED_IDENTIFIERS,
     iter_case_filter_conditions,
     legacy_case_filters,
+    parse_dropdown_entry,
+    requesting_user_id,
+    resolve_user_refs,
 )
 from tracecat.cases.search_metadata import validate_case_filter_metadata
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_schemas import (
+    CaseQuery,
+    CaseSearchRequest,
+    RelativeTimeWindow,
+)
 from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.search import resolve_case_tag_filters
@@ -87,6 +96,33 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
         ],
         else_=len(ordered_values),
     )
+
+
+def relative_window_start(
+    window: RelativeTimeWindow, anchor: ColumnElement[Any] | None = None
+) -> ColumnElement[Any]:
+    """Return SQL for ``anchor - window``, using calendar arithmetic for months.
+
+    The window is one bound interval such as ``'1 month'``, so its value is the
+    same on every page and the pagination cursor fingerprint matches. One month
+    before 31 March is 28 or 29 February, as Postgres interval math gives.
+
+    Args:
+        window: The relative window.
+        anchor: When the window ends; ``now()`` unless a test pins it.
+    """
+    interval = sa.cast(sa.literal(f"{window.amount} {window.unit.value}"), INTERVAL)
+    return (func.now() if anchor is None else anchor) - interval
+
+
+def _require_resolved_view(query: CaseQuery) -> None:
+    """Fail loudly if a saved view reaches the search layer unresolved.
+
+    ``CasesService`` resolves ``view_id`` through ``CaseViewsService``; the
+    search layer would otherwise silently ignore it.
+    """
+    if query.view_id is not None:
+        raise ValueError("Resolve view_id with CaseViewsService before searching")
 
 
 def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
@@ -178,19 +214,22 @@ class CaseSearchService(BaseWorkspaceService):
         )
         dropdowns: dict[str, list[str]] = {}
         for entry in query.dropdown or []:
-            if ":" not in entry:
-                raise TracecatValidationError(
-                    f"Invalid dropdown filter format: {entry!r}. Expected 'definition_ref:option_ref'."
-                )
-            ref, option = entry.split(":", 1)
+            try:
+                ref, option = parse_dropdown_entry(entry)
+            except ValueError as exc:
+                raise TracecatValidationError(str(exc)) from exc
             dropdowns.setdefault(ref, []).append(option)
         assignees = query.assignee_id or []
+        user_id = requesting_user_id(self.role)
         return legacy_case_filters(
             status=query.status,
             priority=query.priority,
             severity=query.severity,
-            assignee_ids=[value for value in assignees if isinstance(value, uuid.UUID)],
-            include_unassigned=any(isinstance(value, str) for value in assignees),
+            assignee_ids=resolve_user_refs(assignees, user_id=user_id),
+            include_unassigned=any(
+                value in UNASSIGNED_IDENTIFIERS for value in assignees
+            ),
+            creator_ids=resolve_user_refs(query.created_by or [], user_id=user_id),
             tag_refs=[tag.ref for tag in tags],
             dropdown_filters=dropdowns,
             start_time=query.start_time,
@@ -258,6 +297,23 @@ class CaseSearchService(BaseWorkspaceService):
         predicates.extend(
             compile_filter(tree, resolver) for tree in trees if tree is not None
         )
+        # Relative windows resolve in SQL on every run, so a saved view keeps
+        # meaning "the last 30 days". Postgres computes now() itself, which keeps
+        # the bind values, and so the pagination cursor fingerprint, stable
+        # across pages.
+        # The window ends now, so future-dated rows do not match.
+        if query.created_within is not None:
+            predicates.append(
+                Case.created_at.between(
+                    relative_window_start(query.created_within), func.now()
+                )
+            )
+        if query.updated_within is not None:
+            predicates.append(
+                Case.updated_at.between(
+                    relative_window_start(query.updated_within), func.now()
+                )
+            )
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
             parent_id=query.parent_id, hierarchy=query.hierarchy
         )
@@ -290,6 +346,7 @@ class CaseSearchService(BaseWorkspaceService):
         exclude_case_id: uuid.UUID | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Own lexical execution/rollback while preserving the legacy read path."""
+        _require_resolved_view(request)
         lexical = self.parse_lexical_query(request)
         if lexical is None:
             return await self._query_cases(
@@ -776,6 +833,7 @@ class CaseSearchService(BaseWorkspaceService):
         legacy_filters: Filter | None = None,
     ) -> CaseSearchAggregateRead:
         """Count the identical lexical predicate under the same execution limits."""
+        _require_resolved_view(query)
         lexical = self.parse_lexical_query(query)
         if lexical is None:
             return await self._query_aggregates(
@@ -819,6 +877,8 @@ class CaseSearchService(BaseWorkspaceService):
             legacy_filters=legacy_filters,
             lexical=lexical,
         )
+        if query.match_none:
+            filters.append(sa.false())
         aggregate_stmt = select(
             func.count(Case.id).label("total"),
             func.coalesce(

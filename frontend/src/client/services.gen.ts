@@ -507,6 +507,22 @@ import type {
   CaseTagsListCaseTagsResponse,
   CaseTagsUpdateCaseTagData,
   CaseTagsUpdateCaseTagResponse,
+  CaseViewsCreateCaseViewData,
+  CaseViewsCreateCaseViewResponse,
+  CaseViewsDeleteCaseViewData,
+  CaseViewsDeleteCaseViewResponse,
+  CaseViewsGetCaseViewData,
+  CaseViewsGetCaseViewResponse,
+  CaseViewsListBuiltinCaseViewsData,
+  CaseViewsListBuiltinCaseViewsResponse,
+  CaseViewsListCaseViewsData,
+  CaseViewsListCaseViewsResponse,
+  CaseViewsPinCaseViewData,
+  CaseViewsPinCaseViewResponse,
+  CaseViewsUnpinCaseViewData,
+  CaseViewsUnpinCaseViewResponse,
+  CaseViewsUpdateCaseViewData,
+  CaseViewsUpdateCaseViewResponse,
   CreateCatalogEntryData,
   CreateCatalogEntryResponse,
   CreateCustomProviderData,
@@ -13639,7 +13655,10 @@ export const casesQueryCases = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "The query is invalid.",
+      404: "view_id names no view the caller can see.",
       422: "Validation Error",
+      503: "Full-text search is not ready yet.",
     },
   })
 }
@@ -13752,7 +13771,10 @@ export const casesQueryCaseAggregates = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "The query is invalid.",
+      404: "view_id names no view the caller can see.",
       422: "Validation Error",
+      503: "Full-text search is not ready yet.",
     },
   })
 }
@@ -14917,6 +14939,217 @@ export const caseTagsDeleteCaseTag = (
     url: "/workspaces/{workspace_id}/case-tags/{tag_id}",
     path: {
       tag_id: data.tagId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Views
+ * List saved views: shared ones and the requesting user's personal ones.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor Continuation cursor
+ * @param data.pinned Only views the requesting user pinned, in pin order
+ * @returns CursorPaginatedResponse_CaseViewRead_ Successful Response
+ * @throws ApiError
+ */
+export const caseViewsListCaseViews = (
+  data: CaseViewsListCaseViewsData
+): CancelablePromise<CaseViewsListCaseViewsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/case-views",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      pinned: data.pinned,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Case View
+ * Save a view. Sharing it with the workspace requires case:update.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseViewRead Successful Response
+ * @throws ApiError
+ */
+export const caseViewsCreateCaseView = (
+  data: CaseViewsCreateCaseViewData
+): CancelablePromise<CaseViewsCreateCaseViewResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/case-views",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Builtin Case Views
+ * List the views every workspace has, such as Assigned to me.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CaseViewRead Successful Response
+ * @throws ApiError
+ */
+export const caseViewsListBuiltinCaseViews = (
+  data: CaseViewsListBuiltinCaseViewsData
+): CancelablePromise<CaseViewsListBuiltinCaseViewsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/case-views/builtins",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Case View
+ * Get a saved or built-in view, including references to deleted tags.
+ * @param data The data for the request.
+ * @param data.viewId
+ * @param data.workspaceId
+ * @returns CaseViewRead Successful Response
+ * @throws ApiError
+ */
+export const caseViewsGetCaseView = (
+  data: CaseViewsGetCaseViewData
+): CancelablePromise<CaseViewsGetCaseViewResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/case-views/{view_id}",
+    path: {
+      view_id: data.viewId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Case View
+ * Change a view you own, or a shared view if you have case:update.
+ * @param data The data for the request.
+ * @param data.viewId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseViewRead Successful Response
+ * @throws ApiError
+ */
+export const caseViewsUpdateCaseView = (
+  data: CaseViewsUpdateCaseViewData
+): CancelablePromise<CaseViewsUpdateCaseViewResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/case-views/{view_id}",
+    path: {
+      view_id: data.viewId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Case View
+ * Delete a view you own, or a shared view if you have case:update.
+ * @param data The data for the request.
+ * @param data.viewId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseViewsDeleteCaseView = (
+  data: CaseViewsDeleteCaseViewData
+): CancelablePromise<CaseViewsDeleteCaseViewResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/case-views/{view_id}",
+    path: {
+      view_id: data.viewId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Pin Case View
+ * Show a saved view in your sidebar.
+ * @param data The data for the request.
+ * @param data.viewId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseViewRead Successful Response
+ * @throws ApiError
+ */
+export const caseViewsPinCaseView = (
+  data: CaseViewsPinCaseViewData
+): CancelablePromise<CaseViewsPinCaseViewResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/case-views/{view_id}/pin",
+    path: {
+      view_id: data.viewId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unpin Case View
+ * Remove a view from your sidebar.
+ * @param data The data for the request.
+ * @param data.viewId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const caseViewsUnpinCaseView = (
+  data: CaseViewsUnpinCaseViewData
+): CancelablePromise<CaseViewsUnpinCaseViewResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/case-views/{view_id}/pin",
+    path: {
+      view_id: data.viewId,
       workspace_id: data.workspaceId,
     },
     errors: {

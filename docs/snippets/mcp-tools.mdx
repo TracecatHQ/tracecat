@@ -273,6 +273,12 @@
   Search cases with filtering and sorting.
 </ResponseField>
 
+<ResponseField name="list_case_views" type="tool">
+  List case views you can see, to run with search_cases(view_id=...).
+
+  Saved views are personal (only you) or shared with the workspace and come back one page at a time in ``saved``. The read-only built-in view, assigned_to_me, is defined by Tracecat and comes back separately in ``builtins``; built-ins cannot be pinned, so ``pinned`` leaves it empty.
+</ResponseField>
+
 <ResponseField name="get_case" type="tool">
   Get a specific case with full details including fields, tags, and description.
 </ResponseField>

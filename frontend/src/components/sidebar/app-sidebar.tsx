@@ -25,7 +25,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import type * as React from "react"
 import { useMemo, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -57,6 +57,8 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { VIEW_PARAM } from "@/hooks/use-case-view-state"
+import { useCaseViews } from "@/hooks/use-case-views"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
@@ -115,14 +117,23 @@ function SidebarNavGroup({
               {visibleItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   {item.items ? (
-                    <SidebarMenuItem>
-                      <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
-                        <item.icon className="size-4 shrink-0" />
-                        <span className="font-medium">{item.title}</span>
-                      </div>
+                    <>
+                      {item.url ? (
+                        <SidebarMenuButton asChild isActive={item.isActive}>
+                          <Link href={item.url}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      ) : (
+                        <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
+                          <item.icon className="size-4 shrink-0" />
+                          <span className="font-medium">{item.title}</span>
+                        </div>
+                      )}
                       <SidebarMenuSub>
                         {item.items.map((subItem) => (
-                          <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubItem key={subItem.url}>
                             <SidebarMenuSubButton
                               asChild
                               isActive={subItem.isActive}
@@ -135,7 +146,7 @@ function SidebarNavGroup({
                           </SidebarMenuSubItem>
                         ))}
                       </SidebarMenuSub>
-                    </SidebarMenuItem>
+                    </>
                   ) : item.isLocked ? (
                     <SidebarMenuButton
                       type="button"
@@ -192,6 +203,7 @@ function SidebarNavGroup({
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const basePath = `/workspaces/${workspaceId}`
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
@@ -210,6 +222,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  const caseViews = useCaseViews(workspaceId, canViewCases === true)
+  const activeCaseViewId = pathname?.startsWith(`${basePath}/cases`)
+    ? (searchParams?.get(VIEW_PARAM) ?? null)
+    : null
+  const caseViewItems = useMemo(
+    () =>
+      [...caseViews.builtins, ...caseViews.pinned].map((view) => ({
+        title: view.name,
+        url: `${basePath}/cases?${new URLSearchParams({ [VIEW_PARAM]: view.id })}`,
+        isActive: activeCaseViewId === view.id,
+      })),
+    [caseViews.builtins, caseViews.pinned, basePath, activeCaseViewId]
+  )
   // The builder pages need one of these on top of `form:read`; a requester
   // who can only fill in forms has no use for the list.
   const canReadForms = useScopeCheck("form:read")
@@ -279,8 +304,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Cases",
         url: `${basePath}/cases`,
         icon: LayersIcon,
-        isActive: pathname?.startsWith(`${basePath}/cases`),
+        // Stay highlighted unless a listed view is the active one, so an
+        // unknown or deleted ?view= still marks Cases as the current page.
+        isActive:
+          pathname?.startsWith(`${basePath}/cases`) &&
+          !caseViewItems.some((item) => item.isActive),
         visible: canViewCases === true,
+        items: caseViewItems.length > 0 ? caseViewItems : undefined,
       },
       {
         title: "Agents",
@@ -313,6 +343,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canReadForms,
       canBuildForms,
       canViewCases,
+      caseViewItems,
+      activeCaseViewId,
       canAccessMissionControl,
       entitlementsKnown,
       workspaceChatEnabled,

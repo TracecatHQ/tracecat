@@ -105,6 +105,8 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "table_folder",
     "managed_detached_copy",
     "case_trigger_outbox",
+    "case_view",
+    "case_view_pin",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

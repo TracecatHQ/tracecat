@@ -15,10 +15,17 @@ let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
 let mockEntitlementsIsLoading = false
 let mockHasEntitlementData = true
+let mockSearchParams = new URLSearchParams()
+type MockCaseView = { id: string; name: string }
+let mockCaseViews: { builtins: MockCaseView[]; pinned: MockCaseView[] } = {
+  builtins: [],
+  pinned: [],
+}
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({}),
   usePathname: () => mockPathname,
+  useSearchParams: () => mockSearchParams,
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -124,9 +131,13 @@ jest.mock("@/components/ui/sidebar", () => ({
   SidebarMenuSub: ({ children }: { children: ReactNode }) => (
     <ul>{children}</ul>
   ),
-  SidebarMenuSubButton: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  SidebarMenuSubButton: ({
+    children,
+    isActive,
+  }: {
+    children: ReactNode
+    isActive?: boolean
+  }) => <div data-active={isActive ? "true" : "false"}>{children}</div>,
   SidebarMenuSubItem: ({ children }: { children: ReactNode }) => (
     <li>{children}</li>
   ),
@@ -143,6 +154,15 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 
+jest.mock("@/hooks/use-case-views", () => ({
+  useCaseViews: () => ({
+    ...mockCaseViews,
+    personal: [],
+    shared: [],
+    isLoading: false,
+  }),
+}))
+
 jest.mock("@/hooks/use-pending-approvals-count", () => ({
   usePendingApprovalsCount: () => ({ data: 0 }),
 }))
@@ -154,6 +174,8 @@ jest.mock("@/providers/workspace-id", () => ({
 describe("AppSidebar", () => {
   beforeEach(() => {
     mockUseScopeCheck.mockReset()
+    mockSearchParams = new URLSearchParams()
+    mockCaseViews = { builtins: [], pinned: [] }
     mockPathname = "/workspaces/workspace-1/workflows"
     mockScopes = {}
     mockEntitlements = {
@@ -301,5 +323,52 @@ describe("AppSidebar", () => {
       "data-active",
       "false"
     )
+  })
+
+  it("lists built-in and pinned case views and highlights the open one", () => {
+    const pinnedId = "00000000-0000-4000-8000-000000000001"
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockSearchParams = new URLSearchParams({ view: pinnedId })
+    mockScopes = { "case:read": true }
+    mockCaseViews = {
+      builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
+      pinned: [{ id: pinnedId, name: "Open phishing" }],
+    }
+
+    render(<AppSidebar />)
+
+    const builtin = screen.getByRole("link", { name: "Assigned to me" })
+    const pinned = screen.getByRole("link", { name: "Open phishing" })
+    expect(builtin).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/cases?view=assigned_to_me"
+    )
+    expect(pinned).toHaveAttribute(
+      "href",
+      `/workspaces/workspace-1/cases?view=${pinnedId}`
+    )
+    expect(pinned.closest("[data-active]")).toHaveAttribute(
+      "data-active",
+      "true"
+    )
+    expect(
+      screen.getByRole("link", { name: "Cases" }).closest("[data-active]")
+    ).toHaveAttribute("data-active", "false")
+  })
+
+  it("keeps Cases highlighted for a view that is not listed", () => {
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockSearchParams = new URLSearchParams({ view: "deleted-view" })
+    mockScopes = { "case:read": true }
+    mockCaseViews = {
+      builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
+      pinned: [],
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.getByRole("link", { name: "Cases" }).closest("[data-active]")
+    ).toHaveAttribute("data-active", "true")
   })
 })

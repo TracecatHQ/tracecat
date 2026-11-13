@@ -9,6 +9,7 @@ import httpx
 from typing_extensions import Doc
 
 from tracecat_registry import config, ctx, registry, types
+from tracecat_registry.sdk.types import UNSET
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
@@ -734,6 +735,16 @@ async def list_cases(
     namespace="core.cases",
 )
 async def search_cases(
+    view_id: Annotated[
+        str | None,
+        Doc(
+            "Run a saved case view (its UUID) or the built-in assigned_to_me view. "
+            "The view replaces the matching criteria: `filters` is ANDed with it and "
+            "other matching inputs are rejected, while paging, order_by/sort, and "
+            "result options still apply. Views that use 'me', such as assigned_to_me, fail in workflows "
+            "because a workflow has no signed-in user."
+        ),
+    ] = None,
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
@@ -789,6 +800,27 @@ async def search_cases(
     updated_after: Annotated[
         datetime | str | None,
         Doc("Filter cases updated after this time."),
+    ] = None,
+    created_by: Annotated[
+        list[str] | None,
+        Doc(
+            "Users who created the case, as user IDs. 'me' needs a signed-in "
+            "user, so it fails in workflows."
+        ),
+    ] = None,
+    created_within: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Cases created in a window ending now, e.g. {'amount': 30, 'unit': 'day'}. "
+            "Units: hour, day, week, month. Cannot be combined with start_time/end_time."
+        ),
+    ] = None,
+    updated_within: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Cases updated in a window ending now, e.g. {'amount': 7, 'unit': 'day'}. "
+            "Cannot be combined with updated_after/updated_before."
+        ),
     ] = None,
     limit: Annotated[
         int,
@@ -889,6 +921,8 @@ async def search_cases(
         params["cursor"] = cursor
     if paginate and reverse:
         params["reverse"] = reverse
+    if view_id is not None:
+        params["view_id"] = view_id
     if search_term is not None:
         params["search_term"] = search_term
     if status is not None:
@@ -935,6 +969,9 @@ async def search_cases(
         ("short_id", short_id),
         ("case_id", case_id),
         ("filters", filters),
+        ("created_by", created_by),
+        ("created_within", created_within),
+        ("updated_within", updated_within),
         ("parent_id", parent_id),
         ("field_ids", field_ids),
     ):
@@ -944,6 +981,42 @@ async def search_cases(
     if paginate:
         return response
     return response["items"]
+
+
+@registry.register(
+    default_title="List case views",
+    display_group="Cases",
+    description=(
+        "List built-in and shared saved case views. Pass a view's ID to "
+        "Search cases to run it."
+    ),
+    namespace="core.cases",
+)
+async def list_case_views(
+    include_builtins: Annotated[
+        bool, Doc("Include built-in views, such as Assigned to me.")
+    ] = True,
+    limit: Annotated[int, Doc("Maximum number of saved views to return.")] = 100,
+) -> list[types.CaseViewRead]:
+    """List built-in and shared saved case views."""
+    if limit < 1 or limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+        raise TracecatValidationError(
+            detail=f"Limit must be between 1 and {config.TRACECAT__LIMIT_CURSOR_MAX}"
+        )
+    views = await ctx.cases.aio.list_builtin_views() if include_builtins else []
+    # Follow the cursor so up to `limit` saved views are returned, not just the
+    # first page.
+    saved: list[types.CaseViewRead] = []
+    cursor: str | None = None
+    while len(saved) < limit:
+        page = await ctx.cases.aio.list_views(
+            limit=limit - len(saved), cursor=cursor or UNSET
+        )
+        saved.extend(page["items"])
+        cursor = page.get("next_cursor")
+        if not page.get("has_more") or not cursor:
+            break
+    return [*views, *saved]
 
 
 @registry.register(

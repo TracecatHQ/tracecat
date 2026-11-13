@@ -319,7 +319,7 @@ describe("exact-first case search UI", () => {
         requestBody: expect.objectContaining({
           search_term: "CASE-0042",
           promote_exact_match: true,
-          start_time: expect.any(String),
+          created_within: { amount: 1, unit: "month" },
         }),
       })
     )
@@ -582,7 +582,7 @@ describe("exact-first case search UI", () => {
     expect(casesQueryCases).toHaveBeenLastCalledWith(
       expect.objectContaining({
         requestBody: expect.objectContaining({
-          start_time: expect.any(String),
+          created_within: { amount: 1, unit: "month" },
         }),
       })
     )

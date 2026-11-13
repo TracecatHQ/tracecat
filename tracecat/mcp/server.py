@@ -163,6 +163,8 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.views.schemas import CaseViewListRead
+from tracecat.cases.views.service import CaseViewsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -6877,6 +6879,7 @@ async def search_cases(
     workspace_id: uuid.UUID,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
+    view_id: str | None = None,
     search_term: str | None = None,
     search_mode: Literal["full_text", "literal"] | None = None,
     search_columns: list[Literal["summary", "description"]] | None = None,
@@ -6897,6 +6900,9 @@ async def search_cases(
     end_time: datetime | None = None,
     updated_after: datetime | None = None,
     updated_before: datetime | None = None,
+    created_by: list[str] | None = None,
+    created_within: dict[str, Any] | None = None,
+    updated_within: dict[str, Any] | None = None,
     include_rows: bool = False,
     field_ids: list[str] | None = None,
     include_durations: bool = False,
@@ -6909,6 +6915,12 @@ async def search_cases(
         workspace_id: The workspace ID.
         limit: Maximum items per page.
         cursor: Cursor for pagination.
+        view_id: Run a saved case view (UUID from list_case_views) or a
+            built-in assigned_to_me view.
+            The view supplies the matching criteria: ``filters`` is ANDed with
+            it, and other matching arguments are rejected. Paging, result
+            options, and order_by/sort still apply; order_by overrides the
+            view's saved order.
         search_term: Text to search for in case summary, description, short
             ID, or case UUID.
         search_mode: Explicit full_text words/phrases or literal substring; omitted preserves legacy behavior.
@@ -6945,6 +6957,12 @@ async def search_cases(
         end_time: Inclusive creation upper bound.
         updated_after: Inclusive update lower bound.
         updated_before: Inclusive update upper bound.
+        created_by: User IDs who created the case, or "me" for you.
+        created_within: Created in a window ending now, e.g.
+            {"amount": 30, "unit": "day"}; units hour, day, week, month.
+            Replaces start_time/end_time.
+        updated_within: Updated in a window ending now. Replaces
+            updated_after/updated_before.
         include_rows: Include linked table rows.
         field_ids: Include these custom field values.
         include_durations: Include durations when entitled.
@@ -6979,6 +6997,7 @@ async def search_cases(
                     max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
                 ),
                 "cursor": cursor,
+                "view_id": view_id,
                 "search_term": search_term,
                 "search_mode": search_mode,
                 "search_columns": search_columns,
@@ -6999,6 +7018,9 @@ async def search_cases(
                 "end_time": end_time,
                 "updated_after": updated_after,
                 "updated_before": updated_before,
+                "created_by": created_by,
+                "created_within": created_within,
+                "updated_within": updated_within,
                 "include_rows": include_rows,
                 "field_ids": field_ids,
                 "include_durations": include_durations,
@@ -7012,13 +7034,65 @@ async def search_cases(
         raise ToolError(
             f"Missing required scope: {', '.join(e.required_scopes)}"
         ) from e
-    except (EntitlementRequired, TracecatValidationError) as e:
+    except (EntitlementRequired, TracecatValidationError, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to search cases", error=str(e))
         raise ToolError(f"Failed to search cases: {e}") from None
+
+
+@mcp.tool()
+async def list_case_views(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+    pinned: bool = False,
+    include_builtins: bool = True,
+) -> CaseViewListRead:
+    """List case views you can see, to run with search_cases(view_id=...).
+
+    Saved views are personal (only you) or shared with the workspace and come
+    back one page at a time in ``saved``. The read-only built-in view,
+    assigned_to_me, is defined by Tracecat and comes back separately in
+    ``builtins``; built-ins cannot be pinned, so ``pinned`` leaves it empty.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum saved views per page.
+        cursor: Cursor for the next page of saved views.
+        pinned: Only views you pinned to your sidebar, in pin order.
+        include_builtins: Return the built-in views in ``builtins``.
+
+    Returns ``builtins`` and a paginated ``saved`` list. Each view has its
+    ``id``, ``name``, ``visibility``, and the ``query`` it runs.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        page_params = PageParams(
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+        async with CaseViewsService.with_session(role=role) as svc:
+            saved = await svc.list_views(page_params, pinned_only=pinned)
+            builtins = svc.list_builtins() if include_builtins and not pinned else []
+            return CaseViewListRead(builtins=builtins, saved=saved)
+    except ScopeDeniedError as e:
+        raise ToolError(
+            f"Missing required scope: {', '.join(e.required_scopes)}"
+        ) from e
+    except (TracecatValidationError, ValueError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case views", error=str(e))
+        # Keep internal details in the log, not in the agent-facing message.
+        raise ToolError("Failed to list case views") from None
 
 
 @mcp.tool()

@@ -299,7 +299,7 @@ describe("useCases", () => {
         workspaceId: "workspace-1",
         requestBody: expect.objectContaining({
           search_term: "persisted query",
-          updated_after: expect.stringContaining("T"),
+          updated_within: { amount: 1, unit: "week" },
         }),
       })
     )
@@ -310,7 +310,7 @@ describe("useCases", () => {
         workspaceId: "workspace-1",
         requestBody: expect.objectContaining({
           search_term: "persisted query",
-          updated_after: expect.stringContaining("T"),
+          updated_within: { amount: 1, unit: "week" },
         }),
       })
     )

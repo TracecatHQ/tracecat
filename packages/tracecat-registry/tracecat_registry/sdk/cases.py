@@ -256,6 +256,7 @@ class CasesClient:
         limit: int = 20,
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
+        view_id: str | Unset = UNSET,
         search_term: str | Unset = UNSET,
         search_mode: Literal["full_text", "literal"] | Unset = UNSET,
         search_columns: list[Literal["summary", "description"]] | Unset = UNSET,
@@ -276,6 +277,9 @@ class CasesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
+        created_by: list[str] | Unset = UNSET,
+        created_within: dict[str, Any] | Unset = UNSET,
+        updated_within: dict[str, Any] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
         payload_fields: list[str] | Unset = UNSET,
@@ -296,9 +300,17 @@ class CasesClient:
         preserved; is_null matches missing paths, not explicit JSON null.
         Exact IDs and compatibility criteria are ANDed with the filter tree.
         Returned details are independent of matching.
+        view_id runs a saved or built-in case view. Its matching criteria
+        replace the request's: filters is ANDed with them, and any other
+        matching field is rejected. Pagination, result options, and
+        order_by/sort still apply; order_by overrides the view's saved order.
         Explicit full_text uses required words/per-field phrases and defaults to
         relevance. Literal is an escaped complete substring. Omitted mode retains
         legacy behavior. search_columns selects summary/description.
+        created_by takes user IDs or "me". created_within and updated_within
+        take a window ending now, such as {"amount": 30, "unit": "day"}
+        (units: hour, day, week, month); they replace the matching fixed
+        bounds.
 
         Either non-empty selector returns the selected subset. payload_fields
         and payload_paths combine and override include_payload. Up to 100 paths
@@ -315,6 +327,8 @@ class CasesClient:
             params["cursor"] = cursor
         if is_set(reverse):
             params["reverse"] = reverse
+        if is_set(view_id):
+            params["view_id"] = view_id
         if is_set(search_term):
             params["search_term"] = search_term
         if is_set(status):
@@ -372,6 +386,9 @@ class CasesClient:
             ("short_id", short_id),
             ("case_id", case_id),
             ("filters", filters),
+            ("created_by", created_by),
+            ("created_within", created_within),
+            ("updated_within", updated_within),
             ("hierarchy", hierarchy),
             ("parent_id", parent_id),
             ("include_durations", include_durations),
@@ -382,6 +399,34 @@ class CasesClient:
                 params[name] = value
         # The standalone registry forwards JSON; the server validates the shared AST.
         return await self._client.post("/cases/search", json=to_jsonable_python(params))
+
+    # === Views === #
+
+    async def list_views(
+        self, *, limit: int = 100, cursor: str | Unset = UNSET
+    ) -> types.CaseViewListResponse:
+        """List shared saved case views. Workflows have no personal views.
+
+        Args:
+            limit: Maximum views per page.
+            cursor: Continuation cursor from a previous page.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        return await self._client.get("/case-views", params=params)
+
+    async def list_builtin_views(self) -> list[types.CaseViewRead]:
+        """List the built-in case views, such as "Assigned to me"."""
+        return await self._client.get("/case-views/builtins")
+
+    async def get_view(self, view_id: str) -> types.CaseViewRead:
+        """Get one shared or built-in case view.
+
+        Args:
+            view_id: A saved view UUID or a built-in view ID.
+        """
+        return await self._client.get(f"/case-views/{view_id}")
 
     # === Comments === #
 

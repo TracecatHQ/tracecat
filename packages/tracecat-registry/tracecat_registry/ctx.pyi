@@ -321,6 +321,7 @@ class _CasesAsync:
         limit: int = ...,
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
+        view_id: str | Unset = ...,
         search_term: str | Unset = ...,
         search_mode: Literal["full_text", "literal"] | Unset = ...,
         search_columns: list[Literal["summary", "description"]] | Unset = ...,
@@ -341,6 +342,9 @@ class _CasesAsync:
         end_time: datetime | str | Unset = ...,
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
+        created_by: list[str] | Unset = ...,
+        created_within: dict[str, Any] | Unset = ...,
+        updated_within: dict[str, Any] | Unset = ...,
         include_rows: bool | Unset = ...,
         include_payload: bool | Unset = ...,
         payload_fields: list[str] | Unset = ...,
@@ -349,6 +353,11 @@ class _CasesAsync:
         include_count: bool | Unset = ...,
         field_ids: list[str] | Unset = ...,
     ) -> types.CaseListResponse: ...
+    async def list_views(
+        self, *, limit: int = ..., cursor: str | Unset = ...
+    ) -> types.CaseViewListResponse: ...
+    async def list_builtin_views(self) -> list[types.CaseViewRead]: ...
+    async def get_view(self, view_id: str) -> types.CaseViewRead: ...
     async def list_comments(
         self,
         case_id: str,
@@ -688,6 +697,7 @@ class _Cases:
         limit: int = ...,
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
+        view_id: str | Unset = ...,
         search_term: str | Unset = ...,
         search_mode: Literal["full_text", "literal"] | Unset = ...,
         search_columns: list[Literal["summary", "description"]] | Unset = ...,
@@ -708,6 +718,9 @@ class _Cases:
         end_time: datetime | str | Unset = ...,
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
+        created_by: list[str] | Unset = ...,
+        created_within: dict[str, Any] | Unset = ...,
+        updated_within: dict[str, Any] | Unset = ...,
         include_rows: bool | Unset = ...,
         include_payload: bool | Unset = ...,
         payload_fields: list[str] | Unset = ...,
@@ -716,6 +729,11 @@ class _Cases:
         include_count: bool | Unset = ...,
         field_ids: list[str] | Unset = ...,
     ) -> types.CaseListResponse: ...
+    def list_views(
+        self, *, limit: int = ..., cursor: str | Unset = ...
+    ) -> types.CaseViewListResponse: ...
+    def list_builtin_views(self) -> list[types.CaseViewRead]: ...
+    def get_view(self, view_id: str) -> types.CaseViewRead: ...
     def list_comments(
         self,
         case_id: str,

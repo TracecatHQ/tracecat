@@ -46,7 +46,9 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
-from tracecat.cases.search_schemas import CaseSearchRequest
+from tracecat.cases.enums import CaseViewVisibility
+from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.views.schemas import CaseViewRead
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
@@ -4110,6 +4112,113 @@ async def test_search_cases_forwards_canonical_request(
     assert request.include_count is False and request.field_ids == ["region"]
     assert request.tags == ["synthetic-tag"] and request.dropdown == [
         "verdict:selected"
+    ]
+
+
+@pytest.mark.anyio
+async def test_search_cases_forwards_view_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    result = CursorPaginatedResponse(items=[], total_estimate=None)
+    query = AsyncMock(return_value=result)
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    await _tool(mcp_server.search_cases)(
+        workspace_id=workspace_id,
+        view_id="assigned_to_me",
+        filters={"field": "status", "op": "eq", "value": "new"},
+    )
+    assert query.await_args is not None
+    request = query.await_args.args[0]
+    assert request.view_id == "assigned_to_me"
+    assert request.model_dump(mode="json", exclude_none=True)["filters"] == {
+        "field": "status",
+        "op": "eq",
+        "value": "new",
+    }
+
+
+@pytest.mark.anyio
+async def test_list_case_views_returns_builtins_separately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    builtin = CaseViewRead(
+        id="assigned_to_me",
+        kind="builtin",
+        name="Assigned to me",
+        visibility=CaseViewVisibility.WORKSPACE,
+        query=CaseQuery(),
+        can_edit=False,
+    )
+    saved = CaseViewRead(
+        id=str(uuid.uuid4()),
+        kind="custom",
+        name="Synthetic view",
+        visibility=CaseViewVisibility.PERSONAL,
+        query=CaseQuery(),
+        can_edit=True,
+    )
+    list_views = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: CursorPaginatedResponse(items=[saved])
+    )
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseViewsService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(
+                SimpleNamespace(list_views=list_views, list_builtins=lambda: [builtin])
+            )
+        ),
+    )
+    first = await _tool(mcp_server.list_case_views)(workspace_id=workspace_id)
+    later = await _tool(mcp_server.list_case_views)(
+        workspace_id=workspace_id, cursor="synthetic-cursor"
+    )
+    pinned = await _tool(mcp_server.list_case_views)(
+        workspace_id=workspace_id, pinned=True
+    )
+
+    # Built-ins come back separately, so saved pages keep their size.
+    assert [view.id for view in first.builtins] == ["assigned_to_me"]
+    assert [view.id for view in first.saved.items] == [saved.id]
+    assert [view.id for view in later.saved.items] == [saved.id]
+    assert pinned.builtins == []
+    assert [view.id for view in pinned.saved.items] == [saved.id]
+    assert [call.kwargs for call in list_views.await_args_list] == [
+        {"pinned_only": False},
+        {"pinned_only": False},
+        {"pinned_only": True},
     ]
 
 

@@ -22,9 +22,28 @@ async def resolve_case_tag_filters(
     while results preserve input order and duplicates for legacy callers.
     A missing identifier rejects the entire filter, including mixed valid inputs.
     """
+    resolved, missing = await split_case_tag_filters(
+        session=session, workspace_id=workspace_id, tags=tags
+    )
+    if missing:
+        raise TracecatValidationError(f"Unknown case tag filter: {missing[0]!r}")
+    return resolved
+
+
+async def split_case_tag_filters(
+    *, session: AsyncSession, workspace_id: UUID, tags: Sequence[str] | None
+) -> tuple[list[ResolvedCaseTag], list[str]]:
+    """Resolve tag identifiers, returning missing ones instead of failing.
+
+    Saved case views use this so a deleted tag can be reported and skipped.
+
+    Returns:
+        The resolved tags in input order, and the identifiers that matched
+        no tag in the workspace.
+    """
     identifiers = [identifier for identifier in tags or [] if identifier.strip()]
     if not identifiers:
-        return []
+        return [], []
 
     candidates: dict[str, UUID | tuple[str, ...]] = {}
     tag_ids: set[UUID] = set()
@@ -53,6 +72,7 @@ async def resolve_case_tag_filters(
     by_id = {tag_id: ResolvedCaseTag(id=tag_id, ref=ref) for tag_id, ref in rows}
     by_ref = {tag.ref: tag for tag in by_id.values()}
     resolved: list[ResolvedCaseTag] = []
+    missing: list[str] = []
     for identifier in identifiers:
         candidate = candidates[identifier]
         if isinstance(candidate, UUID):
@@ -60,6 +80,7 @@ async def resolve_case_tag_filters(
         else:
             tag = next((by_ref[ref] for ref in candidate if ref in by_ref), None)
         if tag is None:
-            raise TracecatValidationError(f"Unknown case tag filter: {identifier!r}")
-        resolved.append(tag)
-    return resolved
+            missing.append(identifier)
+        else:
+            resolved.append(tag)
+    return resolved, list(dict.fromkeys(missing))

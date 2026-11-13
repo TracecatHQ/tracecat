@@ -1567,8 +1567,15 @@ export type AlertArtifact = {
 /**
  * A conjunction of one or more filters.
  */
-export type AndClause = {
-  and: Array<Filter>
+export type AndClause_Input = {
+  and: Array<Filter_Input>
+}
+
+/**
+ * A conjunction of one or more filters.
+ */
+export type AndClause_Output = {
+  and: Array<Filter_Output>
 }
 
 export type AnyAttachedSubagentRef =
@@ -2187,6 +2194,8 @@ export type BooleanApprovalDecision = {
  * Edition of the running deployment.
  */
 export type BuildEdition = "oss" | "ee"
+
+export type BuiltinCaseViewId = "assigned_to_me"
 
 /**
  * Lifecycle state for the durable backfill operation.
@@ -3018,11 +3027,15 @@ export type CasePriority =
  * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
  * unset values explicitly with an ``or`` containing ``is_null``.
  */
-export type CaseQuery = {
+export type CaseQuery_Input = {
+  /**
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
+   */
+  view_id?: string | BuiltinCaseViewId | null
   /**
    * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
    */
-  filters?: Filter | null
+  filters?: Filter_Input | null
   search_term?: string | null
   /**
    * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
@@ -3036,16 +3049,117 @@ export type CaseQuery = {
   status?: Array<CaseStatus> | null
   priority?: Array<CasePriority> | null
   severity?: Array<CaseSeverity> | null
-  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.
+   */
+  created_by?: Array<string | "me"> | null
   tags?: Array<string> | null
   dropdown?: Array<string> | null
   start_time?: string | null
   end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
   updated_after?: string | null
   updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
 
 export type hierarchy = "all" | "top_level"
+
+/**
+ * Matching criteria shared by case search and filtered status counts.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseQuery_Output = {
+  /**
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
+   */
+  view_id?: string | BuiltinCaseViewId | null
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter_Output | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.
+   */
+  created_by?: Array<string | "me"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
+  updated_after?: string | null
+  updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
+}
+
+export type CaseQueryErrorCode = "current_user_required"
+
+/**
+ * A case query error with a machine-readable code.
+ */
+export type CaseQueryErrorDetail = {
+  code: CaseQueryErrorCode
+  message: string
+}
+
+/**
+ * A rejected case query: a plain message, or a typed error.
+ */
+export type CaseQueryErrorResponse = {
+  detail: string | CaseQueryErrorDetail
+}
 
 export type CaseRead = {
   id: string
@@ -3156,9 +3270,13 @@ export type CaseSearchRequest = {
    */
   reverse?: boolean
   /**
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
+   */
+  view_id?: string | BuiltinCaseViewId | null
+  /**
    * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
    */
-  filters?: Filter | null
+  filters?: Filter_Input | null
   search_term?: string | null
   /**
    * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
@@ -3172,13 +3290,32 @@ export type CaseSearchRequest = {
   status?: Array<CaseStatus> | null
   priority?: Array<CasePriority> | null
   severity?: Array<CaseSeverity> | null
-  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.
+   */
+  created_by?: Array<string | "me"> | null
   tags?: Array<string> | null
   dropdown?: Array<string> | null
   start_time?: string | null
   end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
   updated_after?: string | null
   updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
   order_by?: CaseSearchOrder | null
   sort?: "asc" | "desc" | null
   include_rows?: boolean
@@ -3192,10 +3329,6 @@ export type CaseSearchRequest = {
    * Place complete case references before filtered text matches within the authorized workspace.
    */
   promote_exact_match?: boolean
-  /**
-   * The ordinary filter population matches no cases.
-   */
-  match_none?: boolean
 }
 
 /**
@@ -3455,6 +3588,119 @@ export type CaseVersionRestoreRead = {
   restored_from_version_id: string
   field: CaseVersionField
 }
+
+export type CaseViewColumns = Array<string>
+
+/**
+ * Save a case search as a named view.
+ */
+export type CaseViewCreate = {
+  name: CaseViewName
+  visibility?: CaseViewVisibility
+  query?: CaseQuery_Input
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: CaseViewColumns | null
+}
+
+/**
+ * Rules of a view left with nothing to match after deletions.
+ *
+ * Each one makes the view match no cases until it is given new values.
+ */
+export type CaseViewEmptyRules = {
+  tags?: boolean
+  dropdown_refs?: Array<string>
+  /**
+   * The advanced filter tree names something deleted.
+   */
+  filters?: boolean
+}
+
+export type CaseViewKind = "builtin" | "custom"
+
+export type CaseViewName = string
+
+/**
+ * Where to put a pinned view in the sidebar.
+ */
+export type CaseViewPinUpdate = {
+  /**
+   * Sidebar position. Omit to add the view at the end.
+   */
+  position?: number | null
+}
+
+/**
+ * A saved or built-in case view, as seen by the requesting user.
+ */
+export type CaseViewRead = {
+  /**
+   * A UUID for saved views, or a built-in view ID.
+   */
+  id: string
+  kind: CaseViewKind
+  name: string
+  visibility: CaseViewVisibility
+  owner_id?: string | null
+  /**
+   * The view's criteria. When reading one view, deleted tags and options are removed; see stale_refs and empty_rules.
+   */
+  query: CaseQuery_Output
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: Array<string> | null
+  /**
+   * Whether the requesting user may rename, change, or delete it.
+   */
+  can_edit: boolean
+  pinned?: boolean
+  pin_position?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+  /**
+   * Deleted tags or dropdown options the stored query names. Null when not computed, which is the case in list responses.
+   */
+  stale_refs?: Array<CaseViewStaleRef> | null
+  /**
+   * Rules left with nothing to match. Null when not computed.
+   */
+  empty_rules?: CaseViewEmptyRules | null
+}
+
+export type CaseViewSort = "asc" | "desc"
+
+/**
+ * A reference in a view's query to something that no longer exists.
+ */
+export type CaseViewStaleRef = {
+  kind: "tag" | "dropdown"
+  /**
+   * The identifier as stored in the view's query.
+   */
+  value: string
+}
+
+export type kind = "tag" | "dropdown"
+
+/**
+ * Change a saved view. Omitted fields stay as they are.
+ *
+ * ``order_by``, ``sort``, and ``columns`` accept ``null`` to clear them.
+ */
+export type CaseViewUpdate = {
+  name?: CaseViewName | null
+  visibility?: CaseViewVisibility | null
+  query?: CaseQuery_Input | null
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: CaseViewColumns | null
+}
+
+/**
+ * Who can see a saved case view.
+ */
+export type CaseViewVisibility = "personal" | "workspace"
 
 /**
  * Event for when a case is viewed.
@@ -4020,7 +4266,16 @@ export type CommitInfo = {
 /**
  * A predicate over one resolver-defined field.
  */
-export type Condition = {
+export type Condition_Input = {
+  field: string
+  op: FilterOp
+  value?: FilterValue | null
+}
+
+/**
+ * A predicate over one resolver-defined field.
+ */
+export type Condition_Output = {
   field: string
   op: FilterOp
   value?: FilterValue | null
@@ -4262,6 +4517,30 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
 
 export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   items: Array<CaseVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_CaseViewRead_ = {
+  items: Array<CaseViewRead>
   /**
    * Cursor for next page
    */
@@ -5554,7 +5833,17 @@ export type FileUIPart = {
   }
 }
 
-export type Filter = Condition | AndClause | OrClause | NotClause
+export type Filter_Input =
+  | Condition_Input
+  | AndClause_Input
+  | OrClause_Input
+  | NotClause_Input
+
+export type Filter_Output =
+  | Condition_Output
+  | AndClause_Output
+  | OrClause_Output
+  | NotClause_Output
 
 /**
  * Operations supported by the shared filter language.
@@ -7074,7 +7363,7 @@ export type LibrarySkillSourceRead = {
   kind: "upstream" | "local"
 }
 
-export type kind = "upstream" | "local"
+export type kind2 = "upstream" | "local"
 
 /**
  * Authentication type for MCP integrations.
@@ -7984,7 +8273,7 @@ export type MessageOrigin = {
   subkind?: "scheduled-trigger" | "peer-send-message"
 }
 
-export type kind2 =
+export type kind3 =
   | "human"
   | "channel"
   | "peer"
@@ -8113,8 +8402,15 @@ export type ModelUsage = {
 /**
  * The negation of one filter.
  */
-export type NotClause = {
-  not: Filter
+export type NotClause_Input = {
+  not: Filter_Input
+}
+
+/**
+ * The negation of one filter.
+ */
+export type NotClause_Output = {
+  not: Filter_Output
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -8148,8 +8444,15 @@ export type encoding = "json" | "json+zstd" | "json+gzip"
 /**
  * A disjunction of one or more filters.
  */
-export type OrClause = {
-  or: Array<Filter>
+export type OrClause_Input = {
+  or: Array<Filter_Input>
+}
+
+/**
+ * A disjunction of one or more filters.
+ */
+export type OrClause_Output = {
+  or: Array<Filter_Output>
 }
 
 /**
@@ -9386,6 +9689,23 @@ export type RegistryStatusResponse = {
   total_repositories: number
   last_sync_at: string | null
   repositories: Array<RepositoryStatus>
+}
+
+/**
+ * Calendar units a relative time window can count back in.
+ */
+export type RelativeTimeUnit = "hour" | "day" | "week" | "month"
+
+/**
+ * A time range that ends now, such as "the last 30 days".
+ *
+ * The database resolves the start each time a query runs, so a saved view
+ * keeps meaning "the last 30 days" instead of a fixed date. Months use
+ * calendar arithmetic: one month before 31 March is 28 or 29 February.
+ */
+export type RelativeTimeWindow = {
+  amount: number
+  unit: RelativeTimeUnit
 }
 
 /**
@@ -10833,7 +11153,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind3 = "inline" | "download"
+export type kind4 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -11270,6 +11590,8 @@ export type StatusChangedEventRead = {
 export type StepStartUIPart = {
   type: "step-start"
 }
+
+export type StoredCaseQuery = CaseQuery_Input
 
 export type StreamEvent = {
   uuid: string
@@ -13189,7 +13511,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind4 = "download_file" | "download_export"
+export type kind5 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -18587,7 +18909,7 @@ export type CasesSearchCasesData = {
 export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesQueryCaseAggregatesData = {
-  requestBody: CaseQuery
+  requestBody: CaseQuery_Input
   workspaceId: string
 }
 
@@ -19030,6 +19352,72 @@ export type CaseTagsDeleteCaseTagData = {
 }
 
 export type CaseTagsDeleteCaseTagResponse = void
+
+export type CaseViewsListCaseViewsData = {
+  /**
+   * Continuation cursor
+   */
+  cursor?: string | null
+  limit?: number
+  /**
+   * Only views the requesting user pinned, in pin order
+   */
+  pinned?: boolean
+  workspaceId: string
+}
+
+export type CaseViewsListCaseViewsResponse =
+  CursorPaginatedResponse_CaseViewRead_
+
+export type CaseViewsCreateCaseViewData = {
+  requestBody: CaseViewCreate
+  workspaceId: string
+}
+
+export type CaseViewsCreateCaseViewResponse = CaseViewRead
+
+export type CaseViewsListBuiltinCaseViewsData = {
+  workspaceId: string
+}
+
+export type CaseViewsListBuiltinCaseViewsResponse = Array<CaseViewRead>
+
+export type CaseViewsGetCaseViewData = {
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsGetCaseViewResponse = CaseViewRead
+
+export type CaseViewsUpdateCaseViewData = {
+  requestBody: CaseViewUpdate
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsUpdateCaseViewResponse = CaseViewRead
+
+export type CaseViewsDeleteCaseViewData = {
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsDeleteCaseViewResponse = void
+
+export type CaseViewsPinCaseViewData = {
+  requestBody: CaseViewPinUpdate
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsPinCaseViewResponse = CaseViewRead
+
+export type CaseViewsUnpinCaseViewData = {
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsUnpinCaseViewResponse = void
 
 export type CaseAttachmentsListAttachmentsData = {
   caseId: string
@@ -27098,9 +27486,21 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_CaseReadMinimal_
         /**
+         * The query is invalid.
+         */
+        400: CaseQueryErrorResponse
+        /**
+         * view_id names no view the caller can see.
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Full-text search is not ready yet.
+         */
+        503: unknown
       }
     }
     get: {
@@ -27126,9 +27526,21 @@ export type $OpenApiTs = {
          */
         200: CaseSearchAggregateRead
         /**
+         * The query is invalid.
+         */
+        400: CaseQueryErrorResponse
+        /**
+         * view_id names no view the caller can see.
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Full-text search is not ready yet.
+         */
+        503: unknown
       }
     }
     get: {
@@ -27707,6 +28119,118 @@ export type $OpenApiTs = {
     }
     delete: {
       req: CaseTagsDeleteCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views": {
+    get: {
+      req: CaseViewsListCaseViewsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseViewRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseViewsCreateCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views/builtins": {
+    get: {
+      req: CaseViewsListBuiltinCaseViewsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseViewRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views/{view_id}": {
+    get: {
+      req: CaseViewsGetCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseViewsUpdateCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseViewsDeleteCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views/{view_id}/pin": {
+    put: {
+      req: CaseViewsPinCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseViewsUnpinCaseViewData
       res: {
         /**
          * Successful Response
