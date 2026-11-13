@@ -96,7 +96,7 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
     ```
   </Step>
   <Step title="Create a managed identity for Tracecat">
-    Create a user-assigned managed identity for `app` and federate it with each Kubernetes service account that Tracecat runs as (Workload Identity). With [database roles](/self-hosting/database-roles), create two more the same way: one for `migrator`, federated with the migrations Job's service account, and one for `agent_runtime`, with no federated credential. Give no one rights to add a federated credential to the `agent_runtime` identity. Run this once per identity and service account, with a credential name unique to each:
+    Create a user-assigned managed identity for `app` and federate it with each Kubernetes service account that Tracecat's services run as (Workload Identity), never the migrations Job's. With the Helm chart, [list them from the render](#azure-workload-identity). Give the `app` identity no Azure role beyond its database and cache logins: the API, MCP server, tool gateway and the executors that run workflow code all hold it. With [database roles](/self-hosting/database-roles), create two more the same way: one for `migrator`, federated with the migrations Job's service account, and one for `agent_runtime`, with no federated credential. Give no one rights to use, assign or federate the `agent_runtime` identity. Run this once per identity and service account, with a credential name unique to each:
 
     ```bash
     az identity federated-credential create --name <service-account> \
@@ -158,7 +158,7 @@ Both modes need:
 
 The agent runtime's executor signs the runtime's tokens and hands each runtime the current one, so code running in a runtime's sandbox could use that token to log in to the database directly as `app` until it expires.
 
-Clients reach PgDog over TLS that doesn't verify PgDog's certificate. A token taken from that hop logs in to the database until it expires (15 minutes for an RDS token, up to about 24 hours for an Entra ID token), and through PgDog for up to 15 minutes longer: PgDog accepts a token for 15 minutes after it first checks it.
+Clients reach PgDog over TLS that doesn't verify PgDog's certificate. A token taken from that hop logs in to the database until it expires (15 minutes for an RDS token, up to about 24 hours for an Entra ID token), and through PgDog for up to 15 minutes longer: PgDog accepts a token for 15 minutes after it first checks it. Limit who can reach PgDog's port with a Kubernetes NetworkPolicy that admits only Tracecat's pods.
 
 ### RDS IAM
 
