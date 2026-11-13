@@ -196,6 +196,14 @@ async def release(db: AsyncSession, session_id: UUID) -> None:
     await db.commit()
 
 
+def tombstone(fake: FakeTemporal, run_id: UUID) -> None:
+    """Close ``run_id``'s workflow ID as recovery does for a lost start."""
+    fake.executions[f"agent/{run_id}"] = (
+        TOMBSTONE_WORKFLOW,
+        Status.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+    )
+
+
 @pytest.mark.parametrize("fault", ["lost", "ack_lost"])
 async def test_crash_before_the_start_then_retry_runs_one_turn(
     connection: AsyncConnection,
@@ -591,14 +599,6 @@ async def test_a_duplicate_whose_run_ran_meanwhile_is_never_steered(
     assert fake.starts == [f"agent/{first.run_id}", f"agent/{newer.run_id}"]
 
 
-def tombstone(fake: FakeTemporal, run_id: UUID) -> None:
-    """Close ``run_id``'s workflow ID as recovery does for a lost start."""
-    fake.executions[f"agent/{run_id}"] = (
-        TOMBSTONE_WORKFLOW,
-        Status.WORKFLOW_EXECUTION_STATUS_COMPLETED,
-    )
-
-
 async def test_a_start_raced_after_a_tombstone_settles_on_the_replacement(
     connection: AsyncConnection,
 ) -> None:
@@ -696,7 +696,7 @@ async def test_steer_never_reaches_a_run_that_released_the_session(
                 channel_service(db, context) as service,
                 channel_service(other_db, context) as other_service,
             ):
-                first = await service.start_message(**message(session_id))
+                await service.start_message(**message(session_id))
                 await release(other_db, session_id)
                 newer = await other_service.start_message(
                     **message(session_id, "slack:Ev2")
@@ -711,7 +711,6 @@ async def test_steer_never_reaches_a_run_that_released_the_session(
         message_run_id(session_id, "slack:Ev3", 0),
         "Investigate this alert",
     )
-    assert first.run_id != newer.run_id
 
 
 async def test_send_is_busy_when_the_holder_finishes_before_the_steer(
@@ -746,3 +745,66 @@ async def test_send_is_busy_when_the_holder_finishes_before_the_steer(
 
     assert sent == RunBusy(run_id=first.run_id)
     assert fake.starts == [f"agent/{first.run_id}"]
+
+
+async def test_a_message_never_steers_its_own_run(
+    connection: AsyncConnection,
+) -> None:
+    """The holder refuses delivery A, then finishes; A reads its own run as free,
+    and delivery B starts that run before A re-reads the session's current run."""
+    fake = FakeTemporal()
+    steer = AsyncMock(return_value=True)
+    async with (
+        AsyncSession(connection, expire_on_commit=False) as db,
+        AsyncSession(connection, expire_on_commit=False) as other_db,
+    ):
+        context = await make_context(db)
+        session_id = context.session.id
+        own = message_run_id(session_id, "slack:Ev2", 0)
+        with temporal(fake), steering(steer):
+            async with (
+                channel_service(db, context) as service,
+                channel_service(other_db, context) as other_service,
+            ):
+                holder = await service.send_message(**message(session_id))
+                assert isinstance(holder, RunStarted)
+                start, admit = service.start_message, service._admit_message
+                refused = False
+
+                async def holder_finishes_after_refusing(
+                    session_id: UUID, **kwargs: Any
+                ) -> RunStarted:
+                    nonlocal refused
+                    try:
+                        return await start(session_id, **kwargs)
+                    except SessionTurnActiveError as e:
+                        refused = True
+                        fake.complete(e.run_id)
+                        await release(db, session_id)
+                        raise
+
+                # Admission sits between A's run lookup and its re-read.
+                async def duplicate_starts_after_lookup(
+                    agent_session: AgentSession,
+                ) -> None:
+                    await admit(agent_session)
+                    if refused:
+                        await other_service.start_message(
+                            **message(session_id, "slack:Ev2")
+                        )
+
+                with (
+                    patch.object(
+                        service, "start_message", holder_finishes_after_refusing
+                    ),
+                    patch.object(
+                        service, "_admit_message", duplicate_starts_after_lookup
+                    ),
+                ):
+                    sent = await service.send_message(
+                        **message(session_id, "slack:Ev2")
+                    )
+
+    assert sent == RunStarted(run_id=own)
+    steer.assert_not_awaited()
+    assert fake.starts == [f"agent/{holder.run_id}", f"agent/{own}"]

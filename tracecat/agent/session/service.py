@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import itertools
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -2274,10 +2273,11 @@ class AgentSessionService(BaseWorkspaceService):
         ``instructions`` is model-only context for a new turn; a steer into a
         running turn carries only ``text``. When the run that refused the start
         finishes before the steer, the message is reported busy for that run.
+        A steered message retried once the session is free starts a new turn:
+        its own run never started, so the retry reads as a new message.
 
-        Raises:
-            Whatever ``start_message`` and ``steer_message`` raise, except their
-            refusals that another run holds or none is running.
+        It raises whatever ``start_message`` and ``steer_message`` raise, except
+        their refusals that another run holds or none is running.
         """
         try:
             return await self.start_message(
@@ -2323,12 +2323,9 @@ class AgentSessionService(BaseWorkspaceService):
         """
         agent_session, backend = await self._message_session(session_id, request_id)
         admitted = False
-        run_id: uuid.UUID | None = None
         for _ in range(_MESSAGE_ADMISSION_TRIES):
             # Checked before admission: an accepted retry is never refused.
-            run = await self._message_run(
-                backend, session_id, request_id, resume=run_id
-            )
+            run = await self._message_run(backend, session_id, request_id)
             if isinstance(run, RunStarted):
                 return run
             run_id = run
@@ -2372,8 +2369,7 @@ class AgentSessionService(BaseWorkspaceService):
         Unlike the web control ``steer``, it is keyed by ``request_id`` and a
         refusal is ``RunBusy``. A message whose own run already started returns
         that run as accepted and steers nothing. The message's run id is the
-        steer id, so the backend drops a retried steer while the steered run
-        lives; once it has finished, the retry is treated as a new message.
+        steer id, so a retry never reaches a second turn.
 
         Raises:
             TracecatValidationError: If ``request_id`` is blank.
@@ -2410,6 +2406,9 @@ class AgentSessionService(BaseWorkspaceService):
         await self._admit_message(agent_session)
         # The loaded row may name a run that has since released the session.
         await self.session.refresh(agent_session, ["curr_run_id"])
+        # A duplicate delivery may have started this message's run since the lookup.
+        if agent_session.curr_run_id == message_run:
+            return RunStarted(run_id=message_run)
         lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
         if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
             return lifecycle
@@ -2445,25 +2444,18 @@ class AgentSessionService(BaseWorkspaceService):
         backend: AgentBackend[Any, Any],
         session_id: uuid.UUID,
         request_id: str,
-        *,
-        resume: uuid.UUID | None = None,
     ) -> RunStarted | uuid.UUID:
         """The message's run if it already started, else the run id to start.
 
         A tombstoned run's start was lost and closed by recovery; the next
-        attempt's run replaces it. ``resume`` skips the attempts before its run.
+        attempt's run replaces it.
 
         Raises:
             SessionDispatchUncertain: If the run's state is unknown.
             TracecatConflictError: If every attempt is tombstoned.
         """
-        run_ids = (
-            message_run_id(session_id, request_id, attempt)
-            for attempt in range(_MESSAGE_ADMISSION_TRIES)
-        )
-        if resume is not None:
-            run_ids = itertools.dropwhile(lambda run_id: run_id != resume, run_ids)
-        for run_id in run_ids:
+        for attempt in range(_MESSAGE_ADMISSION_TRIES):
+            run_id = message_run_id(session_id, request_id, attempt)
             match await backend.turn_start_state(run_id):
                 case "started":
                     return RunStarted(run_id=run_id)
