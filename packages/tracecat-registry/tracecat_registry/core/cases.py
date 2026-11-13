@@ -738,8 +738,9 @@ async def search_cases(
         str | None,
         Doc(
             "Run a saved case view (its UUID) or the built-in assigned_to_me view. "
-            "Only `filters` can be combined with a view; it is ANDed with the view's "
-            "criteria. Views that use 'me', such as assigned_to_me, fail in workflows "
+            "The view replaces the matching criteria: `filters` is ANDed with it and "
+            "other matching inputs are rejected, while paging, order_by/sort, and "
+            "result options still apply. Views that use 'me', such as assigned_to_me, fail in workflows "
             "because a workflow has no signed-in user."
         ),
     ] = None,

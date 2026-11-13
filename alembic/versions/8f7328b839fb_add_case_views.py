@@ -133,6 +133,9 @@ def upgrade() -> None:
         ["workspace_id", "user_id"],
         unique=False,
     )
+    op.create_index(
+        "ix_case_view_pin_view_id", "case_view_pin", ["view_id"], unique=False
+    )
 
     op.execute(enable_workspace_table_rls("case_view"))
     op.execute(enable_workspace_table_rls("case_view_pin"))
@@ -141,6 +144,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(disable_workspace_table_rls("case_view_pin"))
     op.execute(disable_workspace_table_rls("case_view"))
+    op.drop_index("ix_case_view_pin_view_id", table_name="case_view_pin")
     op.drop_index("ix_case_view_pin_workspace_user", table_name="case_view_pin")
     op.drop_table("case_view_pin")
     op.drop_index("ix_case_view_workspace_owner", table_name="case_view")

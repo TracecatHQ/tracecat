@@ -219,6 +219,13 @@ class CaseListResponse(TypedDict):
     total_estimate: int | None
 
 
+class CaseViewStaleRef(TypedDict):
+    """A deleted tag or dropdown option that a saved view still names."""
+
+    kind: Literal["tag", "dropdown"]
+    value: str
+
+
 class CaseViewRead(TypedDict):
     """A saved or built-in case view."""
 
@@ -236,7 +243,7 @@ class CaseViewRead(TypedDict):
     pin_position: int | None
     created_at: datetime | None
     updated_at: datetime | None
-    stale_refs: list[dict[str, str]]
+    stale_refs: list[CaseViewStaleRef]
 
 
 class CaseViewListResponse(TypedDict):

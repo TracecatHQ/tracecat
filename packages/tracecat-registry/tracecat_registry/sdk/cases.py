@@ -297,8 +297,10 @@ class CasesClient:
         preserved; is_null matches missing paths, not explicit JSON null.
         Exact IDs and compatibility criteria are ANDed with the filter tree.
         Returned details are independent of matching.
-        view_id runs a saved or built-in case view; only filters may be combined
-        with it, and they are ANDed with the view's criteria.
+        view_id runs a saved or built-in case view. Its matching criteria
+        replace the request's: filters is ANDed with them, and any other
+        matching field is rejected. Pagination, result options, and
+        order_by/sort still apply; order_by overrides the view's saved order.
         Explicit full_text uses required words/per-field phrases and defaults to
         relevance. Literal is an escaped complete substring. Omitted mode retains
         legacy behavior. search_columns selects summary/description.

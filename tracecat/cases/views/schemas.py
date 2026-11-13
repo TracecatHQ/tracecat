@@ -20,8 +20,17 @@ type CaseViewSort = Literal["asc", "desc"]
 
 
 def _validate_stored_query(query: CaseQuery | None) -> CaseQuery | None:
-    if query is not None and query.view_id is not None:
+    if query is None:
+        return None
+    if query.view_id is not None:
         raise ValueError("A saved view's query cannot reference another view")
+    # A malformed entry would later look like a deleted option, so reject it.
+    for entry in query.dropdown or []:
+        definition, separator, option = entry.partition(":")
+        if not separator or not definition or not option:
+            raise ValueError(
+                f"Invalid dropdown filter {entry!r}. Expected 'definition_ref:option_ref'."
+            )
     return query
 
 

@@ -86,14 +86,18 @@ export function CaseViewSwitcher({
 }: CaseViewSwitcherProps) {
   const { active, isModified, isSaving, saveBlockedReason } = controls
   const cannotSave = isSaving || saveBlockedReason !== null
-  const views = useCaseViews(workspaceId)
+  const canReadCases = useHasScope("case:read") === true
+  const views = useCaseViews(workspaceId, canReadCases)
   const { updateView, deleteView, pinView, unpinView } =
     useCaseViewMutations(workspaceId)
   const canShare = useHasScope("case:update") === true
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [dialog, setDialog] = useState<SaveDialogMode | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<CaseViewRead | null>(null)
+  // The dialog's open state is separate from its target, so the text stays
+  // filled in while the dialog animates closed.
+  const [deleteTarget, setDeleteTarget] = useState<CaseViewRead | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const view = active.view
   let label = "Cases"
@@ -282,6 +286,8 @@ export function CaseViewSwitcher({
               {view.pinned ? "Unpin from sidebar" : "Pin to sidebar"}
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={saveBlockedReason !== null}
+              title={saveBlockedReason ?? undefined}
               onSelect={() => setDialog({ kind: "duplicate", view })}
             >
               Duplicate
@@ -321,7 +327,10 @@ export function CaseViewSwitcher({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive"
-                  onSelect={() => setPendingDelete(view)}
+                  onSelect={() => {
+                    setDeleteTarget(view)
+                    setDeleteOpen(true)
+                  }}
                 >
                   Delete
                 </DropdownMenuItem>
@@ -353,19 +362,14 @@ export function CaseViewSwitcher({
         />
       )}
 
-      <AlertDialog
-        open={pendingDelete !== null}
-        onOpenChange={(next) => {
-          if (!next) setPendingDelete(null)
-        }}
-      >
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete view</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete?.visibility === "workspace"
-                ? `Delete "${pendingDelete?.name}" for everyone in the workspace? Cases are not affected.`
-                : `Delete "${pendingDelete?.name}"? Cases are not affected.`}
+              {deleteTarget?.visibility === "workspace"
+                ? `Delete "${deleteTarget?.name}" for everyone in the workspace? Cases are not affected.`
+                : `Delete "${deleteTarget?.name}"? Cases are not affected.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -373,12 +377,12 @@ export function CaseViewSwitcher({
             <AlertDialogAction
               variant="destructive"
               onClick={async () => {
-                if (!pendingDelete) return
-                await deleteView.mutateAsync(pendingDelete.id)
-                if (active.viewId === pendingDelete.id) {
+                if (!deleteTarget) return
+                await deleteView.mutateAsync(deleteTarget.id)
+                if (active.viewId === deleteTarget.id) {
                   active.selectView(null)
                 }
-                setPendingDelete(null)
+                setDeleteOpen(false)
               }}
             >
               Delete

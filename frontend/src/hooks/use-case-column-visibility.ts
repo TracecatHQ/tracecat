@@ -29,7 +29,8 @@ function loadPersistedColumns(workspaceId: string): string[] {
 }
 
 /**
- * Drop unknown and repeated column IDs and keep at most four, in order.
+ * Drop repeated column IDs and keep at most four, in order. Unknown IDs are
+ * dropped only when `knownColumnIds` is given.
  */
 export function normalizeVisibleColumnIds(
   columnIds: string[],

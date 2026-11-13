@@ -151,7 +151,8 @@ export function filtersToViewQuery(filters: UseCasesFilters): CaseViewQuery {
   if (updated.start) query.updated_after = updated.start
   if (updated.end) query.updated_before = updated.end
 
-  if (!filters.includeSubCases) query.hierarchy = "top_level"
+  // An applied search always includes sub-cases, so save what was shown.
+  if (!filters.includeSubCases && !searchTerm) query.hierarchy = "top_level"
   return query
 }
 
@@ -190,15 +191,30 @@ function dateFilterFromQuery(
     return preset ? { type: "preset", value: preset } : null
   }
   if (start || end) {
-    return {
-      type: "range",
-      value: {
-        from: start ? new Date(start) : undefined,
-        to: end ? new Date(end) : undefined,
-      },
+    const from = start ? new Date(start) : undefined
+    const to = end ? new Date(end) : undefined
+    // The date picker works in whole local days and rounds the end to the
+    // end of that day. Keep any other bounds exact, outside the picker.
+    // The picker also needs a start date; an end-only range stays outside it.
+    if (!from || !isLocalDayStart(from) || (to && !isLocalDayEnd(to))) {
+      return null
     }
+    return { type: "range", value: { from, to } }
   }
   return DEFAULT_DATE_FILTER
+}
+
+function isLocalDayStart(date: Date): boolean {
+  return (
+    date.getHours() === 0 &&
+    date.getMinutes() === 0 &&
+    date.getSeconds() === 0 &&
+    date.getMilliseconds() === 0
+  )
+}
+
+function isLocalDayEnd(date: Date): boolean {
+  return toEndOfDay(date).getTime() === date.getTime()
 }
 
 function extraLabel(field: string, query: CaseQuery_Output): string {
@@ -213,6 +229,12 @@ function extraLabel(field: string, query: CaseQuery_Output): string {
       return "Created in a custom window"
     case "updated_within":
       return "Updated in a custom window"
+    case "created_range":
+      return "Created in a fixed range"
+    case "updated_range":
+      return "Updated in a fixed range"
+    case "legacy_search":
+      return `Text contains "${query.search_term ?? ""}"`
     default:
       return field.replaceAll("_", " ")
   }
@@ -275,7 +297,14 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
   )
   if (createdAfter === null) {
     extraQuery.created_within = query.created_within
-    extraLabels.push(extraLabel("created_within", query))
+    extraQuery.start_time = query.start_time
+    extraQuery.end_time = query.end_time
+    extraLabels.push(
+      extraLabel(
+        query.created_within ? "created_within" : "created_range",
+        query
+      )
+    )
     createdAfter = DEFAULT_DATE_FILTER
   }
   let updatedAfter = dateFilterFromQuery(
@@ -285,8 +314,22 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
   )
   if (updatedAfter === null) {
     extraQuery.updated_within = query.updated_within
-    extraLabels.push(extraLabel("updated_within", query))
+    extraQuery.updated_after = query.updated_after
+    extraQuery.updated_before = query.updated_before
+    extraLabels.push(
+      extraLabel(
+        query.updated_within ? "updated_within" : "updated_range",
+        query
+      )
+    )
     updatedAfter = DEFAULT_DATE_FILTER
+  }
+  // A search with no mode uses the API's legacy substring matching, which the
+  // search box cannot express, so keep it as a view condition.
+  const legacySearch = Boolean(query.search_term) && !query.search_mode
+  if (legacySearch) {
+    extraQuery.search_term = query.search_term
+    extraLabels.push(extraLabel("legacy_search", query))
   }
 
   const dropdownFilters: Record<string, DropdownFilterState> = {}
@@ -307,7 +350,7 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
   const sortBy = viewSort(view)
   const filters: UseCasesFilters = {
     ...DEFAULT_CASES_FILTERS,
-    searchQuery: query.search_term ?? "",
+    searchQuery: legacySearch ? "" : (query.search_term ?? ""),
     searchMode: query.search_mode === "literal" ? "literal" : "full_text",
     searchOrder: view.order_by === "relevance" ? "relevance" : "column",
     sortBy,
@@ -347,15 +390,18 @@ export function mergeViewQuery(
   barQuery: CaseViewQuery
 ): CaseViewQuery {
   const merged: CaseViewQuery = { ...extraQuery, ...barQuery }
-  if (barQuery.start_time || barQuery.end_time || barQuery.created_within) {
-    merged.created_within = barQuery.created_within
-  }
-  if (
-    barQuery.updated_after ||
-    barQuery.updated_before ||
-    barQuery.updated_within
-  ) {
-    merged.updated_within = barQuery.updated_within
+  const groups: (keyof CaseViewQuery)[][] = [
+    ["created_within", "start_time", "end_time"],
+    ["updated_within", "updated_after", "updated_before"],
+    ["search_term", "search_mode"],
+  ]
+  for (const group of groups) {
+    if (group.some((field) => barQuery[field] !== undefined)) {
+      // The bar sets this group, so none of the view's own values remain.
+      for (const field of group) {
+        if (barQuery[field] === undefined) delete merged[field]
+      }
+    }
   }
   return merged
 }

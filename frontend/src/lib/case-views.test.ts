@@ -232,3 +232,65 @@ describe("viewSaveBlocker", () => {
     expect(viewSaveBlocker(DEFAULT_CASES_FILTERS, undefined)).toBeNull()
   })
 })
+
+describe("view conditions the filter bar cannot show exactly", () => {
+  it("keeps a search with no mode as legacy substring matching", () => {
+    const { filters, extraQuery, extraLabels } = viewToFilters(
+      makeView({ query: { search_term: "invoice" } })
+    )
+
+    expect(filters.searchQuery).toBe("")
+    expect(extraQuery).toEqual({ search_term: "invoice" })
+    expect(extraLabels).toEqual(['Text contains "invoice"'])
+  })
+
+  it("keeps an end time that is not the end of a local day", () => {
+    const start = new Date(2026, 10, 1).toISOString()
+    const end = new Date(2026, 10, 12, 10).toISOString()
+    const { filters, extraQuery } = viewToFilters(
+      makeView({ query: { start_time: start, end_time: end } })
+    )
+
+    expect(filters.createdAfter).toEqual({ type: "preset", value: null })
+    expect(extraQuery.start_time).toBe(start)
+    expect(extraQuery.end_time).toBe(end)
+  })
+
+  it("puts whole local days in the date picker", () => {
+    const start = new Date(2026, 10, 1)
+    const end = new Date(2026, 10, 12, 23, 59, 59, 999)
+    const { filters, extraQuery } = viewToFilters(
+      makeView({
+        query: { start_time: start.toISOString(), end_time: end.toISOString() },
+      })
+    )
+
+    expect(filters.createdAfter).toEqual({
+      type: "range",
+      value: { from: start, to: end },
+    })
+    expect(extraQuery).toEqual({})
+  })
+
+  it("lets a filter-bar date replace a view's fixed range", () => {
+    const merged = mergeViewQuery(
+      { start_time: "2026-11-01T10:00:00.000Z" },
+      { created_within: { amount: 1, unit: "week" } }
+    )
+
+    expect(merged.start_time).toBeUndefined()
+    expect(merged.created_within).toEqual({ amount: 1, unit: "week" })
+  })
+})
+
+describe("filtersToViewQuery hierarchy", () => {
+  it("saves a text search with sub-cases, as it was shown", () => {
+    const query = filtersToViewQuery({
+      ...DEFAULT_CASES_FILTERS,
+      searchQuery: "phishing",
+      includeSubCases: false,
+    })
+
+    expect(query.hierarchy).toBeUndefined()
+  })
+})

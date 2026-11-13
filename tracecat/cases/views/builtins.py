@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from tracecat.cases.enums import CaseStatus
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder
@@ -24,7 +25,7 @@ class BuiltinCaseView:
     name: str
     query: CaseQuery
     order_by: CaseSearchOrder
-    sort: str
+    sort: Literal["asc", "desc"]
 
 
 BUILTIN_CASE_VIEWS: dict[BuiltinCaseViewId, BuiltinCaseView] = {

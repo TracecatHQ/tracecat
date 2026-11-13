@@ -181,7 +181,7 @@ class CaseViewsService(BaseWorkspaceService):
             return ResolvedCaseView(
                 query=builtin.query,
                 order_by=builtin.order_by,
-                sort=cast(Literal["asc", "desc"], builtin.sort),
+                sort=builtin.sort,
                 match_none=False,
             )
         view = await self._get_visible(parsed)
@@ -312,8 +312,10 @@ class CaseViewsService(BaseWorkspaceService):
     ) -> tuple[QueryT, ResolvedCaseView | None]:
         """Replace a request's matching criteria with its view's, if it names one.
 
-        The request keeps its own pagination, sort, and result options. Its
-        ``filters`` tree, if any, is ANDed with the view's.
+        The request keeps its own pagination and result options. Its
+        ``filters`` tree, if any, is ANDed with the view's. The caller applies
+        the view's saved order when the request sets no ``order_by``; a
+        request ``sort`` still sets the direction.
 
         Returns:
             The request to run, and the resolved view (``None`` without one).
@@ -360,7 +362,7 @@ class CaseViewsService(BaseWorkspaceService):
             visibility=CaseViewVisibility.WORKSPACE,
             query=builtin.query,
             order_by=builtin.order_by,
-            sort=cast(Literal["asc", "desc"], builtin.sort),
+            sort=builtin.sort,
             can_edit=False,
         )
 

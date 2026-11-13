@@ -130,8 +130,9 @@ class CaseQuery(BaseModel):
         default=None,
         description=(
             "Run a saved case view. The view supplies the matching criteria; "
-            "the request may add a `filters` tree, which is ANDed with the view's. "
-            "Other matching fields cannot be combined with a view."
+            "the request may add a `filters` tree, which is ANDed with the view's, "
+            "and other matching fields are rejected. Pagination, result options, "
+            "and order_by/sort still apply; order_by overrides the view's order."
         ),
     )
     filters: Filter | None = Field(

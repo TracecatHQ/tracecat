@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import delete, update
@@ -104,6 +105,7 @@ async def seeded(session: AsyncSession, actors: Actors) -> Seeded:
             id=uuid.uuid4(),
             case_number=number,
             workspace_id=workspace_id,
+            created_at=datetime(2026, 1, number, tzinfo=UTC),
             summary=f"Views case {name}",
             description="",
             priority=CasePriority.MEDIUM,
@@ -360,4 +362,30 @@ async def test_relevance_order_needs_a_full_text_view(
             CaseViewUpdate(
                 query=CaseQuery(status=[CaseStatus.NEW]), order_by="relevance"
             ),
+        )
+
+
+async def test_request_sort_sets_direction_for_the_view_order(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    """With no order_by, the view's order applies and a request sort still wins."""
+    view = await _views(session, actors.owner).create_view(
+        CaseViewCreate(
+            name="By created",
+            query=CaseQuery(),
+            order_by="created_at",
+            sort="desc",
+        )
+    )
+    request = CaseSearchRequest.model_validate({"view_id": view.id, "sort": "asc"})
+    page = await CasesService(session, actors.owner).query_cases(request)
+    ids = [case.id for case in page.items]
+
+    assert ids == [seeded.phishing_open, seeded.phishing_closed, seeded.malware_open]
+
+
+def test_stored_query_rejects_malformed_dropdown_entries() -> None:
+    with pytest.raises(ValueError, match="definition_ref:option_ref"):
+        CaseViewCreate(
+            name="Bad dropdown", query=CaseQuery.model_validate({"dropdown": ["x"]})
         )

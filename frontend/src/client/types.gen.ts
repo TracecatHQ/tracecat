@@ -3029,7 +3029,7 @@ export type CasePriority =
  */
 export type CaseQuery_Input = {
   /**
-   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's. Other matching fields cannot be combined with a view.
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
    */
   view_id?: string | BuiltinCaseViewId | null
   /**
@@ -3092,7 +3092,7 @@ export type hierarchy = "all" | "top_level"
  */
 export type CaseQuery_Output = {
   /**
-   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's. Other matching fields cannot be combined with a view.
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
    */
   view_id?: string | BuiltinCaseViewId | null
   /**
@@ -3260,7 +3260,7 @@ export type CaseSearchRequest = {
    */
   reverse?: boolean
   /**
-   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's. Other matching fields cannot be combined with a view.
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
    */
   view_id?: string | BuiltinCaseViewId | null
   /**

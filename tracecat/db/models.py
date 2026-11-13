@@ -2837,6 +2837,8 @@ class CaseViewPin(WorkspaceModel):
     __table_args__ = (
         UniqueConstraint("user_id", "view_id", name="uq_case_view_pin_user_view"),
         Index("ix_case_view_pin_workspace_user", "workspace_id", "user_id"),
+        # Deleting a view cascades to its pins; this keeps that lookup indexed.
+        Index("ix_case_view_pin_view_id", "view_id"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(

@@ -424,8 +424,12 @@ class CasesService(BaseWorkspaceService):
             update: dict[str, object] = {
                 "match_none": request.match_none or view.match_none
             }
+            # The view's saved order applies when the request sets none. An
+            # explicit request sort still wins over the view's direction.
             if request.order_by is None and view.order_by is not None:
-                update.update(order_by=view.order_by, sort=view.sort)
+                update["order_by"] = view.order_by
+                if request.sort is None:
+                    update["sort"] = view.sort
             # model_copy skips validators. Re-validate the merged request so a
             # view cannot produce an order the search contract forbids, such
             # as relevance without a full-text term.

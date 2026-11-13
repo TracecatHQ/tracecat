@@ -303,9 +303,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Cases",
         url: `${basePath}/cases`,
         icon: LayersIcon,
+        // Stay highlighted unless a listed view is the active one, so an
+        // unknown or deleted ?view= still marks Cases as the current page.
         isActive:
           pathname?.startsWith(`${basePath}/cases`) &&
-          activeCaseViewId === null,
+          !caseViewItems.some((item) => item.isActive),
         visible: canViewCases === true,
         items: caseViewItems.length > 0 ? caseViewItems : undefined,
       },

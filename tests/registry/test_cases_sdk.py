@@ -579,9 +579,9 @@ async def test_case_view_helpers_use_exact_gateway_paths(
         view_id=view_id,
         filters={"field": "status", "op": "eq", "value": "new"},
     )
-    assert [request.url.path for request in requests] == [
-        "/internal/case-views",
-        "/internal/case-views/builtins",
-        f"/internal/case-views/{view_id}",
-        "/internal/cases/search",
+    assert [(request.method, request.url.path) for request in requests] == [
+        ("GET", "/internal/case-views"),
+        ("GET", "/internal/case-views/builtins"),
+        ("GET", f"/internal/case-views/{view_id}"),
+        ("POST", "/internal/cases/search"),
     ]

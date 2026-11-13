@@ -6914,8 +6914,10 @@ async def search_cases(
         cursor: Cursor for pagination.
         view_id: Run a saved case view (UUID from list_case_views) or a
             built-in assigned_to_me view.
-            Only ``filters`` can be combined with a view; it is ANDed with
-            the view's criteria. The view's sort applies unless order_by is set.
+            The view supplies the matching criteria: ``filters`` is ANDed with
+            it, and other matching arguments are rejected. Paging, result
+            options, and order_by/sort still apply; order_by overrides the
+            view's saved order.
         search_term: Text to search for in case summary, description, short
             ID, or case UUID.
         search_mode: Explicit full_text words/phrases or literal substring; omitted preserves legacy behavior.
@@ -7049,6 +7051,8 @@ async def list_case_views(
         cursor: Cursor for the next page of saved views.
         pinned: Only views you pinned to your sidebar, in pin order.
         include_builtins: Put the built-in views before the first page.
+            Built-in views are never included when ``pinned`` is true, since
+            they cannot be pinned.
 
     Returns a paginated list of views. Each view has its ``id``, ``name``,
     ``visibility``, and the ``query`` it runs.
@@ -7077,7 +7081,8 @@ async def list_case_views(
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list case views", error=str(e))
-        raise ToolError(f"Failed to list case views: {e}") from None
+        # Keep internal details in the log, not in the agent-facing message.
+        raise ToolError("Failed to list case views") from None
 
 
 @mcp.tool()

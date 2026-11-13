@@ -297,10 +297,13 @@ export function staleRulesMatchNone(
   )
 }
 
-/** Whether a date filter sets a preset or a range. */
+/**
+ * Whether a date filter sets a preset or a range. A range needs a start date,
+ * matching the filter bar, which shows a range only once it has one.
+ */
 function isDateFilterActive(filter: CaseDateFilterValue): boolean {
   if (filter.type === "preset") return filter.value !== null
-  return Boolean(filter.value.from || filter.value.to)
+  return filter.value.from !== undefined
 }
 
 /** The filter bar's state with nothing selected. */
@@ -1090,8 +1093,16 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     return {
       apiQueryParams: {
         ...extraQuery,
-        search_term: normalizedSearch.length > 0 ? normalizedSearch : undefined,
-        search_mode: normalizedSearch.length > 0 ? searchMode : undefined,
+        // A view's legacy search (a term with no mode) applies until the user
+        // types a search of their own.
+        search_term:
+          normalizedSearch.length > 0
+            ? normalizedSearch
+            : (extraQuery?.search_term ?? undefined),
+        search_mode:
+          normalizedSearch.length > 0
+            ? searchMode
+            : (extraQuery?.search_mode ?? undefined),
         status: resolvedStatus.values,
         priority: resolvedPriority.values,
         severity: resolvedSeverity.values,
@@ -1102,27 +1113,33 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         tags:
           tagFilter.length > 0 && tagMode === "include" ? tagFilter : undefined,
         dropdown: dropdownIncludes.length > 0 ? dropdownIncludes : undefined,
-        // A view's own window applies until the filter bar sets a date.
-        created_within:
-          createdWindow ??
-          (isDateFilterActive(createdAfter)
-            ? undefined
-            : extraQuery?.created_within) ??
-          undefined,
-        start_time: createdBounds.start?.toISOString(),
-        end_time: createdBounds.end
-          ? toEndOfDay(createdBounds.end).toISOString()
-          : undefined,
-        updated_within:
-          updatedWindow ??
-          (isDateFilterActive(updatedAfter)
-            ? undefined
-            : extraQuery?.updated_within) ??
-          undefined,
-        updated_after: updatedBounds.start?.toISOString(),
-        updated_before: updatedBounds.end
-          ? toEndOfDay(updatedBounds.end).toISOString()
-          : undefined,
+        // A view's own date conditions apply until the filter bar sets a date.
+        ...(isDateFilterActive(createdAfter)
+          ? {
+              created_within: createdWindow ?? undefined,
+              start_time: createdBounds.start?.toISOString(),
+              end_time: createdBounds.end
+                ? toEndOfDay(createdBounds.end).toISOString()
+                : undefined,
+            }
+          : {
+              created_within: extraQuery?.created_within ?? undefined,
+              start_time: extraQuery?.start_time ?? undefined,
+              end_time: extraQuery?.end_time ?? undefined,
+            }),
+        ...(isDateFilterActive(updatedAfter)
+          ? {
+              updated_within: updatedWindow ?? undefined,
+              updated_after: updatedBounds.start?.toISOString(),
+              updated_before: updatedBounds.end
+                ? toEndOfDay(updatedBounds.end).toISOString()
+                : undefined,
+            }
+          : {
+              updated_within: extraQuery?.updated_within ?? undefined,
+              updated_after: extraQuery?.updated_after ?? undefined,
+              updated_before: extraQuery?.updated_before ?? undefined,
+            }),
         // Searching also matches sub-cases, so they are never unreachable.
         hierarchy: (includeSubCases || appliedSearchQuery
           ? "all"
