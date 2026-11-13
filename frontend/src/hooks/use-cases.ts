@@ -34,39 +34,14 @@ import {
   type CaseDatePreset,
   DEFAULT_CASES_FILTERS,
   type DropdownFilterState,
-  emptyRulesMatchNone,
   getCaseSearchTerm,
-  resolveEnumIncludeFilter,
   type UseCasesFilters,
 } from "@/lib/case-query"
-import {
-  type CaseViewQuery,
-  filtersToViewQuery,
-  mergeViewQuery,
-} from "@/lib/case-views"
+import { buildViewSearch, type CaseViewQuery } from "@/lib/case-views"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { withAbortSignal } from "@/lib/query-cancellation"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-// The pure query pieces moved to lib/case-query; existing callers import them
-// from here.
-export {
-  ALL_CASE_PRIORITIES,
-  ALL_CASE_SEVERITIES,
-  ALL_CASE_STATUSES,
-  type CaseDateFilterValue,
-  type CaseDatePreset,
-  DEFAULT_CASES_FILTERS,
-  DEFAULT_CREATED_FILTER,
-  DEFAULT_CREATED_PRESET,
-  DEFAULT_DATE_FILTER,
-  type DropdownFilterState,
-  getCaseSearchTerm,
-  presetToWindow,
-  resolveEnumIncludeFilter,
-  type UseCasesFilters,
-} from "@/lib/case-query"
 
 const CASES_PAGE_SIZE = 100
 const CASES_SEARCH_DEBOUNCE_MS = 300
@@ -887,26 +862,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       createdAfter,
       includeSubCases,
     }
-    // One builder for both the request and a saved view, so what a view saves
-    // is exactly what the list searched. A view's own conditions apply until
-    // the filter bar sets the same group.
-    const query = mergeViewQuery(
-      extraQuery ?? {},
-      filtersToViewQuery(requestFilters)
+    const { query, noMatch } = buildViewSearch(
+      requestFilters,
+      extraQuery,
+      emptyRules
     )
-    const matchesNone = [
-      resolveEnumIncludeFilter(statusFilter, statusMode, ALL_CASE_STATUSES),
-      resolveEnumIncludeFilter(
-        priorityFilter,
-        priorityMode,
-        ALL_CASE_PRIORITIES
-      ),
-      resolveEnumIncludeFilter(
-        severityFilter,
-        severityMode,
-        ALL_CASE_SEVERITIES
-      ),
-    ].some((resolved) => resolved.matchesNone)
     return {
       // Keep the search keys and the hierarchy explicit on the wire.
       apiQueryParams: {
@@ -915,9 +875,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         search_mode: query.search_mode,
         hierarchy: (query.hierarchy ?? "all") as CaseHierarchyFilter,
       },
-      hasImpossibleEnumFilter:
-        matchesNone ||
-        emptyRulesMatchNone(emptyRules, { tagFilter, dropdownFilters }),
+      hasImpossibleEnumFilter: noMatch !== null,
     }
   }, [
     appliedSearchQuery,

@@ -1,41 +1,22 @@
 """Public API for saved case views."""
 
-from typing import NoReturn
-
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
+from tracecat.cases.views.errors import CASE_VIEW_ERRORS, raise_case_view_error
 from tracecat.cases.views.schemas import (
     CaseViewCreate,
     CaseViewPinUpdate,
     CaseViewRead,
     CaseViewUpdate,
 )
-from tracecat.cases.views.service import (
-    CaseViewNotFoundError,
-    CaseViewPermissionError,
-    CaseViewsService,
-)
+from tracecat.cases.views.service import CaseViewsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams
 
 router = APIRouter(prefix="/case-views", tags=["case-views"])
-
-
-def raise_case_view_error(exc: Exception) -> NoReturn:
-    """Map a view service error to its HTTP status."""
-    match exc:
-        case CaseViewNotFoundError():
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        case CaseViewPermissionError():
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-        case TracecatValidationError():
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        case _:
-            raise exc
 
 
 @router.get("")
@@ -78,7 +59,7 @@ async def create_case_view(
     """Save a view. Sharing it with the workspace requires case:update."""
     try:
         return await CaseViewsService(session, role).create_view(params)
-    except (CaseViewPermissionError, TracecatValidationError) as exc:
+    except CASE_VIEW_ERRORS as exc:
         raise_case_view_error(exc)
 
 
@@ -90,7 +71,7 @@ async def get_case_view(
     """Get a saved or built-in view, including references to deleted tags."""
     try:
         return await CaseViewsService(session, role).get_view(view_id)
-    except (CaseViewNotFoundError, TracecatValidationError) as exc:
+    except CASE_VIEW_ERRORS as exc:
         raise_case_view_error(exc)
 
 
@@ -106,11 +87,7 @@ async def update_case_view(
     """Change a view you own, or a shared view if you have case:update."""
     try:
         return await CaseViewsService(session, role).update_view(view_id, params)
-    except (
-        CaseViewNotFoundError,
-        CaseViewPermissionError,
-        TracecatValidationError,
-    ) as exc:
+    except CASE_VIEW_ERRORS as exc:
         raise_case_view_error(exc)
 
 
@@ -122,11 +99,7 @@ async def delete_case_view(
     """Delete a view you own, or a shared view if you have case:update."""
     try:
         await CaseViewsService(session, role).delete_view(view_id)
-    except (
-        CaseViewNotFoundError,
-        CaseViewPermissionError,
-        TracecatValidationError,
-    ) as exc:
+    except CASE_VIEW_ERRORS as exc:
         raise_case_view_error(exc)
 
 
@@ -144,11 +117,7 @@ async def pin_case_view(
         return await CaseViewsService(session, role).pin_view(
             view_id, position=params.position
         )
-    except (
-        CaseViewNotFoundError,
-        CaseViewPermissionError,
-        TracecatValidationError,
-    ) as exc:
+    except CASE_VIEW_ERRORS as exc:
         raise_case_view_error(exc)
 
 
@@ -160,9 +129,5 @@ async def unpin_case_view(
     """Remove a view from your sidebar."""
     try:
         await CaseViewsService(session, role).unpin_view(view_id)
-    except (
-        CaseViewNotFoundError,
-        CaseViewPermissionError,
-        TracecatValidationError,
-    ) as exc:
+    except CASE_VIEW_ERRORS as exc:
         raise_case_view_error(exc)

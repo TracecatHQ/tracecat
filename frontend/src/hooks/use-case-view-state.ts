@@ -8,10 +8,9 @@ import { normalizeVisibleColumnIds } from "@/hooks/use-case-column-visibility"
 import { useCaseView, useCaseViewMutations } from "@/hooks/use-case-views"
 import type { UseCasesResult } from "@/hooks/use-cases"
 import {
+  buildViewSearch,
   type CaseViewFilters,
   columnsEqual,
-  filtersToViewQuery,
-  mergeViewQuery,
   sortToView,
   viewQueriesEqual,
   viewSaveBlocker,
@@ -158,17 +157,14 @@ export function useCaseViewControls({
   const { replaceFilters } = cases
   const { columns, resetColumns } = viewColumns
 
-  // The same merge builds the search request in useCases, so what a view
-  // saves is exactly what the list searched.
-  const currentQuery = useMemo(
+  // useCases builds its request the same way, so what a view saves is
+  // exactly what the list searched.
+  const { query: currentQuery, noMatch } = useMemo(
     () =>
-      mergeViewQuery(
-        mapped?.extraQuery ?? {},
-        filtersToViewQuery(cases.filters)
-      ),
+      buildViewSearch(cases.filters, mapped?.extraQuery, mapped?.emptyRules),
     [cases.filters, mapped]
   )
-  const saveBlockedReason = viewSaveBlocker(cases.filters, mapped?.emptyRules)
+  const saveBlockedReason = viewSaveBlocker(noMatch, mapped?.emptyRules)
   const currentSort = sortToView(cases.filters)
 
   const isModified = useMemo(() => {

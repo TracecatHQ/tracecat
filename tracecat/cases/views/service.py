@@ -76,26 +76,10 @@ class CaseViewPermissionError(TracecatAuthorizationError):
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedCaseView:
-    """A view's query, ready to run, after deleted references are removed."""
-
-    query: CaseQuery
-    order_by: CaseSearchOrder | None
-    sort: Literal["asc", "desc"] | None
-    match_none: bool
-    """A rule in the view now names only deleted tags or options."""
-
-
-@dataclass(frozen=True, slots=True)
 class _CleanedQuery:
     query: CaseQuery
     stale_refs: list[CaseViewStaleRef]
     empty_rules: CaseViewEmptyRules
-
-    @property
-    def match_none(self) -> bool:
-        rules = self.empty_rules
-        return rules.tags or bool(rules.dropdown_refs) or rules.filters
 
 
 def _saved_view_id(view_id: str | uuid.UUID, builtin_message: str) -> uuid.UUID:
@@ -195,12 +179,18 @@ class CaseViewsService(BaseWorkspaceService):
             has_previous=result.has_previous,
         )
 
-    async def get_view(self, view_id: str | uuid.UUID) -> CaseViewRead:
+    async def get_view(
+        self, view_id: str | uuid.UUID, *, include_pin: bool = True
+    ) -> CaseViewRead:
         """Return one view in the form it runs in.
 
         Deleted tags and options are removed from ``query`` and listed in
         ``stale_refs``. Rules left with nothing to match are in ``empty_rules``,
         and make the view match no cases until they get new values.
+
+        Args:
+            view_id: A saved view's UUID or a built-in view ID.
+            include_pin: Look up the requesting user's pin; searches skip it.
         """
         parsed = parse_view_id(view_id)
         if not isinstance(parsed, uuid.UUID):
@@ -208,7 +198,7 @@ class CaseViewsService(BaseWorkspaceService):
                 update={"stale_refs": [], "empty_rules": CaseViewEmptyRules()}
             )
         view = await self._get_visible(parsed)
-        position = await self._pin_position(view.id)
+        position = await self._pin_position(view.id) if include_pin else None
         read = self._custom_read(view, position)
         cleaned = await self._clean_query(read.query)
         return read.model_copy(
@@ -217,26 +207,6 @@ class CaseViewsService(BaseWorkspaceService):
                 "stale_refs": cleaned.stale_refs,
                 "empty_rules": cleaned.empty_rules,
             }
-        )
-
-    async def resolve_for_search(self, view_id: str | uuid.UUID) -> ResolvedCaseView:
-        """Load a visible view's query so a search can run it."""
-        parsed = parse_view_id(view_id)
-        if not isinstance(parsed, uuid.UUID):
-            builtin = BUILTIN_CASE_VIEWS[parsed]
-            return ResolvedCaseView(
-                query=builtin.query,
-                order_by=builtin.order_by,
-                sort=builtin.sort,
-                match_none=False,
-            )
-        view = await self._get_visible(parsed)
-        cleaned = await self._clean_query(self._stored_query(view))
-        return ResolvedCaseView(
-            query=cleaned.query,
-            order_by=cast(CaseSearchOrder | None, view.order_by),
-            sort=cast(Literal["asc", "desc"] | None, view.sort),
-            match_none=cleaned.match_none,
         )
 
     # Writes
@@ -379,7 +349,7 @@ class CaseViewsService(BaseWorkspaceService):
                 "A view supplies its own matching criteria. Use `filters` to "
                 f"narrow it; remove {', '.join(conflicting)}."
             )
-        resolved = await self.resolve_for_search(request.view_id)
+        resolved = await self.get_view(request.view_id, include_pin=False)
         view_query = resolved.query
         filters = view_query.filters
         if request.filters is not None:
@@ -394,7 +364,8 @@ class CaseViewsService(BaseWorkspaceService):
         update.update(
             view_id=None,
             filters=filters,
-            match_none=request.match_none or resolved.match_none,
+            match_none=request.match_none
+            or (resolved.empty_rules is not None and resolved.empty_rules.matches_none),
         )
         if (
             isinstance(request, CaseSearchRequest)

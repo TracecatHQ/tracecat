@@ -147,6 +147,11 @@ class CaseViewEmptyRules(BaseModel):
         description="The advanced filter tree names something deleted.",
     )
 
+    @property
+    def matches_none(self) -> bool:
+        """Whether any rule is empty, so the view matches no cases."""
+        return self.tags or bool(self.dropdown_refs) or self.filters
+
 
 class CaseViewRead(BaseModel):
     """A saved or built-in case view, as seen by the requesting user."""

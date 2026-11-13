@@ -18,6 +18,7 @@ import {
   ALL_CASE_STATUSES,
   type CaseDateFilterValue,
   type CaseDatePreset,
+  CURRENT_USER,
   DEFAULT_CASES_FILTERS,
   DEFAULT_DATE_FILTER,
   type DropdownFilterState,
@@ -227,7 +228,8 @@ function isLocalDayEnd(date: Date): boolean {
 function extraLabel(field: string, query: CaseQuery_Output): string {
   switch (field) {
     case "created_by":
-      return query.created_by?.length === 1 && query.created_by[0] === "me"
+      return query.created_by?.length === 1 &&
+        query.created_by[0] === CURRENT_USER
         ? "Created by me"
         : "Created by"
     case "filters":
@@ -244,13 +246,16 @@ function extraLabel(field: string, query: CaseQuery_Output): string {
       return `Text contains "${query.search_term ?? ""}"`
     case "top_level_search":
       return "Top-level cases only"
+    case "search_columns":
+      return `Searches ${query.search_columns?.join(" and ") ?? ""} only`
     default:
       return field.replaceAll("_", " ")
   }
 }
 
 function hasValue(value: unknown): boolean {
-  if (value === null || value === undefined) return false
+  // `false` is a flag left at its default, such as `match_none`.
+  if (value === null || value === undefined || value === false) return false
   if (Array.isArray(value)) return value.length > 0
   return true
 }
@@ -373,6 +378,7 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
  * Combine a view's hidden conditions with the filter bar's query.
  *
  * A date the user sets in the filter bar replaces the view's own window.
+ * A view's search columns narrow whatever the search box searches.
  */
 export function mergeViewQuery(
   extraQuery: CaseViewQuery,
@@ -382,7 +388,6 @@ export function mergeViewQuery(
   const groups: (keyof CaseViewQuery)[][] = [
     ["created_within", "start_time", "end_time"],
     ["updated_within", "updated_after", "updated_before"],
-    ["search_term", "search_mode", "search_columns"],
   ]
   for (const group of groups) {
     if (group.some((field) => barQuery[field] !== undefined)) {
@@ -392,21 +397,35 @@ export function mergeViewQuery(
       }
     }
   }
+  // Search columns need a search to narrow; the API rejects them alone.
+  if (!merged.search_mode) delete merged.search_columns
   // A parent's sub-cases cannot also be top-level only.
   if (merged.parent_id) delete merged.hierarchy
   return merged
 }
 
+/** Why a search matches no cases, or null when it can match some. */
+export type NoMatchReason = "excluded" | "emptied"
+
+/** The query a filter bar and view run, and whether it can match anything. */
+export interface ViewSearch {
+  query: CaseViewQuery
+  noMatch: NoMatchReason | null
+}
+
 /**
- * Explain why the current search cannot be saved, or return null.
+ * Build the query the case list runs and a saved view stores.
  *
- * A search that matches nothing would be saved without its impossible rule
- * and match every case instead, so saving waits until it matches something.
+ * The list and the save button both use this, so what a view saves is
+ * exactly what the list searched. A view's own conditions apply until the
+ * filter bar sets the same group.
  */
-export function viewSaveBlocker(
+export function buildViewSearch(
   filters: UseCasesFilters,
+  extraQuery: CaseViewQuery | null | undefined,
   emptyRules: CaseViewEmptyRules | null | undefined
-): string | null {
+): ViewSearch {
+  const query = mergeViewQuery(extraQuery ?? {}, filtersToViewQuery(filters))
   const excludesEverything = [
     resolveEnumIncludeFilter(
       filters.statusFilter,
@@ -425,12 +444,35 @@ export function viewSaveBlocker(
     ),
   ].some((resolved) => resolved.matchesNone)
   if (excludesEverything) {
-    return "These filters exclude every value, so they match no cases."
+    return { query, noMatch: "excluded" }
   }
   if (emptyRulesMatchNone(emptyRules, filters)) {
-    return "Pick new values for the deleted tags or options first."
+    return { query, noMatch: "emptied" }
   }
-  return null
+  return { query, noMatch: null }
+}
+
+/**
+ * Explain why a search cannot be saved, or return null.
+ *
+ * A search that matches nothing would be saved without its impossible rule
+ * and match every case instead, so saving waits until it matches something.
+ */
+export function viewSaveBlocker(
+  noMatch: NoMatchReason | null,
+  emptyRules: CaseViewEmptyRules | null | undefined
+): string | null {
+  switch (noMatch) {
+    case "excluded":
+      return "These filters exclude every value, so they match no cases."
+    case "emptied":
+      // The filter bar cannot edit the advanced filter tree.
+      return emptyRules?.filters
+        ? "Its advanced filters name deleted tags or options. Fix them through the API."
+        : "Pick new values for the deleted tags or options first."
+    default:
+      return null
+  }
 }
 
 /** Order-insensitive JSON for comparing two queries. */

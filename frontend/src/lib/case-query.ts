@@ -22,6 +22,9 @@ import type {
  */
 
 /** Every case status, in display order. */
+/** The assignee and creator value that means the requesting user. */
+export const CURRENT_USER = "me"
+
 export const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
   "new",

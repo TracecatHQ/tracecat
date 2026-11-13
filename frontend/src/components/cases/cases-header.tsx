@@ -54,7 +54,6 @@ import {
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 
 /** Assignee filter value the server resolves to the requesting user. */
-const CURRENT_USER = "me"
 
 import {
   type CaseSortField,
@@ -88,12 +87,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type {
-  CaseDateFilterValue,
-  CaseDatePreset,
-  DropdownFilterState,
-} from "@/hooks/use-cases"
-import { DEFAULT_CREATED_PRESET } from "@/hooks/use-cases"
+import {
+  type CaseDateFilterValue,
+  type CaseDatePreset,
+  CURRENT_USER,
+  DEFAULT_CREATED_PRESET,
+  type DropdownFilterState,
+} from "@/lib/case-query"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>

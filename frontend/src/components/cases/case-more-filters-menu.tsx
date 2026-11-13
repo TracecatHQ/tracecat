@@ -15,7 +15,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { DropdownFilterState } from "@/hooks/use-cases"
+import type { DropdownFilterState } from "@/lib/case-query"
 import { cn } from "@/lib/utils"
 
 /** Build filter options for a custom dropdown field definition. */

@@ -100,14 +100,8 @@ export function CaseViewSwitcher({
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const view = active.view
-  let label = "Cases"
-  if (view) {
-    label = view.name
-  } else if (active.viewId && active.isError) {
-    label = "View not found"
-  } else if (active.viewId) {
-    label = "Loading view…"
-  }
+  // The page waits for a ?view= link to load before rendering this.
+  const label = view?.name ?? "Cases"
 
   function choose(viewId: string | null) {
     setOpen(false)

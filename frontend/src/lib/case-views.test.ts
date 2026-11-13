@@ -1,6 +1,7 @@
-import type { CaseViewRead } from "@/client"
-import { DEFAULT_CASES_FILTERS, type UseCasesFilters } from "@/hooks/use-cases"
+import type { CaseViewEmptyRules, CaseViewRead } from "@/client"
+import { DEFAULT_CASES_FILTERS, type UseCasesFilters } from "@/lib/case-query"
 import {
+  buildViewSearch,
   columnsEqual,
   filtersToViewQuery,
   mergeViewQuery,
@@ -9,6 +10,14 @@ import {
   viewSaveBlocker,
   viewToFilters,
 } from "@/lib/case-views"
+
+function blocker(
+  filters: UseCasesFilters,
+  emptyRules: CaseViewEmptyRules | null | undefined
+): string | null {
+  const { noMatch } = buildViewSearch(filters, null, emptyRules)
+  return viewSaveBlocker(noMatch, emptyRules)
+}
 
 function makeView(overrides: Partial<CaseViewRead>): CaseViewRead {
   return {
@@ -180,9 +189,9 @@ describe("deleted tags and options", () => {
       })
     )
 
-    expect(viewSaveBlocker(filters, emptyRules)).toMatch(/deleted tags/)
+    expect(blocker(filters, emptyRules)).toMatch(/deleted tags/)
     expect(
-      viewSaveBlocker({ ...filters, tagFilter: ["phishing"] }, emptyRules)
+      blocker({ ...filters, tagFilter: ["phishing"] }, emptyRules)
     ).toBeNull()
   })
 
@@ -194,23 +203,59 @@ describe("deleted tags and options", () => {
       })
     )
 
-    expect(viewSaveBlocker(filters, emptyRules)).not.toBeNull()
+    expect(blocker(filters, emptyRules)).toMatch(/through the API/)
+  })
+
+  it("shows no read-only chips for a view in the server's shape", () => {
+    const { extraLabels, extraQuery } = viewToFilters(
+      makeView({
+        query: {
+          view_id: null,
+          status: ["new"],
+          match_none: false,
+          created_by: null,
+          filters: null,
+          tags: [],
+        },
+      })
+    )
+
+    expect(extraLabels).toEqual([])
+    expect(extraQuery).toEqual({})
   })
 })
 
 describe("mergeViewQuery search and hierarchy groups", () => {
-  it("drops a view's search columns when the bar searches", () => {
-    const merged = mergeViewQuery(
-      {
+  it("keeps a view's search columns on its own search", () => {
+    const view = makeView({
+      query: {
         search_term: "phish",
         search_mode: "full_text",
         search_columns: ["summary"],
       },
+    })
+    const { filters, extraQuery, extraLabels, savedQuery } = viewToFilters(view)
+    const current = mergeViewQuery(extraQuery, filtersToViewQuery(filters))
+
+    expect(extraLabels).toEqual(["Searches summary only"])
+    expect(current.search_columns).toEqual(["summary"])
+    expect(viewQueriesEqual(current, savedQuery)).toBe(true)
+  })
+
+  it("narrows a new search to the view's columns", () => {
+    const merged = mergeViewQuery(
+      { search_columns: ["summary"] },
       { search_term: "invoice", search_mode: "full_text" }
     )
 
-    expect(merged.search_columns).toBeUndefined()
+    expect(merged.search_columns).toEqual(["summary"])
     expect(merged.search_term).toBe("invoice")
+  })
+
+  it("drops search columns when the search box is cleared", () => {
+    const merged = mergeViewQuery({ search_columns: ["summary"] }, {})
+
+    expect(merged.search_columns).toBeUndefined()
   })
 
   it("does not send top-level-only with a parent", () => {
@@ -259,8 +304,8 @@ describe("viewSaveBlocker", () => {
       statusMode: "exclude",
     }
 
-    expect(viewSaveBlocker(filters, undefined)).toMatch(/match no cases/)
-    expect(viewSaveBlocker(DEFAULT_CASES_FILTERS, undefined)).toBeNull()
+    expect(blocker(filters, undefined)).toMatch(/match no cases/)
+    expect(blocker(DEFAULT_CASES_FILTERS, undefined)).toBeNull()
   })
 })
 

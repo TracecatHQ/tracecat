@@ -226,6 +226,14 @@ class CaseViewStaleRef(TypedDict):
     value: str
 
 
+class CaseViewEmptyRules(TypedDict):
+    """Rules of a view left with nothing to match after deletions."""
+
+    tags: bool
+    dropdown_refs: list[str]
+    filters: bool
+
+
 class CaseViewRead(TypedDict):
     """A saved or built-in case view."""
 
@@ -243,7 +251,10 @@ class CaseViewRead(TypedDict):
     pin_position: int | None
     created_at: datetime | None
     updated_at: datetime | None
-    stale_refs: list[CaseViewStaleRef]
+    stale_refs: list[CaseViewStaleRef] | None
+    """Set only when a single view is read; None in lists."""
+    empty_rules: CaseViewEmptyRules | None
+    """Set only when a single view is read; None in lists."""
 
 
 class CaseViewListResponse(TypedDict):

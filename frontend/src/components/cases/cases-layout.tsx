@@ -51,8 +51,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { useToast } from "@/components/ui/use-toast"
-import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import type { CaseDateFilterValue, UseCasesFilters } from "@/lib/case-query"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"

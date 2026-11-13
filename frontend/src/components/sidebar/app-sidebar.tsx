@@ -230,7 +230,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     () =>
       [...caseViews.builtins, ...caseViews.pinned].map((view) => ({
         title: view.name,
-        url: `${basePath}/cases?view=${encodeURIComponent(view.id)}`,
+        url: `${basePath}/cases?${new URLSearchParams({ [VIEW_PARAM]: view.id })}`,
         isActive: activeCaseViewId === view.id,
       })),
     [caseViews.builtins, caseViews.pinned, basePath, activeCaseViewId]
