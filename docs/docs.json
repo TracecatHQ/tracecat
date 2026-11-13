@@ -84,16 +84,6 @@
               "agents/timeouts",
               "agents/channels"
             ]
-          },
-          {
-            "group": "Building custom integrations",
-            "icon": "blocks",
-            "pages": [
-              "custom-actions/custom-registry",
-              "custom-actions/python-udf",
-              "custom-actions/yaml-template",
-              "custom-actions/local-development"
-            ]
           }
         ]
       },
@@ -342,6 +332,29 @@
         ]
       },
       {
+        "tab": "GitOps / Custom tools",
+        "groups": [
+          {
+            "group": "Workspace Git sync",
+            "icon": "git-branch",
+            "pages": [
+              "gitops/workspace-git-sync",
+              "gitops/push-and-pull"
+            ]
+          },
+          {
+            "group": "Building custom integrations",
+            "icon": "blocks",
+            "pages": [
+              "custom-actions/custom-registry",
+              "custom-actions/python-udf",
+              "custom-actions/yaml-template",
+              "custom-actions/local-development"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Cheatsheets",
         "groups": [
           {
@@ -390,7 +403,6 @@
               "manage-platform/ip-allowlist",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
-              "manage-platform/git-sync",
               "manage-platform/tunnels"
             ]
           },
@@ -615,6 +627,10 @@
     {
       "source": "/automations/cases/linked-tables",
       "destination": "/automations/cases/linked-rows"
+    },
+    {
+      "source": "/manage-platform/git-sync",
+      "destination": "/gitops/workspace-git-sync"
     }
   ],
   "logo": {
