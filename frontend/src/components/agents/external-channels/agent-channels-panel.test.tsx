@@ -17,6 +17,9 @@ jest.mock("@/client")
 jest.mock("@/components/agents/external-channels/slack-channel-panel", () => ({
   SlackChannelPanel: () => "Legacy Slack panel",
 }))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => true,
+}))
 
 beforeEach(() => {
   jest.clearAllMocks()

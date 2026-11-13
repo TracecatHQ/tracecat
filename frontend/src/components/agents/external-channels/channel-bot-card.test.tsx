@@ -16,10 +16,15 @@ import {
 } from "@/components/agents/external-channels/channel-bot-test-render"
 import { toast } from "@/components/ui/use-toast"
 
+const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
+
 jest.mock("@/client")
 jest.mock("@/components/ui/use-toast", () => ({
   ...jest.requireActual("@/components/ui/use-toast"),
   toast: jest.fn(),
+}))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
 }))
 
 type BotFactory = (
@@ -40,6 +45,7 @@ const PROVIDERS: Array<{
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockUseScopeCheck.mockReturnValue(true)
   serveEntitlements()
   serveBots([])
 })
@@ -136,6 +142,18 @@ describe.each(PROVIDERS)(
         botId: bot.id,
       })
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    })
+
+    it.each([
+      { bots: [], action: "Connect" },
+      { bots: [bot], action: "Manage" },
+    ])("disables $action without agent:update", async ({ bots, action }) => {
+      mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+      serveBots(bots)
+      renderPanel()
+      const row = await screen.findByRole("group", { name: title })
+
+      expect(within(row).getByRole("button", { name: action })).toBeDisabled()
     })
 
     it("flags a bot that needs reconnecting", async () => {

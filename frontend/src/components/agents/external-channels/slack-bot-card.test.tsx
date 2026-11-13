@@ -29,6 +29,9 @@ jest.mock("@/components/agents/external-channels/channel-bot-utils", () => ({
   ),
   goToChannelBotAuthorization: jest.fn(),
 }))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => true,
+}))
 
 const goTo = jest.mocked(goToChannelBotAuthorization)
 const AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize?client_id=123.456"
