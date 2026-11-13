@@ -114,7 +114,7 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
       --query '{clientId: clientId, objectId: principalId}'
     ```
 
-    Label the pods `azure.workload.identity/use: "true"` and give them the client ID, in `TRACECAT__DB_AZURE_CLIENT_ID` or the service account annotation `azure.workload.identity/client-id`. Never assign the identity to the node pool: every pod on the node could then log in as `app`.
+    Label the pods `azure.workload.identity/use: "true"` and give them the client ID, in `TRACECAT__DB_AZURE_CLIENT_ID` or the service account annotation `azure.workload.identity/client-id`. Never assign the identity to the node pool: every pod on the node could then log in as `app`. Set `AZURE_TOKEN_CREDENTIALS=WorkloadIdentityCredential` so a pod without its projected token fails instead of using the node's managed identity (the Helm chart sets it).
   </Step>
   <Step title="Create the database users">
     As the Entra administrator, connected to the `postgres` database, map each database role to the object ID of the identity that logs in as it. Without database roles, create `app` only:
@@ -141,6 +141,7 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
     TRACECAT__DB_SSLMODE=verify-full
     PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt
     TRACECAT__DB_AZURE_CLIENT_ID=<app-client-id>
+    AZURE_TOKEN_CREDENTIALS=WorkloadIdentityCredential
     ```
   </Step>
 </Steps>
@@ -299,7 +300,7 @@ On Azure Cache for Redis, turn on Microsoft Entra authentication and add a data 
 
 ### Amazon ElastiCache
 
-`aws_iam` logs each component in as its own ElastiCache IAM user, on a replication group (ElastiCache Serverless isn't supported). Set `REDIS_AWS_IAM_USER_ID`, `REDIS_AWS_IAM_REPLICATION_GROUP_ID` and `REDIS_AWS_REGION`; the Helm chart sets them per component from `externalRedis.auth.awsIam`. See [Environment variables](/self-hosting/environment-variables) for their formats.
+`aws_iam` logs each component in as its own ElastiCache IAM user, on a replication group (ElastiCache Serverless isn't supported). Set `REDIS_AWS_IAM_USER_ID`, `REDIS_AWS_IAM_REPLICATION_GROUP_ID` and `REDIS_AWS_REGION`; the Helm chart sets them per component from `externalRedis.auth.awsIam`. Once every component logs in with IAM, remove the password user from the cache's user group, or change its password, so the old URL stops working. See [Environment variables](/self-hosting/environment-variables) for their formats.
 
 ## Limitations
 
