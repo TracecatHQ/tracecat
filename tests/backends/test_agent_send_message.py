@@ -27,7 +27,7 @@ from temporalio.api.workflowservice.v1 import (
     TerminateWorkflowExecutionRequest,
     TerminateWorkflowExecutionResponse,
 )
-from temporalio.service import RPCError, RPCStatusCode
+from temporalio.service import RPCError, RPCStatusCode, ServiceClient
 
 from tests.backends.test_agent_dispatch_transaction import (
     age_reservation,
@@ -39,6 +39,7 @@ from tests.backends.test_agent_dispatch_transaction import (
     unavailable,
 )
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.backends.dispatch import TurnDispatchClient
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import (
     AgentControlRejected,
@@ -204,6 +205,40 @@ def tombstone(fake: FakeTemporal, run_id: UUID) -> None:
     )
 
 
+@contextmanager
+def first_commit_ack_lost(
+    connection: AsyncConnection,
+    meanwhile: Callable[[], Awaitable[None]] | None = None,
+) -> Iterator[None]:
+    """The first dispatch's commit lands, ``meanwhile`` runs, then its ack is lost."""
+    fired = False
+
+    def dispatch(
+        service_client: ServiceClient, commit: Callable[[], Awaitable[None]]
+    ) -> TurnDispatchClient:
+        nonlocal fired
+        if fired:
+            return TurnDispatchClient(service_client, commit)
+        fired = True
+
+        async def commit_then_lose_ack() -> None:
+            await commit()
+            if meanwhile is not None:
+                await meanwhile()
+            raise ConnectionError("lost commit acknowledgement")
+
+        return TurnDispatchClient(service_client, commit_then_lose_ack)
+
+    with (
+        patch("tracecat.agent.backends.base.TurnDispatchClient", dispatch),
+        patch(
+            "tracecat.agent.backends.base.get_async_session_context_manager",
+            side_effect=lambda: AsyncSession(connection),
+        ),
+    ):
+        yield
+
+
 @pytest.mark.parametrize("fault", ["lost", "ack_lost"])
 async def test_crash_before_the_start_then_retry_runs_one_turn(
     connection: AsyncConnection,
@@ -350,6 +385,73 @@ async def test_tombstoned_run_is_replaced_by_the_next_attempt(
     assert sorted(fake.agent_runs()) == sorted(
         [f"agent/{other.run_id}", f"agent/{replacement}"]
     )
+
+
+async def test_a_lost_commit_ack_keeps_the_reservation_a_duplicate_reissued(
+    connection: AsyncConnection,
+) -> None:
+    """Delivery A's commit lands but its ack is lost; duplicate B re-issues and
+    starts the run before A's cleanup, which must not release B's turn."""
+    fake = FakeTemporal()
+    duplicate: list[RunStarted] = []
+    async with (
+        AsyncSession(connection, expire_on_commit=False) as db,
+        AsyncSession(connection, expire_on_commit=False) as other_db,
+    ):
+        context = await make_context(db)
+        session_id = context.session.id
+        own = message_run_id(session_id, "slack:Ev1", 0)
+        with temporal(fake):
+            async with (
+                channel_service(db, context) as service,
+                channel_service(other_db, context) as other_service,
+            ):
+
+                async def duplicate_reissues() -> None:
+                    duplicate.append(
+                        await other_service.start_message(**message(session_id))
+                    )
+
+                with (
+                    first_commit_ack_lost(connection, duplicate_reissues),
+                    pytest.raises(SessionDispatchUncertain),
+                ):
+                    await service.start_message(**message(session_id))
+                await assert_reserved_by(connection, session_id, own)
+                following = await other_service.send_message(
+                    **message(session_id, "slack:Ev2")
+                )
+
+    assert duplicate == [RunStarted(run_id=own)]
+    assert following == RunBusy(run_id=own)
+    assert fake.agent_runs() == [f"agent/{own}"]
+
+
+async def test_a_lost_commit_ack_with_no_duplicate_tombstones_and_releases(
+    connection: AsyncConnection,
+) -> None:
+    fake = FakeTemporal()
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        lost = message_run_id(session_id, "slack:Ev1", 0)
+        with temporal(fake):
+            async with channel_service(db, context) as service:
+                with (
+                    first_commit_ack_lost(connection),
+                    pytest.raises(RuntimeError, match="before dispatch"),
+                ):
+                    await service.start_message(**message(session_id))
+                await assert_reserved_by(connection, session_id, None)
+                retried = await service.send_message(**message(session_id))
+
+    replacement = message_run_id(session_id, "slack:Ev1", 1)
+    assert retried == RunStarted(run_id=replacement)
+    assert fake.executions[f"agent/{lost}"] == (
+        TOMBSTONE_WORKFLOW,
+        Status.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+    )
+    assert fake.agent_runs() == [f"agent/{replacement}"]
 
 
 async def test_instructions_reach_every_start_of_the_turn(
@@ -808,3 +910,97 @@ async def test_a_message_never_steers_its_own_run(
     assert sent == RunStarted(run_id=own)
     steer.assert_not_awaited()
     assert fake.starts == [f"agent/{holder.run_id}", f"agent/{own}"]
+
+
+async def test_a_message_whose_own_run_start_was_lost_is_not_reported_started(
+    connection: AsyncConnection,
+) -> None:
+    """As above, but duplicate B's start is lost: the session names A's run,
+    which never started, so A must not read as accepted."""
+    fake = FakeTemporal()
+    steer = AsyncMock(return_value=True)
+    duplicate: list[str] = []
+    async with (
+        AsyncSession(connection, expire_on_commit=False) as db,
+        AsyncSession(connection, expire_on_commit=False) as other_db,
+    ):
+        context = await make_context(db)
+        session_id = context.session.id
+        own = message_run_id(session_id, "slack:Ev2", 0)
+        with temporal(fake), steering(steer):
+            async with (
+                channel_service(db, context) as service,
+                channel_service(other_db, context) as other_service,
+            ):
+                holder = await service.send_message(**message(session_id))
+                assert isinstance(holder, RunStarted)
+                start, admit = service.start_message, service._admit_message
+                refused = False
+
+                async def holder_finishes_after_refusing(
+                    session_id: UUID, **kwargs: Any
+                ) -> RunStarted:
+                    nonlocal refused
+                    try:
+                        return await start(session_id, **kwargs)
+                    except SessionTurnActiveError as e:
+                        refused = True
+                        fake.complete(e.run_id)
+                        await release(db, session_id)
+                        raise
+
+                async def duplicate_reserves_but_its_start_is_lost(
+                    agent_session: AgentSession,
+                ) -> None:
+                    await admit(agent_session)
+                    if refused and not duplicate:
+                        fake.fault = "lost"
+                        try:
+                            await other_service.start_message(
+                                **message(session_id, "slack:Ev2")
+                            )
+                        except SessionDispatchUncertain:
+                            duplicate.append("uncertain")
+
+                with (
+                    patch.object(
+                        service, "start_message", holder_finishes_after_refusing
+                    ),
+                    patch.object(
+                        service,
+                        "_admit_message",
+                        duplicate_reserves_but_its_start_is_lost,
+                    ),
+                    pytest.raises(SessionDispatchUncertain),
+                ):
+                    await service.send_message(**message(session_id, "slack:Ev2"))
+                assert fake.agent_runs() == [f"agent/{holder.run_id}"]
+                retried = await service.send_message(**message(session_id, "slack:Ev2"))
+
+    assert duplicate == ["uncertain"]
+    assert retried == RunStarted(run_id=own)
+    steer.assert_not_awaited()
+    assert fake.agent_runs() == [f"agent/{holder.run_id}", f"agent/{own}"]
+
+
+async def test_a_steer_retry_after_a_lost_start_is_uncertain_and_steers_nothing(
+    connection: AsyncConnection,
+) -> None:
+    fake = FakeTemporal(fault="lost")
+    steer = AsyncMock(return_value=True)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        own = message_run_id(session_id, "slack:Ev1", 0)
+        with temporal(fake), steering(steer):
+            async with channel_service(db, context) as service:
+                with pytest.raises(SessionDispatchUncertain):
+                    await service.start_message(**message(session_id))
+                with pytest.raises(SessionDispatchUncertain, match="unconfirmed"):
+                    await service.steer_message(**message(session_id))
+                assert fake.agent_runs() == []
+                retried = await service.send_message(**message(session_id))
+
+    assert retried == RunStarted(run_id=own)
+    steer.assert_not_awaited()
+    assert fake.agent_runs() == [f"agent/{own}"]

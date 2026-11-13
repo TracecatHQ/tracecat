@@ -1573,9 +1573,13 @@ async def test_commit_failure_reconciles_with_a_fresh_session(
             "tracecat.agent.backends.base.get_async_session_context_manager",
             cleanup_session,
         ),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
         pytest.raises(RuntimeError) as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
     assert isinstance(caught.value, SessionDispatchUncertain) == (
         failure in {"execute", "commit", "ownership"}
     )

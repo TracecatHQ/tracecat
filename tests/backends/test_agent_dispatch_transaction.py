@@ -189,6 +189,15 @@ async def assert_reserved_by(
     return saved
 
 
+def started_workflow_types(rpc: AsyncMock) -> list[str]:
+    """Workflow types of the start requests sent through ``rpc``."""
+    return [
+        call.kwargs["req"].workflow_type.name
+        for call in rpc.await_args_list
+        if isinstance(call.kwargs["req"], StartWorkflowExecutionRequest)
+    ]
+
+
 @pytest.mark.parametrize("failure", ["preparation", "encoding", "validation", "rpc"])
 async def test_failed_start_preserves_history_and_retry_reserves_once(
     connection: AsyncConnection, failure: str
@@ -451,7 +460,8 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
 
         assert not db.in_transaction()
         if outcome == "commit_failure":
-            rpc.assert_not_awaited()
+            # Cleanup claims the run's ID; no agent start is ever sent.
+            assert started_workflow_types(rpc) == ["AgentTurnStartTombstone"]
             rollback.assert_awaited_once()
         else:
             rpc.assert_awaited_once()
@@ -514,7 +524,8 @@ async def test_lost_commit_acknowledgement_releases_only_matching_reservation(
             mismatch is not None
         )
         fresh_session.assert_called_once()
-        rpc.assert_not_awaited()
+        # Cleanup claims the run's ID; no agent start is ever sent.
+        assert started_workflow_types(rpc) == ["AgentTurnStartTombstone"]
         async with AsyncSession(connection) as reader:
             saved = await reader.scalar(
                 select(AgentSession).where(AgentSession.id == session_id)
@@ -874,7 +885,7 @@ async def test_caller_owned_reservation_is_never_tombstoned(
         session_id = context.session.id
         service = AgentSessionService(db, context.role)
 
-        async def load_session(*_args: object) -> AgentSession:
+        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
             loaded = await db.scalar(
                 select(AgentSession)
                 .where(AgentSession.id == session_id)
@@ -1043,7 +1054,7 @@ async def test_stale_preparation_keeps_a_newer_reservation_recoverable(
         turn_b = replace(context, run_id=uuid4(), stream_id=uuid4())
         turn_c = replace(context, run_id=uuid4(), stream_id=uuid4())
 
-        async def load_session(*_args: object) -> AgentSession:
+        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
             loaded = await db.scalar(
                 select(AgentSession)
                 .where(AgentSession.id == session_id)

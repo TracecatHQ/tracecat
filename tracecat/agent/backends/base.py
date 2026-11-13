@@ -467,7 +467,7 @@ class AgentBackend[InputT, OutputT](ABC):
             if not dispatch.committed:
                 if dispatch.commit_attempted and not reissue:
                     commit_reconciled = await self._reconcile_failed_commit(
-                        context, session_id
+                        context, session_id, client
                     )
                 else:
                     await context.db.rollback()
@@ -532,9 +532,8 @@ class AgentBackend[InputT, OutputT](ABC):
         await db.commit()
         return released is not None
 
-    @classmethod
     async def _reconcile_failed_commit(
-        cls, context: SessionTurnContext, session_id: UUID
+        self, context: SessionTurnContext, session_id: UUID, client: Client
     ) -> bool:
         """Release only this reservation when commit raised before any start RPC.
 
@@ -548,8 +547,12 @@ class AgentBackend[InputT, OutputT](ABC):
                 await context.db.rollback()
             except Exception:
                 await context.db.invalidate()
+            # A duplicate may have re-issued this reservation's start; release only
+            # once a claimed ID proves no start can ever run.
+            if not await self._claim_unstarted_turn(context.run_id, client):
+                return False
             async with get_async_session_context_manager() as db:
-                released = await cls._release_reservation(db, context, session_id)
+                released = await self._release_reservation(db, context, session_id)
         except Exception:
             return False
         else:
