@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { type ReactNode, StrictMode } from "react"
 import { organizationGetOrganizationEntitlements } from "@/client"
+import { CancelablePromise } from "@/client/core/CancelablePromise"
 import {
   api,
   serveBots,
@@ -94,14 +95,26 @@ describe("useInstallAgentChannelBot", () => {
     await waitFor(() => expect(result.current.list.bots).toHaveLength(1))
     expect(api.listBots).toHaveBeenCalledTimes(1)
 
-    const listCallsAtSuccess: number[] = []
+    let finishRefetch!: () => void
+    api.listBots.mockImplementationOnce(
+      () =>
+        new CancelablePromise((resolve) => {
+          finishRefetch = () => resolve({ items: [], next_cursor: null })
+        })
+    )
+    const onSuccess = jest.fn()
     act(() => {
-      result.current.install.installBot(INSTALL, {
-        onSuccess: () =>
-          listCallsAtSuccess.push(api.listBots.mock.calls.length),
-      })
+      result.current.install.installBot(INSTALL, { onSuccess })
     })
-    await waitFor(() => expect(listCallsAtSuccess).toEqual([2]))
+    await waitFor(() => expect(api.listBots).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(onSuccess).not.toHaveBeenCalled()
+
+    await act(async () => finishRefetch())
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(result.current.list.bots).toEqual([])
     expect(api.installBot).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       requestBody: INSTALL,
