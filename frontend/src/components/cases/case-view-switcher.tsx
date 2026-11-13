@@ -221,9 +221,12 @@ export function CaseViewSwitcher({
 
       {active.isError && (
         <AlertTriangleIcon
-          aria-hidden
+          role="img"
+          aria-label="This view could not be refreshed"
           className="size-3.5 text-muted-foreground"
-        />
+        >
+          <title>This view could not be refreshed</title>
+        </AlertTriangleIcon>
       )}
 
       {view && isModified && (

@@ -458,3 +458,33 @@ async def test_workflow_role_with_triggering_user_sees_shared_views_only(
         await _views(session, on_behalf).get_view(personal)
     with pytest.raises(CurrentUserRequiredError):
         await _run_view(session, on_behalf, "assigned_to_me")
+
+
+async def test_relevance_order_applies_to_a_full_text_view(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    """The request's relevance order is checked against the resolved view."""
+    view = await _views(session, actors.owner).create_view(
+        CaseViewCreate(
+            name="Phishing words",
+            query=CaseQuery.model_validate(
+                {"search_term": "phishing", "search_mode": "full_text"}
+            ),
+            order_by="created_at",
+            sort="desc",
+        )
+    )
+
+    request = CaseSearchRequest.model_validate(
+        {"view_id": view.id, "order_by": "relevance"}
+    )
+    merged = await _views(session, actors.owner).apply_to_query(request)
+
+    assert merged.order_by == "relevance"
+    assert merged.search_mode == "full_text"
+    assert merged.view_id is None
+
+
+def test_saved_sort_requires_an_order() -> None:
+    with pytest.raises(ValueError, match="sort requires order_by"):
+        CaseViewCreate(name="Sorted", query=CaseQuery(), sort="asc")

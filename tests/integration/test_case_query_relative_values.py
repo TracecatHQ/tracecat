@@ -7,12 +7,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.search_adapters import CurrentUserRequiredError
-from tracecat.cases.search_schemas import CaseSearchRequest
+from tracecat.cases.search_schemas import CaseSearchRequest, RelativeTimeWindow
+from tracecat.cases.search_service import relative_window_start
 from tracecat.cases.service import CasesService
 from tracecat.db.models import Case, CaseEvent, User
 
@@ -163,3 +165,41 @@ async def test_me_without_a_user_fails_with_typed_error(
 
     with pytest.raises(CurrentUserRequiredError):
         await _search(session, service_role, created_by=["me"])
+
+
+@pytest.mark.parametrize(
+    ("anchor", "window", "expected"),
+    [
+        # Calendar months, not 30 days: 31 March minus one month is 29 February
+        # in a leap year and 28 February otherwise.
+        (
+            datetime(2024, 3, 31, 12, tzinfo=UTC),
+            {"amount": 1, "unit": "month"},
+            datetime(2024, 2, 29, 12, tzinfo=UTC),
+        ),
+        (
+            datetime(2025, 3, 31, 12, tzinfo=UTC),
+            {"amount": 1, "unit": "month"},
+            datetime(2025, 2, 28, 12, tzinfo=UTC),
+        ),
+        (
+            datetime(2025, 3, 31, 12, tzinfo=UTC),
+            {"amount": 2, "unit": "week"},
+            datetime(2025, 3, 17, 12, tzinfo=UTC),
+        ),
+    ],
+)
+async def test_relative_window_math_runs_in_postgres(
+    session: AsyncSession,
+    anchor: datetime,
+    window: dict[str, object],
+    expected: datetime,
+) -> None:
+    start = relative_window_start(
+        RelativeTimeWindow.model_validate(window),
+        anchor=sa.literal(anchor, sa.TIMESTAMP(timezone=True)),
+    )
+
+    result = (await session.execute(sa.select(start))).scalar_one()
+
+    assert result == expected

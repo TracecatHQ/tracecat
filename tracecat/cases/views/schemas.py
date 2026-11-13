@@ -74,6 +74,9 @@ def validate_view_order(
     Raises:
         ValueError: The order does not fit the query.
     """
+    if sort is not None and order_by is None:
+        # The view's direction only applies to its own saved order.
+        raise ValueError("sort requires order_by")
     check_relevance_order(query.search_mode, order_by, sort)
 
 

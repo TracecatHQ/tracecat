@@ -35,7 +35,11 @@ BUILTIN_CASE_VIEWS: dict[BuiltinCaseViewId, BuiltinCaseView] = {
         BuiltinCaseView(
             id="assigned_to_me",
             name="Assigned to me",
-            query=CaseQuery(status=list(OPEN_CASE_STATUSES), assignee_id=["me"]),
+            query=CaseQuery(
+                status=list(OPEN_CASE_STATUSES),
+                assignee_id=["me"],
+                hierarchy="all",
+            ),
             order_by="created_at",
             sort="desc",
         ),

@@ -81,16 +81,17 @@ export function useCaseViews(workspaceId: string, enabled = true) {
   })
 
   const lists = useMemo<CaseViewLists>(() => {
-    const items = saved ?? []
+    // Hide anything cached once the user can no longer read cases.
+    const items = enabled ? (saved ?? []) : []
     return {
-      builtins: builtins ?? [],
+      builtins: enabled ? (builtins ?? []) : [],
       personal: items.filter((view) => view.visibility === "personal"),
       shared: items.filter((view) => view.visibility === "workspace"),
       pinned: items
         .filter((view) => view.pinned)
         .sort((a, b) => (a.pin_position ?? 0) - (b.pin_position ?? 0)),
     }
-  }, [builtins, saved])
+  }, [builtins, saved, enabled])
 
   return { ...lists, isLoading: builtinsLoading || savedLoading }
 }

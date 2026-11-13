@@ -27486,13 +27486,21 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_CaseReadMinimal_
         /**
-         * Bad Request
+         * The query is invalid.
          */
         400: CaseQueryErrorResponse
+        /**
+         * view_id names no view the caller can see.
+         */
+        404: unknown
         /**
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Full-text search is not ready yet.
+         */
+        503: unknown
       }
     }
     get: {
@@ -27518,13 +27526,21 @@ export type $OpenApiTs = {
          */
         200: CaseSearchAggregateRead
         /**
-         * Bad Request
+         * The query is invalid.
          */
         400: CaseQueryErrorResponse
+        /**
+         * view_id names no view the caller can see.
+         */
+        404: unknown
         /**
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Full-text search is not ready yet.
+         */
+        503: unknown
       }
     }
     get: {

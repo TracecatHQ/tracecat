@@ -98,15 +98,21 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
     )
 
 
-def relative_window_start(window: RelativeTimeWindow) -> ColumnElement[Any]:
-    """Return SQL for ``now() - window``, using calendar arithmetic for months.
+def relative_window_start(
+    window: RelativeTimeWindow, anchor: ColumnElement[Any] | None = None
+) -> ColumnElement[Any]:
+    """Return SQL for ``anchor - window``, using calendar arithmetic for months.
 
     The window is one bound interval such as ``'1 month'``, so its value is the
     same on every page and the pagination cursor fingerprint matches. One month
     before 31 March is 28 or 29 February, as Postgres interval math gives.
+
+    Args:
+        window: The relative window.
+        anchor: When the window ends; ``now()`` unless a test pins it.
     """
     interval = sa.cast(sa.literal(f"{window.amount} {window.unit.value}"), INTERVAL)
-    return func.now() - interval
+    return (func.now() if anchor is None else anchor) - interval
 
 
 def _require_resolved_view(query: CaseQuery) -> None:

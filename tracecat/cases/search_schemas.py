@@ -279,6 +279,11 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
 
     @model_validator(mode="after")
     def validate_relevance(self) -> Self:
-        """Relevance is a descending full-text order; explicit columns keep theirs."""
-        check_relevance_order(self.search_mode, self.order_by, self.sort)
+        """Relevance is a descending full-text order; explicit columns keep theirs.
+
+        A request naming a view is checked after the view is resolved, since
+        the view supplies the search mode.
+        """
+        if self.view_id is None:
+            check_relevance_order(self.search_mode, self.order_by, self.sort)
         return self

@@ -13655,8 +13655,10 @@ export const casesQueryCases = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      400: "Bad Request",
+      400: "The query is invalid.",
+      404: "view_id names no view the caller can see.",
       422: "Validation Error",
+      503: "Full-text search is not ready yet.",
     },
   })
 }
@@ -13769,8 +13771,10 @@ export const casesQueryCaseAggregates = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      400: "Bad Request",
+      400: "The query is invalid.",
+      404: "view_id names no view the caller can see.",
       422: "Validation Error",
+      503: "Full-text search is not ready yet.",
     },
   })
 }

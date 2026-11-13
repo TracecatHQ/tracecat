@@ -999,9 +999,9 @@ async def list_case_views(
     limit: Annotated[int, Doc("Maximum number of saved views to return.")] = 100,
 ) -> list[types.CaseViewRead]:
     """List built-in and shared saved case views."""
-    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+    if limit < 1 or limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
+            detail=f"Limit must be between 1 and {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
     views = await ctx.cases.aio.list_builtin_views() if include_builtins else []
     # Follow the cursor so up to `limit` saved views are returned, not just the

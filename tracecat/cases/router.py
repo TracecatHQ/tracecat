@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Literal, NoReturn, TypedDict
+from typing import Any, Literal, NoReturn, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
@@ -238,6 +238,13 @@ async def _parse_case_search_filters(
     }
 
 
+CASE_SEARCH_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": CaseQueryErrorResponse, "description": "The query is invalid."},
+    404: {"description": "view_id names no view the caller can see."},
+    503: {"description": "Full-text search is not ready yet."},
+}
+
+
 # Case Management
 
 
@@ -342,7 +349,7 @@ async def list_case_filter_fields(
     return await CasesService(session, role).list_filter_fields()
 
 
-@cases_router.post("/search", responses={400: {"model": CaseQueryErrorResponse}})
+@cases_router.post("/search", responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_cases(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseSearchRequest
@@ -356,9 +363,7 @@ async def query_cases(
         raise case_query_http_error(exc) from exc
 
 
-@cases_router.post(
-    "/search/aggregate", responses={400: {"model": CaseQueryErrorResponse}}
-)
+@cases_router.post("/search/aggregate", responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_case_aggregates(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseQuery
