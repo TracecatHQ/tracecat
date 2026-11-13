@@ -60,7 +60,9 @@ A token mode connects with these variables and refuses to start if `TRACECAT__DB
     }
     ```
 
-    Every pod or task on that role can then log in as `app`, including executors that run workflow actions. Never grant it to the node's instance role: every pod on the node could then log in as `app`. On EKS, set `AWS_EC2_METADATA_DISABLED=true` on Tracecat's pods so a pod without its own identity fails instead of signing with the node role (the Helm chart sets it).
+    With [database roles](/self-hosting/database-roles), give the migrations Job's role the same statement for `/migrator` instead of `/app`. Never use `dbuser:<DbiResourceId>/*` or share one policy between the two roles.
+
+    Every pod or task on the `app` role can then log in as `app`, including executors that run workflow actions. Never grant it to the node's instance role: every pod on the node could then log in as `app`. On EKS, set `AWS_EC2_METADATA_DISABLED=true` on Tracecat's pods so a pod without its own identity fails instead of signing with the node role (the Helm chart sets it).
   </Step>
   <Step title="Configure Tracecat">
     Download the RDS CA bundle and mount it into every Tracecat container, here at `/etc/tracecat/rds-global-bundle.pem` (a Kubernetes ConfigMap or Secret volume, or an ECS bind mount):
@@ -158,7 +160,7 @@ Both modes need:
 
 The agent runtime's executor signs the runtime's tokens and hands each runtime the current one, so code running in a runtime's sandbox could use that token to log in to the database directly as `app` until it expires.
 
-Clients reach PgDog over TLS that doesn't verify PgDog's certificate. A token taken from that hop logs in to the database until it expires (15 minutes for an RDS token, up to about 24 hours for an Entra ID token), and through PgDog for up to 15 minutes longer: PgDog accepts a token for 15 minutes after it first checks it. Limit who can reach PgDog's port with a Kubernetes NetworkPolicy that admits only Tracecat's pods.
+Clients reach PgDog over TLS that doesn't verify PgDog's certificate. A token taken from that hop logs in to the database until it expires (15 minutes for an RDS token, up to about 24 hours for an Entra ID token), and through PgDog for up to 15 minutes longer: PgDog accepts a token for 15 minutes after each check with the database, then checks it again. Limit who can reach PgDog's port with a Kubernetes NetworkPolicy that admits only Tracecat's pods.
 
 ### RDS IAM
 
