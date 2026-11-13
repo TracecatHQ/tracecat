@@ -253,29 +253,20 @@ async def test_builtin_views_are_read_only_and_run(
 ) -> None:
     views = _views(session, actors.owner)
 
-    assert [view.id for view in views.list_builtins()] == [
-        "all",
-        "assigned_to_me",
-        "unassigned",
-        "created_by_me",
-    ]
+    assert [view.id for view in views.list_builtins()] == ["assigned_to_me"]
     with pytest.raises(TracecatValidationError):
-        await views.update_view("unassigned", CaseViewUpdate(name="Mine"))
+        await views.update_view("assigned_to_me", CaseViewUpdate(name="Mine"))
     with pytest.raises(TracecatValidationError):
-        await views.delete_view("unassigned")
+        await views.delete_view("assigned_to_me")
     with pytest.raises(TracecatValidationError):
-        await views.pin_view("unassigned")
+        await views.pin_view("assigned_to_me")
+    # Removed built-in IDs are not views.
+    for removed in ("all", "unassigned", "created_by_me"):
+        with pytest.raises(CaseViewNotFoundError):
+            await views.get_view(removed)
 
     assert await _run_view(session, actors.owner, "assigned_to_me") == {
         seeded.malware_open
-    }
-    assert await _run_view(session, actors.owner, "unassigned") == {
-        seeded.phishing_open
-    }
-    assert await _run_view(session, actors.owner, "created_by_me") == {
-        seeded.phishing_open,
-        seeded.phishing_closed,
-        seeded.malware_open,
     }
 
 
@@ -342,5 +333,5 @@ async def test_unreadable_stored_query_is_a_validation_error(
 async def test_stored_query_cannot_reference_another_view() -> None:
     with pytest.raises(ValueError, match="another view"):
         CaseViewCreate(
-            name="Nested", query=CaseQuery.model_validate({"view_id": "all"})
+            name="Nested", query=CaseQuery.model_validate({"view_id": "assigned_to_me"})
         )

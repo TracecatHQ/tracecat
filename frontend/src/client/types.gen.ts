@@ -2195,11 +2195,7 @@ export type BooleanApprovalDecision = {
  */
 export type BuildEdition = "oss" | "ee"
 
-export type BuiltinCaseViewId =
-  | "all"
-  | "assigned_to_me"
-  | "unassigned"
-  | "created_by_me"
+export type BuiltinCaseViewId = "assigned_to_me"
 
 /**
  * Lifecycle state for the durable backfill operation.

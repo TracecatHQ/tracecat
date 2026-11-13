@@ -15000,7 +15000,7 @@ export const caseViewsCreateCaseView = (
 
 /**
  * List Builtin Case Views
- * List the views every workspace has: All cases, Assigned to me, and so on.
+ * List the views every workspace has, such as Assigned to me.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns CaseViewRead Successful Response

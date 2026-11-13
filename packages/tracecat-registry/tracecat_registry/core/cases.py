@@ -737,7 +737,7 @@ async def search_cases(
     view_id: Annotated[
         str | None,
         Doc(
-            "Run a saved case view (its UUID) or a built-in view (all, unassigned). "
+            "Run a saved case view (its UUID) or the built-in assigned_to_me view. "
             "Only `filters` can be combined with a view; it is ANDed with the view's "
             "criteria. Views that use 'me', such as assigned_to_me, fail in workflows "
             "because a workflow has no signed-in user."
@@ -968,7 +968,7 @@ async def search_cases(
 )
 async def list_case_views(
     include_builtins: Annotated[
-        bool, Doc("Include built-in views, such as Unassigned.")
+        bool, Doc("Include built-in views, such as Assigned to me.")
     ] = True,
     limit: Annotated[int, Doc("Maximum number of saved views to return.")] = 100,
 ) -> list[types.CaseViewRead]:

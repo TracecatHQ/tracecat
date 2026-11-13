@@ -2,17 +2,7 @@
 
 from typing import Literal
 
-type BuiltinCaseViewId = Literal[
-    "all",
-    "assigned_to_me",
-    "unassigned",
-    "created_by_me",
-]
+type BuiltinCaseViewId = Literal["assigned_to_me"]
 """Stable IDs of the views defined in code. They are never stored as rows."""
 
-BUILTIN_CASE_VIEW_IDS: tuple[BuiltinCaseViewId, ...] = (
-    "all",
-    "assigned_to_me",
-    "unassigned",
-    "created_by_me",
-)
+BUILTIN_CASE_VIEW_IDS: tuple[BuiltinCaseViewId, ...] = ("assigned_to_me",)

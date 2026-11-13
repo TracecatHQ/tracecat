@@ -759,10 +759,10 @@ class TestCoreSearchCases:
         mock_cases_client.search_cases.return_value = {"items": []}
         filters = {"field": "status", "op": "eq", "value": "new"}
 
-        assert await search_cases(view_id="unassigned", filters=filters) == []
+        assert await search_cases(view_id="assigned_to_me", filters=filters) == []
 
         mock_cases_client.search_cases.assert_called_once_with(
-            limit=100, view_id="unassigned", filters=filters
+            limit=100, view_id="assigned_to_me", filters=filters
         )
 
     async def test_search_cases_forwards_short_id(self, mock_cases_client: AsyncMock):
@@ -1540,7 +1540,7 @@ class TestCoreListCaseViews:
     async def test_lists_builtins_then_saved_views(
         self, mock_cases_client: AsyncMock
     ) -> None:
-        builtin = {"id": "unassigned", "kind": "builtin"}
+        builtin = {"id": "assigned_to_me", "kind": "builtin"}
         saved = {"id": "00000000-0000-0000-0000-000000000001", "kind": "custom"}
         mock_cases_client.list_builtin_views.return_value = [builtin]
         mock_cases_client.list_views.return_value = {"items": [saved]}

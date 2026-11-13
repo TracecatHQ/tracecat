@@ -6913,7 +6913,7 @@ async def search_cases(
         limit: Maximum items per page.
         cursor: Cursor for pagination.
         view_id: Run a saved case view (UUID from list_case_views) or a
-            built-in view (all, assigned_to_me, unassigned, created_by_me).
+            built-in assigned_to_me view.
             Only ``filters`` can be combined with a view; it is ANDed with
             the view's criteria. The view's sort applies unless order_by is set.
         search_term: Text to search for in case summary, description, short
@@ -7040,8 +7040,8 @@ async def list_case_views(
     """List saved case views you can see, to run with search_cases(view_id=...).
 
     A view is a saved case search: personal (only you) or shared with the
-    workspace. Built-in views (all, assigned_to_me, unassigned, created_by_me)
-    come first on the first page when include_builtins is true.
+    workspace. The built-in view (assigned_to_me)
+    comes first on the first page when include_builtins is true.
 
     Args:
         workspace_id: The workspace ID.

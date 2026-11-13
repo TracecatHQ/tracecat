@@ -66,7 +66,7 @@ async def list_case_views(
 async def list_builtin_case_views(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession
 ) -> list[CaseViewRead]:
-    """List the views every workspace has: All cases, Assigned to me, and so on."""
+    """List the views every workspace has, such as Assigned to me."""
     return CaseViewsService(session, role).list_builtins()
 
 

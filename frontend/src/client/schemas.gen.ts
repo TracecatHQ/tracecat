@@ -8133,7 +8133,7 @@ export const $BuildEdition = {
 
 export const $BuiltinCaseViewId = {
   type: "string",
-  enum: ["all", "assigned_to_me", "unassigned", "created_by_me"],
+  const: "assigned_to_me",
 } as const
 
 export const $CaseAgentSessionBackfillStatus = {

@@ -405,7 +405,7 @@ class CasesClient:
         return await self._client.get("/case-views", params=params)
 
     async def list_builtin_views(self) -> list[types.CaseViewRead]:
-        """List the built-in case views, such as "Unassigned"."""
+        """List the built-in case views, such as "Assigned to me"."""
         return await self._client.get("/case-views/builtins")
 
     async def get_view(self, view_id: str) -> types.CaseViewRead:

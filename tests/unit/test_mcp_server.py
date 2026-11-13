@@ -4161,7 +4161,7 @@ async def test_list_case_views_puts_builtins_on_the_first_page_only(
         organization_id=uuid.uuid4(),
         scopes=frozenset({"case:read"}),
     )
-    builtin = SimpleNamespace(id="all")
+    builtin = SimpleNamespace(id="assigned_to_me")
     saved = SimpleNamespace(id=str(uuid.uuid4()))
     list_views = AsyncMock(
         side_effect=lambda *_args, **_kwargs: CursorPaginatedResponse(items=[saved])
@@ -4188,7 +4188,7 @@ async def test_list_case_views_puts_builtins_on_the_first_page_only(
         workspace_id=workspace_id, pinned=True
     )
 
-    assert [view.id for view in first.items] == ["all", saved.id]
+    assert [view.id for view in first.items] == ["assigned_to_me", saved.id]
     assert [view.id for view in later.items] == [saved.id]
     assert [view.id for view in pinned.items] == [saved.id]
     assert list_views.await_args is not None

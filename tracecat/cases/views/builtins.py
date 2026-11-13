@@ -30,35 +30,11 @@ class BuiltinCaseView:
 BUILTIN_CASE_VIEWS: dict[BuiltinCaseViewId, BuiltinCaseView] = {
     view.id: view
     for view in (
-        # Every top-level case, with no date filter.
-        BuiltinCaseView(
-            id="all",
-            name="All cases",
-            query=CaseQuery(hierarchy="top_level"),
-            order_by="created_at",
-            sort="desc",
-        ),
-        # Work queues include sub-cases, since a sub-case can be assigned on its own.
+        # Includes sub-cases, since a sub-case can be assigned on its own.
         BuiltinCaseView(
             id="assigned_to_me",
             name="Assigned to me",
             query=CaseQuery(status=list(OPEN_CASE_STATUSES), assignee_id=["me"]),
-            order_by="created_at",
-            sort="desc",
-        ),
-        BuiltinCaseView(
-            id="unassigned",
-            name="Unassigned",
-            query=CaseQuery(
-                status=list(OPEN_CASE_STATUSES), assignee_id=["unassigned"]
-            ),
-            order_by="created_at",
-            sort="desc",
-        ),
-        BuiltinCaseView(
-            id="created_by_me",
-            name="Created by me",
-            query=CaseQuery(created_by=["me"]),
             order_by="created_at",
             sort="desc",
         ),
