@@ -72,7 +72,7 @@ import {
   AgentPresetRailTools,
 } from "@/components/agents/agent-preset-rail-tools"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
-import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
+import { AgentChannelsPanel } from "@/components/agents/external-channels/agent-channels-panel"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   ChatHistoryDropdown,
@@ -1987,7 +1987,7 @@ function AgentPresetForm({
               while loading changes its hook order. */}
           {leftMode === "channels" ? (
             channelsEnabled ? (
-              <SlackChannelPanel workspaceId={workspaceId} preset={preset} />
+              <AgentChannelsPanel workspaceId={workspaceId} preset={preset} />
             ) : null
           ) : (
             documentPanel

@@ -15,8 +15,8 @@ export interface TracecatApiError<T = unknown> extends ApiError {
   }
 }
 
-/** Whether the API cancelled a shared query at its statement timeout. */
-export function isQueryTimeoutError(error: unknown): boolean {
+/** Whether the API error body names `type` as the error type. */
+function hasApiErrorType(error: unknown, type: string): boolean {
   if (!(error instanceof Error) || !("body" in error)) {
     return false
   }
@@ -25,8 +25,18 @@ export function isQueryTimeoutError(error: unknown): boolean {
     typeof body === "object" &&
     body !== null &&
     "type" in body &&
-    body.type === "TracecatQueryTimeoutError"
+    body.type === type
   )
+}
+
+/** Whether the API cancelled a shared query at its statement timeout. */
+export function isQueryTimeoutError(error: unknown): boolean {
+  return hasApiErrorType(error, "TracecatQueryTimeoutError")
+}
+
+/** Whether the API refused a request because the plan lacks the feature. */
+export function isEntitlementRequiredError(error: unknown): boolean {
+  return hasApiErrorType(error, "EntitlementRequired")
 }
 
 export function retryHandler(failureCount: number, error: ApiError) {
