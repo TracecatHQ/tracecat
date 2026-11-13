@@ -4146,6 +4146,11 @@ async def test_search_cases_forwards_view_id(monkeypatch: pytest.MonkeyPatch) ->
     assert query.await_args is not None
     request = query.await_args.args[0]
     assert request.view_id == "assigned_to_me"
+    assert request.model_dump(mode="json", exclude_none=True)["filters"] == {
+        "field": "status",
+        "op": "eq",
+        "value": "new",
+    }
 
 
 @pytest.mark.anyio
@@ -4191,8 +4196,11 @@ async def test_list_case_views_puts_builtins_on_the_first_page_only(
     assert [view.id for view in first.items] == ["assigned_to_me", saved.id]
     assert [view.id for view in later.items] == [saved.id]
     assert [view.id for view in pinned.items] == [saved.id]
-    assert list_views.await_args is not None
-    assert list_views.await_args.kwargs == {"pinned_only": True}
+    assert [call.kwargs for call in list_views.await_args_list] == [
+        {"pinned_only": False},
+        {"pinned_only": False},
+        {"pinned_only": True},
+    ]
 
 
 @pytest.mark.anyio

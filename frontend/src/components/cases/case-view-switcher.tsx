@@ -162,7 +162,6 @@ export function CaseViewSwitcher({
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label="Case views"
             className="flex h-6 max-w-[220px] items-center gap-1.5 rounded-md px-1.5 text-xs font-medium transition-colors hover:bg-muted"
           >
             <LayersIcon className="size-3.5 shrink-0 text-muted-foreground" />

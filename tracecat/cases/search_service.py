@@ -291,13 +291,18 @@ class CaseSearchService(BaseWorkspaceService):
         # meaning "the last 30 days". Postgres computes now() itself, which keeps
         # the bind values, and so the pagination cursor fingerprint, stable
         # across pages.
+        # The window ends now, so future-dated rows do not match.
         if query.created_within is not None:
             predicates.append(
-                Case.created_at >= relative_window_start(query.created_within)
+                Case.created_at.between(
+                    relative_window_start(query.created_within), func.now()
+                )
             )
         if query.updated_within is not None:
             predicates.append(
-                Case.updated_at >= relative_window_start(query.updated_within)
+                Case.updated_at.between(
+                    relative_window_start(query.updated_within), func.now()
+                )
             )
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
             parent_id=query.parent_id, hierarchy=query.hierarchy

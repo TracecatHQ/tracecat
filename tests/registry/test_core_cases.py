@@ -1549,10 +1549,12 @@ class TestCoreListCaseViews:
         mock_cases_client.list_views.assert_called_once_with(limit=10)
 
     async def test_can_skip_builtins(self, mock_cases_client: AsyncMock) -> None:
-        mock_cases_client.list_views.return_value = {"items": []}
+        saved = {"id": "00000000-0000-0000-0000-000000000003", "kind": "custom"}
+        mock_cases_client.list_views.return_value = {"items": [saved]}
 
-        assert await list_case_views(include_builtins=False) == []
+        assert await list_case_views(include_builtins=False) == [saved]
         mock_cases_client.list_builtin_views.assert_not_called()
+        mock_cases_client.list_views.assert_awaited_once()
 
     async def test_follows_the_cursor_until_limit(
         self, mock_cases_client: AsyncMock

@@ -25,6 +25,7 @@ class SeededCases:
     old_mine: uuid.UUID
     recent_other: uuid.UUID
     by_workflow: uuid.UUID
+    future: uuid.UUID
 
 
 async def _add_user(session: AsyncSession, user_id: uuid.UUID, email: str) -> None:
@@ -48,6 +49,8 @@ async def seeded(session: AsyncSession, svc_role: Role) -> SeededCases:
         ("old_mine", now - timedelta(days=40), svc_role.user_id),
         ("recent_other", now - timedelta(days=1), other_user_id),
         ("by_workflow", now - timedelta(hours=3), None),
+        # Dated in the future, for example by an import with a clock skew.
+        ("future", now + timedelta(days=2), other_user_id),
     ]
     ids: dict[str, uuid.UUID] = {}
     for number, (name, created_at, user_id) in enumerate(specs, start=1):

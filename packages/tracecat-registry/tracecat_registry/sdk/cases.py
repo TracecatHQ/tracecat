@@ -277,6 +277,9 @@ class CasesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
+        created_by: list[str] | Unset = UNSET,
+        created_within: dict[str, Any] | Unset = UNSET,
+        updated_within: dict[str, Any] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
         payload_fields: list[str] | Unset = UNSET,
@@ -304,6 +307,10 @@ class CasesClient:
         Explicit full_text uses required words/per-field phrases and defaults to
         relevance. Literal is an escaped complete substring. Omitted mode retains
         legacy behavior. search_columns selects summary/description.
+        created_by takes user IDs or "me". created_within and updated_within
+        take a window ending now, such as {"amount": 30, "unit": "day"}
+        (units: hour, day, week, month); they replace the matching fixed
+        bounds.
 
         Either non-empty selector returns the selected subset. payload_fields
         and payload_paths combine and override include_payload. Up to 100 paths
@@ -379,6 +386,9 @@ class CasesClient:
             ("short_id", short_id),
             ("case_id", case_id),
             ("filters", filters),
+            ("created_by", created_by),
+            ("created_within", created_within),
+            ("updated_within", updated_within),
             ("hierarchy", hierarchy),
             ("parent_id", parent_id),
             ("include_durations", include_durations),

@@ -6,7 +6,10 @@ import {
   CaseViewSwitcher,
 } from "@/components/cases/case-view-switcher"
 import { CasesLayout } from "@/components/cases/cases-layout"
-import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
+import {
+  normalizeVisibleColumnIds,
+  useCaseColumnVisibility,
+} from "@/hooks/use-case-column-visibility"
 import {
   useActiveCaseView,
   useCaseViewControls,
@@ -88,8 +91,12 @@ export default function CasesPage() {
     toggleColumn: togglePersonalColumn,
   } = useCaseColumnVisibility(workspaceId, knownColumnIds)
   const activeView = useActiveCaseView(workspaceId)
+  // Normalize like the view controls do, so stale or unknown view columns
+  // never trigger field or duration fetches.
   const viewColumnIds =
-    activeView.view && activeView.columns !== null ? activeView.columns : null
+    activeView.view && activeView.columns !== null
+      ? normalizeVisibleColumnIds(activeView.columns, knownColumnIds)
+      : null
   const visibleColumnIds = viewColumnIds ?? personalColumnIds
 
   const selectedFieldIds = useMemo(() => {
@@ -181,7 +188,9 @@ export default function CasesPage() {
     <div className="size-full overflow-hidden">
       <CasesLayout
         cases={cases}
-        isLoading={isLoading}
+        // A ?view= link shows as loading until its filters are applied, not
+        // as an empty result.
+        isLoading={isLoading || !activeView.isApplied}
         error={error}
         filters={filters}
         appliedSearchQuery={appliedSearchQuery}

@@ -800,6 +800,27 @@ async def search_cases(
         datetime | str | None,
         Doc("Filter cases updated after this time."),
     ] = None,
+    created_by: Annotated[
+        list[str] | None,
+        Doc(
+            "Users who created the case, as user IDs. 'me' needs a signed-in "
+            "user, so it fails in workflows."
+        ),
+    ] = None,
+    created_within: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Cases created in a window ending now, e.g. {'amount': 30, 'unit': 'day'}. "
+            "Units: hour, day, week, month. Cannot be combined with start_time/end_time."
+        ),
+    ] = None,
+    updated_within: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Cases updated in a window ending now, e.g. {'amount': 7, 'unit': 'day'}. "
+            "Cannot be combined with updated_after/updated_before."
+        ),
+    ] = None,
     limit: Annotated[
         int,
         Doc("Maximum number of cases to return."),
@@ -947,6 +968,9 @@ async def search_cases(
         ("short_id", short_id),
         ("case_id", case_id),
         ("filters", filters),
+        ("created_by", created_by),
+        ("created_within", created_within),
+        ("updated_within", updated_within),
         ("parent_id", parent_id),
         ("field_ids", field_ids),
     ):

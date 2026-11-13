@@ -389,3 +389,53 @@ def test_stored_query_rejects_malformed_dropdown_entries() -> None:
         CaseViewCreate(
             name="Bad dropdown", query=CaseQuery.model_validate({"dropdown": ["x"]})
         )
+
+
+async def test_deleted_tag_in_filter_tree_matches_nothing(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    view_id = await _create(
+        session,
+        actors.owner,
+        query={
+            "filters": {
+                "or": [
+                    {"field": "tags", "op": "in", "value": ["phishing"]},
+                    {"field": "status", "op": "eq", "value": "closed"},
+                ]
+            }
+        },
+    )
+    await session.execute(delete(CaseTag).where(CaseTag.ref == seeded.tag_ref))
+    await session.flush()
+
+    view = await _views(session, actors.owner).get_view(view_id)
+    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [("tag", "phishing")]
+    # Rewriting the tree could widen it, so the view matches nothing instead.
+    assert await _run_view(session, actors.owner, view_id) == set()
+
+
+async def test_blank_tag_does_not_keep_a_deleted_tag_rule_alive(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    view_id = await _create(session, actors.owner, query={"tags": ["phishing", " "]})
+    await session.execute(delete(CaseTag).where(CaseTag.ref == seeded.tag_ref))
+    await session.flush()
+
+    assert await _run_view(session, actors.owner, view_id) == set()
+
+
+async def test_pinning_twice_keeps_one_pin(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    view_id = await _create(session, actors.owner)
+    views = _views(session, actors.owner)
+
+    first = await views.pin_view(view_id)
+    again = await views.pin_view(view_id)
+    moved = await views.pin_view(view_id, position=5)
+
+    assert first.pin_position == again.pin_position == 0
+    assert moved.pin_position == 5
+    pinned = await views.list_views(PageParams(), pinned_only=True)
+    assert [view.id for view in pinned.items] == [view_id]

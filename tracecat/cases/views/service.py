@@ -8,10 +8,13 @@ from typing import Literal, cast
 
 import sqlalchemy as sa
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.authz.controls import has_scope
 from tracecat.cases.enums import CaseViewVisibility
+from tracecat.cases.query import DROPDOWN_PREFIX
+from tracecat.cases.search_adapters import iter_case_filter_conditions
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder
 from tracecat.cases.tags.search import split_case_tag_filters
 from tracecat.cases.views.builtins import BUILTIN_CASE_VIEWS
@@ -26,6 +29,7 @@ from tracecat.cases.views.types import BUILTIN_CASE_VIEW_IDS, BuiltinCaseViewId
 from tracecat.db.models import (
     CaseDropdownDefinition,
     CaseDropdownOption,
+    CaseTag,
     CaseView,
     CaseViewPin,
 )
@@ -264,31 +268,30 @@ class CaseViewsService(BaseWorkspaceService):
         if not isinstance(parsed, uuid.UUID):
             raise TracecatValidationError("Built-in views are always shown")
         view = await self._get_visible(parsed)
-        pin = (
-            await self.session.execute(
-                select(CaseViewPin).where(
-                    CaseViewPin.user_id == user_id, CaseViewPin.view_id == view.id
-                )
+        # An upsert, so two pin requests at once cannot both insert and hit
+        # the unique (user_id, view_id) constraint. Without an explicit
+        # position, an existing pin keeps its place.
+        statement = pg_insert(CaseViewPin).values(
+            workspace_id=self.workspace_id,
+            user_id=user_id,
+            view_id=view.id,
+            position=(
+                position if position is not None else await self._next_pin_position()
+            ),
+        )
+        conflict = ["user_id", "view_id"]
+        statement = (
+            statement.on_conflict_do_update(
+                index_elements=conflict,
+                set_={"position": statement.excluded.position},
             )
-        ).scalar_one_or_none()
-        if position is None:
-            position = (
-                pin.position if pin is not None else await self._next_pin_position()
-            )
-        if pin is None:
-            self.session.add(
-                CaseViewPin(
-                    workspace_id=self.workspace_id,
-                    user_id=user_id,
-                    view_id=view.id,
-                    position=position,
-                )
-            )
-        else:
-            pin.position = position
+            if position is not None
+            else statement.on_conflict_do_nothing(index_elements=conflict)
+        )
+        await self.session.execute(statement)
         await self.session.commit()
         await self.session.refresh(view)
-        return self._custom_read(view, position)
+        return self._custom_read(view, await self._pin_position(view.id))
 
     async def unpin_view(self, view_id: str | uuid.UUID) -> None:
         """Remove a view from the requesting user's sidebar."""
@@ -479,7 +482,10 @@ class CaseViewsService(BaseWorkspaceService):
                 stale.extend(
                     CaseViewStaleRef(kind="tag", value=tag) for tag in missing_tags
                 )
-                kept = [tag for tag in query.tags if tag not in missing_tags]
+                # Blank entries match nothing, so they must not count as kept.
+                kept = [
+                    tag for tag in query.tags if tag.strip() and tag not in missing_tags
+                ]
                 match_none = match_none or not kept
                 update["tags"] = kept or None
 
@@ -499,8 +505,56 @@ class CaseViewsService(BaseWorkspaceService):
                 match_none = match_none or definitions != kept_definitions
                 update["dropdown"] = kept or None
 
+        tree_stale = await self._stale_filter_tree_refs(query)
+        if tree_stale:
+            # Rewriting an AND/OR/NOT tree could widen it, so a tree naming a
+            # deleted tag or option matches nothing until the view is fixed.
+            stale.extend(tree_stale)
+            match_none = True
+            update["filters"] = None
+
         cleaned = query.model_copy(update=update) if update else query
         return _CleanedQuery(query=cleaned, stale_refs=stale, match_none=match_none)
+
+    async def _stale_filter_tree_refs(self, query: CaseQuery) -> list[CaseViewStaleRef]:
+        """Find deleted tag refs and dropdown options named in the filter tree."""
+        tag_refs: set[str] = set()
+        dropdown_entries: set[str] = set()
+        for condition in iter_case_filter_conditions(query.filters):
+            values = (
+                condition.value
+                if isinstance(condition.value, list)
+                else [condition.value]
+            )
+            names = [str(value) for value in values if value is not None]
+            if condition.field == "tags":
+                tag_refs.update(names)
+            elif condition.field.startswith(DROPDOWN_PREFIX):
+                ref = condition.field.removeprefix(DROPDOWN_PREFIX)
+                dropdown_entries.update(f"{ref}:{name}" for name in names)
+        stale: list[CaseViewStaleRef] = []
+        if tag_refs:
+            existing_tags = set(
+                (
+                    await self.session.execute(
+                        select(CaseTag.ref).where(
+                            CaseTag.workspace_id == self.workspace_id,
+                            CaseTag.ref.in_(tag_refs),
+                        )
+                    )
+                ).scalars()
+            )
+            stale.extend(
+                CaseViewStaleRef(kind="tag", value=ref)
+                for ref in sorted(tag_refs - existing_tags)
+            )
+        if dropdown_entries:
+            existing = await self._existing_dropdown_options(list(dropdown_entries))
+            stale.extend(
+                CaseViewStaleRef(kind="dropdown", value=entry)
+                for entry in sorted(dropdown_entries - existing)
+            )
+        return stale
 
     async def _existing_dropdown_options(self, entries: list[str]) -> set[str]:
         definition_refs = {entry.split(":", 1)[0] for entry in entries if ":" in entry}

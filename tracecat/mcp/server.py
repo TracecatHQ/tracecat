@@ -6900,6 +6900,9 @@ async def search_cases(
     end_time: datetime | None = None,
     updated_after: datetime | None = None,
     updated_before: datetime | None = None,
+    created_by: list[str] | None = None,
+    created_within: dict[str, Any] | None = None,
+    updated_within: dict[str, Any] | None = None,
     include_rows: bool = False,
     field_ids: list[str] | None = None,
     include_durations: bool = False,
@@ -6954,6 +6957,12 @@ async def search_cases(
         end_time: Inclusive creation upper bound.
         updated_after: Inclusive update lower bound.
         updated_before: Inclusive update upper bound.
+        created_by: User IDs who created the case, or "me" for you.
+        created_within: Created in a window ending now, e.g.
+            {"amount": 30, "unit": "day"}; units hour, day, week, month.
+            Replaces start_time/end_time.
+        updated_within: Updated in a window ending now. Replaces
+            updated_after/updated_before.
         include_rows: Include linked table rows.
         field_ids: Include these custom field values.
         include_durations: Include durations when entitled.
@@ -7009,6 +7018,9 @@ async def search_cases(
                 "end_time": end_time,
                 "updated_after": updated_after,
                 "updated_before": updated_before,
+                "created_by": created_by,
+                "created_within": created_within,
+                "updated_within": updated_within,
                 "include_rows": include_rows,
                 "field_ids": field_ids,
                 "include_durations": include_durations,
@@ -7039,11 +7051,11 @@ async def list_case_views(
     pinned: bool = False,
     include_builtins: bool = True,
 ) -> CursorPaginatedResponse[CaseViewRead]:
-    """List saved case views you can see, to run with search_cases(view_id=...).
+    """List case views you can see, to run with search_cases(view_id=...).
 
-    A view is a saved case search: personal (only you) or shared with the
-    workspace. The built-in view (assigned_to_me)
-    comes first on the first page when include_builtins is true.
+    Saved views are personal (only you) or shared with the workspace. The
+    read-only built-in view, assigned_to_me, is defined by Tracecat and comes
+    first on the first unpinned page when include_builtins is true.
 
     Args:
         workspace_id: The workspace ID.
