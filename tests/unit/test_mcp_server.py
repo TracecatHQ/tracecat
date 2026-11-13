@@ -4114,6 +4114,88 @@ async def test_search_cases_forwards_canonical_request(
 
 
 @pytest.mark.anyio
+async def test_search_cases_forwards_view_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    result = CursorPaginatedResponse(items=[], total_estimate=None)
+    query = AsyncMock(return_value=result)
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    await _tool(mcp_server.search_cases)(
+        workspace_id=workspace_id,
+        view_id="assigned_to_me",
+        filters={"field": "status", "op": "eq", "value": "new"},
+    )
+    assert query.await_args is not None
+    request = query.await_args.args[0]
+    assert request.view_id == "assigned_to_me"
+
+
+@pytest.mark.anyio
+async def test_list_case_views_puts_builtins_on_the_first_page_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    builtin = SimpleNamespace(id="all")
+    saved = SimpleNamespace(id=str(uuid.uuid4()))
+    list_views = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: CursorPaginatedResponse(items=[saved])
+    )
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseViewsService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(
+                SimpleNamespace(list_views=list_views, list_builtins=lambda: [builtin])
+            )
+        ),
+    )
+    first = await _tool(mcp_server.list_case_views)(workspace_id=workspace_id)
+    later = await _tool(mcp_server.list_case_views)(
+        workspace_id=workspace_id, cursor="synthetic-cursor"
+    )
+    pinned = await _tool(mcp_server.list_case_views)(
+        workspace_id=workspace_id, pinned=True
+    )
+
+    assert [view.id for view in first.items] == ["all", saved.id]
+    assert [view.id for view in later.items] == [saved.id]
+    assert [view.id for view in pinned.items] == [saved.id]
+    assert list_views.await_args is not None
+    assert list_views.await_args.kwargs == {"pinned_only": True}
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "error",
     [

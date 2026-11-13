@@ -163,6 +163,8 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.views.schemas import CaseViewRead
+from tracecat.cases.views.service import CaseViewsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -6877,6 +6879,7 @@ async def search_cases(
     workspace_id: uuid.UUID,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
+    view_id: str | None = None,
     search_term: str | None = None,
     search_mode: Literal["full_text", "literal"] | None = None,
     search_columns: list[Literal["summary", "description"]] | None = None,
@@ -6909,6 +6912,10 @@ async def search_cases(
         workspace_id: The workspace ID.
         limit: Maximum items per page.
         cursor: Cursor for pagination.
+        view_id: Run a saved case view (UUID from list_case_views) or a
+            built-in view (all, assigned_to_me, unassigned, created_by_me).
+            Only ``filters`` can be combined with a view; it is ANDed with
+            the view's criteria. The view's sort applies unless order_by is set.
         search_term: Text to search for in case summary, description, short
             ID, or case UUID.
         search_mode: Explicit full_text words/phrases or literal substring; omitted preserves legacy behavior.
@@ -6979,6 +6986,7 @@ async def search_cases(
                     max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
                 ),
                 "cursor": cursor,
+                "view_id": view_id,
                 "search_term": search_term,
                 "search_mode": search_mode,
                 "search_columns": search_columns,
@@ -7012,13 +7020,64 @@ async def search_cases(
         raise ToolError(
             f"Missing required scope: {', '.join(e.required_scopes)}"
         ) from e
-    except (EntitlementRequired, TracecatValidationError) as e:
+    except (EntitlementRequired, TracecatValidationError, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to search cases", error=str(e))
         raise ToolError(f"Failed to search cases: {e}") from None
+
+
+@mcp.tool()
+async def list_case_views(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+    pinned: bool = False,
+    include_builtins: bool = True,
+) -> CursorPaginatedResponse[CaseViewRead]:
+    """List saved case views you can see, to run with search_cases(view_id=...).
+
+    A view is a saved case search: personal (only you) or shared with the
+    workspace. Built-in views (all, assigned_to_me, unassigned, created_by_me)
+    come first on the first page when include_builtins is true.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum saved views per page.
+        cursor: Cursor for the next page of saved views.
+        pinned: Only views you pinned to your sidebar, in pin order.
+        include_builtins: Put the built-in views before the first page.
+
+    Returns a paginated list of views. Each view has its ``id``, ``name``,
+    ``visibility``, and the ``query`` it runs.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        page_params = PageParams(
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+        async with CaseViewsService.with_session(role=role) as svc:
+            page = await svc.list_views(page_params, pinned_only=pinned)
+            if include_builtins and cursor is None and not pinned:
+                page.items = [*svc.list_builtins(), *page.items]
+            return page
+    except ScopeDeniedError as e:
+        raise ToolError(
+            f"Missing required scope: {', '.join(e.required_scopes)}"
+        ) from e
+    except (TracecatValidationError, ValueError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case views", error=str(e))
+        raise ToolError(f"Failed to list case views: {e}") from None
 
 
 @mcp.tool()

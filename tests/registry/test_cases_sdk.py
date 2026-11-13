@@ -540,3 +540,48 @@ async def test_delete_case_tag_uses_internal_case_tags_route(
     assert len(requests) == 1
     assert requests[0].method == "DELETE"
     assert requests[0].url.path.endswith("/internal/case-tags/needs-triage")
+
+
+@pytest.mark.anyio
+async def test_case_view_helpers_use_exact_gateway_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """View reads hit the internal case-view routes, and search forwards view_id."""
+    view_id = str(uuid4())
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/internal/cases/search":
+            assert orjson.loads(request.content) == {
+                "limit": 5,
+                "view_id": view_id,
+                "filters": {"field": "status", "op": "eq", "value": "new"},
+            }
+            return httpx.Response(200, json={"items": [], "has_more": False})
+        if request.url.path == "/internal/case-views/builtins":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/internal/case-views":
+            assert request.url.params["limit"] == "10"
+            return httpx.Response(200, json={"items": [], "has_more": False})
+        return httpx.Response(200, json={"id": view_id})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-views.sock")
+    await client.cases.list_views(limit=10)
+    await client.cases.list_builtin_views()
+    await client.cases.get_view(view_id)
+    await client.cases.search_cases(
+        limit=5,
+        view_id=view_id,
+        filters={"field": "status", "op": "eq", "value": "new"},
+    )
+    assert [request.url.path for request in requests] == [
+        "/internal/case-views",
+        "/internal/case-views/builtins",
+        f"/internal/case-views/{view_id}",
+        "/internal/cases/search",
+    ]

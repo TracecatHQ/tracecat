@@ -734,6 +734,15 @@ async def list_cases(
     namespace="core.cases",
 )
 async def search_cases(
+    view_id: Annotated[
+        str | None,
+        Doc(
+            "Run a saved case view (its UUID) or a built-in view (all, unassigned). "
+            "Only `filters` can be combined with a view; it is ANDed with the view's "
+            "criteria. Views that use 'me', such as assigned_to_me, fail in workflows "
+            "because a workflow has no signed-in user."
+        ),
+    ] = None,
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
@@ -889,6 +898,8 @@ async def search_cases(
         params["cursor"] = cursor
     if paginate and reverse:
         params["reverse"] = reverse
+    if view_id is not None:
+        params["view_id"] = view_id
     if search_term is not None:
         params["search_term"] = search_term
     if status is not None:
@@ -944,6 +955,31 @@ async def search_cases(
     if paginate:
         return response
     return response["items"]
+
+
+@registry.register(
+    default_title="List case views",
+    display_group="Cases",
+    description=(
+        "List built-in and shared saved case views. Pass a view's ID to "
+        "Search cases to run it."
+    ),
+    namespace="core.cases",
+)
+async def list_case_views(
+    include_builtins: Annotated[
+        bool, Doc("Include built-in views, such as Unassigned.")
+    ] = True,
+    limit: Annotated[int, Doc("Maximum number of saved views to return.")] = 100,
+) -> list[types.CaseViewRead]:
+    """List built-in and shared saved case views."""
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+        raise TracecatValidationError(
+            detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
+        )
+    builtins = await ctx.cases.aio.list_builtin_views() if include_builtins else []
+    saved = await ctx.cases.aio.list_views(limit=limit)
+    return [*builtins, *saved["items"]]
 
 
 @registry.register(

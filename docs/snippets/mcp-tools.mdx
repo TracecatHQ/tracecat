@@ -273,6 +273,12 @@
   Search cases with filtering and sorting.
 </ResponseField>
 
+<ResponseField name="list_case_views" type="tool">
+  List saved case views you can see, to run with search_cases(view_id=...).
+
+  A view is a saved case search: personal (only you) or shared with the workspace. Built-in views (all, assigned_to_me, unassigned, created_by_me) come first on the first page when include_builtins is true.
+</ResponseField>
+
 <ResponseField name="get_case" type="tool">
   Get a specific case with full details including fields, tags, and description.
 </ResponseField>

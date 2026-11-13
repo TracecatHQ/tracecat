@@ -256,6 +256,7 @@ class CasesClient:
         limit: int = 20,
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
+        view_id: str | Unset = UNSET,
         search_term: str | Unset = UNSET,
         search_mode: Literal["full_text", "literal"] | Unset = UNSET,
         search_columns: list[Literal["summary", "description"]] | Unset = UNSET,
@@ -296,6 +297,8 @@ class CasesClient:
         preserved; is_null matches missing paths, not explicit JSON null.
         Exact IDs and compatibility criteria are ANDed with the filter tree.
         Returned details are independent of matching.
+        view_id runs a saved or built-in case view; only filters may be combined
+        with it, and they are ANDed with the view's criteria.
         Explicit full_text uses required words/per-field phrases and defaults to
         relevance. Literal is an escaped complete substring. Omitted mode retains
         legacy behavior. search_columns selects summary/description.
@@ -315,6 +318,8 @@ class CasesClient:
             params["cursor"] = cursor
         if is_set(reverse):
             params["reverse"] = reverse
+        if is_set(view_id):
+            params["view_id"] = view_id
         if is_set(search_term):
             params["search_term"] = search_term
         if is_set(status):
@@ -382,6 +387,34 @@ class CasesClient:
                 params[name] = value
         # The standalone registry forwards JSON; the server validates the shared AST.
         return await self._client.post("/cases/search", json=to_jsonable_python(params))
+
+    # === Views === #
+
+    async def list_views(
+        self, *, limit: int = 100, cursor: str | Unset = UNSET
+    ) -> types.CaseViewListResponse:
+        """List shared saved case views. Workflows have no personal views.
+
+        Args:
+            limit: Maximum views per page.
+            cursor: Continuation cursor from a previous page.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        return await self._client.get("/case-views", params=params)
+
+    async def list_builtin_views(self) -> list[types.CaseViewRead]:
+        """List the built-in case views, such as "Unassigned"."""
+        return await self._client.get("/case-views/builtins")
+
+    async def get_view(self, view_id: str) -> types.CaseViewRead:
+        """Get one shared or built-in case view.
+
+        Args:
+            view_id: A saved view UUID or a built-in view ID.
+        """
+        return await self._client.get(f"/case-views/{view_id}")
 
     # === Comments === #
 

@@ -219,6 +219,37 @@ class CaseListResponse(TypedDict):
     total_estimate: int | None
 
 
+class CaseViewRead(TypedDict):
+    """A saved or built-in case view."""
+
+    id: str
+    kind: Literal["builtin", "custom"]
+    name: str
+    visibility: Literal["personal", "workspace"]
+    owner_id: UUID | None
+    query: dict[str, Any]
+    order_by: str | None
+    sort: Literal["asc", "desc"] | None
+    columns: list[str] | None
+    can_edit: bool
+    pinned: bool
+    pin_position: int | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    stale_refs: list[dict[str, str]]
+
+
+class CaseViewListResponse(TypedDict):
+    """Paginated saved case view list."""
+
+    items: list[CaseViewRead]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+    total_estimate: int | None
+
+
 class CaseComment(TypedDict):
     """Case comment information."""
 
