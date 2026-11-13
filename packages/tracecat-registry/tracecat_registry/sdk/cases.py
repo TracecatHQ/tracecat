@@ -542,6 +542,14 @@ class CasesClient:
         """
         await self._client.delete(f"/cases/{case_id}/tags/{tag_id}")
 
+    async def delete_case_tag(self, tag_id: str) -> None:
+        """Delete a case tag definition from the workspace.
+
+        Args:
+            tag_id: The tag UUID or ref.
+        """
+        await self._client.delete(f"/case-tags/{tag_id}")
+
     # === Attachments === #
 
     async def list_attachments(self, case_id: str) -> list[types.CaseAttachmentRead]:

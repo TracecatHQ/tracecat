@@ -549,3 +549,23 @@ async def list_executions(
         limit=limit,
         cursor=cursor,
     )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "Delete a workflow tag from the workspace by tag ID or ref. "
+        "This also removes the tag from every workflow."
+        + _WORKSPACE_CHAT_SKILL_GUIDANCE
+    ),
+    default_title="Delete workflow tag",
+    display_group="Workflows",
+)
+async def delete_workflow_tag(
+    *,
+    tag: Annotated[
+        str,
+        Doc("The tag identifier (ID or ref) to delete."),
+    ],
+) -> None:
+    await ctx.workflows.aio.delete_tag(tag)

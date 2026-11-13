@@ -808,6 +808,29 @@ The tag identifier (ID or ref) to remove from the case.
     tag: needs-triage
 ```
 
+## `core.cases.delete_case_tag`
+
+Delete a case tag from the workspace by tag ID or ref. This also removes the tag from every case.
+
+### Inputs
+
+<ParamField path="tag" type="string" required>
+
+The tag identifier (ID or ref) to delete.
+
+</ParamField>
+
+### Examples
+
+**Delete a case tag**
+
+```yaml
+- ref: delete_case_tag
+  action: core.cases.delete_case_tag
+  args:
+    tag: needs-triage
+```
+
 ## `core.cases.delete_case`
 
 Delete a case.

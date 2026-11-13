@@ -14,6 +14,8 @@ excluded_actions:
   - core.workflow.run
   - core.workflow.update_case_trigger
   - core.workflow.update_webhook
+  # Workspace administration actions without a docs page yet.
+  - core.workflow.delete_workflow_tag
 
 pages:
   - slug: request-actions/http
@@ -476,6 +478,9 @@ pages:
       - id: core.cases.remove_case_tag
         examples:
           - cases-remove-tag
+      - id: core.cases.delete_case_tag
+        examples:
+          - cases-delete-tag
       - id: core.cases.delete_case
         examples:
           - cases-delete

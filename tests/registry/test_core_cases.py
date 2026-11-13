@@ -22,6 +22,7 @@ from tracecat_registry.core.cases import (
     create_case,
     create_comment,
     delete_case,
+    delete_case_tag,
     delete_comment,
     download_attachment,
     get_attachment,
@@ -1063,6 +1064,14 @@ class TestCoreCaseTags:
         )
 
         mock_cases_client.remove_tag.assert_called_once_with(case_id, tag_id="test-tag")
+        assert result is None
+
+    async def test_delete_case_tag_success(self, mock_cases_client: AsyncMock):
+        mock_cases_client.delete_case_tag.return_value = None
+
+        result = await delete_case_tag(tag="test-tag")
+
+        mock_cases_client.delete_case_tag.assert_called_once_with("test-tag")
         assert result is None
 
 

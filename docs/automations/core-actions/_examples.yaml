@@ -525,6 +525,15 @@ examples:
           case_id: ${{ TRIGGER.case_id }}
           tag: needs-triage
 
+  cases-delete-tag:
+    title: Delete a case tag
+    language: yaml
+    code: |
+      - ref: delete_case_tag
+        action: core.cases.delete_case_tag
+        args:
+          tag: needs-triage
+
   cases-delete:
     title: Delete a case
     language: yaml

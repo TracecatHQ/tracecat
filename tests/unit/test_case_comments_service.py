@@ -16,7 +16,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.agent_invocations.completion import (
     CaseCommentAgentInvocationCompletionService,
 )
@@ -938,6 +938,73 @@ class TestCaseCommentsService:
                 is None
             )
 
+    async def test_agent_thread_context_skips_deleted_replies(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session, case_comments_service.workspace_id, name="Context agent"
+        )
+        root = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Root")
+        )
+        deleted = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Secret", parent_id=root.id)
+        )
+        await case_comments_service.delete_comment(deleted)
+        invoking = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=_mention_token("Context agent", preset.id), parent_id=root.id
+            ),
+        )
+        [invocation] = await _load_comment_invocations(session, invoking.id)
+
+        context = await CaseCommentAgentInvocationService(
+            session, case_comments_service.role
+        ).load_thread_context(invocation.id)
+
+        assert context is not None
+        assert [entry.id for entry in context.entries] == [root.id, invoking.id]
+
+    async def test_agent_thread_context_rejects_deleted_invoking_comment(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session, case_comments_service.workspace_id, name="Deleted source agent"
+        )
+        mention = _mention_token("Deleted source agent", preset.id)
+        root = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content=mention)
+        )
+        reply = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content=mention, parent_id=root.id)
+        )
+        invocation_service = CaseCommentAgentInvocationService(
+            session, case_comments_service.role
+        )
+
+        # A deleted invoking reply is refused; its root's thread still loads.
+        [reply_invocation] = await _load_comment_invocations(session, reply.id)
+        await case_comments_service.delete_comment(reply)
+        with pytest.raises(
+            TracecatConflictError, match="Cannot run an agent on a deleted comment"
+        ):
+            await invocation_service.load_thread_context(reply_invocation.id)
+
+        [root_invocation] = await _load_comment_invocations(session, root.id)
+        assert await invocation_service.load_thread_context(root_invocation.id)
+        await case_comments_service.delete_comment(root)
+        with pytest.raises(
+            TracecatConflictError, match="Cannot run an agent on a deleted comment"
+        ):
+            await invocation_service.load_thread_context(root_invocation.id)
+
     async def test_agent_completion_rejects_deleted_thread_root(
         self,
         case_comments_service: CaseCommentsService,
@@ -997,6 +1064,58 @@ class TestCaseCommentsService:
             select(CaseComment).where(CaseComment.parent_id == root_id)
         )
         assert [reply.id for reply in replies] == [invoking.id]
+
+    async def test_agent_completion_rejects_deleted_invoking_comment(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session,
+            case_comments_service.workspace_id,
+            name="Deleted invoker agent",
+        )
+        invoking = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=_mention_token("Deleted invoker agent", preset.id)
+            ),
+        )
+        invoking_id = invoking.id
+        [invocation] = await _load_comment_invocations(session, invoking.id)
+        agent_session = AgentSession(
+            workspace_id=case_comments_service.workspace_id,
+            entity_type="case",
+            entity_id=test_case.id,
+            agent_preset_id=preset.id,
+        )
+        session.add(agent_session)
+        await session.flush()
+        session_id = agent_session.id
+        invocation.session_id = session_id
+        invocation.status = CaseCommentAgentInvocationStatus.RUNNING.value
+        await session.commit()
+
+        await case_comments_service.delete_comment(invoking)
+        completion = CaseCommentAgentInvocationCompletionService(
+            session,
+            case_comments_service.role,
+        )
+        with pytest.raises(
+            TracecatConflictError,
+            match="Cannot reply to a deleted comment$",
+        ):
+            await completion.create_reply_and_mark_succeeded(
+                session_id,
+                "late agent output",
+            )
+
+        await session.rollback()
+        replies = await session.scalars(
+            select(CaseComment).where(CaseComment.parent_id == invoking_id)
+        )
+        assert list(replies) == []
 
     async def test_create_comment_skips_missing_and_deleted_agent_mentions(
         self,
@@ -1112,7 +1231,7 @@ class TestCaseCommentsService:
         ]
         assert after == before
 
-    async def test_delete_comment_cascades_to_mentions(
+    async def test_delete_comment_keeps_mentions(
         self,
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
@@ -1131,7 +1250,7 @@ class TestCaseCommentsService:
 
         await case_comments_service.delete_comment(comment)
 
-        assert await _load_comment_mentions(session, comment.id) == []
+        assert len(await _load_comment_mentions(session, comment.id)) == 1
 
     async def test_create_workflow_backed_comment(
         self,
@@ -1797,20 +1916,11 @@ class TestCaseCommentsService:
             AuditEventStatus.FAILURE.value,
         ]
 
-    @pytest.mark.parametrize(
-        ("action", "error"),
-        [
-            ("update", "You cannot update this comment"),
-            ("delete", "You can only delete your own comments"),
-        ],
-    )
-    async def test_comment_writes_reject_null_user_for_service_account(
+    async def test_update_comment_rejects_null_user_for_service_account(
         self,
         session: AsyncSession,
         svc_role: Role,
         test_case: Case,
-        action: str,
-        error: str,
     ) -> None:
         comment = CaseComment(
             id=uuid.uuid4(),
@@ -1834,14 +1944,132 @@ class TestCaseCommentsService:
         )
         service = CaseCommentsService(session=session, role=service_account_role)
 
-        with pytest.raises(TracecatAuthorizationError, match=error):
-            if action == "update":
-                await service.update_comment(
-                    comment,
-                    CaseCommentUpdate(content="Updated by service account"),
-                )
-            else:
-                await service.delete_comment(comment)
+        with pytest.raises(
+            TracecatAuthorizationError, match="You cannot update this comment"
+        ):
+            await service.update_comment(
+                comment,
+                CaseCommentUpdate(content="Updated by service account"),
+            )
+
+    async def test_admin_can_delete_other_users_comment(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+        test_user_id: uuid.UUID,
+    ) -> None:
+        created_comment = await case_comments_service.create_comment(
+            test_case, comment_create_params
+        )
+        author_id = created_comment.user_id
+        admin_role = svc_role.model_copy(
+            update={"user_id": test_user_id, "scopes": ADMIN_SCOPES}
+        )
+
+        await CaseCommentsService(session=session, role=admin_role).delete_comment(
+            created_comment
+        )
+
+        deleted = await case_comments_service.get_comment(created_comment.id)
+        assert deleted is not None
+        assert deleted.deleted_at is not None
+        case_events = await _load_case_events(session, test_case.id)
+        assert case_events[-1].type == CaseEventType.COMMENT_DELETED
+        assert case_events[-1].user_id == test_user_id
+        assert case_events[-1].data["author_id"] == str(author_id)
+        assert case_events[-1].data["delete_mode"] == "soft"
+
+    async def test_admin_can_soft_delete_other_users_thread_root(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        test_user_id: uuid.UUID,
+    ) -> None:
+        parent = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Parent", parent_id=None)
+        )
+        await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Reply", parent_id=parent.id)
+        )
+        admin_role = svc_role.model_copy(
+            update={"user_id": test_user_id, "scopes": ADMIN_SCOPES}
+        )
+
+        await CaseCommentsService(session=session, role=admin_role).delete_comment(
+            parent
+        )
+
+        soft_deleted = await case_comments_service.get_comment(parent.id)
+        assert soft_deleted is not None
+        assert soft_deleted.deleted_at is not None
+        case_events = await _load_case_events(session, test_case.id)
+        assert case_events[-1].type == CaseEventType.COMMENT_DELETED
+        assert case_events[-1].data["delete_mode"] == "soft"
+        assert case_events[-1].data["author_id"] == str(parent.user_id)
+
+    async def test_editor_cannot_delete_comments(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+        test_user_id: uuid.UUID,
+    ) -> None:
+        created_comment = await case_comments_service.create_comment(
+            test_case, comment_create_params
+        )
+        editor_role = svc_role.model_copy(
+            update={"user_id": test_user_id, "scopes": EDITOR_SCOPES}
+        )
+
+        with pytest.raises(ScopeDeniedError):
+            await CaseCommentsService(session=session, role=editor_role).delete_comment(
+                created_comment
+            )
+
+        assert await case_comments_service.get_comment(created_comment.id) is not None
+
+    async def test_service_account_can_delete_system_comment(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+    ) -> None:
+        comment = CaseComment(
+            id=uuid.uuid4(),
+            workspace_id=svc_role.workspace_id,
+            case_id=test_case.id,
+            content="System comment",
+            user_id=None,
+        )
+        session.add(comment)
+        await session.commit()
+        await session.refresh(comment)
+        service_account_role = svc_role.model_copy(
+            update={
+                "type": "service_account",
+                "user_id": None,
+                "service_account_id": uuid.uuid4(),
+                "bound_workspace_id": svc_role.workspace_id,
+                "scopes": ADMIN_SCOPES,
+            }
+        )
+        service = CaseCommentsService(session=session, role=service_account_role)
+
+        await service.delete_comment(comment)
+
+        deleted = await service.get_comment(comment.id)
+        assert deleted is not None
+        assert deleted.deleted_at is not None
+        case_events = await _load_case_events(session, test_case.id)
+        assert case_events[-1].type == CaseEventType.COMMENT_DELETED
+        assert case_events[-1].data["author_id"] is None
 
     async def test_delete_comment(
         self,
@@ -1861,13 +2089,17 @@ class TestCaseCommentsService:
         # Delete the comment
         await case_comments_service.delete_comment(created_comment)
 
-        # Verify deletion
+        # The row is kept but hidden from listings
         deleted_comment = await case_comments_service.get_comment(created_comment.id)
-        assert deleted_comment is None
+        assert deleted_comment is not None
+        assert deleted_comment.deleted_at is not None
+        assert deleted_comment.content == created_comment.content
+        assert await case_comments_service.list_comments(test_case) == []
+        assert await case_comments_service.list_comment_threads(test_case) == []
 
         case_events = await _load_case_events(session, test_case.id)
         assert case_events[-1].type == CaseEventType.COMMENT_DELETED
-        assert case_events[-1].data["delete_mode"] == "hard"
+        assert case_events[-1].data["delete_mode"] == "soft"
 
         audit_events = audit_event_calls[existing_audit_count:]
         delete_audits = [event for event in audit_events if event.action == "delete"]
@@ -1876,15 +2108,15 @@ class TestCaseCommentsService:
             AuditEventStatus.SUCCESS.value,
         ]
         assert "content" not in delete_audits[-1].data
-        assert delete_audits[-1].data["delete_mode"] == "hard"
+        assert delete_audits[-1].data["delete_mode"] == "soft"
 
-    async def test_delete_reply_hard_deletes_leaf(
+    async def test_delete_reply_soft_deletes_and_hides_it(
         self,
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         test_case: Case,
     ) -> None:
-        """Replies are hard deleted."""
+        """Deleted replies are kept in the database but hidden from the thread."""
         parent = await case_comments_service.create_comment(
             test_case,
             CaseCommentCreate(content="Parent", parent_id=None),
@@ -1897,11 +2129,46 @@ class TestCaseCommentsService:
         await case_comments_service.delete_comment(reply)
 
         deleted_reply = await case_comments_service.get_comment(reply.id)
-        assert deleted_reply is None
+        assert deleted_reply is not None
+        assert deleted_reply.deleted_at is not None
+
+        threads = await case_comments_service.list_comment_threads(test_case)
+        assert len(threads) == 1
+        assert threads[0].comment.id == parent.id
+        assert threads[0].replies == []
+        assert threads[0].reply_count == 0
+        thread = await case_comments_service.get_comment_thread(parent.id)
+        assert thread is not None
+        assert thread.replies == []
+        assert [c.id for c in await case_comments_service.list_comments(test_case)] == [
+            parent.id
+        ]
 
         case_events = await _load_case_events(session, test_case.id)
         assert case_events[-1].type == CaseEventType.COMMENT_REPLY_DELETED
-        assert case_events[-1].data["delete_mode"] == "hard"
+        assert case_events[-1].data["delete_mode"] == "soft"
+
+    async def test_deleted_thread_starter_hidden_once_replies_are_deleted(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        parent = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Parent", parent_id=None)
+        )
+        reply = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Reply", parent_id=parent.id)
+        )
+
+        await case_comments_service.delete_comment(parent)
+        threads = await case_comments_service.list_comment_threads(test_case)
+        assert [t.comment.id for t in threads] == [parent.id]
+        assert threads[0].comment.is_deleted is True
+
+        await case_comments_service.delete_comment(reply)
+        assert await case_comments_service.list_comment_threads(test_case) == []
+        assert await case_comments_service.list_comments(test_case) == []
+        assert await case_comments_service.get_comment_thread(parent.id) is None
 
     async def test_delete_thread_starter_with_replies_soft_deletes(
         self,
@@ -1950,6 +2217,28 @@ class TestCaseCommentsService:
         delete_audits = [event for event in audit_events if event.action == "delete"]
         assert delete_audits[-1].data["delete_mode"] == "soft"
         assert "content" not in delete_audits[-1].data
+
+    async def test_delete_comment_is_idempotent(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+        audit_event_calls: list[SimpleNamespace],
+    ) -> None:
+        comment = await case_comments_service.create_comment(
+            test_case, CaseCommentCreate(content="Leaf", parent_id=None)
+        )
+
+        await case_comments_service.delete_comment(comment)
+        event_count = len(await _load_case_events(session, test_case.id))
+        audit_count = len(audit_event_calls)
+
+        deleted = await case_comments_service.get_comment(comment.id)
+        assert deleted is not None
+        await case_comments_service.delete_comment(deleted)
+
+        assert len(await _load_case_events(session, test_case.id)) == event_count
+        assert len(audit_event_calls) == audit_count
 
     async def test_delete_thread_starter_with_replies_is_idempotent(
         self,
@@ -2006,42 +2295,3 @@ class TestCaseCommentsService:
 
         assert created_comment.id is not None
         assert await case_comments_service.get_comment(created_comment.id) is not None
-
-    async def test_delete_comment_authorization(
-        self,
-        session: AsyncSession,
-        svc_role: Role,
-        test_case: Case,
-        comment_create_params: CaseCommentCreate,
-        test_user_id: uuid.UUID,
-    ) -> None:
-        """Test that a user can only delete their own comments."""
-        # Create service with original user
-        service1 = CaseCommentsService(session=session, role=svc_role)
-
-        # Create a comment as the first user
-        created_comment = await service1.create_comment(
-            test_case, comment_create_params
-        )
-
-        # Create a different role with a different user ID
-        different_role = Role(
-            type=svc_role.type,
-            user_id=test_user_id,  # Different user ID
-            workspace_id=svc_role.workspace_id,
-            organization_id=svc_role.organization_id,
-            service_id=svc_role.service_id,
-            scopes=ADMIN_SCOPES,
-        )
-
-        # Create service with different user
-        service2 = CaseCommentsService(session=session, role=different_role)
-
-        # Try to delete the comment with a different user
-        # Should raise authorization error
-        with pytest.raises(TracecatAuthorizationError):
-            await service2.delete_comment(created_comment)
-
-        # Verify the comment wasn't deleted
-        retrieved_comment = await service1.get_comment(created_comment.id)
-        assert retrieved_comment is not None

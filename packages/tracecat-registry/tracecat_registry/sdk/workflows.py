@@ -96,6 +96,14 @@ class WorkflowsClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
+    async def delete_tag(self, tag_id: str) -> None:
+        """Delete a workflow tag definition from the workspace.
+
+        Args:
+            tag_id: The tag UUID or ref.
+        """
+        await self._client.delete(f"/tags/{tag_id}")
+
     async def create_workflow(
         self,
         *,

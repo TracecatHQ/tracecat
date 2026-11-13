@@ -410,6 +410,10 @@ class _CasesAsync:
         *,
         tag_id: str,
     ) -> None: ...
+    async def delete_case_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     async def list_attachments(
         self,
         case_id: str,
@@ -771,6 +775,10 @@ class _Cases:
         self,
         case_id: str,
         *,
+        tag_id: str,
+    ) -> None: ...
+    def delete_case_tag(
+        self,
         tag_id: str,
     ) -> None: ...
     def list_attachments(
@@ -1335,6 +1343,10 @@ class _Variables:
     ) -> dict[str, Any]: ...
 
 class _WorkflowsAsync:
+    async def delete_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     async def execute(
         self,
         *,
@@ -1427,6 +1439,10 @@ class _WorkflowsAsync:
 class _Workflows:
     @property
     def aio(self) -> _WorkflowsAsync: ...
+    def delete_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     def execute(
         self,
         *,

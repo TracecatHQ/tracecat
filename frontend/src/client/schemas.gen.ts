@@ -13866,6 +13866,19 @@ export const $CommentDeletedEventRead = {
     delete_mode: {
       $ref: "#/components/schemas/CaseCommentDeleteMode",
     },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+      description: "The author of the deleted comment.",
+    },
     user_id: {
       anyOf: [
         {
@@ -14004,6 +14017,19 @@ export const $CommentReplyDeletedEventRead = {
     },
     delete_mode: {
       $ref: "#/components/schemas/CaseCommentDeleteMode",
+    },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+      description: "The author of the deleted comment.",
     },
     user_id: {
       anyOf: [

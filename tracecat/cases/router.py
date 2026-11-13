@@ -33,6 +33,8 @@ from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
     CaseEventRead,
     CaseEventsWithUsers,
+    CommentDeletedEventRead,
+    CommentReplyDeletedEventRead,
     TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
@@ -1119,6 +1121,11 @@ async def list_events_with_users(
                 user_ids.add(root_evt.old)
             if root_evt.new is not None:
                 user_ids.add(root_evt.new)
+        if (
+            isinstance(root_evt, CommentDeletedEventRead | CommentReplyDeletedEventRead)
+            and root_evt.author_id is not None
+        ):
+            user_ids.add(root_evt.author_id)
         if root_evt.user_id is not None:
             user_ids.add(root_evt.user_id)
         events.append(evt)
