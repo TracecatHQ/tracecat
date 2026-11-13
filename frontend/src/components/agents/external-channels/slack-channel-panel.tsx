@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { AgentPresetRead } from "@/client"
+import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
 import { CopyButton } from "@/components/copy-button"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -47,71 +48,6 @@ type SlackChannelConfig = {
   slack_signing_secret: string
   slack_client_id?: string | null
   slack_client_secret?: string | null
-}
-
-export function buildSlackManifest({
-  endpointUrl,
-  oauthRedirectUrl,
-  appName,
-  includeEventSubscriptions,
-}: {
-  endpointUrl: string
-  oauthRedirectUrl: string
-  appName: string
-  includeEventSubscriptions: boolean
-}): Record<string, unknown> {
-  const settings: Record<string, unknown> = {
-    interactivity: includeEventSubscriptions
-      ? { is_enabled: true, request_url: endpointUrl }
-      : { is_enabled: false },
-    org_deploy_enabled: false,
-    socket_mode_enabled: false,
-    token_rotation_enabled: false,
-  }
-  if (includeEventSubscriptions) {
-    settings.event_subscriptions = {
-      request_url: endpointUrl,
-      bot_events: ["app_mention"],
-    }
-  }
-
-  return {
-    display_information: {
-      name: appName,
-      description: "Tracecat external channel agent",
-      background_color: "#111827",
-    },
-    features: {
-      app_home: {
-        home_tab_enabled: false,
-        messages_tab_enabled: true,
-        messages_tab_read_only_enabled: true,
-      },
-      bot_user: {
-        display_name: appName,
-        always_online: true,
-      },
-    },
-    oauth_config: {
-      scopes: {
-        bot: [
-          "app_mentions:read",
-          "channels:history",
-          "chat:write",
-          "chat:write.customize",
-          "groups:history",
-          "im:history",
-          "mpim:history",
-          "reactions:read",
-          "reactions:write",
-          "users:read",
-          "users:read.email",
-        ],
-      },
-      redirect_urls: [oauthRedirectUrl],
-    },
-    settings,
-  }
 }
 
 function buildSlackOAuthRedirectUrlFromEndpoint(endpointUrl: string): string {
@@ -154,7 +90,7 @@ export function SlackChannelPanel({
   preset,
 }: {
   workspaceId: string
-  preset: AgentPresetRead | null
+  preset: AgentPresetRead
 }) {
   const { hasEntitlement, isLoading: isLoadingEntitlements } = useEntitlements()
   const channelsEnabled = hasEntitlement("agent_channels")
@@ -231,7 +167,6 @@ export function SlackChannelPanel({
         endpointUrl,
         oauthRedirectUrl,
         appName: preset?.name ?? "Tracecat",
-        includeEventSubscriptions: true,
       }),
       null,
       2
@@ -290,14 +225,6 @@ export function SlackChannelPanel({
     window.history.replaceState({}, "", url.toString())
   }, [])
 
-  if (!preset) {
-    return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
-        Save this agent preset before configuring external channels.
-      </div>
-    )
-  }
-
   if (tokensIsLoading) {
     return <CenteredSpinner />
   }
@@ -319,9 +246,6 @@ export function SlackChannelPanel({
 
   async function handleConnectToSlack(): Promise<void> {
     const presetId = preset?.id
-    if (!presetId) {
-      return
-    }
     const clientId = slackClientId.trim()
     const clientSecret = slackClientSecret.trim()
     const signingSecret = slackSigningSecret.trim()
@@ -403,9 +327,6 @@ export function SlackChannelPanel({
   async function handleSelectMethod(method: SetupMethod): Promise<void> {
     setSetupMethod(method)
     const presetId = preset?.id
-    if (!presetId) {
-      return
-    }
     if (tokenId) {
       setDialogStage(method === "new" ? "guide" : "connect")
       return
