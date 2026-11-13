@@ -56,7 +56,9 @@ class CaseCommentAgentInvocationCompletionService(BaseWorkspaceService):
                 CaseComment.workspace_id == self.workspace_id,
                 Case.workspace_id == self.workspace_id,
             )
-            .with_for_update(of=CaseCommentAgentInvocation)
+            # Lock the invoking comment too, so a concurrent delete either
+            # commits before the deleted_at check below or waits for the reply.
+            .with_for_update(of=[CaseCommentAgentInvocation, CaseComment])
         )
         row = (await self.session.execute(statement)).tuples().one_or_none()
         if row is None:

@@ -969,6 +969,31 @@ class TestCaseCommentsService:
         assert context is not None
         assert [entry.id for entry in context.entries] == [root.id, invoking.id]
 
+    async def test_agent_thread_context_rejects_deleted_invoking_comment(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        preset = await _create_agent_preset(
+            session, case_comments_service.workspace_id, name="Deleted source agent"
+        )
+        invoking = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content=_mention_token("Deleted source agent", preset.id)
+            ),
+        )
+        [invocation] = await _load_comment_invocations(session, invoking.id)
+        await case_comments_service.delete_comment(invoking)
+
+        with pytest.raises(
+            TracecatConflictError, match="Cannot run an agent on a deleted comment"
+        ):
+            await CaseCommentAgentInvocationService(
+                session, case_comments_service.role
+            ).load_thread_context(invocation.id)
+
     async def test_agent_completion_rejects_deleted_thread_root(
         self,
         case_comments_service: CaseCommentsService,

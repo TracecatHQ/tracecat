@@ -33,6 +33,7 @@ from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
+    TracecatConflictError,
     TracecatValidationError,
 )
 from tracecat.logger import logger
@@ -60,7 +61,13 @@ async def prepare_comment_agent_invocation_activity(
     async with CaseCommentAgentInvocationDispatcher.with_session(
         role=input.role
     ) as dispatcher:
-        prepared = await dispatcher.create_or_get_agent_session(input.invocation_id)
+        try:
+            prepared = await dispatcher.create_or_get_agent_session(input.invocation_id)
+        except TracecatConflictError as e:
+            # The invoking comment was deleted; retrying cannot help.
+            raise ApplicationError(
+                str(e), type=e.__class__.__name__, non_retryable=True
+            ) from e
         if prepared is None:
             return PrepareCommentAgentInvocationResult()
         session_service = AgentSessionService(

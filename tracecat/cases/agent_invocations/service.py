@@ -26,6 +26,7 @@ from tracecat.db.models import (
     CaseCommentMention,
     User,
 )
+from tracecat.exceptions import TracecatConflictError
 from tracecat.service import BaseWorkspaceService
 
 _DELETED_COMMENT_CONTENT = "Comment deleted"
@@ -195,12 +196,17 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
     async def load_thread_context(
         self, invocation_id: uuid.UUID
     ) -> CommentThreadContext | None:
-        """Load the ordered comment thread containing an invocation."""
+        """Load the ordered comment thread containing an invocation.
+
+        Raises:
+            TracecatConflictError: If the invoking comment was deleted.
+        """
         source_statement = (
             select(
                 CaseCommentMention.comment_id,
                 CaseComment.case_id,
                 CaseComment.parent_id,
+                CaseComment.deleted_at,
             )
             .join(
                 CaseCommentAgentInvocation,
@@ -218,7 +224,9 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
         if source is None:
             return None
 
-        invoking_comment_id, case_id, parent_id = source
+        invoking_comment_id, case_id, parent_id, deleted_at = source
+        if deleted_at is not None:
+            raise TracecatConflictError("Cannot run an agent on a deleted comment")
         thread_root_id = parent_id or invoking_comment_id
         reply_invocation = aliased(CaseCommentAgentInvocation)
         thread_statement = (
