@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -38,8 +39,10 @@ from tracecat.cases.schemas import (
     CaseStatusGroupCounts,
 )
 from tracecat.cases.search_adapters import (
+    UNASSIGNED_IDENTIFIERS,
     iter_case_filter_conditions,
     legacy_case_filters,
+    resolve_user_refs,
 )
 from tracecat.cases.search_metadata import validate_case_filter_metadata
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
@@ -185,17 +188,34 @@ class CaseSearchService(BaseWorkspaceService):
             ref, option = entry.split(":", 1)
             dropdowns.setdefault(ref, []).append(option)
         assignees = query.assignee_id or []
+        user_id = self.role.user_id
+        # Relative windows resolve here, on every run, so a saved query keeps
+        # meaning "the last 30 days" rather than a fixed date.
+        now = datetime.now(UTC)
+        start_time = (
+            query.created_within.start(now)
+            if query.created_within is not None
+            else query.start_time
+        )
+        updated_after = (
+            query.updated_within.start(now)
+            if query.updated_within is not None
+            else query.updated_after
+        )
         return legacy_case_filters(
             status=query.status,
             priority=query.priority,
             severity=query.severity,
-            assignee_ids=[value for value in assignees if isinstance(value, uuid.UUID)],
-            include_unassigned=any(isinstance(value, str) for value in assignees),
+            assignee_ids=resolve_user_refs(assignees, user_id=user_id),
+            include_unassigned=any(
+                value in UNASSIGNED_IDENTIFIERS for value in assignees
+            ),
+            creator_ids=resolve_user_refs(query.created_by or [], user_id=user_id),
             tag_refs=[tag.ref for tag in tags],
             dropdown_filters=dropdowns,
-            start_time=query.start_time,
+            start_time=start_time,
             end_time=query.end_time,
-            updated_after=query.updated_after,
+            updated_after=updated_after,
             updated_before=query.updated_before,
         )
 

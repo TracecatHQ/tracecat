@@ -5993,11 +5993,29 @@ export const $AlertArtifact = {
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
-export const $AndClause = {
+export const $AndClause_Input = {
   properties: {
     and: {
       items: {
-        $ref: "#/components/schemas/Filter",
+        $ref: "#/components/schemas/Filter-Input",
+      },
+      type: "array",
+      minItems: 1,
+      title: "And",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["and"],
+  title: "AndClause",
+  description: "A conjunction of one or more filters.",
+} as const
+
+export const $AndClause_Output = {
+  properties: {
+    and: {
+      items: {
+        $ref: "#/components/schemas/Filter-Output",
       },
       type: "array",
       minItems: 1,
@@ -8111,6 +8129,11 @@ export const $BuildEdition = {
   enum: ["oss", "ee"],
   title: "BuildEdition",
   description: "Edition of the running deployment.",
+} as const
+
+export const $BuiltinCaseViewId = {
+  type: "string",
+  enum: ["all", "assigned_to_me", "unassigned", "created_by_me"],
 } as const
 
 export const $CaseAgentSessionBackfillStatus = {
@@ -10760,12 +10783,29 @@ Values:
     OTHER (99): The priority is not normalized`,
 } as const
 
-export const $CaseQuery = {
+export const $CaseQuery_Input = {
   properties: {
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's. Other matching fields cannot be combined with a view.",
+    },
     filters: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Filter",
+          $ref: "#/components/schemas/Filter-Input",
         },
         {
           type: "null",
@@ -10910,7 +10950,7 @@ export const $CaseQuery = {
               },
               {
                 type: "string",
-                enum: ["unassigned", "__UNASSIGNED__"],
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
               },
             ],
           },
@@ -10921,6 +10961,33 @@ export const $CaseQuery = {
         },
       ],
       title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description:
+        'Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.',
     },
     tags: {
       anyOf: [
@@ -10976,6 +11043,18 @@ export const $CaseQuery = {
       ],
       title: "End Time",
     },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
     updated_after: {
       anyOf: [
         {
@@ -10999,6 +11078,345 @@ export const $CaseQuery = {
         },
       ],
       title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseQuery",
+  description: `Matching criteria shared by case search and filtered status counts.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
+} as const
+
+export const $CaseQuery_Output = {
+  properties: {
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's. Other matching fields cannot be combined with a view.",
+    },
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description:
+        'Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.',
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
     },
   },
   additionalProperties: false,
@@ -11424,10 +11842,27 @@ export const $CaseSearchRequest = {
       description: "Reverse pagination direction",
       default: false,
     },
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's. Other matching fields cannot be combined with a view.",
+    },
     filters: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Filter",
+          $ref: "#/components/schemas/Filter-Input",
         },
         {
           type: "null",
@@ -11572,7 +12007,7 @@ export const $CaseSearchRequest = {
               },
               {
                 type: "string",
-                enum: ["unassigned", "__UNASSIGNED__"],
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
               },
             ],
           },
@@ -11583,6 +12018,33 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description:
+        'Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.',
     },
     tags: {
       anyOf: [
@@ -11638,6 +12100,18 @@ export const $CaseSearchRequest = {
       ],
       title: "End Time",
     },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
     updated_after: {
       anyOf: [
         {
@@ -11661,6 +12135,18 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
     },
     order_by: {
       anyOf: [
@@ -12764,6 +13250,329 @@ export const $CaseVersionRestoreRead = {
   title: "CaseVersionRestoreRead",
   description:
     "Confirmation that a historical case field version was restored.",
+} as const
+
+export const $CaseViewColumns = {
+  items: {
+    type: "string",
+  },
+  type: "array",
+  maxItems: 100,
+} as const
+
+export const $CaseViewCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+      default: "personal",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseQuery-Input",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewColumns",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["name"],
+  title: "CaseViewCreate",
+  description: "Save a case search as a named view.",
+} as const
+
+export const $CaseViewKind = {
+  type: "string",
+  enum: ["builtin", "custom"],
+} as const
+
+export const $CaseViewPinUpdate = {
+  properties: {
+    position: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position",
+      description: "Sidebar position. Omit to add the view at the end.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseViewPinUpdate",
+  description: "Where to put a pinned view in the sidebar.",
+} as const
+
+export const $CaseViewRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "A UUID for saved views, or a built-in view ID.",
+    },
+    kind: {
+      $ref: "#/components/schemas/CaseViewKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+    },
+    owner_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Owner Id",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseQuery-Output",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Columns",
+    },
+    can_edit: {
+      type: "boolean",
+      title: "Can Edit",
+      description:
+        "Whether the requesting user may rename, change, or delete it.",
+    },
+    pinned: {
+      type: "boolean",
+      title: "Pinned",
+      default: false,
+    },
+    pin_position: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pin Position",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+    stale_refs: {
+      items: {
+        $ref: "#/components/schemas/CaseViewStaleRef",
+      },
+      type: "array",
+      title: "Stale Refs",
+      description:
+        "Deleted tags or dropdown options the query still names. Only filled when reading a single view.",
+    },
+  },
+  type: "object",
+  required: ["id", "kind", "name", "visibility", "query", "can_edit"],
+  title: "CaseViewRead",
+  description: "A saved or built-in case view, as seen by the requesting user.",
+} as const
+
+export const $CaseViewSort = {
+  type: "string",
+  enum: ["asc", "desc"],
+} as const
+
+export const $CaseViewStaleRef = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["tag", "dropdown"],
+      title: "Kind",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+      description: "The identifier as stored in the view's query.",
+    },
+  },
+  type: "object",
+  required: ["kind", "value"],
+  title: "CaseViewStaleRef",
+  description: `A reference in a view's query to something that no longer exists.
+
+When the view runs, a stale reference matches nothing.`,
+} as const
+
+export const $CaseViewUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    visibility: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewVisibility",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    query: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseQuery-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewColumns",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseViewUpdate",
+  description: `Change a saved view. Omitted fields stay as they are.
+
+\`\`order_by\`\`, \`\`sort\`\`, and \`\`columns\`\` accept \`\`null\`\` to clear them.`,
+} as const
+
+export const $CaseViewVisibility = {
+  type: "string",
+  enum: ["personal", "workspace"],
+  title: "CaseViewVisibility",
+  description: "Who can see a saved case view.",
 } as const
 
 export const $CaseViewedEventRead = {
@@ -14255,7 +15064,35 @@ export const $CommitInfo = {
   title: "CommitInfo",
 } as const
 
-export const $Condition = {
+export const $Condition_Input = {
+  properties: {
+    field: {
+      type: "string",
+      minLength: 1,
+      title: "Field",
+    },
+    op: {
+      $ref: "#/components/schemas/FilterOp",
+    },
+    value: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FilterValue",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "op"],
+  title: "Condition",
+  description: "A predicate over one resolver-defined field.",
+} as const
+
+export const $Condition_Output = {
   properties: {
     field: {
       type: "string",
@@ -14944,6 +15781,69 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_CaseViewRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseViewRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseViewRead]",
 } as const
 
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
@@ -18311,19 +19211,36 @@ export const $FileUIPart = {
   description: "A file part of a message.",
 } as const
 
-export const $Filter = {
+export const $Filter_Input = {
   oneOf: [
     {
-      $ref: "#/components/schemas/Condition",
+      $ref: "#/components/schemas/Condition-Input",
     },
     {
-      $ref: "#/components/schemas/AndClause",
+      $ref: "#/components/schemas/AndClause-Input",
     },
     {
-      $ref: "#/components/schemas/OrClause",
+      $ref: "#/components/schemas/OrClause-Input",
     },
     {
-      $ref: "#/components/schemas/NotClause",
+      $ref: "#/components/schemas/NotClause-Input",
+    },
+  ],
+} as const
+
+export const $Filter_Output = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Condition-Output",
+    },
+    {
+      $ref: "#/components/schemas/AndClause-Output",
+    },
+    {
+      $ref: "#/components/schemas/OrClause-Output",
+    },
+    {
+      $ref: "#/components/schemas/NotClause-Output",
     },
   ],
 } as const
@@ -26266,10 +27183,23 @@ Keys match the TypeScript SDK's \`\`ModelUsage\`\` shape (camelCase), since
 the value is passed through verbatim from the CLI's \`\`modelUsage\`\` field.`,
 } as const
 
-export const $NotClause = {
+export const $NotClause_Input = {
   properties: {
     not: {
-      $ref: "#/components/schemas/Filter",
+      $ref: "#/components/schemas/Filter-Input",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["not"],
+  title: "NotClause",
+  description: "The negation of one filter.",
+} as const
+
+export const $NotClause_Output = {
+  properties: {
+    not: {
+      $ref: "#/components/schemas/Filter-Output",
     },
   },
   additionalProperties: false,
@@ -26348,11 +27278,29 @@ This is a typed reference that replaces large payloads in workflow context.
 Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
 } as const
 
-export const $OrClause = {
+export const $OrClause_Input = {
   properties: {
     or: {
       items: {
-        $ref: "#/components/schemas/Filter",
+        $ref: "#/components/schemas/Filter-Input",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Or",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["or"],
+  title: "OrClause",
+  description: "A disjunction of one or more filters.",
+} as const
+
+export const $OrClause_Output = {
+  properties: {
+    or: {
+      items: {
+        $ref: "#/components/schemas/Filter-Output",
       },
       type: "array",
       minItems: 1,
@@ -30489,6 +31437,35 @@ export const $RegistryStatusResponse = {
   required: ["total_repositories", "last_sync_at", "repositories"],
   title: "RegistryStatusResponse",
   description: "Registry health status.",
+} as const
+
+export const $RelativeTimeUnit = {
+  type: "string",
+  enum: ["hour", "day", "week", "month"],
+  title: "RelativeTimeUnit",
+  description: "Calendar units a relative time window can count back in.",
+} as const
+
+export const $RelativeTimeWindow = {
+  properties: {
+    amount: {
+      type: "integer",
+      maximum: 1000,
+      minimum: 1,
+      title: "Amount",
+    },
+    unit: {
+      $ref: "#/components/schemas/RelativeTimeUnit",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["amount", "unit"],
+  title: "RelativeTimeWindow",
+  description: `A time range that ends now, such as "the last 30 days".
+
+The server resolves the start each time a query runs, so a saved view
+keeps meaning "the last 30 days" instead of a fixed date.`,
 } as const
 
 export const $ReopenedEventRead = {

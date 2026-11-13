@@ -18,6 +18,7 @@ from tracecat.cases.constants import (
     RESERVED_CASE_FIELDS,
 )
 from tracecat.cases.enums import (
+    CaseEventType,
     CaseFieldKind,
     CasePriority,
     CaseSeverity,
@@ -33,6 +34,7 @@ from tracecat.db.models import (
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
+    CaseEvent,
     CaseTag,
     CaseTagLink,
 )
@@ -140,7 +142,42 @@ _RANGE_OPS = frozenset({FilterOp.GT, FilterOp.GTE, FilterOp.LT, FilterOp.LTE})
 _CUSTOM_FIELD_RESERVED_NAMES = frozenset(RESERVED_CASE_FIELDS)
 
 
+CREATED_BY_OPS = frozenset({FilterOp.EQ, FilterOp.IN, FilterOp.IS_NULL})
+
+
+def _created_by_predicate(
+    op: FilterOp,
+    value: NormalizedFilterValue | None,
+) -> ColumnElement[bool]:
+    """Match the user recorded on the case's ``case_created`` event.
+
+    Cases have no creator column; the creation event records the acting user.
+    Cases created by workflows or other non-user callers have no user there,
+    so ``is_null`` matches them and ``eq``/``in`` never do.
+    """
+    creation_event = (
+        sa.select(1)
+        .where(
+            CaseEvent.workspace_id == Case.workspace_id,
+            CaseEvent.case_id == Case.id,
+            CaseEvent.type == CaseEventType.CASE_CREATED,
+        )
+        .correlate(Case)
+    )
+    if op is FilterOp.IS_NULL:
+        return sa.not_(sa.exists(creation_event.where(CaseEvent.user_id.is_not(None))))
+    return sa.exists(
+        creation_event.where(compile_predicate(CaseEvent.user_id.expression, op, value))
+    )
+
+
 _FIXED_FILTER_FIELDS: Mapping[str, ResolvedField] = {
+    "created_by": ResolvedField(
+        expr=_created_by_predicate,
+        kind=FieldKind.UUID,
+        allowed_ops=CREATED_BY_OPS,
+        value_type=CaseEvent.user_id.type,
+    ),
     "status": ResolvedField(
         expr=Case.status,
         kind=FieldKind.ENUM,

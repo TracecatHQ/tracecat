@@ -100,6 +100,7 @@ from tracecat.cases.schemas import (
     CaseHierarchyFilter,
     CaseReadMinimal,
     CaseSearchAggregateRead,
+    CaseStatusGroupCounts,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
@@ -122,6 +123,7 @@ from tracecat.cases.triggers.audit import audit_comment_workflow_execution
 from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.cases.versions.schemas import CaseVersionRestoreRead
 from tracecat.cases.versions.service import CaseVersionsService
+from tracecat.cases.views.service import CaseViewsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
@@ -410,7 +412,21 @@ class CasesService(BaseWorkspaceService):
     async def query_cases(
         self, request: CaseSearchRequest
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Execute the canonical validated search contract."""
+        """Execute the canonical validated search contract.
+
+        A ``view_id`` runs that saved view: its criteria and sort replace the
+        request's, and the request's ``filters`` narrow it further.
+        """
+        request, view = await CaseViewsService(self.session, self.role).apply_to_query(
+            request
+        )
+        if view is not None:
+            update: dict[str, object] = {
+                "match_none": request.match_none or view.match_none
+            }
+            if request.order_by is None and view.order_by is not None:
+                update.update(order_by=view.order_by, sort=view.sort)
+            request = request.model_copy(update=update)
         return await self._search_service().query_cases(
             request,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
@@ -419,6 +435,13 @@ class CasesService(BaseWorkspaceService):
     @require_scope("case:read")
     async def query_case_aggregates(self, query: CaseQuery) -> CaseSearchAggregateRead:
         """Count the same authorized population as canonical search."""
+        query, view = await CaseViewsService(self.session, self.role).apply_to_query(
+            query
+        )
+        if view is not None and view.match_none:
+            return CaseSearchAggregateRead(
+                total=0, status_groups=CaseStatusGroupCounts()
+            )
         return await self._search_service().query_aggregates(
             query,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),

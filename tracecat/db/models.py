@@ -80,6 +80,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
     CaseVersionField,
+    CaseViewVisibility,
 )
 from tracecat.forms.enums import FormStatus
 from tracecat.identifiers import (
@@ -168,6 +169,14 @@ MANAGED_ROLLOUT_STATUS_ENUM = Enum(
 MANAGED_REFERENCE_KIND_ENUM = Enum(
     ManagedReferenceKind,
     name="managedreferencekind",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+CASE_VIEW_VISIBILITY_ENUM = Enum(
+    CaseViewVisibility,
+    name="caseviewvisibility",
     native_enum=False,
     length=32,
     values_callable=lambda enum: [member.value for member in enum],
@@ -2780,6 +2789,63 @@ class CaseTag(WorkspaceModel):
         back_populates="tags",
         secondary=CaseTagLink.__table__,
     )
+
+
+class CaseView(WorkspaceModel):
+    """A saved, named case search with its sort order and visible columns.
+
+    ``query`` holds a validated ``CaseQuery``. It may use values the server
+    resolves on every run, such as relative date windows and ``"me"``.
+    """
+
+    __tablename__ = "case_view"
+    __table_args__ = (
+        Index("ix_case_view_workspace_visibility", "workspace_id", "visibility"),
+        Index("ix_case_view_workspace_owner", "workspace_id", "owner_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="The user who created the view. Null once that user is deleted.",
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    visibility: Mapped[CaseViewVisibility] = mapped_column(
+        CASE_VIEW_VISIBILITY_ENUM, nullable=False
+    )
+    query: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    query_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+        doc="Shape version of ``query``, for migrating stored queries on read.",
+    )
+    order_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sort: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    columns: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+
+
+class CaseViewPin(WorkspaceModel):
+    """One user's choice to show a saved case view in their sidebar."""
+
+    __tablename__ = "case_view_pin"
+    __table_args__ = (
+        UniqueConstraint("user_id", "view_id", name="uq_case_view_pin_user_view"),
+        Index("ix_case_view_pin_workspace_user", "workspace_id", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    view_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("case_view.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class CaseDropdownDefinition(WorkspaceModel):

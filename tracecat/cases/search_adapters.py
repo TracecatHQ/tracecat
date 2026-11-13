@@ -9,6 +9,7 @@ from typing import assert_never
 from uuid import UUID
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.exceptions import TracecatValidationError
 from tracecat.query.filters import (
     AndClause,
     Condition,
@@ -17,6 +18,47 @@ from tracecat.query.filters import (
     NotClause,
     OrClause,
 )
+
+CURRENT_USER = "me"
+UNASSIGNED_IDENTIFIERS = frozenset({"unassigned", "__UNASSIGNED__"})
+
+
+class CurrentUserRequiredError(TracecatValidationError):
+    """A query says "me", but the caller is not a user (for example a workflow)."""
+
+    code = "current_user_required"
+
+    def __init__(self) -> None:
+        super().__init__(
+            'This query uses "me", which needs a signed-in user. '
+            "Workflows and service callers must pass explicit user IDs."
+        )
+
+
+def resolve_user_refs(
+    values: Sequence[UUID | str], *, user_id: UUID | None
+) -> list[UUID]:
+    """Replace ``"me"`` with the caller's user ID and drop other sentinels.
+
+    Args:
+        values: User IDs, ``"me"``, or the unassigned sentinels.
+        user_id: The requesting user's ID, or ``None`` for non-user callers.
+
+    Returns:
+        De-duplicated user IDs in input order.
+
+    Raises:
+        CurrentUserRequiredError: ``"me"`` appears and there is no user.
+    """
+    resolved: list[UUID] = []
+    for value in values:
+        if isinstance(value, UUID):
+            resolved.append(value)
+        elif value == CURRENT_USER:
+            if user_id is None:
+                raise CurrentUserRequiredError()
+            resolved.append(user_id)
+    return list(dict.fromkeys(resolved))
 
 
 def iter_case_filter_conditions(filters: Filter | None) -> Iterator[Condition]:
@@ -54,6 +96,7 @@ def legacy_case_filters(
     severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
     assignee_ids: Sequence[UUID] | None = None,
     include_unassigned: bool = False,
+    creator_ids: Sequence[UUID] | None = None,
     tag_refs: Sequence[str] | None = None,
     dropdown_filters: Mapping[str, Sequence[str]] | None = None,
     start_time: datetime | None = None,
@@ -78,6 +121,7 @@ def legacy_case_filters(
         severity: One severity or severities to match with OR semantics.
         assignee_ids: Resolved user UUIDs to match with OR semantics.
         include_unassigned: Also match an unset assignee.
+        creator_ids: Resolved user UUIDs who created the case, OR semantics.
         tag_refs: Workspace-resolved tag refs; match any selected tag.
         dropdown_filters: Validated definition refs and their option refs.
         start_time: Inclusive lower creation timestamp.
@@ -112,6 +156,15 @@ def legacy_case_filters(
         conditions.append(assignees[0])
     elif assignees:
         conditions.append(OrClause.model_validate({"or": assignees}))
+
+    if creator_ids:
+        conditions.append(
+            Condition(
+                field="created_by",
+                op=FilterOp.IN,
+                value=list(dict.fromkeys(creator_ids)),
+            )
+        )
 
     if tag_refs:
         conditions.append(

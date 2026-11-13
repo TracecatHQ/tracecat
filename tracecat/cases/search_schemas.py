@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import calendar
+from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -14,6 +16,7 @@ from tracecat.cases.constants import (
     MAX_PAYLOAD_PATHS,
 )
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.views.types import BuiltinCaseViewId
 from tracecat.pagination import CursorPaginationParams
 from tracecat.query.filters import (
     MAX_FILTER_CONDITIONS,
@@ -29,6 +32,8 @@ from tracecat.query.lexical import (
 )
 from tracecat.query.lexical_types import SearchMode
 from tracecat.query.resolver import FieldKind
+
+MAX_RELATIVE_WINDOW_AMOUNT = 1000
 
 type CaseSearchOrder = Literal[
     "relevance",
@@ -68,6 +73,51 @@ class CaseFilterMetadata(BaseModel):
     max_values: int = Field(default=MAX_FILTER_VALUES)
 
 
+class RelativeTimeUnit(StrEnum):
+    """Calendar units a relative time window can count back in."""
+
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class RelativeTimeWindow(BaseModel):
+    """A time range that ends now, such as "the last 30 days".
+
+    The server resolves the start each time a query runs, so a saved view
+    keeps meaning "the last 30 days" instead of a fixed date.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    amount: int = Field(ge=1, le=MAX_RELATIVE_WINDOW_AMOUNT)
+    unit: RelativeTimeUnit
+
+    def start(self, now: datetime) -> datetime:
+        """Return the inclusive start of this window, counting back from ``now``."""
+        match self.unit:
+            case RelativeTimeUnit.HOUR:
+                return now - timedelta(hours=self.amount)
+            case RelativeTimeUnit.DAY:
+                return now - timedelta(days=self.amount)
+            case RelativeTimeUnit.WEEK:
+                return now - timedelta(weeks=self.amount)
+            case RelativeTimeUnit.MONTH:
+                return subtract_months(now, self.amount)
+
+
+def subtract_months(value: datetime, months: int) -> datetime:
+    """Move back whole calendar months, clamping to the target month's last day.
+
+    For example, 31 March minus one month is 28 (or 29) February.
+    """
+    month_index = value.year * 12 + value.month - 1 - months
+    year, month = divmod(month_index, 12)
+    last_day = calendar.monthrange(year, month + 1)[1]
+    return value.replace(year=year, month=month + 1, day=min(value.day, last_day))
+
+
 class CaseQuery(BaseModel):
     """Matching criteria shared by case search and filtered status counts.
 
@@ -86,6 +136,14 @@ class CaseQuery(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    view_id: UUID | BuiltinCaseViewId | None = Field(
+        default=None,
+        description=(
+            "Run a saved case view. The view supplies the matching criteria; "
+            "the request may add a `filters` tree, which is ANDed with the view's. "
+            "Other matching fields cannot be combined with a view."
+        ),
+    )
     filters: Filter | None = Field(
         default=None,
         description='AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
@@ -105,15 +163,34 @@ class CaseQuery(BaseModel):
     status: list[CaseStatus] | None = Field(default=None)
     priority: list[CasePriority] | None = Field(default=None)
     severity: list[CaseSeverity] | None = Field(default=None)
-    assignee_id: list[UUID | Literal["unassigned", "__UNASSIGNED__"]] | None = Field(
-        default=None
+    assignee_id: list[UUID | Literal["unassigned", "__UNASSIGNED__", "me"]] | None = (
+        Field(
+            default=None,
+            description='User IDs, "unassigned", or "me" for the requesting user.',
+        )
+    )
+    created_by: list[UUID | Literal["me"]] | None = Field(
+        default=None,
+        max_length=MAX_FILTER_VALUES,
+        description=(
+            'Users who created the case, or "me" for the requesting user. '
+            "Cases created by workflows or other non-user callers never match."
+        ),
     )
     tags: list[str] | None = Field(default=None, max_length=1000)
     dropdown: list[str] | None = Field(default=None, max_length=50)
     start_time: datetime | None = Field(default=None)
     end_time: datetime | None = Field(default=None)
+    created_within: RelativeTimeWindow | None = Field(
+        default=None,
+        description="Created within this window, ending at the time the query runs.",
+    )
     updated_after: datetime | None = Field(default=None)
     updated_before: datetime | None = Field(default=None)
+    updated_within: RelativeTimeWindow | None = Field(
+        default=None,
+        description="Updated within this window, ending at the time the query runs.",
+    )
 
     @field_validator("search_term", "short_id")
     @classmethod
@@ -128,6 +205,18 @@ class CaseQuery(BaseModel):
         """Reject the incompatible parent and top-level search constraints."""
         if self.parent_id is not None and self.hierarchy == "top_level":
             raise ValueError("parent_id cannot be combined with hierarchy=top_level")
+        if self.created_within is not None and (
+            self.start_time is not None or self.end_time is not None
+        ):
+            raise ValueError(
+                "created_within cannot be combined with start_time or end_time"
+            )
+        if self.updated_within is not None and (
+            self.updated_after is not None or self.updated_before is not None
+        ):
+            raise ValueError(
+                "updated_within cannot be combined with updated_after or updated_before"
+            )
         if self.search_mode is not None:
             if self.search_term is None:
                 raise ValueError("search_mode requires search_term")
