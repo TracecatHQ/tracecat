@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any, get_args
+from typing import TYPE_CHECKING, Any, get_args
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlparse
 
@@ -33,22 +33,33 @@ from tracecat.agent.channel_bots.schemas import (
     oauth_callback_path,
 )
 from tracecat.api import extensions
-from tracecat.api.app import app, create_app, entitlement_exception_handler
+from tracecat.api.app import (
+    app,
+    create_app,
+    entitlement_exception_handler,
+    scope_denied_exception_handler,
+)
 from tracecat.api.lifespan import StoppableTaskFactory
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.logger import logger
 from tracecat.pagination import (
     CursorPaginatedResponse,
     PageParams,
     PaginationError,
     PaginationErrorCode,
 )
+from tracecat.tiers.enums import Entitlement
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 APP_URL = "https://app.example.com"
 ROLE = Role(
@@ -111,20 +122,39 @@ def admin(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     return admin
 
 
-@pytest.fixture
-def client() -> TestClient:
+def make_client(role: Role = ROLE, *, entitled: bool = True) -> TestClient:
     test_app = FastAPI()
     test_app.include_router(router_module.router)
     test_app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
+    test_app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
     role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
-    test_app.dependency_overrides.update(
-        {
-            role_dependency: lambda: ROLE,
-            get_async_session: lambda: SESSION,
-            router_module._require_agent_channels_entitlement: lambda: None,
-        }
-    )
+    overrides: dict[Callable[..., Any], Callable[..., Any]] = {
+        role_dependency: lambda: role,
+        get_async_session: lambda: SESSION,
+    }
+    if entitled:
+        overrides[router_module._require_agent_channels_entitlement] = lambda: None
+    test_app.dependency_overrides.update(overrides)
     return TestClient(test_app)
+
+
+@pytest.fixture
+def client() -> TestClient:
+    return make_client()
+
+
+@pytest.fixture
+def unentitled(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    check = AsyncMock(side_effect=EntitlementRequired(Entitlement.AGENT_CHANNELS.value))
+    monkeypatch.setattr(router_module, "check_entitlement", check)
+    return check
+
+
+ENTITLEMENT_REQUIRED_BODY = {
+    "type": "EntitlementRequired",
+    "message": "Feature 'agent_channels' requires an upgraded plan.",
+    "detail": {"entitlement": "agent_channels"},
+}
 
 
 def bot_read() -> AgentChannelBotRead:
@@ -168,6 +198,81 @@ def test_without_an_admin_the_routes_require_enterprise(
     body = response.json()
     assert body["type"] == "EntitlementRequired"
     assert "require Tracecat Enterprise" in body["message"]
+
+
+def test_an_unentitled_workspace_is_refused(
+    admin: AsyncMock, unentitled: AsyncMock
+) -> None:
+    response = make_client(entitled=False).get("/agent/channel-bots")
+
+    assert response.status_code == 403
+    assert response.json() == ENTITLEMENT_REQUIRED_BODY
+    unentitled.assert_awaited_once_with(SESSION, ROLE, Entitlement.AGENT_CHANNELS)
+    assert admin.mock_calls == []
+
+
+def test_the_entitlement_is_checked_before_the_admin_is_looked_up(
+    monkeypatch: pytest.MonkeyPatch, unentitled: AsyncMock
+) -> None:
+    with_extensions(monkeypatch, other=PlainExtension())
+
+    response = make_client(entitled=False).get("/agent/channel-bots")
+
+    assert response.status_code == 403
+    assert response.json() == ENTITLEMENT_REQUIRED_BODY
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "scope"),
+    [
+        pytest.param("GET", "", None, "agent:read", id="list"),
+        pytest.param(
+            "POST",
+            "",
+            {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
+            "agent:update",
+            id="create",
+        ),
+        pytest.param(
+            "PATCH",
+            f"/{uuid.uuid4()}",
+            {"status": "paused"},
+            "agent:update",
+            id="update",
+        ),
+        pytest.param(
+            "POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"
+        ),
+        pytest.param(
+            "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
+        ),
+        pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+    ],
+)
+def test_routes_require_their_scope(
+    admin: AsyncMock,
+    method: str,
+    path: str,
+    body: dict[str, object] | None,
+    scope: str,
+) -> None:
+    # agent:update implies agent:read, so no denied role may hold it.
+    role = ROLE.model_copy(update={"scopes": frozenset({"agent:read"} - {scope})})
+
+    response = make_client(role).request(
+        method, f"/agent/channel-bots{path}", json=body
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "error": {
+            "code": "insufficient_scope",
+            "message": "You don't have permission to perform this action.",
+            "required_scopes": [scope],
+            "missing_scopes": [scope],
+        }
+    }
+    assert admin.mock_calls == []
 
 
 def test_routes_hand_the_request_to_the_installed_admin(
@@ -424,21 +529,80 @@ def test_callback_return_url_may_use_either_web_scheme(
     assert response.headers["location"] == f"{return_url}?channel_bot_install=success"
 
 
+UNUSABLE_APP_URLS = ["", "app.example.com", "https://", "ftp://app.example.com"]
+APP_URL_MISSING = "Tracecat's public app URL is not configured."
+APP_URL_ERROR = "Channel bot OAuth callback has no usable public app URL"
+
+
+@pytest.fixture
+def error_logs() -> Iterator[list[Record]]:
+    records: list[Record] = []
+    sink = logger.add(lambda message: records.append(message.record), level="ERROR")
+    yield records
+    logger.remove(sink)
+
+
+def assert_app_url_refusal(
+    response: httpx.Response, error_logs: list[Record], messages: list[str]
+) -> None:
+    assert response.status_code == 400
+    assert response.text == APP_URL_MISSING
+    assert "location" not in response.headers
+    assert [r["message"] for r in error_logs] == messages
+    logged = " ".join(f"{r['message']} {r['extra']}" for r in error_logs)
+    assert "state-value" not in logged
+    assert "code-value" not in logged
+
+
+@pytest.mark.parametrize("app_url", UNUSABLE_APP_URLS)
 @pytest.mark.parametrize(
     "return_url", ["https:///evil.example.net/x", "https:evil.example.net", "/x"]
 )
-def test_a_blank_app_url_accepts_no_return_url(
-    admin: AsyncMock, monkeypatch: pytest.MonkeyPatch, return_url: str
+def test_an_unusable_app_url_refuses_the_result_without_a_redirect(
+    admin: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    error_logs: list[Record],
+    app_url: str,
+    return_url: str,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", "")
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", app_url)
     admin.complete_oauth.return_value = ChannelBotOAuthResult(
         return_url=return_url, ok=True
     )
 
-    response = get_callback("state=s")
+    response = get_callback("state=state-value&code=code-value")
 
-    assert response.status_code == 307
-    assert response.headers["location"] == "?channel_bot_install=success"
+    assert_app_url_refusal(response, error_logs, [APP_URL_ERROR])
+    admin.complete_oauth.assert_awaited_once()
+
+
+@pytest.mark.parametrize("app_url", UNUSABLE_APP_URLS)
+def test_an_unusable_app_url_refuses_a_failing_admin_without_a_redirect(
+    admin: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    error_logs: list[Record],
+    app_url: str,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", app_url)
+    admin.complete_oauth.side_effect = RuntimeError("boom")
+
+    response = get_callback("state=state-value&code=code-value")
+
+    assert_app_url_refusal(
+        response, error_logs, ["Channel bot OAuth callback failed", APP_URL_ERROR]
+    )
+
+
+@pytest.mark.parametrize("app_url", UNUSABLE_APP_URLS)
+def test_an_unusable_app_url_refuses_a_missing_admin_without_a_redirect(
+    monkeypatch: pytest.MonkeyPatch, error_logs: list[Record], app_url: str
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", app_url)
+    with_extensions(monkeypatch, other=PlainExtension())
+
+    response = get_callback("state=state-value&code=code-value")
+
+    assert_app_url_refusal(response, error_logs, [APP_URL_ERROR])
 
 
 def test_callback_without_an_admin_redirects_with_an_error(

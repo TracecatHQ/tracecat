@@ -11,7 +11,7 @@ from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from tracecat import config
 from tracecat.agent.channel_bots.provider import ChannelBotAdmin, get_channel_bot_admin
@@ -169,7 +169,25 @@ async def install_bot(
     return await _call(admin.install(session, role, params))
 
 
-def _redirect(base_url: str, *, ok: bool, message: str | None) -> RedirectResponse:
+_WEB_SCHEMES = {"http", "https"}
+
+
+def _is_usable_app_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme in _WEB_SCHEMES and bool(parsed.netloc)
+
+
+def _redirect(base_url: str, *, ok: bool, message: str | None) -> Response:
+    # Without a host the browser resolves the target against the callback itself.
+    if not _is_usable_app_url(config.TRACECAT__PUBLIC_APP_URL):
+        logger.error("Channel bot OAuth callback has no usable public app URL")
+        return PlainTextResponse(
+            "Tracecat's public app URL is not configured.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     parsed = urlparse(base_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query["channel_bot_install"] = "success" if ok else "error"
@@ -186,12 +204,11 @@ def _same_app_or_default(return_url: str | None) -> str:
         app_url, target = urlparse(default_url), urlparse(return_url)
     except ValueError:
         return default_url
-    web_schemes = {"http", "https"}
     # A blank or hostless app URL must not let a hostless return URL match it.
-    if app_url.scheme not in web_schemes or not app_url.netloc:
+    if app_url.scheme not in _WEB_SCHEMES or not app_url.netloc:
         return default_url
     # Schemes may differ: a TLS-terminating proxy serves an http app URL over https.
-    if target.scheme not in web_schemes or target.netloc != app_url.netloc:
+    if target.scheme not in _WEB_SCHEMES or target.netloc != app_url.netloc:
         return default_url
     return return_url
 
@@ -201,7 +218,7 @@ async def handle_bot_oauth_callback(
     *,
     provider: ChannelBotProvider,
     callback: Annotated[ChannelBotOAuthCallback, Query()],
-) -> RedirectResponse:
+) -> Response:
     if (admin := get_channel_bot_admin()) is None:
         return _redirect(
             config.TRACECAT__PUBLIC_APP_URL,
