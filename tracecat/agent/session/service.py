@@ -2285,29 +2285,50 @@ class AgentSessionService(BaseWorkspaceService):
                 the message is safe.
             TracecatConflictError: If no attempt could be admitted.
         """
-        # Every blank ID would share one run and read as a retry.
-        if not request_id.strip():
-            raise TracecatValidationError("request_id must not be blank")
-        agent_session = await self.get_session(session_id)
-        if agent_session is None:
-            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_parent_session(agent_session)
-        backend = get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        )
+        try:
+            return await self.start_message(
+                session_id,
+                text=text,
+                request_id=request_id,
+                instructions=instructions,
+            )
+        except SessionTurnActiveError as e:
+            return await self.steer_message(
+                session_id, run_id=e.run_id, text=text, request_id=request_id
+            )
+
+    async def start_message(
+        self,
+        session_id: uuid.UUID,
+        *,
+        text: str,
+        request_id: str,
+        instructions: str | None = None,
+    ) -> RunStarted:
+        """Start a turn for the message.
+
+        A retry of the same ``request_id`` returns the run the first attempt
+        started and re-issues a start whose outcome was lost. Recovery may
+        tombstone that lost start; the retry then starts the next attempt's run.
+
+        Raises:
+            SessionTurnActiveError: If another run holds the session; nothing
+                was started or steered.
+            TracecatValidationError: If ``request_id`` is blank.
+            TracecatNotFoundError: If no session exists with this ID.
+            SessionAwaitingApprovalsError: If the session waits for approvals.
+            EntitlementRequired: If the session's backend is no longer entitled.
+            SessionDispatchUncertain: If the start's outcome is unknown; retrying
+                the message is safe.
+            TracecatConflictError: If no attempt could be admitted.
+        """
+        agent_session, backend = await self._message_session(session_id, request_id)
         admitted = False
-        attempt = 0
         for _ in range(_MESSAGE_ADMISSION_TRIES):
-            run_id = message_run_id(session_id, request_id, attempt)
             # Checked before admission: an accepted retry is never refused.
-            match await backend.turn_start_state(run_id):
-                case "started":
-                    return RunStarted(run_id=run_id)
-                case "tombstoned":
-                    attempt += 1
-                    continue
-                case "missing":
-                    pass
+            run_id, started = await self._message_run(backend, session_id, request_id)
+            if started:
+                return RunStarted(run_id=run_id)
             if not admitted:
                 await self._admit_message(agent_session)
                 admitted = True
@@ -2317,9 +2338,7 @@ class AgentSessionService(BaseWorkspaceService):
                 if curr_run_id is not None and curr_run_id != run_id:
                     lifecycle, _ = await self.get_turn_lifecycle(agent_session)
                     if lifecycle is TurnLifecycle.RUNNING:
-                        return await self._steer_or_busy(
-                            backend, curr_run_id, run_id, text
-                        )
+                        raise SessionTurnActiveError(curr_run_id)
             try:
                 await self._start_new_turn(
                     agent_session,
@@ -2331,10 +2350,83 @@ class AgentSessionService(BaseWorkspaceService):
                     stream_id=uuid.uuid4(),
                 )
                 return RunStarted(run_id=run_id)
-            except SessionTurnActiveError as e:
-                return await self._steer_or_busy(backend, e.run_id, run_id, text)
             except TurnAlreadyStarted:
                 continue  # Re-read who holds the ID.
+        raise TracecatConflictError(
+            f"Could not admit message {request_id} to session {session_id}"
+        )
+
+    async def steer_message(
+        self,
+        session_id: uuid.UUID,
+        *,
+        run_id: uuid.UUID,
+        text: str,
+        request_id: str,
+    ) -> MessageResult:
+        """Steer the running ``run_id`` with the message, or report it busy.
+
+        A message whose own run already started returns that run as accepted
+        and steers nothing. The message's run id is the steer id, so the backend
+        drops a retried steer while ``run_id`` lives; once it has finished, the
+        retry is treated as a new message.
+
+        Raises:
+            TracecatValidationError: If ``request_id`` is blank.
+            TracecatNotFoundError: If no session exists with this ID.
+            SessionAwaitingApprovalsError: If the session waits for approvals.
+            EntitlementRequired: If the session's backend is no longer entitled.
+            SessionDispatchUncertain: If the message's run state is unknown;
+                retrying the message is safe.
+            TracecatConflictError: If no attempt could be admitted.
+        """
+        agent_session, backend = await self._message_session(session_id, request_id)
+        # Re-read even after a start saw another run: this message's own run may
+        # have started and finished since, and must not be delivered twice.
+        message_run, started = await self._message_run(backend, session_id, request_id)
+        if started:
+            return RunStarted(run_id=message_run)
+        await self._admit_message(agent_session)
+        return await self._steer_or_busy(backend, run_id, message_run, text)
+
+    async def _message_session(
+        self, session_id: uuid.UUID, request_id: str
+    ) -> tuple[AgentSession, AgentBackend[Any, Any]]:
+        """Resolve the session and backend a message targets."""
+        # Every blank ID would share one run and read as a retry.
+        if not request_id.strip():
+            raise TracecatValidationError("request_id must not be blank")
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_parent_session(agent_session)
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
+        return agent_session, backend
+
+    @staticmethod
+    async def _message_run(
+        backend: AgentBackend[Any, Any], session_id: uuid.UUID, request_id: str
+    ) -> tuple[uuid.UUID, bool]:
+        """The message's current run, and whether it has already started.
+
+        A tombstoned run's start was lost and closed by recovery; the next
+        attempt's run replaces it.
+
+        Raises:
+            SessionDispatchUncertain: If the run's state is unknown.
+            TracecatConflictError: If every attempt is tombstoned.
+        """
+        for attempt in range(_MESSAGE_ADMISSION_TRIES):
+            run_id = message_run_id(session_id, request_id, attempt)
+            match await backend.turn_start_state(run_id):
+                case "started":
+                    return run_id, True
+                case "missing":
+                    return run_id, False
+                case "tombstoned":
+                    continue
         raise TracecatConflictError(
             f"Could not admit message {request_id} to session {session_id}"
         )
