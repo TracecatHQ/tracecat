@@ -244,7 +244,7 @@ With `REDIS_AUTH_MODE` set to `aws_iam` or `azure_entra`, Tracecat logs in to Re
 
 <Steps>
   <Step title="Create the cache with access keys off">
-    Create the cache with TLS and access keys turned off. Microsoft Entra authentication is on by default. Tracecat's Redis client needs the `EnterpriseCluster` clustering policy.
+    Create the cache with TLS on (`Encrypted`) and access keys off. Entra authentication works over TLS only, and Microsoft turns it on by default. Tracecat's Redis client needs the `EnterpriseCluster` clustering policy.
 
     ```bash
     az redisenterprise create --cluster-name <cache-name> \
