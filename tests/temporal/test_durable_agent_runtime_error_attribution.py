@@ -381,7 +381,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     _GatewayExpectation(
         harness.GatewayRoute.DIRECT_PROVIDER,
         harness.GatewayFailureMode.READ_TIMEOUT,
-        _PLATFORM,
+        _USER,
         _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),
@@ -438,7 +438,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
     _GatewayExpectation(
         harness.GatewayRoute.CUSTOM_GATEWAY,
         harness.GatewayFailureMode.READ_TIMEOUT,
-        _PLATFORM,
+        _USER,
         _LLM_READ_TIMEOUT,
         _RETRYABLE,
     ),

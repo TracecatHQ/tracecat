@@ -350,13 +350,22 @@ def agent_llm_provider_rejected_request(
 
 def agent_llm_read_timeout(
     error: BaseException | None = None,
+    *,
+    user_owned: bool = False,
 ) -> RuntimeErrorClassification:
-    """Assign investigation of an ambiguous upstream read stall to Tracecat.
+    """Classify an upstream read stall past the LLM proxy read timeout.
 
-    Operational ownership is not root-cause attribution: a direct route alone
-    cannot distinguish provider, network, or local proxy failures.
+    Args:
+        error: Transport error that caused the stall, if any.
+        user_owned: Whether the stalled upstream is the caller's own provider
+            or gateway (direct route) rather than the managed gateway.
     """
-    return RuntimeErrorClassification.platform(
+    constructor = (
+        RuntimeErrorClassification.user
+        if user_owned
+        else RuntimeErrorClassification.platform
+    )
+    return constructor(
         kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
         message="Timed out waiting for data from the LLM upstream",
         retry_disposition=RetryDisposition.RETRYABLE,
