@@ -27,6 +27,10 @@ class BitbucketError(VcsProviderError):
     """Bitbucket operation error."""
 
 
+class BitbucketTransportError(BitbucketError):
+    """The Bitbucket host could not be reached or the request did not complete."""
+
+
 class BitbucketTokenSecretState(StrEnum):
     """State of the stored Bitbucket token org secret."""
 

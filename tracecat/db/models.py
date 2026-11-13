@@ -4787,7 +4787,10 @@ class AgentChannelThread(TimestampMixin, Base):
 
     session_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
     workspace_id: Mapped[WorkspaceID] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     bot_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
     thread: Mapped[dict[str, JsonValue]] = mapped_column(

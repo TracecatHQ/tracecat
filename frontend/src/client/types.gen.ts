@@ -2160,6 +2160,7 @@ export type Body_tables_import_csv = {
 export type Body_tables_import_table_from_csv = {
   file: Blob | File
   table_name?: string | null
+  folder_path?: string | null
 }
 
 export type Body_workflows_create_workflow = {
@@ -5171,6 +5172,10 @@ export type EffectiveEntitlements = {
    * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
    */
   agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 /**
@@ -5312,6 +5317,10 @@ export type EntitlementsDict = {
    * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
    */
   agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -14431,6 +14440,7 @@ export type WorkspaceSettingsRead = {
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
+  close_sub_cases_with_parent?: boolean | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -14464,6 +14474,10 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+  /**
+   * Whether closing or resolving a parent case also closes its open sub-cases and fills their empty required-on-closure fields and dropdowns from the parent. Defaults to true.
+   */
+  close_sub_cases_with_parent?: boolean | null
 }
 
 /**

@@ -28,6 +28,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OrganizationDomain
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
+from tracecat.registry.common import remove_replaced_custom_repository
 from tracecat.settings.schemas import (
     AgentOtelSettingsRead,
     AgentOtelSettingsUpdate,
@@ -53,6 +54,7 @@ from tracecat.settings.schemas import (
 from tracecat.settings.service import (
     AgentOtelEndpointNotAllowedError,
     SettingsService,
+    get_setting,
 )
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -161,7 +163,15 @@ async def update_git_settings(
 ) -> None:
     await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     service = SettingsService(session, role)
+    previous_url = await get_setting("git_repo_url", role=role, session=session)
     await service.update_git_settings(params)
+    if "git_repo_url" in params.model_fields_set:
+        await remove_replaced_custom_repository(
+            session,
+            role,
+            previous_url=previous_url if isinstance(previous_url, str) else None,
+            new_url=params.git_repo_url,
+        )
 
 
 @router.get("/saml", response_model=SAMLSettingsRead)

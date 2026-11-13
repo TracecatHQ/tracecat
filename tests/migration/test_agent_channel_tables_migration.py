@@ -166,6 +166,10 @@ def _rls_tables(engine: Engine) -> set[str]:
                 " ON p.tablename = c.relname AND p.policyname = 'rls_policy_' || c.relname"
                 " WHERE c.relrowsecurity AND c.relname LIKE 'agent_channel_%'"
                 " AND c.relname <> 'agent_channel_token'"
+                # Both predicates scope to the workspace, not just a policy by that name.
+                " AND p.cmd = 'ALL'"
+                " AND p.qual LIKE '%workspace_id = %app.current_workspace_id%'"
+                " AND p.with_check LIKE '%workspace_id = %app.current_workspace_id%'"
             )
         )
         return set(rows.scalars())
@@ -220,6 +224,27 @@ def _session(ws: uuid.UUID, preset_id: uuid.UUID) -> AgentSession:
     )
 
 
+def _link(
+    bot_id: uuid.UUID,
+    session_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    thread_ts: str = "1.1",
+) -> AgentChannelThread:
+    thread = {
+        "provider": "slack",
+        "team_id": "T1",
+        "channel_id": "C1",
+        "thread_ts": thread_ts,
+    }
+    return AgentChannelThread(
+        session_id=session_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        thread=thread,
+        thread_key=f"slack:T1:C1:{thread_ts}",
+    )
+
+
 def _violated(exc: pytest.ExceptionInfo[IntegrityError]) -> str | None:
     diag = getattr(exc.value.orig, "diag", None)
     return getattr(diag, "constraint_name", None)
@@ -240,19 +265,7 @@ def test_links_stay_in_their_bots_and_sessions_workspace(
     def link(
         session_id: uuid.UUID, workspace_id: uuid.UUID = ws, thread_ts: str = "1.1"
     ) -> AgentChannelThread:
-        thread = {
-            "provider": "slack",
-            "team_id": "T1",
-            "channel_id": "C1",
-            "thread_ts": thread_ts,
-        }
-        return AgentChannelThread(
-            session_id=session_id,
-            workspace_id=workspace_id,
-            bot_id=bot.id,
-            thread=thread,
-            thread_key=f"slack:T1:C1:{thread_ts}",
-        )
+        return _link(bot.id, session_id, workspace_id, thread_ts)
 
     with Session(engine) as db, db.begin():
         db.add(link(mine.id))
@@ -282,6 +295,21 @@ def test_links_stay_in_their_bots_and_sessions_workspace(
     with Session(engine) as db, db.begin():
         db.execute(delete(AgentSession).where(AgentSession.id == mine.id))
     assert _links(engine, ws) == set()
+
+
+def test_a_link_can_be_inserted_before_its_session(db_url: str, engine: Engine) -> None:
+    _alembic(db_url, "upgrade", MIGRATION_REVISION)
+    ws, _ = _workspace(engine)
+    with Session(engine, expire_on_commit=False) as db, db.begin():
+        preset_id = _preset(db, ws)
+        bot, session = _bot(ws, preset_id), _session(ws, preset_id)
+        db.add(bot)
+        db.flush()
+        db.add(_link(bot.id, session.id, ws))
+        # An immediate session key would refuse the link here.
+        db.flush()
+        db.add(session)
+    assert _links(engine, ws) == {(session.id, bot.id, "slack:T1:C1:1.1")}
 
 
 def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:

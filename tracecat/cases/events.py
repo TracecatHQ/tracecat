@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -25,7 +26,7 @@ from tracecat.cases.event_schemas import (
     CaseEventVariant,
     CaseViewedEvent,
 )
-from tracecat.cases.triggers.outbox import enqueue_case_trigger
+from tracecat.cases.triggers.outbox import enqueue_case_trigger, enqueue_case_triggers
 from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.db.models import Case, CaseEvent
 from tracecat.service import BaseWorkspaceService
@@ -134,6 +135,52 @@ class CaseEventsService(BaseWorkspaceService):
             )
 
         return db_event
+
+    async def create_events(
+        self, items: Sequence[tuple[Case, CaseEventVariant]]
+    ) -> list[CaseEvent]:
+        """Create non-committing activity records for many cases in one flush.
+
+        Publishes case triggers and duration syncs like ``create_event``,
+        checking trigger subscriptions once per event type and syncing each
+        case once per event type. Agent session interactions are not recorded.
+        """
+        if not items:
+            return []
+        db_events = [
+            CaseEvent(
+                workspace_id=self.workspace_id,
+                case_id=case.id,
+                type=event.type,
+                data=event.model_dump(exclude={"type"}, mode="json"),
+                user_id=self.role.user_id,
+            )
+            for case, event in items
+        ]
+        self.session.add_all(db_events)
+        await self.session.flush()
+        await enqueue_case_triggers(self.session, events=db_events)
+
+        synced: set[tuple[uuid.UUID, str]] = set()
+        for (case, _), db_event in zip(items, db_events, strict=True):
+            event_type = CaseEventType(db_event.type).value
+            if (case.id, event_type) in synced:
+                continue
+            synced.add((case.id, event_type))
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                event_type=event_type,
+                reason="case_event",
+                inline_fallback=partial(
+                    sync_case_duration,
+                    case.workspace_id,
+                    case.id,
+                    event_types={event_type},
+                ),
+            )
+        return db_events
 
     async def create_case_viewed_event(
         self,

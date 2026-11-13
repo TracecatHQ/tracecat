@@ -262,6 +262,45 @@ describe("exact-first case search UI", () => {
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
   })
 
+  it("moves the parent scope into the Display menu and drops Conditions", async () => {
+    const user = userEvent.setup()
+    setup()
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
+    expect(
+      screen.getByPlaceholderText(
+        "Search cases by title, description, or ID..."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Conditions/ })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Parents only")).not.toBeInTheDocument()
+
+    expect(
+      screen.queryByRole("button", { name: "More filters" })
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /Display/ }))
+    await user.click(
+      await screen.findByRole("switch", { name: "Parents only" })
+    )
+    await waitFor(() =>
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({ hierarchy: "all" }),
+        })
+      )
+    )
+    await user.click(screen.getByRole("switch", { name: "Parents only" }))
+    await waitFor(() =>
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({ hierarchy: "top_level" }),
+        })
+      )
+    )
+  })
+
   it("uses one search request for a complete ID and keeps the view constraints", async () => {
     setup()
     await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))

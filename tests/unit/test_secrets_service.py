@@ -282,6 +282,13 @@ class TestSecretsService:
         with pytest.raises(ScopeDeniedError):
             await service.get_github_app_org_secret()
 
+    async def test_get_org_secret_missing_raises_not_found(
+        self, service: SecretsService
+    ) -> None:
+        """The org secret routes map TracecatNotFoundError to 404, not a 500."""
+        with pytest.raises(TracecatNotFoundError):
+            await service.get_org_secret(uuid.uuid4())
+
     async def test_update_secret_preserves_empty_values(
         self, service: SecretsService, secret_create_params: SecretCreate
     ) -> None:

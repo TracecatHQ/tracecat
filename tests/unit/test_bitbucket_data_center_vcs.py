@@ -24,7 +24,7 @@ from tracecat.git.types import GitUrl
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.tiers.enums import Entitlement
-from tracecat.vcs.bitbucket.app import BitbucketError
+from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTransportError
 from tracecat.vcs.bitbucket.git import BitbucketGit
 from tracecat.vcs.bitbucket_data_center.app import BitbucketDataCenterTokenService
 from tracecat.vcs.bitbucket_data_center.schemas import (
@@ -410,6 +410,20 @@ async def test_list_tags_raises_when_a_commit_read_fails_for_the_request(
 
 
 @pytest.mark.anyio
+async def test_list_tags_raises_when_a_commit_read_cannot_reach_the_host():
+    """A transport failure carries no status but is not a malformed commit."""
+    server = _TagServer([_dc_tag("v3", SHA_A)])
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if "/commits/" in request.url.path:
+            raise httpx.ConnectTimeout("timed out")
+        return server.respond(request)
+
+    with pytest.raises(BitbucketTransportError):
+        await _MockDataCenterTransport(respond).list_tags(url=DC_URL)
+
+
+@pytest.mark.anyio
 async def test_list_tags_skips_malformed_and_undatable_tags():
     server = _TagServer(
         [
@@ -424,3 +438,23 @@ async def test_list_tags_skips_malformed_and_undatable_tags():
 
     assert [(t.name, t.commit_sha) for t in tags] == [("v2", SHA_B)]
     assert cursor is None
+
+
+@pytest.mark.anyio
+async def test_transport_errors_are_provider_errors_without_host():
+    """An unreachable host maps to BitbucketError (400), not an unhandled 500."""
+    transport = BitbucketDataCenterWorkspaceSyncTransport(
+        session=AsyncMock(), role=role()
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out connecting to example.test")
+
+    async with httpx.AsyncClient(
+        base_url="https://example.test/rest/api/1.0/",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        with pytest.raises(BitbucketError) as exc_info:
+            await transport._request(client, "GET", "projects/DEMO/repos/sync")
+    assert "example.test" not in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, httpx.ConnectTimeout)

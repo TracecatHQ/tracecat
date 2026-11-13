@@ -8,17 +8,17 @@ import {
   CalendarIcon,
   Check,
   ChevronDown,
-  CircleIcon,
   CircleSlashIcon,
   ClockIcon,
   ListIcon,
-  ListTreeIcon,
   SearchIcon,
   ShieldAlertIcon,
   SignalHighIcon,
   SignalIcon,
   TagIcon,
+  TextCursorInputIcon,
   UserIcon,
+  WholeWordIcon,
 } from "lucide-react"
 import { type ComponentType, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
@@ -27,7 +27,6 @@ import type {
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
-  CaseQuery,
   CaseSeverity,
   CaseStatus,
   CasesSearchCasesData,
@@ -40,14 +39,18 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CaseColumnPicker } from "@/components/cases/case-column-picker"
-import { CaseFilterEditor } from "@/components/cases/case-filter-editor"
+import {
+  CaseMoreFiltersMenu,
+  DropdownDefinitionIcon,
+  getDropdownFilterOptions,
+  isDropdownFilterActive,
+} from "@/components/cases/case-more-filters-menu"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import {
   type CaseSortField,
   type CaseSortValue,
   DEFAULT_CASE_SORT,
 } from "@/components/cases/case-sort"
-import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import {
   type FilterMode,
   FilterMultiSelect,
@@ -69,6 +72,12 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type {
   CaseDateFilterValue,
   CaseDatePreset,
@@ -305,6 +314,39 @@ function isDefaultCaseSort(value: CaseSortValue): boolean {
   )
 }
 
+const SEARCH_MODE_LABELS = {
+  full_text: "Full-text search",
+  literal: "Substring search",
+} as const
+
+function CaseSearchModeToggle({
+  value,
+  onChange,
+}: {
+  value: "full_text" | "literal"
+  onChange: (mode: "full_text" | "literal") => void
+}) {
+  const Icon = value === "literal" ? TextCursorInputIcon : WholeWordIcon
+  const next = value === "literal" ? "full_text" : "literal"
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${SEARCH_MODE_LABELS[value]}, switch to ${SEARCH_MODE_LABELS[next].toLowerCase()}`}
+            onClick={() => onChange(next)}
+            className="flex size-6 items-center justify-center rounded-md border border-input bg-transparent text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            <Icon className="size-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{SEARCH_MODE_LABELS[value]}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 interface CaseSortSelectProps {
   value: CaseSortValue
   allowRelevance?: boolean
@@ -393,7 +435,6 @@ function CaseSortSelect({
 }
 
 interface CasesHeaderProps {
-  structuredFilters?: CaseQuery["filters"]
   searchQuery: string
   searchMode?: "full_text" | "literal"
   onSearchModeChange?: (mode: "full_text" | "literal") => void
@@ -445,7 +486,6 @@ interface CasesHeaderProps {
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
   dropdownFilters: Record<string, DropdownFilterState>
-  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -460,7 +500,6 @@ interface CasesHeaderProps {
 
 /** Case search, visible scope, and the current view's filter controls. */
 export function CasesHeader({
-  structuredFilters,
   searchQuery,
   searchMode = "full_text",
   onSearchModeChange,
@@ -512,7 +551,6 @@ export function CasesHeader({
   visibleColumnIds,
   onToggleColumn,
   dropdownFilters,
-  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -577,22 +615,26 @@ export function CasesHeader({
           </div>
         ),
       },
-      ...(workspaceMembers || []),
+      ...(workspaceMembers ?? []).sort((a, b) =>
+        a.label.localeCompare(b.label)
+      ),
     ]
   }, [members])
 
   const tagOptions = useMemo<FilterOption<string>[]>(() => {
     return (
-      tags?.map((tag) => ({
-        value: tag.ref,
-        label: tag.name,
-        renderIcon: () => (
-          <div
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: tag.color || undefined }}
-          />
-        ),
-      })) ?? []
+      tags
+        ?.map((tag) => ({
+          value: tag.ref,
+          label: tag.name,
+          renderIcon: () => (
+            <div
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: tag.color || undefined }}
+            />
+          ),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)) ?? []
     )
   }, [tags])
 
@@ -607,7 +649,6 @@ export function CasesHeader({
   const includesSubCases = effectiveHierarchy === "all"
 
   const hasFilters =
-    Boolean(structuredFilters) ||
     searchQuery.trim().length > 0 ||
     !isDefaultCaseSort(sortBy) ||
     statusFilter.length > 0 ||
@@ -621,7 +662,6 @@ export function CasesHeader({
     (includeSubCases && onIncludeSubCasesChange !== undefined)
 
   const handleReset = () => {
-    onStructuredFiltersChange?.(null)
     onSearchChange("")
     onSearchModeChange?.("full_text")
     onStatusChange([])
@@ -671,43 +711,41 @@ export function CasesHeader({
           placeholder={
             searchMode === "literal"
               ? "Search exact characters..."
-              : 'Search words, "phrases", or ID...'
+              : "Search cases by title, description, or ID..."
           }
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-        >
-          {onSearchModeChange && (
-            <Select value={searchMode} onValueChange={onSearchModeChange}>
-              <SelectTrigger
-                aria-label="Case search mode"
-                className="h-7 w-[100px] shrink-0 px-2 text-xs shadow-none"
-              >
-                <span>
-                  {searchMode === "full_text" ? "Full-text" : "Substring"}
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="full_text">Full-text</SelectItem>
-                <SelectItem value="literal">Substring</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        </ListHeaderSearch>
+        />
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {onToggleColumn && visibleColumnIds && (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {displayCaseCount ?? totalCaseCount}{" "}
+            {displayCaseCount === null ? "loaded" : countNoun}
+          </span>
+          {onSearchModeChange && (
+            <CaseSearchModeToggle
+              value={searchMode}
+              onChange={onSearchModeChange}
+            />
+          )}
+          {((onToggleColumn && visibleColumnIds) ||
+            onIncludeSubCasesChange) && (
             <CaseColumnPicker
               dropdownDefinitions={dropdownDefinitions}
               fieldDefinitions={fieldDefinitions}
               durationDefinitions={durationDefinitions}
               visibleColumnIds={visibleColumnIds}
               onToggle={onToggleColumn}
+              includesSubCases={includesSubCases}
+              hierarchyDisabled={Boolean(appliedSearchQuery)}
+              onIncludeSubCasesChange={onIncludeSubCasesChange}
             />
           )}
-          <span className="min-w-20 text-right text-xs tabular-nums text-muted-foreground">
-            {displayCaseCount ?? totalCaseCount}{" "}
-            {displayCaseCount === null ? "loaded" : countNoun}
-          </span>
+          <CaseMoreFiltersMenu
+            dropdownDefinitions={dropdownDefinitions}
+            dropdownFilters={dropdownFilters}
+            onDropdownFilterChange={onDropdownFilterChange}
+          />
         </div>
       </header>
 
@@ -721,15 +759,16 @@ export function CasesHeader({
       </p>
 
       {/* Row 2: Filter dropdowns */}
-      <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">
-        {/* Select all / Deselect all button - matches accordion chevron container (h-7 w-7) */}
-        {totalCaseCount > 0 && (
+      <div className="flex items-start gap-2 py-2 pl-3 pr-4">
+        {/* Select all keeps the accordion chevron column (w-7) so it stays
+            aligned with case rows while the filters wrap beside it. */}
+        {totalCaseCount > 0 ? (
           <button
             type="button"
             onClick={
               selectedCount === totalCaseCount ? onDeselectAll : onSelectAll
             }
-            className="flex h-7 w-7 shrink-0 items-center justify-center"
+            className="flex h-6 w-7 shrink-0 items-center justify-center"
             aria-label={
               selectedCount === totalCaseCount ? "Deselect all" : "Select all"
             }
@@ -750,9 +789,11 @@ export function CasesHeader({
               )}
             </div>
           </button>
+        ) : (
+          <div className="h-6 w-7 shrink-0" aria-hidden />
         )}
 
-        <fieldset className={cn("flex min-w-0 flex-wrap items-center gap-2")}>
+        <fieldset className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <legend className="sr-only">Current view filters</legend>
           <FilterMultiSelect
             placeholder="Status"
@@ -772,9 +813,6 @@ export function CasesHeader({
             options={priorityOptions}
             mode={priorityMode}
             onModeChange={onPriorityModeChange}
-            showSort
-            sortDirection={prioritySortDirection}
-            onSortDirectionChange={onPrioritySortDirectionChange}
           />
 
           <FilterMultiSelect
@@ -785,9 +823,6 @@ export function CasesHeader({
             options={severityOptions}
             mode={severityMode}
             onModeChange={onSeverityModeChange}
-            showSort
-            sortDirection={severitySortDirection}
-            onSortDirectionChange={onSeveritySortDirectionChange}
           />
 
           <FilterMultiSelect
@@ -799,10 +834,6 @@ export function CasesHeader({
             mode={assigneeMode}
             onModeChange={onAssigneeModeChange}
             allowExclude={false}
-            showSort
-            sortDirection={assigneeSortDirection}
-            sortDescription="By assignee email, ignoring case. Unassigned cases appear last."
-            onSortDirectionChange={onAssigneeSortDirectionChange}
             emptyMessage={
               members && members.length > 0
                 ? "No matching assignees."
@@ -819,84 +850,31 @@ export function CasesHeader({
             mode={tagMode}
             onModeChange={onTagModeChange}
             allowExclude={false}
-            showSort
-            sortDirection={tagSortDirection}
-            sortDescription="By the first tag alphabetically, ignoring case. Untagged cases appear last."
-            onSortDirectionChange={onTagSortDirectionChange}
             emptyMessage={
               tags && tags.length > 0 ? "No matching tags." : "No tags found."
             }
           />
 
-          {dropdownDefinitions?.map((def) => {
-            const state = dropdownFilters[def.ref] ?? {
-              values: [],
-              mode: "include" as FilterMode,
-              sortDirection: null as SortDirection,
-            }
-            const defIconName = def.icon_name ?? undefined
-            const options: FilterOption<string>[] =
-              def.options?.map((opt) => {
-                const optionColorStyle = opt.color
-                  ? ({ color: opt.color } as React.CSSProperties)
-                  : undefined
-                const fallbackIcon = opt.color ? (
-                  <CircleIcon
-                    className="size-3.5 shrink-0"
-                    style={optionColorStyle}
-                  />
-                ) : (
-                  <CircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                )
-
-                return {
-                  value: opt.ref,
-                  label: opt.label,
-                  renderIcon: () =>
-                    opt.icon_name ? (
-                      <DynamicLucideIcon
-                        name={opt.icon_name}
-                        className="size-3.5 shrink-0"
-                        style={optionColorStyle}
-                        fallback={fallbackIcon}
-                      />
-                    ) : (
-                      fallbackIcon
-                    ),
-                  labelStyle: optionColorStyle,
-                }
-              }) ?? []
-            return (
-              <FilterMultiSelect
-                key={def.id}
-                placeholder={def.name}
-                renderTriggerIcon={
-                  defIconName
-                    ? () => (
-                        <DynamicLucideIcon
-                          name={defIconName}
-                          className="size-3.5 text-muted-foreground"
-                          fallback={
-                            <ListIcon className="size-3.5 text-muted-foreground" />
-                          }
-                        />
-                      )
-                    : undefined
-                }
-                value={state.values}
-                onChange={(values) => onDropdownFilterChange(def.ref, values)}
-                options={options}
-                mode={state.mode}
-                onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
-                allowExclude={false}
-                showSort={def.is_ordered}
-                sortDirection={state.sortDirection}
-                onSortDirectionChange={(dir) =>
-                  onDropdownSortDirectionChange(def.ref, dir)
-                }
-              />
-            )
-          })}
+          {dropdownDefinitions
+            ?.filter((def) => isDropdownFilterActive(dropdownFilters[def.ref]))
+            .map((def) => {
+              const state = dropdownFilters[def.ref]
+              return (
+                <FilterMultiSelect
+                  key={def.id}
+                  placeholder={def.name}
+                  renderTriggerIcon={() => (
+                    <DropdownDefinitionIcon definition={def} />
+                  )}
+                  value={state.values}
+                  onChange={(values) => onDropdownFilterChange(def.ref, values)}
+                  options={getDropdownFilterOptions(def)}
+                  mode={state.mode}
+                  onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
+                  allowExclude={false}
+                />
+              )
+            })}
 
           {dropdownDefinitions &&
             Object.entries(dropdownFilters)
@@ -919,16 +897,6 @@ export function CasesHeader({
                 </Button>
               ))}
 
-          {onStructuredFiltersChange && (
-            <CaseFilterEditor
-              value={structuredFilters ?? null}
-              onChange={onStructuredFiltersChange}
-              members={members}
-              tags={tags}
-              dropdowns={dropdownDefinitions}
-            />
-          )}
-
           <DateFilterSelect
             placeholder="Updated"
             icon={ClockIcon}
@@ -943,43 +911,25 @@ export function CasesHeader({
             onChange={onCreatedAfterChange}
           />
 
-          {onIncludeSubCasesChange && (
+          <CaseSortSelect
+            value={sortBy}
+            onChange={onSortByChange}
+            allowRelevance={
+              searchMode === "full_text" && Boolean(appliedSearchQuery)
+            }
+          />
+
+          {hasFilters && (
             <button
               type="button"
-              role="switch"
-              aria-checked={includesSubCases}
-              disabled={Boolean(appliedSearchQuery)}
-              onClick={() => onIncludeSubCasesChange(!includeSubCases)}
-              className={cn(
-                "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
-                "hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50",
-                includesSubCases && "border-primary/50 bg-primary/5"
-              )}
+              onClick={handleReset}
+              className="flex h-6 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <ListTreeIcon className="size-3.5 text-muted-foreground" />
-              {includesSubCases ? "All cases" : "Parents only"}
+              Reset
+              <Cross2Icon className="size-3" />
             </button>
           )}
         </fieldset>
-
-        <CaseSortSelect
-          value={sortBy}
-          onChange={onSortByChange}
-          allowRelevance={
-            searchMode === "full_text" && Boolean(appliedSearchQuery)
-          }
-        />
-
-        {hasFilters && (
-          <button
-            type="button"
-            onClick={handleReset}
-            className="flex h-6 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Reset
-            <Cross2Icon className="size-3" />
-          </button>
-        )}
       </div>
     </div>
   )

@@ -23,6 +23,7 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.observability.otel import platform_span, record_platform_span
+from tracecat.process_env import LOADER_ENV_VAR_ERROR, is_loader_env_var
 from tracecat.sandbox.exceptions import (
     SandboxValidationError,
 )
@@ -101,7 +102,11 @@ SANDBOX_BASE_ENV = {
 }
 
 SANDBOX_PROTECTED_ENV_VARS = frozenset({"TRACECAT__SANDBOX_RLIMIT_NPROC"})
-"""Host-injected sandbox environment variables users cannot override."""
+"""Host-injected sandbox environment variables users cannot override.
+
+Loader variables (``is_loader_env_var``) are also refused: the env map becomes
+nsjail's own process environment before any jail exists.
+"""
 
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
@@ -188,7 +193,10 @@ import sys
 # host-injected RLIMIT_NPROC BEFORE the workload-started marker exists, so a
 # guard failure classifies as infrastructure failure, not a workload fault.
 # Lowering the hard limit is irreversible for the unprivileged workload, so
-# enforcement here cannot be undone by jailed code.
+# enforcement here cannot be undone by jailed code. The jail starts this
+# launcher with -I -S, so no PYTHONPATH or site-packages module (sitecustomize,
+# a shadowing resource.py) runs before the cap; the exec'd workload gets the
+# full environment, PYTHONPATH included.
 _guard_raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
 if _guard_raw:
     try:
@@ -620,6 +628,8 @@ class NsjailExecutor:
 
         # Launch through an executor-owned shim that proves workload start on the
         # invocation's captured stderr pipe before execing the requested script.
+        # Isolated mode (-I -S) keeps PYTHONPATH and site-packages out of the
+        # launcher; -B and -u replace the PYTHON* variables -I ignores.
         launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         script_path = f"/work/{script_name}"
         lines.extend(
@@ -627,7 +637,7 @@ class NsjailExecutor:
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "{script_path}" }}',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-I" arg: "-S" arg: "-B" arg: "-u" arg: "{launcher_path}" arg: "{script_path}" }}',
             ]
         )
 
@@ -679,6 +689,8 @@ class NsjailExecutor:
             if key == "PYTHONPATH":
                 continue
             _validate_env_key(key)
+            if is_loader_env_var(key):
+                raise SandboxValidationError(LOADER_ENV_VAR_ERROR)
             if key in SANDBOX_PROTECTED_ENV_VARS:
                 raise SandboxValidationError(
                     f"Cannot override protected sandbox env var: {key}"
@@ -1062,14 +1074,15 @@ class NsjailExecutor:
             )
 
         # Launch through the same executor-owned proof shim used by script and
-        # install phases. minimal_runner.py remains the actual workload.
+        # install phases, in the same isolated mode. minimal_runner.py remains
+        # the actual workload.
         launcher_path = f"/work/{_WORKLOAD_LAUNCHER_NAME}"
         lines.extend(
             [
                 "",
                 "# Execution",
                 'cwd: "/work"',
-                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{launcher_path}" arg: "/work/minimal_runner.py" }}',
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-I" arg: "-S" arg: "-B" arg: "-u" arg: "{launcher_path}" arg: "/work/minimal_runner.py" }}',
             ]
         )
 
@@ -1095,6 +1108,8 @@ class NsjailExecutor:
         # Add user-provided env vars (SDK context, NOT DB credentials)
         for key, value in config.env_vars.items():
             _validate_env_key(key)
+            if is_loader_env_var(key):
+                raise SandboxValidationError(LOADER_ENV_VAR_ERROR)
             if key in SANDBOX_PROTECTED_ENV_VARS:
                 raise SandboxValidationError(
                     f"Cannot override protected sandbox env var: {key}"

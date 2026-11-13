@@ -5,7 +5,6 @@ import type { DateRange } from "react-day-picker"
 import { v4 as uuid4 } from "uuid"
 import {
   type CasePriority,
-  type CaseQuery,
   type CaseReadMinimal,
   type CaseSearchAggregateRead,
   type CaseSearchRequest,
@@ -27,7 +26,6 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
-import { restoreCaseFilter } from "@/lib/case-filters"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { withAbortSignal } from "@/lib/query-cancellation"
@@ -102,7 +100,6 @@ function getCaseSearchTerm(query: string, mode: SearchMode): string {
 }
 
 export interface UseCasesFilters {
-  structuredFilters?: CaseQuery["filters"]
   searchQuery: string
   searchMode?: SearchMode
   searchOrder?: "relevance" | "column"
@@ -146,7 +143,6 @@ export interface UseCasesResult {
   setSearchMode: (mode: SearchMode) => void
   setSearchQuery: (query: string) => void
   setSortBy: (value: CaseSortValue) => void
-  setStructuredFilters: (filters: CaseQuery["filters"]) => void
   setStatusFilter: (status: CaseStatus[]) => void
   setStatusMode: (mode: FilterMode) => void
   setPriorityFilter: (priority: CasePriority[]) => void
@@ -256,7 +252,6 @@ export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
 }
 
 const DEFAULT_CASES_FILTERS: UseCasesFilters = {
-  structuredFilters: null,
   searchQuery: "",
   searchMode: "full_text",
   searchOrder: "relevance",
@@ -309,7 +304,6 @@ function loadPersistedCasesFilterState(
 
     const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
     return normalizeCasesSortState({
-      structuredFilters: restoreCaseFilter(parsed.structuredFilters),
       searchMode: parsed.searchMode === "literal" ? "literal" : "full_text",
       searchOrder:
         parsed.searchOrder === "column" || parsed.searchOrder === "relevance"
@@ -726,14 +720,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     },
     [applySearch]
   )
-  const [structuredFilters, setStructuredFiltersState] = useState<
-    CaseQuery["filters"]
-  >(initialFilterState.structuredFilters ?? null)
-  const [structuredRevision, setStructuredRevision] = useState("")
-  const setStructuredFilters = useCallback((value: CaseQuery["filters"]) => {
-    setStructuredFiltersState(value)
-    setStructuredRevision(uuid4())
-  }, [])
   const [sortBy, setSortByState] = useState<CaseSortValue>(
     initialFilterState.sortBy
   )
@@ -851,7 +837,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
-    setStructuredFilters(nextFilterState.structuredFilters ?? null)
     setSearchQueryState(nextFilterState.searchQuery)
     applySearch(nextFilterState.searchQuery, true)
     setSearchMode(nextFilterState.searchMode ?? "full_text")
@@ -872,7 +857,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setCreatedAfter(nextFilterState.createdAfter)
     setIncludeSubCases(nextFilterState.includeSubCases)
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
-  }, [hydratedWorkspaceId, workspaceId, applySearch, setStructuredFilters])
+  }, [hydratedWorkspaceId, workspaceId, applySearch])
 
   useEffect(() => {
     if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
@@ -882,7 +867,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     persistCasesFilterState(
       workspaceId,
       serializePersistedCasesFilters({
-        structuredFilters,
         searchQuery,
         searchMode,
         searchOrder,
@@ -912,7 +896,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     )
   }, [
     workspaceId,
-    structuredFilters,
     searchQuery,
     searchMode,
     searchOrder,
@@ -1016,7 +999,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
-        filters: structuredFilters,
         search_term: normalizedSearch.length > 0 ? normalizedSearch : undefined,
         search_mode: normalizedSearch.length > 0 ? searchMode : undefined,
         status: resolvedStatus.values,
@@ -1048,7 +1030,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         resolvedSeverity.matchesNone,
     }
   }, [
-    structuredFilters,
     appliedSearchQuery,
     searchMode,
     statusFilter,
@@ -1094,14 +1075,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         // A new applied search starts at page one even when returning to a
         // previously cached term, including an immediately cleared input.
         searchRevision: appliedSearch.revision,
-        structuredRevision,
       }),
-    [
-      apiQueryParams,
-      hasImpossibleEnumFilter,
-      appliedSearch.revision,
-      structuredRevision,
-    ]
+    [apiQueryParams, hasImpossibleEnumFilter, appliedSearch.revision]
   )
 
   const rowsKey = useMemo(
@@ -1267,7 +1242,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isSearchPending: normalizedSearchInput !== appliedSearchQuery,
     effectiveHierarchy: apiQueryParams.hierarchy,
     filters: {
-      structuredFilters,
       searchQuery,
       searchMode,
       searchOrder,
@@ -1292,7 +1266,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       includeSubCases,
     },
     setSearchMode,
-    setStructuredFilters,
     setSearchQuery,
     setSortBy,
     setStatusFilter,

@@ -1,10 +1,13 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { OrgRegistryRepositoryRemoveSection } from "@/components/organization/org-registry-repository-remove"
 import { OrgRegistrySshKeySection } from "@/components/organization/org-registry-ssh-key"
 import { CustomTagInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
@@ -43,6 +46,21 @@ export const gitFormSchema = z.object({
 
 type GitFormValues = z.infer<typeof gitFormSchema>
 
+function toRegistryOrigin(url: string): string {
+  return url.trim().split(/[?#]/)[0]
+}
+
+/** Whether saving `nextUrl` replaces, and so deletes, the repository of `previousUrl`. */
+export function isRepositoryUrlReplaced(
+  previousUrl: string | null | undefined,
+  nextUrl: string | null | undefined
+): boolean {
+  if (!previousUrl?.trim() || !nextUrl?.trim()) {
+    return false
+  }
+  return toRegistryOrigin(previousUrl) !== toRegistryOrigin(nextUrl)
+}
+
 /**
  * Lets the SSH key section sit between the form fields and the submit
  * button without nesting its dialogs inside the Git settings form.
@@ -75,7 +93,10 @@ export function OrgSettingsCustomRegistryForm() {
     // when a field already has an error, re-validate it on change too
     reValidateMode: "onChange",
   })
-  const onSubmit = async (data: GitFormValues) => {
+  const [pendingReplacement, setPendingReplacement] =
+    useState<GitFormValues | null>(null)
+
+  const saveGitSettings = async (data: GitFormValues) => {
     try {
       await updateGitSettings({
         requestBody: {
@@ -91,6 +112,14 @@ export function OrgSettingsCustomRegistryForm() {
     }
   }
 
+  const onSubmit = async (data: GitFormValues) => {
+    if (isRepositoryUrlReplaced(gitSettings?.git_repo_url, data.git_repo_url)) {
+      setPendingReplacement(data)
+      return
+    }
+    await saveGitSettings(data)
+  }
+
   if (gitSettingsIsLoading) {
     return <CenteredSpinner />
   }
@@ -102,6 +131,9 @@ export function OrgSettingsCustomRegistryForm() {
       />
     )
   }
+  const currentOrigin = gitSettings.git_repo_url
+    ? toRegistryOrigin(gitSettings.git_repo_url)
+    : ""
 
   return (
     <div className="space-y-8">
@@ -195,6 +227,34 @@ export function OrgSettingsCustomRegistryForm() {
       >
         Save repository settings
       </Button>
+      <ConfirmDestructiveDialog
+        open={pendingReplacement !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingReplacement(null)
+          }
+        }}
+        title="Replace repository?"
+        description={
+          <p>
+            Saving a new URL permanently deletes the current repository with all
+            of its synced versions and actions. Workflows that use its actions
+            fail until the new repository is synced.
+          </p>
+        }
+        identifier={{ label: "Current repository URL", value: currentOrigin }}
+        confirmPhrase={currentOrigin}
+        confirmLabel="Replace repository"
+        isPending={updateGitSettingsIsPending}
+        onConfirm={async () => {
+          if (pendingReplacement) {
+            const data = pendingReplacement
+            setPendingReplacement(null)
+            await saveGitSettings(data)
+          }
+        }}
+      />
+      <OrgRegistryRepositoryRemoveSection />
     </div>
   )
 }

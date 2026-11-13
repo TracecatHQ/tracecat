@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Table, TableColumn, Workspace
+from tracecat.db.models import Table, TableColumn, TableFolder, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables import internal_router as internal_tables_router
@@ -406,3 +406,84 @@ async def test_list_table_rows_overlong_search_term_returns_422(
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     mock_svc.list_rows.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("folder_path", "expect_lookup"),
+    [
+        pytest.param("/imports/", True, id="folder"),
+        pytest.param("/", False, id="root-slash"),
+        pytest.param(None, False, id="root-omitted"),
+    ],
+)
+async def test_import_table_from_csv_resolves_folder_path(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    folder_path: str | None,
+    expect_lookup: bool,
+) -> None:
+    folder = TableFolder(
+        id=uuid.uuid4(),
+        workspace_id=mock_table.workspace_id,
+        name="imports",
+        path="/imports/",
+    )
+    with (
+        patch.object(tables_router, "TablesService") as MockService,
+        patch.object(tables_router, "TableFolderService") as MockFolderService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.import_table_from_csv.return_value = (mock_table, 1, [])
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.get_index.return_value = []
+        MockService.return_value = mock_svc
+        mock_folder_svc = AsyncMock()
+        mock_folder_svc.get_folder_by_path.return_value = folder
+        MockFolderService.return_value = mock_folder_svc
+
+        data = {} if folder_path is None else {"folder_path": folder_path}
+        response = client.post(
+            "/tables/import",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={"file": ("events.csv", b"name\nalpha\n", "text/csv")},
+            data=data,
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    call = mock_svc.import_table_from_csv.await_args
+    assert call is not None
+    if expect_lookup:
+        mock_folder_svc.get_folder_by_path.assert_awaited_once_with("/imports/")
+        assert call.kwargs["folder_id"] == folder.id
+    else:
+        mock_folder_svc.get_folder_by_path.assert_not_awaited()
+        assert call.kwargs["folder_id"] is None
+
+
+@pytest.mark.anyio
+async def test_import_table_from_csv_unknown_folder_returns_404(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(tables_router, "TablesService") as MockService,
+        patch.object(tables_router, "TableFolderService") as MockFolderService,
+    ):
+        mock_svc = AsyncMock()
+        MockService.return_value = mock_svc
+        mock_folder_svc = AsyncMock()
+        mock_folder_svc.get_folder_by_path.return_value = None
+        MockFolderService.return_value = mock_folder_svc
+
+        response = client.post(
+            "/tables/import",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={"file": ("events.csv", b"name\nalpha\n", "text/csv")},
+            data={"folder_path": "/missing/"},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Folder with path '/missing/' not found"
+    mock_svc.import_table_from_csv.assert_not_awaited()

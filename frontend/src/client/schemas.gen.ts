@@ -8021,6 +8021,17 @@ export const $Body_tables_import_table_from_csv = {
       ],
       title: "Table Name",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
   },
   type: "object",
   required: ["file"],
@@ -17302,6 +17313,13 @@ export const $EffectiveEntitlements = {
         "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
       default: false,
     },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -17554,6 +17572,12 @@ export const $EntitlementsDict = {
       title: "Agent runtime for workflows",
       description:
         "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+    },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
     },
   },
   type: "object",
@@ -47819,6 +47843,17 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -47942,6 +47977,19 @@ export const $WorkspaceSettingsUpdate = {
       title: "Validate Attachment Magic Number",
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+      description:
+        "Whether closing or resolving a parent case also closes its open sub-cases and fills their empty required-on-closure fields and dropdowns from the parent. Defaults to true.",
     },
   },
   type: "object",

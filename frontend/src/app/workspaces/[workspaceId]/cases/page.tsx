@@ -127,7 +127,6 @@ export default function CasesPage() {
     setTagFilter,
     setTagMode,
     setTagSortDirection,
-    setStructuredFilters,
     setDropdownFilter,
     setDropdownMode,
     setDropdownSortDirection,
@@ -193,7 +192,6 @@ export default function CasesPage() {
         }
         visibleColumnIds={visibleColumnIds}
         onToggleColumn={toggleColumn}
-        onStructuredFiltersChange={setStructuredFilters}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
