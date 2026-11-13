@@ -5,9 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope
 from tracecat.logger import logger
-from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.parse import safe_url
 from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
@@ -92,40 +90,3 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
                 await session.rollback()
             else:
                 logger.info("Created remote registry repository", url=cleaned_url)
-
-
-async def remove_replaced_custom_repository(
-    session: AsyncSession,
-    role: Role,
-    *,
-    previous_url: str | None,
-    new_url: str | None,
-) -> None:
-    """Delete the custom repository of a Git URL that ``new_url`` replaced.
-
-    Clearing the URL keeps the repository; it can be removed explicitly.
-    """
-    if not previous_url or not new_url:
-        return
-    previous_origin = safe_url(previous_url)
-    if previous_origin == safe_url(new_url):
-        return
-    if not has_scope(role.scopes or frozenset(), "org:registry:delete"):
-        logger.info(
-            "Keeping replaced registry repository without delete scope",
-            origin=previous_origin,
-        )
-        return
-    repos_service = RegistryReposService(session, role=role)
-    repository = await repos_service.get_repository(previous_origin)
-    if repository is None:
-        return
-    try:
-        await repos_service.delete_repository(repository)
-    except ManagedResourceLockedError:
-        logger.info(
-            "Keeping replaced registry repository managed by a package",
-            origin=previous_origin,
-        )
-        return
-    logger.info("Deleted replaced registry repository", origin=previous_origin)
