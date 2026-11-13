@@ -43,6 +43,7 @@ from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     SessionDispatchUncertain,
+    SessionTurnActiveError,
     SessionTurnContext,
 )
 from tracecat.agent.session.results import (
@@ -55,6 +56,7 @@ from tracecat.agent.session.results import (
     RunSuperseded,
 )
 from tracecat.agent.session.service import AgentSessionService, message_run_id
+from tracecat.agent.session.types import TurnLifecycle, TurnLifecycleResult
 from tracecat.agent.types import AgentConfig
 from tracecat.db.models import AgentSession
 from tracecat.dsl._converter import get_data_converter
@@ -474,3 +476,139 @@ async def test_a_blank_request_id_is_refused(
                     **message(context.session.id, request_id=request_id)
                 )
     assert fake.starts == []
+
+
+@contextmanager
+def steering(steer: AsyncMock) -> Iterator[None]:
+    """Let the default backend steer, through ``steer``."""
+    with (
+        patch.object(DefaultBackend, "steering", True),
+        patch.object(DefaultBackend, "steer", steer),
+    ):
+        yield
+
+
+async def test_start_reports_the_active_run_and_decides_nothing(
+    connection: AsyncConnection,
+) -> None:
+    fake = FakeTemporal()
+    steer = AsyncMock(return_value=True)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with temporal(fake), steering(steer):
+            async with channel_service(db, context) as service:
+                first = await service.start_message(**message(session_id))
+                with pytest.raises(SessionTurnActiveError) as active:
+                    await service.start_message(**message(session_id, "slack:Ev2"))
+
+    assert active.value.run_id == first.run_id
+    assert fake.starts == [f"agent/{first.run_id}"]
+    steer.assert_not_awaited()
+
+
+async def test_steer_of_a_started_message_returns_its_run_and_steers_nothing(
+    connection: AsyncConnection,
+) -> None:
+    """A retry through the other verb gets the first verb's outcome."""
+    fake = FakeTemporal()
+    steer = AsyncMock(return_value=True)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with temporal(fake), steering(steer):
+            async with channel_service(db, context) as service:
+                first = await service.start_message(**message(session_id))
+                fake.complete(first.run_id)
+                await release(db, session_id)
+                newer = await service.start_message(**message(session_id, "slack:Ev2"))
+                retried = await service.steer_message(
+                    **message(session_id), run_id=newer.run_id
+                )
+
+    assert retried == first
+    steer.assert_not_awaited()
+    assert fake.starts == [f"agent/{first.run_id}", f"agent/{newer.run_id}"]
+
+
+async def test_steer_on_a_backend_that_cannot_steer_is_busy(
+    connection: AsyncConnection,
+) -> None:
+    fake = FakeTemporal()
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with temporal(fake):
+            async with channel_service(db, context) as service:
+                first = await service.start_message(**message(session_id))
+                busy = await service.steer_message(
+                    **message(session_id, "slack:Ev2"), run_id=first.run_id
+                )
+
+    assert busy == RunBusy(run_id=first.run_id)
+    assert fake.starts == [f"agent/{first.run_id}"]
+
+
+async def test_steer_uses_the_message_run_as_the_steer_id(
+    connection: AsyncConnection,
+) -> None:
+    fake = FakeTemporal()
+    steer = AsyncMock(return_value=True)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with temporal(fake), steering(steer):
+            async with channel_service(db, context) as service:
+                first = await service.start_message(**message(session_id))
+                steered = await service.steer_message(
+                    **message(session_id, "slack:Ev2"), run_id=first.run_id
+                )
+
+    assert steered == RunSteered(run_id=first.run_id)
+    steer.assert_awaited_once_with(
+        first.run_id,
+        message_run_id(session_id, "slack:Ev2", 0),
+        "Investigate this alert",
+    )
+
+
+@pytest.mark.parametrize("seen_by", ["pre-check", "lock"])
+async def test_a_duplicate_whose_run_ran_meanwhile_is_never_steered(
+    connection: AsyncConnection, seen_by: Literal["pre-check", "lock"]
+) -> None:
+    """The duplicate read its run as free; the original then ran and finished,
+    and a newer message's run holds the session when the duplicate starts."""
+    fake = FakeTemporal()
+    steer = AsyncMock(return_value=True)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with temporal(fake), steering(steer):
+            async with channel_service(db, context) as service:
+                first = await service.send_message(**message(session_id))
+                fake.complete(first.run_id)
+                await release(db, session_id)
+                newer = await service.send_message(**message(session_id, "slack:Ev2"))
+                assert isinstance(newer, RunStarted)
+                # On the lock path the newer run took the session after the pre-check.
+                lifecycle = (
+                    AsyncMock(
+                        return_value=TurnLifecycleResult(TurnLifecycle.NONE, None)
+                    )
+                    if seen_by == "lock"
+                    else service.get_turn_lifecycle
+                )
+                with (
+                    patch.object(service, "get_turn_lifecycle", lifecycle),
+                    patch.object(
+                        DefaultBackend,
+                        "turn_start_state",
+                        AsyncMock(side_effect=["missing", "started"]),
+                    ) as state,
+                ):
+                    duplicate = await service.send_message(**message(session_id))
+
+    assert duplicate == first
+    steer.assert_not_awaited()
+    assert state.await_count == 2
+    assert fake.starts == [f"agent/{first.run_id}", f"agent/{newer.run_id}"]
