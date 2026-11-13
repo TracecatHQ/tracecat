@@ -436,7 +436,7 @@ def _transport_error_classification(
     route_is_direct: bool,
 ) -> RuntimeErrorClassification:
     if isinstance(error, httpx.ReadTimeout):
-        return agent_llm_read_timeout(error)
+        return agent_llm_read_timeout(error, user_owned=route_is_direct)
     if route_is_direct:
         return user_agent_execution_failed(error, retryable=True)
     if isinstance(error, httpx.TimeoutException):

@@ -478,9 +478,7 @@ async def test_forward_request_classifies_direct_transport_failure(
     _, errors = await _forward(tmp_path, handler, request, routing_plan=plan)
 
     assert len(errors) == 1
-    assert errors[0].classification.owner is (
-        RuntimeErrorOwner.PLATFORM if failure == "timeout" else RuntimeErrorOwner.USER
-    )
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
     assert errors[0].classification.kind is (
         RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
         if failure == "timeout"
@@ -710,9 +708,7 @@ async def test_write_stream_response_keeps_direct_transport_failure_retryable(
     )
 
     assert len(errors) == 1
-    assert errors[0].classification.owner is (
-        RuntimeErrorOwner.PLATFORM if failure == "timeout" else RuntimeErrorOwner.USER
-    )
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
     assert errors[0].classification.kind is (
         RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
         if failure == "timeout"
@@ -1241,7 +1237,9 @@ async def test_read_timeout_records_safe_body_timing(
     }
     assert len(errors) == 1
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
-    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.owner is (
+        RuntimeErrorOwner.USER if direct else RuntimeErrorOwner.PLATFORM
+    )
     assert errors[0].classification.retry_disposition is RetryDisposition.RETRYABLE
     assert "synthetic sensitive diagnostic" not in str(errors)
     assert "synthetic sensitive diagnostic" not in str(log.warning.call_args_list)
@@ -1293,7 +1291,9 @@ async def test_read_timeout_before_headers_records_route(
     assert timeout_log.kwargs["first_body_chunk_ms"] is None
     assert len(errors) == 1
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
-    assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
+    assert errors[0].classification.owner is (
+        RuntimeErrorOwner.USER if direct else RuntimeErrorOwner.PLATFORM
+    )
     assert "synthetic sensitive diagnostic" not in str(errors)
     assert response_text.startswith("HTTP/1.1 504")
 
@@ -1896,7 +1896,9 @@ async def test_llm_metadata_follows_selected_route_on_all_failure_phases(
     assert "provider.example" not in classification.model_dump_json()
     assert "synthetic-model" not in classification.model_dump_json()
     if failure in {"headers_timeout", "body_timeout"}:
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.owner is (
+            RuntimeErrorOwner.USER if direct else RuntimeErrorOwner.PLATFORM
+        )
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 
 
