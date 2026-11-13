@@ -175,9 +175,11 @@ _WEB_SCHEMES = {"http", "https"}
 def _is_usable_app_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
+        # Reading the port validates it; a netloc can be credentials or a bad port alone.
+        parsed.port  # noqa: B018
     except ValueError:
         return False
-    return parsed.scheme in _WEB_SCHEMES and bool(parsed.netloc)
+    return parsed.scheme in _WEB_SCHEMES and bool(parsed.hostname)
 
 
 def _redirect(base_url: str, *, ok: bool, message: str | None) -> Response:
@@ -186,7 +188,7 @@ def _redirect(base_url: str, *, ok: bool, message: str | None) -> Response:
         logger.error("Channel bot OAuth callback has no usable public app URL")
         return PlainTextResponse(
             "Tracecat's public app URL is not configured.",
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     parsed = urlparse(base_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))

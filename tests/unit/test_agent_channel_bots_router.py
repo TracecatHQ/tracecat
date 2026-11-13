@@ -529,7 +529,14 @@ def test_callback_return_url_may_use_either_web_scheme(
     assert response.headers["location"] == f"{return_url}?channel_bot_install=success"
 
 
-UNUSABLE_APP_URLS = ["", "app.example.com", "https://", "ftp://app.example.com"]
+UNUSABLE_APP_URLS = [
+    "",
+    "app.example.com",
+    "https://",
+    "ftp://app.example.com",
+    "https://@",
+    "https://app.example.com:bad",
+]
 APP_URL_MISSING = "Tracecat's public app URL is not configured."
 APP_URL_ERROR = "Channel bot OAuth callback has no usable public app URL"
 
@@ -545,7 +552,7 @@ def error_logs() -> Iterator[list[Record]]:
 def assert_app_url_refusal(
     response: httpx.Response, error_logs: list[Record], messages: list[str]
 ) -> None:
-    assert response.status_code == 400
+    assert response.status_code == 500
     assert response.text == APP_URL_MISSING
     assert "location" not in response.headers
     assert [r["message"] for r in error_logs] == messages
