@@ -20,7 +20,13 @@ import {
   UserIcon,
   WholeWordIcon,
 } from "lucide-react"
-import { type ComponentType, useEffect, useMemo, useState } from "react"
+import {
+  type ComponentType,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type { DateRange } from "react-day-picker"
 import type {
   CaseDropdownDefinitionRead,
@@ -46,6 +52,10 @@ import {
   isDropdownFilterActive,
 } from "@/components/cases/case-more-filters-menu"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+
+/** Assignee filter value the server resolves to the requesting user. */
+const CURRENT_USER = "me"
+
 import {
   type CaseSortField,
   type CaseSortValue,
@@ -496,6 +506,10 @@ interface CasesHeaderProps {
   selectedCount?: number
   onSelectAll?: () => void
   onDeselectAll?: () => void
+  /** Saved view switcher and actions, shown before the search box. */
+  viewControls?: ReactNode
+  /** Read-only view conditions, shown with the filters. */
+  viewChips?: ReactNode
 }
 
 /** Case search, visible scope, and the current view's filter controls. */
@@ -560,6 +574,8 @@ export function CasesHeader({
   selectedCount = 0,
   onSelectAll,
   onDeselectAll,
+  viewControls,
+  viewChips,
 }: CasesHeaderProps) {
   const statusOptions = useMemo<FilterOption<CaseStatus>[]>(() => {
     return Object.values(STATUSES).map((status) => ({
@@ -606,6 +622,15 @@ export function CasesHeader({
     })
 
     return [
+      {
+        value: CURRENT_USER,
+        label: "Me",
+        renderIcon: () => (
+          <div className="flex size-5 items-center justify-center">
+            <UserIcon className="size-3 text-muted-foreground" />
+          </div>
+        ),
+      },
       {
         value: UNASSIGNED,
         label: "Unassigned",
@@ -705,6 +730,7 @@ export function CasesHeader({
     <div className="shrink-0 border-b">
       {/* Row 1: Search */}
       <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+        {viewControls}
         <ListHeaderSearch
           aria-label="Search cases"
           aria-describedby="case-search-scope"
@@ -910,6 +936,8 @@ export function CasesHeader({
             value={createdAfter}
             onChange={onCreatedAfterChange}
           />
+
+          {viewChips}
 
           <CaseSortSelect
             value={sortBy}

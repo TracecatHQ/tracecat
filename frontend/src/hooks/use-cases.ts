@@ -5,6 +5,7 @@ import type { DateRange } from "react-day-picker"
 import { v4 as uuid4 } from "uuid"
 import {
   type CasePriority,
+  type CaseQuery_Input,
   type CaseReadMinimal,
   type CaseSearchAggregateRead,
   type CaseSearchRequest,
@@ -14,6 +15,7 @@ import {
   type CasesQueryCasesResponse,
   casesQueryCaseAggregates,
   casesQueryCases,
+  type RelativeTimeWindow,
   type SearchMode,
 } from "@/client"
 import {
@@ -35,7 +37,8 @@ const CASES_PAGE_SIZE = 100
 const CASES_SEARCH_DEBOUNCE_MS = 300
 const CASES_REFETCH_INTERVAL_MS = 120000
 const CASES_FILTER_STORAGE_KEY = "cases-filters:v1"
-const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
+/** Every case status, in display order. */
+export const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
   "new",
   "in_progress",
@@ -44,7 +47,8 @@ const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "closed",
   "other",
 ]
-const ALL_CASE_PRIORITIES: ReadonlyArray<CasePriority> = [
+/** Every case priority, in display order. */
+export const ALL_CASE_PRIORITIES: ReadonlyArray<CasePriority> = [
   "unknown",
   "low",
   "medium",
@@ -52,7 +56,8 @@ const ALL_CASE_PRIORITIES: ReadonlyArray<CasePriority> = [
   "critical",
   "other",
 ]
-const ALL_CASE_SEVERITIES: ReadonlyArray<CaseSeverity> = [
+/** Every case severity, in display order. */
+export const ALL_CASE_SEVERITIES: ReadonlyArray<CaseSeverity> = [
   "unknown",
   "informational",
   "low",
@@ -89,9 +94,13 @@ export interface DropdownFilterState {
 const MIN_LITERAL_SEARCH_LENGTH = 3
 const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u
 
-// Input the API would reject (punctuation-only words, too-short literals) is
-// treated as no search, so typing "-" does not replace the list with an error.
-function getCaseSearchTerm(query: string, mode: SearchMode): string {
+/**
+ * Return the search term the API should receive, or "" for none.
+ *
+ * Input the API would reject (punctuation-only words, too-short literals) is
+ * treated as no search, so typing "-" does not replace the list with an error.
+ */
+export function getCaseSearchTerm(query: string, mode: SearchMode): string {
   const trimmed = query.trim()
   if (mode === "literal") {
     return trimmed.length >= MIN_LITERAL_SEARCH_LENGTH ? query : ""
@@ -129,6 +138,14 @@ export interface UseCasesOptions {
   autoRefresh?: boolean
   fieldIds?: string[]
   includeDurations?: boolean
+  /**
+   * Save filter changes to this browser. Turn off while a saved view is open,
+   * so the view's filters never replace the user's own. Turning it back on
+   * reloads the user's saved filters.
+   */
+  persist?: boolean
+  /** Conditions the filter bar cannot show, sent with every request. */
+  extraQuery?: Omit<CaseQuery_Input, "view_id">
 }
 
 export interface UseCasesResult {
@@ -163,6 +180,8 @@ export interface UseCasesResult {
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
   setIncludeSubCases: (value: boolean) => void
+  /** Replace every filter at once, for example when opening a saved view. */
+  replaceFilters: (filters: UseCasesFilters) => void
   totalFilteredCaseEstimate: number | null
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
@@ -200,31 +219,31 @@ type CasesFilterStateSnapshot = UseCasesFilters & {
   hydratedWorkspaceId?: string
 }
 
-// Helper to get Date from preset filter value
-function getDateFromPreset(preset: CaseDatePreset): Date | null {
-  if (!preset) return null
-  const now = new Date()
-  switch (preset) {
-    case "1d":
-      return new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    case "3d":
-      return new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-    case "1w":
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    case "1m":
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    default:
-      return null
-  }
+/** The relative window each date preset means. The server resolves it. */
+const PRESET_WINDOWS: Record<
+  NonNullable<CaseDatePreset>,
+  RelativeTimeWindow
+> = {
+  "1d": { amount: 1, unit: "day" },
+  "3d": { amount: 3, unit: "day" },
+  "1w": { amount: 1, unit: "week" },
+  "1m": { amount: 1, unit: "month" },
 }
 
-// Helper to get start/end dates from a filter value
-function getDateBoundsFromFilter(filter: CaseDateFilterValue): {
+/** Return the relative window a date preset means, or null for no preset. */
+export function presetToWindow(
+  preset: CaseDatePreset
+): RelativeTimeWindow | null {
+  return preset ? PRESET_WINDOWS[preset] : null
+}
+
+// Fixed bounds for a custom range. Presets are sent as relative windows.
+function getDateBoundsFromRange(filter: CaseDateFilterValue): {
   start: Date | null
   end: Date | null
 } {
   if (filter.type === "preset") {
-    return { start: getDateFromPreset(filter.value), end: null }
+    return { start: null, end: null }
   }
   return {
     start: filter.value.from ?? null,
@@ -251,7 +270,8 @@ export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
   value: DEFAULT_CREATED_PRESET,
 }
 
-const DEFAULT_CASES_FILTERS: UseCasesFilters = {
+/** The filter bar's state with nothing selected. */
+export const DEFAULT_CASES_FILTERS: UseCasesFilters = {
   searchQuery: "",
   searchMode: "full_text",
   searchOrder: "relevance",
@@ -629,7 +649,11 @@ function serializeDateFilter(
   }
 }
 
-function resolveEnumIncludeFilter<T extends string>(
+/**
+ * Turn an include or exclude selection into the list of values to include.
+ * `matchesNone` is true when an exclusion leaves nothing to include.
+ */
+export function resolveEnumIncludeFilter<T extends string>(
   selected: T[],
   mode: FilterMode,
   universe: ReadonlyArray<T>
@@ -656,6 +680,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     autoRefresh = true,
     fieldIds = [],
     includeDurations = false,
+    persist = true,
+    extraQuery,
   } = options
   const workspaceId = useWorkspaceId()
   const normalizedFieldIds = useMemo(
@@ -822,6 +848,31 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     ? hydratedWorkspaceId === workspaceId
     : false
 
+  const replaceFilters = useCallback(
+    (next: UseCasesFilters) => {
+      setSearchQueryState(next.searchQuery)
+      applySearch(next.searchQuery, true)
+      setSearchMode(next.searchMode ?? "full_text")
+      setSearchOrder(next.searchOrder ?? "relevance")
+      setSortByState(next.sortBy)
+      setStatusFilter(next.statusFilter)
+      setStatusMode(next.statusMode)
+      setPriorityFilter(next.priorityFilter)
+      setPriorityMode(next.priorityMode)
+      setSeverityFilter(next.severityFilter)
+      setSeverityMode(next.severityMode)
+      setAssigneeFilter(next.assigneeFilter)
+      setAssigneeModeState(next.assigneeMode)
+      setTagFilter(next.tagFilter)
+      setTagModeState(next.tagMode)
+      setDropdownFilters(next.dropdownFilters)
+      setUpdatedAfter(next.updatedAfter)
+      setCreatedAfter(next.createdAfter)
+      setIncludeSubCases(next.includeSubCases)
+    },
+    [applySearch]
+  )
+
   useEffect(() => {
     if (!workspaceId) {
       setHydratedWorkspaceId(undefined)
@@ -837,29 +888,24 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
-    setSearchQueryState(nextFilterState.searchQuery)
-    applySearch(nextFilterState.searchQuery, true)
-    setSearchMode(nextFilterState.searchMode ?? "full_text")
-    setSearchOrder(nextFilterState.searchOrder ?? "relevance")
-    setSortByState(nextFilterState.sortBy)
-    setStatusFilter(nextFilterState.statusFilter)
-    setStatusMode(nextFilterState.statusMode)
-    setPriorityFilter(nextFilterState.priorityFilter)
-    setPriorityMode(nextFilterState.priorityMode)
-    setSeverityFilter(nextFilterState.severityFilter)
-    setSeverityMode(nextFilterState.severityMode)
-    setAssigneeFilter(nextFilterState.assigneeFilter)
-    setAssigneeModeState(nextFilterState.assigneeMode)
-    setTagFilter(nextFilterState.tagFilter)
-    setTagModeState(nextFilterState.tagMode)
-    setDropdownFilters(nextFilterState.dropdownFilters)
-    setUpdatedAfter(nextFilterState.updatedAfter)
-    setCreatedAfter(nextFilterState.createdAfter)
-    setIncludeSubCases(nextFilterState.includeSubCases)
+    replaceFilters(nextFilterState)
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
-  }, [hydratedWorkspaceId, workspaceId, applySearch])
+  }, [hydratedWorkspaceId, workspaceId, replaceFilters])
 
+  // Whether the previous render saved filters. When saving turns back on (a
+  // saved view was closed), reload the user's own filters instead of saving
+  // the view's.
+  const wasPersistingRef = useRef(persist)
   useEffect(() => {
+    if (!persist) {
+      wasPersistingRef.current = false
+      return
+    }
+    if (!wasPersistingRef.current) {
+      wasPersistingRef.current = true
+      setHydratedWorkspaceId(undefined)
+      return
+    }
     if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
       return
     }
@@ -895,6 +941,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       })
     )
   }, [
+    persist,
     workspaceId,
     searchQuery,
     searchMode,
@@ -969,8 +1016,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const { apiQueryParams, hasImpossibleEnumFilter } = useMemo(() => {
     const normalizedSearch = appliedSearchQuery
-    const updatedBounds = getDateBoundsFromFilter(updatedAfter)
-    const createdBounds = getDateBoundsFromFilter(createdAfter)
+    const updatedBounds = getDateBoundsFromRange(updatedAfter)
+    const createdBounds = getDateBoundsFromRange(createdAfter)
+    const updatedWindow =
+      updatedAfter.type === "preset" ? presetToWindow(updatedAfter.value) : null
+    const createdWindow =
+      createdAfter.type === "preset" ? presetToWindow(createdAfter.value) : null
     const resolvedStatus = resolveEnumIncludeFilter(
       statusFilter,
       statusMode,
@@ -999,6 +1050,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
+        ...extraQuery,
         search_term: normalizedSearch.length > 0 ? normalizedSearch : undefined,
         search_mode: normalizedSearch.length > 0 ? searchMode : undefined,
         status: resolvedStatus.values,
@@ -1011,10 +1063,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         tags:
           tagFilter.length > 0 && tagMode === "include" ? tagFilter : undefined,
         dropdown: dropdownIncludes.length > 0 ? dropdownIncludes : undefined,
+        created_within: createdWindow ?? undefined,
         start_time: createdBounds.start?.toISOString(),
         end_time: createdBounds.end
           ? toEndOfDay(createdBounds.end).toISOString()
           : undefined,
+        updated_within: updatedWindow ?? undefined,
         updated_after: updatedBounds.start?.toISOString(),
         updated_before: updatedBounds.end
           ? toEndOfDay(updatedBounds.end).toISOString()
@@ -1046,6 +1100,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     updatedAfter,
     createdAfter,
     includeSubCases,
+    extraQuery,
   ])
 
   const effectiveSortBy: CaseSortValue =
@@ -1288,6 +1343,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setUpdatedAfter,
     setCreatedAfter,
     setIncludeSubCases,
+    replaceFilters,
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS

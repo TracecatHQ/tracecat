@@ -2,7 +2,13 @@
 
 import { TimerOffIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type {
   CaseBatchResponse,
   CaseDropdownDefinitionRead,
@@ -105,6 +111,10 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
+  /** Saved view switcher and actions, shown before the search box. */
+  viewControls?: ReactNode
+  /** Read-only view conditions, shown with the filters. */
+  viewChips?: ReactNode
 }
 
 /** Workspace case list with a promoted exact match and filtered results. */
@@ -154,6 +164,8 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  viewControls,
+  viewChips,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -468,6 +480,8 @@ export function CasesLayout({
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
+    viewControls,
+    viewChips,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
     isCountsError,

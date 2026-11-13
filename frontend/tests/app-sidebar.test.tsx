@@ -19,6 +19,7 @@ let mockHasEntitlementData = true
 jest.mock("next/navigation", () => ({
   useParams: () => ({}),
   usePathname: () => mockPathname,
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -140,6 +141,16 @@ jest.mock("@/hooks/use-entitlements", () => ({
       mockEntitlements[entitlement] ?? false,
     isLoading: mockEntitlementsIsLoading,
     hasEntitlementData: mockHasEntitlementData,
+  }),
+}))
+
+jest.mock("@/hooks/use-case-views", () => ({
+  useCaseViews: () => ({
+    builtins: [],
+    personal: [],
+    shared: [],
+    pinned: [],
+    isLoading: false,
   }),
 }))
 

@@ -1,8 +1,16 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
+import {
+  CaseViewChips,
+  CaseViewSwitcher,
+} from "@/components/cases/case-view-switcher"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
+import {
+  useActiveCaseView,
+  useCaseViewControls,
+} from "@/hooks/use-case-view-state"
 import { useCases } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -75,10 +83,14 @@ export default function CasesPage() {
     caseAddonsEnabled,
   ])
 
-  const { visibleColumnIds, toggleColumn } = useCaseColumnVisibility(
-    workspaceId,
-    knownColumnIds
-  )
+  const {
+    visibleColumnIds: personalColumnIds,
+    toggleColumn: togglePersonalColumn,
+  } = useCaseColumnVisibility(workspaceId, knownColumnIds)
+  const activeView = useActiveCaseView(workspaceId)
+  const viewColumnIds =
+    activeView.view && activeView.columns !== null ? activeView.columns : null
+  const visibleColumnIds = viewColumnIds ?? personalColumnIds
 
   const selectedFieldIds = useMemo(() => {
     const validFieldIds = new Set(
@@ -102,6 +114,21 @@ export default function CasesPage() {
     return visibleColumnIds.some((columnId) => durationColumnIds.has(columnId))
   }, [caseAddonsEnabled, caseDurationDefinitions, visibleColumnIds])
 
+  const casesResult = useCases({
+    fieldIds: selectedFieldIds,
+    includeDurations,
+    persist: activeView.viewId === null,
+    extraQuery: activeView.mapped?.extraQuery,
+    enabled: activeView.isApplied,
+  })
+  const viewControls = useCaseViewControls({
+    workspaceId,
+    active: activeView,
+    cases: casesResult,
+    personalColumns: personalColumnIds,
+    togglePersonalColumn,
+    knownColumnIds,
+  })
   const {
     cases,
     isLoading,
@@ -141,7 +168,7 @@ export default function CasesPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useCases({ fieldIds: selectedFieldIds, includeDurations })
+  } = casesResult
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -190,8 +217,8 @@ export default function CasesPage() {
         durationDefinitions={
           caseAddonsEnabled ? caseDurationDefinitions : undefined
         }
-        visibleColumnIds={visibleColumnIds}
-        onToggleColumn={toggleColumn}
+        visibleColumnIds={viewControls.visibleColumnIds}
+        onToggleColumn={viewControls.toggleColumn}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
@@ -203,6 +230,10 @@ export default function CasesPage() {
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}
+        viewControls={
+          <CaseViewSwitcher workspaceId={workspaceId} controls={viewControls} />
+        }
+        viewChips={<CaseViewChips controls={viewControls} />}
       />
     </div>
   )
