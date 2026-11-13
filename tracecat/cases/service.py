@@ -12,7 +12,7 @@ from sqlalchemy import cast, select
 from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import raiseload, selectinload
+from sqlalchemy.orm import aliased, raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
@@ -2485,7 +2485,22 @@ class CaseCommentsService(BaseWorkspaceService):
         thread_root_id: uuid.UUID | None = None,
     ) -> list[tuple[CaseComment, User | None]]:
         """List case comments with user information."""
-        predicates: list[ColumnElement[bool]] = [CaseComment.case_id == case_id]
+        live_reply = aliased(CaseComment)
+        # Soft-deleted comments stay hidden unless they anchor live replies.
+        predicates: list[ColumnElement[bool]] = [
+            CaseComment.case_id == case_id,
+            sa.or_(
+                CaseComment.deleted_at.is_(None),
+                sa.and_(
+                    CaseComment.parent_id.is_(None),
+                    sa.exists().where(
+                        live_reply.workspace_id == CaseComment.workspace_id,
+                        live_reply.parent_id == CaseComment.id,
+                        live_reply.deleted_at.is_(None),
+                    ),
+                ),
+            ),
+        ]
         if thread_root_id is not None:
             predicates.append(
                 sa.or_(
@@ -2618,17 +2633,6 @@ class CaseCommentsService(BaseWorkspaceService):
             raise TracecatValidationError("Replies cannot have replies")
         if parent.deleted_at is not None:
             raise TracecatValidationError("Cannot reply to a deleted comment")
-
-    async def _comment_has_replies(self, comment_id: uuid.UUID) -> bool:
-        """Check whether a comment has replies."""
-        statement = select(
-            sa.exists().where(
-                CaseComment.workspace_id == self.workspace_id,
-                CaseComment.parent_id == comment_id,
-            )
-        )
-        result = await self.session.execute(statement)
-        return bool(result.scalar())
 
     async def _persist_comment_mentions(
         self,
@@ -2922,18 +2926,14 @@ class CaseCommentsService(BaseWorkspaceService):
             comment_id: The ID of the comment to delete
 
         Any role with ``case:delete`` (workspace admins, org owners/admins and
-        workflows) may delete any comment, not just its own. The case event
-        records the comment author so deletions of other users' comments are
-        attributable.
+        workflows) may delete any comment, not just its own. Deletion is always
+        soft: the row is kept with ``deleted_at`` set and hidden from comment
+        listings, and the case event records the comment author.
         """
-
-        has_replies = comment.parent_id is None and await self._comment_has_replies(
-            comment.id
-        )
-        if has_replies and comment.deleted_at is not None:
+        if comment.deleted_at is not None:
             return
 
-        delete_mode: Literal["soft", "hard"] = "soft" if has_replies else "hard"
+        delete_mode: Literal["soft", "hard"] = "soft"
         delete_audit_data = self._comment_audit_data(
             case_id=comment.case_id,
             comment_id=comment.id,
@@ -2950,35 +2950,17 @@ class CaseCommentsService(BaseWorkspaceService):
 
         try:
             case = await self._get_case(comment.case_id)
-            if has_replies:
-                if comment.deleted_at is None:
-                    comment.deleted_at = datetime.now(UTC)
-                await CaseEventsService(
-                    session=self.session, role=self.role
-                ).create_event(
-                    case=case,
-                    event=self._comment_deleted_event(
-                        comment_id=comment.id,
-                        parent_id=comment.parent_id,
-                        delete_mode=delete_mode,
-                        author_id=comment.user_id,
-                    ),
-                )
-                await self.session.commit()
-            else:
-                await CaseEventsService(
-                    session=self.session, role=self.role
-                ).create_event(
-                    case=case,
-                    event=self._comment_deleted_event(
-                        comment_id=comment.id,
-                        parent_id=comment.parent_id,
-                        delete_mode=delete_mode,
-                        author_id=comment.user_id,
-                    ),
-                )
-                await self.session.delete(comment)
-                await self.session.commit()
+            comment.deleted_at = datetime.now(UTC)
+            await CaseEventsService(session=self.session, role=self.role).create_event(
+                case=case,
+                event=self._comment_deleted_event(
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                    delete_mode=delete_mode,
+                    author_id=comment.user_id,
+                ),
+            )
+            await self.session.commit()
         except Exception:
             await self._audit_comment_event(
                 action="delete",

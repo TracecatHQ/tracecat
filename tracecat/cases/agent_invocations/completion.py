@@ -77,6 +77,9 @@ class CaseCommentAgentInvocationCompletionService(BaseWorkspaceService):
         if invocation.status != CaseCommentAgentInvocationStatus.RUNNING.value:
             return None
 
+        if source_comment.deleted_at is not None:
+            raise TracecatConflictError("Cannot reply to a deleted comment")
+
         content = render_agent_output_as_comment(output)
         thread_root_id = source_comment.parent_id or source_comment.id
         thread_root = await self.session.scalar(

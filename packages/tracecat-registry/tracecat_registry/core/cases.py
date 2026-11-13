@@ -519,7 +519,7 @@ async def delete_comment(
 ) -> None:
     """Delete a case comment.
 
-    Top-level comments with replies are soft-deleted so the thread is kept.
+    The comment is soft-deleted: hidden from the thread but kept as a case event.
     """
     await ctx.cases.aio.delete_comment(case_id, comment_id)
 

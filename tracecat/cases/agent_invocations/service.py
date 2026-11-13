@@ -236,7 +236,10 @@ class CaseCommentAgentInvocationService(BaseWorkspaceService):
                 CaseComment.case_id == case_id,
                 sa.or_(
                     CaseComment.id == thread_root_id,
-                    CaseComment.parent_id == thread_root_id,
+                    sa.and_(
+                        CaseComment.parent_id == thread_root_id,
+                        CaseComment.deleted_at.is_(None),
+                    ),
                 ),
             )
             .order_by(CaseComment.created_at, CaseComment.surrogate_id)

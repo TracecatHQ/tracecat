@@ -7553,8 +7553,8 @@ async def delete_case_comment(
     """Delete a comment from a case.
 
     Workspace admins (``case:delete``) can delete any comment, including
-    other users' comments. Top-level comments with replies are soft-deleted
-    so the thread is kept. Each deletion is recorded as a case event.
+    other users' comments. Deletion is a soft delete: the comment is hidden
+    from the thread but kept in the database and recorded as a case event.
 
     Args:
         workspace_id: The workspace ID.
