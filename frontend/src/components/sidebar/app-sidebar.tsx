@@ -116,7 +116,7 @@ function SidebarNavGroup({
               {visibleItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   {item.items ? (
-                    <SidebarMenuItem>
+                    <>
                       {item.url ? (
                         <SidebarMenuButton asChild isActive={item.isActive}>
                           <Link href={item.url}>
@@ -145,7 +145,7 @@ function SidebarNavGroup({
                           </SidebarMenuSubItem>
                         ))}
                       </SidebarMenuSub>
-                    </SidebarMenuItem>
+                    </>
                   ) : item.isLocked ? (
                     <SidebarMenuButton
                       type="button"
