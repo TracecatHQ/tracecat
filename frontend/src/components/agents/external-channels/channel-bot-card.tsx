@@ -8,6 +8,7 @@ import {
   CHANNEL_BOT_STATES,
   type ChannelBotState,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon } from "@/components/icons"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -112,6 +113,8 @@ export function ChannelBotCard({
   children?: ReactNode
 }) {
   const { label, installed } = CHANNEL_BOT_STATES[state]
+  // Every channel bot request needs agent:update.
+  const canUpdateAgent = useScopeCheck("agent:update") === true
   return (
     <>
       <div className="rounded border" role="group" aria-label={title}>
@@ -124,7 +127,12 @@ export function ChannelBotCard({
             <p className="text-xs text-muted-foreground">{description}</p>
           </div>
           {label ? <Badge variant="secondary">{label}</Badge> : null}
-          <Button type="button" size="sm" onClick={onManage} disabled={opening}>
+          <Button
+            type="button"
+            size="sm"
+            onClick={onManage}
+            disabled={opening || !canUpdateAgent}
+          >
             {opening ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
             {installed ? "Manage" : "Connect"}
           </Button>
