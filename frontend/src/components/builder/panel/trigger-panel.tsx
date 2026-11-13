@@ -1331,6 +1331,20 @@ export function CaseTriggerControls({
         />
       </div>
 
+      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Include sub-cases</Label>
+          <p className="text-xs text-muted-foreground">
+            Also trigger on sub-case events.
+          </p>
+        </div>
+        <Switch
+          checked={includeSubCases}
+          onCheckedChange={handleIncludeSubCasesToggle}
+          disabled={isUpdatingCaseTrigger}
+        />
+      </div>
+
       <div className="space-y-2">
         <Label className="text-xs">Case events</Label>
         <MultiTagCommandInput
@@ -1367,21 +1381,6 @@ export function CaseTriggerControls({
           Tag events match the added or removed tag; other events match current
           case tags. Workflow-originated events are ignored.
         </p>
-      </div>
-
-      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-        <div className="space-y-1">
-          <Label className="text-xs font-semibold">Include sub-cases</Label>
-          <p className="text-xs text-muted-foreground">
-            Also fire on events from sub-cases. When off, only top-level cases
-            fire this workflow.
-          </p>
-        </div>
-        <Switch
-          checked={includeSubCases}
-          onCheckedChange={handleIncludeSubCasesToggle}
-          disabled={isUpdatingCaseTrigger}
-        />
       </div>
     </ReadOnlyFieldset>
   )
