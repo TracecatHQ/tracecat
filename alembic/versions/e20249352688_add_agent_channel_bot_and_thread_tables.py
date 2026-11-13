@@ -38,6 +38,7 @@ def upgrade() -> None:
         sa.Column("agent_preset_id", sa.UUID(), nullable=False),
         sa.Column("provider", sa.String(), nullable=False),
         sa.Column("status", sa.String(), server_default="active", nullable=False),
+        sa.Column("transport", sa.String(), server_default="http", nullable=False),
         sa.Column("provider_tenant_id", sa.String(), nullable=True),
         sa.Column("provider_enterprise_id", sa.String(), nullable=True),
         sa.Column("provider_app_id", sa.String(), nullable=True),
@@ -68,6 +69,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "status IN ('active', 'paused', 'disconnected', 'needs_reconnect')",
             name=op.f("ck_agent_channel_bot_status"),
+        ),
+        sa.CheckConstraint(
+            "transport IN ('http', 'socket')",
+            name=op.f("ck_agent_channel_bot_transport"),
         ),
         sa.ForeignKeyConstraint(
             ["agent_preset_id"],

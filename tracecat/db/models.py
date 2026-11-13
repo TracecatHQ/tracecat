@@ -4717,6 +4717,7 @@ class AgentChannelBot(TimestampMixin, Base):
             "status IN ('active', 'paused', 'disconnected', 'needs_reconnect')",
             name="status",
         ),
+        CheckConstraint("transport IN ('http', 'socket')", name="transport"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
@@ -4735,6 +4736,12 @@ class AgentChannelBot(TimestampMixin, Base):
     provider: Mapped[Literal["slack"]] = mapped_column(String, nullable=False)
     status: Mapped[Literal["active", "paused", "disconnected", "needs_reconnect"]] = (
         mapped_column(String, nullable=False, server_default="active")
+    )
+    transport: Mapped[Literal["http", "socket"]] = mapped_column(
+        String,
+        nullable=False,
+        server_default="http",
+        doc="How events arrive; set at install from the deployment's ingress mode",
     )
     provider_tenant_id: Mapped[str | None] = mapped_column(
         String,
