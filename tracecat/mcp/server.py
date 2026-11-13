@@ -1866,6 +1866,7 @@ async def _build_workflow_yaml_envelope(
             "status": case_trigger.status,
             "event_types": case_trigger.event_types,
             "tag_filters": case_trigger.tag_filters,
+            "include_sub_cases": case_trigger.include_sub_cases,
         }
     except TracecatNotFoundError:
         payload["case_trigger"] = None
@@ -2044,6 +2045,7 @@ async def _apply_case_trigger_payload(
             status=patch.status or "offline",
             event_types=patch.event_types or [],
             tag_filters=patch.tag_filters or [],
+            include_sub_cases=bool(patch.include_sub_cases),
         )
         await service.upsert_case_trigger(
             workflow_id,
@@ -3081,7 +3083,8 @@ There is no `TRIGGER.payload`. A case trigger delivers `case_id`, `event`
 with `id`, `ref`, `name`, `color`), and `workspace_id`. `status: online` requires
 a non-empty `event_types`. `tag_filters` are tag refs matched with OR semantics;
 an empty list means no tag filtering. `tag_added`/`tag_removed` events match the
-added or removed tag; other events match the case's current tags.
+added or removed tag; other events match the case's current tags. Sub-cases
+fire only with `include_sub_cases: true`.
 ```yaml
 case_trigger:
   status: online
@@ -6353,7 +6356,7 @@ async def get_case_trigger(
         workflow_id: The workflow ID.
 
     Returns JSON with the case trigger (id, workflow_id, status, event_types,
-    tag_filters).
+    tag_filters, include_sub_cases).
     """
 
     try:
@@ -6398,6 +6401,9 @@ Args:
         case carries any listed tag, or for `tag_added`/`tag_removed` when the
         added or removed tag is listed. An empty list means no tag filtering.
         Refs that do not exist yet are created automatically.
+    include_sub_cases: Whether events on sub-cases (cases with a parent case)
+        also fire the trigger. Defaults to false: only top-level cases fire.
+        Omitting it keeps the current value.
 
 Returns a confirmation message.
 """
@@ -6410,6 +6416,7 @@ async def update_case_trigger(
     status: str | None = None,
     event_types: list[CaseEventType] | None = None,
     tag_filters: list[str] | None = None,
+    include_sub_cases: bool | None = None,
 ) -> MCPMessageResponse:
     """Update an existing case trigger for a workflow.
 
@@ -6427,6 +6434,7 @@ async def update_case_trigger(
             status=cast(Literal["online", "offline"] | None, status),
             event_types=event_types,
             tag_filters=tag_filters,
+            include_sub_cases=include_sub_cases,
         )
 
         async with CaseTriggersService.with_session(role=role) as svc:

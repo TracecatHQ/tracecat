@@ -279,6 +279,8 @@ class CaseTriggerConsumer:
                     and trigger.workflow_id == explicit_workflow_id
                 ):
                     continue
+                if case.parent_id is not None and not trigger.include_sub_cases:
+                    continue
                 if trigger.tag_filters:
                     if not filter_tag_refs.intersection(trigger.tag_filters):
                         continue

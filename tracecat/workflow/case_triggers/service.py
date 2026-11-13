@@ -231,6 +231,7 @@ class CaseTriggersService(BaseWorkspaceService):
                     status=params.status,
                     event_types=params.event_types,
                     tag_filters=params.tag_filters,
+                    include_sub_cases=params.include_sub_cases,
                 ),
                 create_missing_tags=create_missing_tags,
                 commit=commit,
@@ -245,6 +246,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 status=params.status,
                 event_types=[evt.value for evt in params.event_types],
                 tag_filters=resolved_tags,
+                include_sub_cases=params.include_sub_cases,
             )
             self.session.add(case_trigger)
             if commit:
@@ -320,6 +322,8 @@ class CaseTriggersService(BaseWorkspaceService):
         case_trigger.status = status
         case_trigger.event_types = list(event_types) if event_types is not None else []
         case_trigger.tag_filters = resolved_tags
+        if (include_sub_cases := updates.get("include_sub_cases")) is not None:
+            case_trigger.include_sub_cases = include_sub_cases
 
         self.session.add(case_trigger)
         if commit:

@@ -210,6 +210,8 @@ class RemoteCaseTrigger(BaseModel):
     status: Status = Field(default="offline")
     event_types: list[CaseEventType] = Field(default_factory=list)
     tag_filters: list[str] = Field(default_factory=list)
+    include_sub_cases: bool | None = None
+    """Only written when true, so existing synced files don't change."""
 
     @model_validator(mode="after")
     def validate_event_types(self) -> "RemoteCaseTrigger":

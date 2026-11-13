@@ -109,6 +109,7 @@ async def test_workflow_import_case_trigger_creates_tags(test_role: Role):
             status="offline",
             event_types=[],
             tag_filters=["phishing"],
+            include_sub_cases=False,
         ),
     )
 
@@ -197,6 +198,7 @@ def test_external_workflow_definition_omits_empty_case_trigger():
                         status="offline",
                         event_types=[],
                         tag_filters=[],
+                        include_sub_cases=False,
                     ),
                 ),
             ),
@@ -246,6 +248,7 @@ def test_external_workflow_definition_includes_layout():
                         status="offline",
                         event_types=[],
                         tag_filters=[],
+                        include_sub_cases=False,
                     ),
                 ),
             ),
@@ -282,6 +285,7 @@ async def test_workflow_import_ignores_empty_case_trigger(test_role: Role):
             status="offline",
             event_types=[],
             tag_filters=[],
+            include_sub_cases=False,
         ),
     )
 

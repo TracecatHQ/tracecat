@@ -272,6 +272,7 @@ def _case_trigger_stub(**overrides: Any) -> SimpleNamespace:
         "status": "online",
         "event_types": ["case_created"],
         "tag_filters": [],
+        "include_sub_cases": False,
     }
     data.update(overrides)
     return SimpleNamespace(**data)
@@ -1583,6 +1584,7 @@ def test_build_workflow_edit_document_omits_invalid_online_case_trigger() -> Non
             status="online",
             event_types=[],
             tag_filters=[],
+            include_sub_cases=False,
         )
     )
 
