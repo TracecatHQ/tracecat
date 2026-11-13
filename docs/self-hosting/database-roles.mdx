@@ -91,7 +91,7 @@ On each start, the `migrations` container runs `tracecat db roles upgrade` as th
 
 ### Kubernetes
 
-Run `tracecat db roles upgrade` yourself, from a machine or a one-off pod that can reach the database, with the admin's credentials. Don't store the admin's credentials in the cluster. Then give the chart's migrations Job the `migrator` login (`migrations.migrator` in the chart's values, with a password Secret, `aws_iam` or `azure_entra`) and the services the `app` login (`externalPostgres.auth.appSecret`, or a token with `externalPostgres.auth.mode`; see [Database IAM login](/self-hosting/database-iam#kubernetes-with-pgdog)).
+Run `tracecat db roles upgrade` yourself, from a machine or a one-off pod that can reach the database, with the admin's credentials. For a token login, pass `--login aws_iam`, or `--login azure_entra` after you [create the Entra principals](/self-hosting/database-iam#azure-database-for-postgresql). Don't store the admin's credentials in the cluster. Then give the chart's migrations Job the `migrator` login (`migrations.migrator` in the chart's values, with a password Secret, `aws_iam` or `azure_entra`) and the services the `app` login (`externalPostgres.auth.appSecret`, or a token with `externalPostgres.auth.mode`; see [Database IAM login](/self-hosting/database-iam#kubernetes-with-pgdog)).
 
 ### AWS Fargate
 
