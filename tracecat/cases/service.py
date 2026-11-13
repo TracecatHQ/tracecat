@@ -426,7 +426,12 @@ class CasesService(BaseWorkspaceService):
             }
             if request.order_by is None and view.order_by is not None:
                 update.update(order_by=view.order_by, sort=view.sort)
-            request = request.model_copy(update=update)
+            # model_copy skips validators. Re-validate the merged request so a
+            # view cannot produce an order the search contract forbids, such
+            # as relevance without a full-text term.
+            request = CaseSearchRequest.model_validate(
+                request.model_copy(update=update).model_dump()
+            )
         return await self._search_service().query_cases(
             request,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),

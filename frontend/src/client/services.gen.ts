@@ -13655,6 +13655,7 @@ export const casesQueryCases = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Bad Request",
       422: "Validation Error",
     },
   })
@@ -13768,6 +13769,7 @@ export const casesQueryCaseAggregates = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Bad Request",
       422: "Validation Error",
     },
   })

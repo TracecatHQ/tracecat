@@ -11437,6 +11437,44 @@ Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
 unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
 } as const
 
+export const $CaseQueryErrorDetail = {
+  properties: {
+    code: {
+      type: "string",
+      const: "current_user_required",
+      title: "Code",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["code", "message"],
+  title: "CaseQueryErrorDetail",
+  description: "A case query error with a machine-readable code.",
+} as const
+
+export const $CaseQueryErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          $ref: "#/components/schemas/CaseQueryErrorDetail",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "CaseQueryErrorResponse",
+  description: "A rejected case query: a plain message, or a typed error.",
+} as const
+
 export const $CaseRead = {
   properties: {
     id: {
@@ -31464,8 +31502,9 @@ export const $RelativeTimeWindow = {
   title: "RelativeTimeWindow",
   description: `A time range that ends now, such as "the last 30 days".
 
-The server resolves the start each time a query runs, so a saved view
-keeps meaning "the last 30 days" instead of a fixed date.`,
+The database resolves the start each time a query runs, so a saved view
+keeps meaning "the last 30 days" instead of a fixed date. Months use
+calendar arithmetic: one month before 31 March is 28 or 29 February.`,
 } as const
 
 export const $ReopenedEventRead = {

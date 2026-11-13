@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from tracecat.cases.enums import CaseViewVisibility
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder
+from tracecat.query.lexical_types import SearchMode
 
 MAX_CASE_VIEW_COLUMNS = 100
 MAX_CASE_VIEW_COLUMN_LENGTH = 200
@@ -22,6 +23,24 @@ def _validate_stored_query(query: CaseQuery | None) -> CaseQuery | None:
     if query is not None and query.view_id is not None:
         raise ValueError("A saved view's query cannot reference another view")
     return query
+
+
+def validate_view_order(
+    query: CaseQuery, order_by: str | None, sort: str | None
+) -> None:
+    """Reject a relevance sort that the view's query cannot produce.
+
+    Relevance needs a full-text search term and always sorts descending.
+
+    Raises:
+        ValueError: The order does not fit the query.
+    """
+    if order_by != "relevance":
+        return
+    if query.search_mode != SearchMode.FULL_TEXT:
+        raise ValueError("Relevance ordering requires a full_text search term")
+    if sort == "asc":
+        raise ValueError("Relevance ordering must be descending")
 
 
 def _strip_name(name: str | None) -> str | None:
@@ -58,6 +77,12 @@ class CaseViewCreate(BaseModel):
     def validate_columns(cls, columns: list[str] | None) -> list[str] | None:
         """Bound each UI column ID."""
         return _validate_columns(columns)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> Self:
+        """Only allow relevance sorting for full-text views."""
+        validate_view_order(self.query, self.order_by, self.sort)
+        return self
 
 
 class CaseViewUpdate(BaseModel):

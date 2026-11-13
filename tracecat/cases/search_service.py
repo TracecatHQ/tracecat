@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -45,7 +44,12 @@ from tracecat.cases.search_adapters import (
     resolve_user_refs,
 )
 from tracecat.cases.search_metadata import validate_case_filter_metadata
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_schemas import (
+    CaseQuery,
+    CaseSearchRequest,
+    RelativeTimeUnit,
+    RelativeTimeWindow,
+)
 from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.search import resolve_case_tag_filters
@@ -90,6 +94,24 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
         ],
         else_=len(ordered_values),
     )
+
+
+def relative_window_start(window: RelativeTimeWindow) -> ColumnElement[Any]:
+    """Return SQL for ``now() - window``, using calendar arithmetic for months.
+
+    For example ``{amount: 1, unit: "month"}`` on 31 March gives 28 or 29
+    February, as Postgres interval subtraction does.
+    """
+    # make_interval(years, months, weeks, days, hours) takes positional parts.
+    parts = {
+        RelativeTimeUnit.MONTH: 1,
+        RelativeTimeUnit.WEEK: 2,
+        RelativeTimeUnit.DAY: 3,
+        RelativeTimeUnit.HOUR: 4,
+    }
+    arguments: list[Any] = [0] * 5
+    arguments[parts[window.unit]] = window.amount
+    return func.now() - func.make_interval(*arguments)
 
 
 def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
@@ -189,19 +211,6 @@ class CaseSearchService(BaseWorkspaceService):
             dropdowns.setdefault(ref, []).append(option)
         assignees = query.assignee_id or []
         user_id = self.role.user_id
-        # Relative windows resolve here, on every run, so a saved query keeps
-        # meaning "the last 30 days" rather than a fixed date.
-        now = datetime.now(UTC)
-        start_time = (
-            query.created_within.start(now)
-            if query.created_within is not None
-            else query.start_time
-        )
-        updated_after = (
-            query.updated_within.start(now)
-            if query.updated_within is not None
-            else query.updated_after
-        )
         return legacy_case_filters(
             status=query.status,
             priority=query.priority,
@@ -213,9 +222,9 @@ class CaseSearchService(BaseWorkspaceService):
             creator_ids=resolve_user_refs(query.created_by or [], user_id=user_id),
             tag_refs=[tag.ref for tag in tags],
             dropdown_filters=dropdowns,
-            start_time=start_time,
+            start_time=query.start_time,
             end_time=query.end_time,
-            updated_after=updated_after,
+            updated_after=query.updated_after,
             updated_before=query.updated_before,
         )
 
@@ -278,6 +287,18 @@ class CaseSearchService(BaseWorkspaceService):
         predicates.extend(
             compile_filter(tree, resolver) for tree in trees if tree is not None
         )
+        # Relative windows resolve in SQL on every run, so a saved view keeps
+        # meaning "the last 30 days". Postgres computes now() itself, which keeps
+        # the bind values, and so the pagination cursor fingerprint, stable
+        # across pages.
+        if query.created_within is not None:
+            predicates.append(
+                Case.created_at >= relative_window_start(query.created_within)
+            )
+        if query.updated_within is not None:
+            predicates.append(
+                Case.updated_at >= relative_window_start(query.updated_within)
+            )
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
             parent_id=query.parent_id, hierarchy=query.hierarchy
         )

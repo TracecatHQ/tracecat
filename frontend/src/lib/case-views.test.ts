@@ -83,13 +83,24 @@ describe("viewToFilters", () => {
       makeView({
         id: "assigned_to_me",
         kind: "builtin",
-        query: { assignee_id: ["me"], status: ["new"], hierarchy: "all" },
+        // The built-in's real query: open statuses, no hierarchy (sub-cases).
+        query: {
+          assignee_id: ["me"],
+          status: ["unknown", "new", "in_progress", "on_hold", "other"],
+        },
         order_by: "created_at",
         sort: "desc",
       })
     )
 
     expect(filters.assigneeFilter).toEqual(["me"])
+    expect(filters.statusFilter).toEqual([
+      "unknown",
+      "new",
+      "in_progress",
+      "on_hold",
+      "other",
+    ])
     expect(filters.includeSubCases).toBe(true)
     expect(filters.createdAfter).toEqual({ type: "preset", value: null })
     expect(filters.sortBy).toEqual({ field: "created_at", direction: "desc" })

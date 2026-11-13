@@ -160,7 +160,14 @@ export function sortToView(filters: UseCasesFilters): {
   order_by: CaseSortField
   sort: CaseViewSort
 } {
-  if (filters.searchOrder === "relevance" && filters.searchQuery.trim()) {
+  const searchMode = filters.searchMode ?? "full_text"
+  // Relevance needs a full-text term the API will accept, the same term
+  // filtersToViewQuery stores.
+  if (
+    filters.searchOrder === "relevance" &&
+    searchMode === "full_text" &&
+    getCaseSearchTerm(filters.searchQuery, searchMode)
+  ) {
     return { order_by: "relevance", sort: "desc" }
   }
   return { order_by: filters.sortBy.field, sort: filters.sortBy.direction }

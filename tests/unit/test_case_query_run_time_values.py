@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.dialects import postgresql
 
 from tracecat.cases.search_adapters import (
     CurrentUserRequiredError,
@@ -17,8 +18,8 @@ from tracecat.cases.search_schemas import (
     CaseQuery,
     RelativeTimeUnit,
     RelativeTimeWindow,
-    subtract_months,
 )
+from tracecat.cases.search_service import relative_window_start
 from tracecat.query.filters import Condition, FilterOp
 
 NOW = datetime(2026, 3, 31, 12, 30, tzinfo=UTC)
@@ -27,33 +28,22 @@ NOW = datetime(2026, 3, 31, 12, 30, tzinfo=UTC)
 @pytest.mark.parametrize(
     ("amount", "unit", "expected"),
     [
-        (6, RelativeTimeUnit.HOUR, datetime(2026, 3, 31, 6, 30, tzinfo=UTC)),
-        (30, RelativeTimeUnit.DAY, datetime(2026, 3, 1, 12, 30, tzinfo=UTC)),
-        (2, RelativeTimeUnit.WEEK, datetime(2026, 3, 17, 12, 30, tzinfo=UTC)),
-        # 31 March minus one month clamps to the last day of February.
-        (1, RelativeTimeUnit.MONTH, datetime(2026, 2, 28, 12, 30, tzinfo=UTC)),
-        (13, RelativeTimeUnit.MONTH, datetime(2025, 2, 28, 12, 30, tzinfo=UTC)),
+        (6, RelativeTimeUnit.HOUR, [0, 0, 0, 0, 6]),
+        (30, RelativeTimeUnit.DAY, [0, 0, 0, 30, 0]),
+        (2, RelativeTimeUnit.WEEK, [0, 0, 2, 0, 0]),
+        (1, RelativeTimeUnit.MONTH, [0, 1, 0, 0, 0]),
     ],
 )
-def test_relative_window_start_counts_back_from_now(
-    amount: int, unit: RelativeTimeUnit, expected: datetime
+def test_relative_window_resolves_in_sql_with_fixed_binds(
+    amount: int, unit: RelativeTimeUnit, expected: list[int]
 ) -> None:
-    window = RelativeTimeWindow(amount=amount, unit=unit)
+    """The window becomes now() - make_interval(...), so bind values stay the
+    same on every page and the pagination cursor fingerprint matches."""
+    expression = relative_window_start(RelativeTimeWindow(amount=amount, unit=unit))
+    compiled = expression.compile(dialect=postgresql.dialect())
 
-    assert window.start(NOW) == expected
-
-
-def test_relative_window_moves_with_the_clock() -> None:
-    window = RelativeTimeWindow(amount=7, unit=RelativeTimeUnit.DAY)
-    later = datetime(2026, 4, 30, 12, 30, tzinfo=UTC)
-
-    assert window.start(later) - window.start(NOW) == later - NOW
-
-
-def test_subtract_months_keeps_leap_day() -> None:
-    assert subtract_months(datetime(2024, 3, 31, tzinfo=UTC), 1) == datetime(
-        2024, 2, 29, tzinfo=UTC
-    )
+    assert "now() - make_interval(" in str(compiled)
+    assert list(compiled.params.values()) == expected
 
 
 @pytest.mark.parametrize("amount", [0, -1, 1001])

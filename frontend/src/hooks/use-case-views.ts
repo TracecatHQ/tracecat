@@ -17,8 +17,9 @@ import {
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
-// Workspaces have few saved views; one page covers the switcher and sidebar.
 const CASE_VIEWS_PAGE_SIZE = 200
+// A safety stop for the page loop; 50 pages is 10,000 saved views.
+const CASE_VIEWS_MAX_PAGES = 50
 
 function caseViewsKey(workspaceId: string) {
   return ["case-views", workspaceId] as const
@@ -57,11 +58,23 @@ export function useCaseViews(workspaceId: string, enabled = true) {
   >({
     queryKey: [...caseViewsKey(workspaceId), "saved"],
     queryFn: async () => {
-      const page = await caseViewsListCaseViews({
-        workspaceId,
-        limit: CASE_VIEWS_PAGE_SIZE,
-      })
-      return page.items
+      // The switcher and sidebar need every view the user can see, so follow
+      // the cursor through all pages.
+      const items: CaseViewRead[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < CASE_VIEWS_MAX_PAGES; page++) {
+        const response = await caseViewsListCaseViews({
+          workspaceId,
+          limit: CASE_VIEWS_PAGE_SIZE,
+          cursor,
+        })
+        items.push(...response.items)
+        if (!response.has_more || !response.next_cursor) {
+          break
+        }
+        cursor = response.next_cursor
+      }
+      return items
     },
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,

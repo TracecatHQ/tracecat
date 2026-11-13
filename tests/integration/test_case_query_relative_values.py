@@ -96,6 +96,29 @@ async def test_created_within_excludes_cases_older_than_the_window(
     assert found == {seeded.recent_mine, seeded.recent_other, seeded.by_workflow}
 
 
+async def test_relative_window_pages_follow_their_cursor(
+    session: AsyncSession, svc_role: Role, seeded: SeededCases
+) -> None:
+    """Page two of a relative-window search reuses page one's cursor."""
+    service = CasesService(session, svc_role)
+    criteria = {"created_within": {"amount": 7, "unit": "day"}, "limit": 1}
+    seen: list[uuid.UUID] = []
+    cursor = None
+    for _ in range(3):
+        request = CaseSearchRequest.model_validate({**criteria, "cursor": cursor})
+        page = await service.query_cases(request)
+        seen.extend(case.id for case in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+
+    assert set(seen) == {
+        seeded.recent_mine,
+        seeded.recent_other,
+        seeded.by_workflow,
+    }
+
+
 async def test_assignee_me_matches_the_requesting_user(
     session: AsyncSession, svc_role: Role, seeded: SeededCases
 ) -> None:

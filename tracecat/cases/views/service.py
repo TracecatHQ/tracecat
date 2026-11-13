@@ -20,6 +20,7 @@ from tracecat.cases.views.schemas import (
     CaseViewRead,
     CaseViewStaleRef,
     CaseViewUpdate,
+    validate_view_order,
 )
 from tracecat.cases.views.types import BUILTIN_CASE_VIEW_IDS, BuiltinCaseViewId
 from tracecat.db.models import (
@@ -240,6 +241,10 @@ class CaseViewsService(BaseWorkspaceService):
             view.sort = params.sort
         if "columns" in changes:
             view.columns = params.columns
+        try:
+            validate_view_order(self._stored_query(view), view.order_by, view.sort)
+        except ValueError as exc:
+            raise TracecatValidationError(str(exc)) from exc
         await self.session.commit()
         await self.session.refresh(view)
         return self._custom_read(view, await self._pin_position(view.id))

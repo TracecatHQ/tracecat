@@ -183,7 +183,10 @@ export interface UseCasesResult {
   setCreatedAfter: (value: CaseDateFilterValue) => void
   setIncludeSubCases: (value: boolean) => void
   /** Replace every filter at once, for example when opening a saved view. */
-  replaceFilters: (filters: UseCasesFilters) => void
+  replaceFilters: (
+    filters: UseCasesFilters,
+    options?: { resetPagination?: boolean }
+  ) => void
   totalFilteredCaseEstimate: number | null
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
@@ -875,14 +878,21 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [hydratedWorkspaceId, setHydratedWorkspaceId] = useState<
     string | undefined
   >(initialFilterState.hydratedWorkspaceId)
-  const hasHydratedFilters = workspaceId
-    ? hydratedWorkspaceId === workspaceId
-    : false
+  // Whether the previous render saved filters. Saving turns back on when a
+  // saved view closes; until the user's own filters are reloaded, this render
+  // still holds the view's filters, so searching waits.
+  const wasPersistingRef = useRef(persist)
+  const isRestoringPersonalFilters = persist && !wasPersistingRef.current
+  const hasHydratedFilters =
+    (workspaceId ? hydratedWorkspaceId === workspaceId : false) &&
+    !isRestoringPersonalFilters
 
   const replaceFilters = useCallback(
-    (next: UseCasesFilters) => {
+    (next: UseCasesFilters, { resetPagination = false } = {}) => {
       setSearchQueryState(next.searchQuery)
-      applySearch(next.searchQuery, true)
+      // Only start a new page sequence when asked, or when the search term
+      // changes, so reopening an unchanged view reuses its cached pages.
+      applySearch(next.searchQuery, resetPagination)
       setSearchMode(next.searchMode ?? "full_text")
       setSearchOrder(next.searchOrder ?? "relevance")
       setSortByState(next.sortBy)
@@ -919,14 +929,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
-    replaceFilters(nextFilterState)
+    replaceFilters(nextFilterState, { resetPagination: true })
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
   }, [hydratedWorkspaceId, workspaceId, replaceFilters])
 
-  // Whether the previous render saved filters. When saving turns back on (a
-  // saved view was closed), reload the user's own filters instead of saving
-  // the view's.
-  const wasPersistingRef = useRef(persist)
+  // When saving turns back on (a saved view was closed), reload the user's own
+  // filters instead of saving the view's.
   useEffect(() => {
     if (!persist) {
       wasPersistingRef.current = false

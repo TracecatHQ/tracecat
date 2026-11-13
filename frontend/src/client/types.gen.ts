@@ -3136,6 +3136,21 @@ export type CaseQuery_Output = {
   updated_within?: RelativeTimeWindow | null
 }
 
+/**
+ * A case query error with a machine-readable code.
+ */
+export type CaseQueryErrorDetail = {
+  code: "current_user_required"
+  message: string
+}
+
+/**
+ * A rejected case query: a plain message, or a typed error.
+ */
+export type CaseQueryErrorResponse = {
+  detail: string | CaseQueryErrorDetail
+}
+
 export type CaseRead = {
   id: string
   short_id: string
@@ -9653,8 +9668,9 @@ export type RelativeTimeUnit = "hour" | "day" | "week" | "month"
 /**
  * A time range that ends now, such as "the last 30 days".
  *
- * The server resolves the start each time a query runs, so a saved view
- * keeps meaning "the last 30 days" instead of a fixed date.
+ * The database resolves the start each time a query runs, so a saved view
+ * keeps meaning "the last 30 days" instead of a fixed date. Months use
+ * calendar arithmetic: one month before 31 March is 28 or 29 February.
  */
 export type RelativeTimeWindow = {
   amount: number
@@ -27437,6 +27453,10 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_CaseReadMinimal_
         /**
+         * Bad Request
+         */
+        400: CaseQueryErrorResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -27464,6 +27484,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseSearchAggregateRead
+        /**
+         * Bad Request
+         */
+        400: CaseQueryErrorResponse
         /**
          * Validation Error
          */

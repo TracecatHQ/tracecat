@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import calendar
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
@@ -85,8 +84,9 @@ class RelativeTimeUnit(StrEnum):
 class RelativeTimeWindow(BaseModel):
     """A time range that ends now, such as "the last 30 days".
 
-    The server resolves the start each time a query runs, so a saved view
-    keeps meaning "the last 30 days" instead of a fixed date.
+    The database resolves the start each time a query runs, so a saved view
+    keeps meaning "the last 30 days" instead of a fixed date. Months use
+    calendar arithmetic: one month before 31 March is 28 or 29 February.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -94,28 +94,18 @@ class RelativeTimeWindow(BaseModel):
     amount: int = Field(ge=1, le=MAX_RELATIVE_WINDOW_AMOUNT)
     unit: RelativeTimeUnit
 
-    def start(self, now: datetime) -> datetime:
-        """Return the inclusive start of this window, counting back from ``now``."""
-        match self.unit:
-            case RelativeTimeUnit.HOUR:
-                return now - timedelta(hours=self.amount)
-            case RelativeTimeUnit.DAY:
-                return now - timedelta(days=self.amount)
-            case RelativeTimeUnit.WEEK:
-                return now - timedelta(weeks=self.amount)
-            case RelativeTimeUnit.MONTH:
-                return subtract_months(now, self.amount)
+
+class CaseQueryErrorDetail(BaseModel):
+    """A case query error with a machine-readable code."""
+
+    code: Literal["current_user_required"]
+    message: str
 
 
-def subtract_months(value: datetime, months: int) -> datetime:
-    """Move back whole calendar months, clamping to the target month's last day.
+class CaseQueryErrorResponse(BaseModel):
+    """A rejected case query: a plain message, or a typed error."""
 
-    For example, 31 March minus one month is 28 (or 29) February.
-    """
-    month_index = value.year * 12 + value.month - 1 - months
-    year, month = divmod(month_index, 12)
-    last_day = calendar.monthrange(year, month + 1)[1]
-    return value.replace(year=year, month=month + 1, day=min(value.day, last_day))
+    detail: str | CaseQueryErrorDetail
 
 
 class CaseQuery(BaseModel):

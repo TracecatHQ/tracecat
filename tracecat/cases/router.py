@@ -67,6 +67,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.search_schemas import (
     CaseFilterMetadata,
     CaseQuery,
+    CaseQueryErrorResponse,
     CaseSearchOrder,
     CaseSearchRequest,
 )
@@ -341,7 +342,7 @@ async def list_case_filter_fields(
     return await CasesService(session, role).list_filter_fields()
 
 
-@cases_router.post("/search")
+@cases_router.post("/search", responses={400: {"model": CaseQueryErrorResponse}})
 @require_scope("case:read")
 async def query_cases(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseSearchRequest
@@ -355,7 +356,9 @@ async def query_cases(
         raise case_query_http_error(exc) from exc
 
 
-@cases_router.post("/search/aggregate")
+@cases_router.post(
+    "/search/aggregate", responses={400: {"model": CaseQueryErrorResponse}}
+)
 @require_scope("case:read")
 async def query_case_aggregates(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseQuery

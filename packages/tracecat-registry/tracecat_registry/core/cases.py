@@ -977,9 +977,20 @@ async def list_case_views(
         raise TracecatValidationError(
             detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
-    builtins = await ctx.cases.aio.list_builtin_views() if include_builtins else []
-    saved = await ctx.cases.aio.list_views(limit=limit)
-    return [*builtins, *saved["items"]]
+    views = await ctx.cases.aio.list_builtin_views() if include_builtins else []
+    # Follow the cursor so up to `limit` saved views are returned, not just the
+    # first page.
+    saved: list[types.CaseViewRead] = []
+    cursor: str | None = None
+    while len(saved) < limit:
+        page = await ctx.cases.aio.list_views(
+            limit=limit - len(saved), **({"cursor": cursor} if cursor else {})
+        )
+        saved.extend(page["items"])
+        cursor = page.get("next_cursor")
+        if not page.get("has_more") or not cursor:
+            break
+    return [*views, *saved]
 
 
 @registry.register(

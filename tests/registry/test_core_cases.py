@@ -1553,3 +1553,21 @@ class TestCoreListCaseViews:
 
         assert await list_case_views(include_builtins=False) == []
         mock_cases_client.list_builtin_views.assert_not_called()
+
+    async def test_follows_the_cursor_until_limit(
+        self, mock_cases_client: AsyncMock
+    ) -> None:
+        first = {"id": "00000000-0000-0000-0000-000000000001", "kind": "custom"}
+        second = {"id": "00000000-0000-0000-0000-000000000002", "kind": "custom"}
+        mock_cases_client.list_views.side_effect = [
+            {"items": [first], "has_more": True, "next_cursor": "page-2"},
+            {"items": [second], "has_more": False, "next_cursor": None},
+        ]
+
+        views = await list_case_views(include_builtins=False, limit=5)
+
+        assert views == [first, second]
+        assert mock_cases_client.list_views.await_args_list[1].kwargs == {
+            "limit": 4,
+            "cursor": "page-2",
+        }

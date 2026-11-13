@@ -335,3 +335,29 @@ async def test_stored_query_cannot_reference_another_view() -> None:
         CaseViewCreate(
             name="Nested", query=CaseQuery.model_validate({"view_id": "assigned_to_me"})
         )
+
+
+async def test_relevance_order_needs_a_full_text_view(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    with pytest.raises(ValueError, match="full_text"):
+        CaseViewCreate(name="No search", query=CaseQuery(), order_by="relevance")
+
+    view = await _views(session, actors.owner).create_view(
+        CaseViewCreate(
+            name="Phishing words",
+            query=CaseQuery.model_validate(
+                {"search_term": "phishing", "search_mode": "full_text"}
+            ),
+        )
+    )
+    # The merged request is re-validated: relevance cannot sort ascending.
+    with pytest.raises(ValueError, match="descending"):
+        await _run_view(session, actors.owner, view.id, sort="asc")
+    with pytest.raises(TracecatValidationError, match="full_text"):
+        await _views(session, actors.owner).update_view(
+            view.id,
+            CaseViewUpdate(
+                query=CaseQuery(status=[CaseStatus.NEW]), order_by="relevance"
+            ),
+        )

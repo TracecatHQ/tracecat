@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CaseViewRead, CaseViewVisibility } from "@/client"
 import { DEFAULT_CASE_SORT } from "@/components/cases/case-sort"
 import { normalizeVisibleColumnIds } from "@/hooks/use-case-column-visibility"
@@ -9,6 +9,7 @@ import { useCaseView, useCaseViewMutations } from "@/hooks/use-case-views"
 import type { UseCasesResult } from "@/hooks/use-cases"
 import {
   type CaseViewFilters,
+  type CaseViewQuery,
   columnsEqual,
   filtersToViewQuery,
   mergeViewQuery,
@@ -37,6 +38,13 @@ export interface ActiveCaseView {
   columns: string[] | null
   setColumns: (columns: string[] | null) => void
   selectView: (viewId: string | null) => void
+}
+
+interface AppliedSnapshot {
+  query: CaseViewQuery
+  orderBy: string
+  sort: string
+  columns: string[] | null
 }
 
 function appliedKeyFor(view: CaseViewRead): string {
@@ -134,19 +142,6 @@ export function useCaseViewControls({
   const { replaceFilters } = cases
 
   useEffect(() => {
-    if (!view || !mapped) {
-      return
-    }
-    const key = appliedKeyFor(view)
-    if (appliedKey === key) {
-      return
-    }
-    replaceFilters(mapped.filters)
-    setColumns(view.columns ?? null)
-    setAppliedKey(key)
-  }, [view, mapped, appliedKey, replaceFilters, setAppliedKey, setColumns])
-
-  useEffect(() => {
     if (active.viewId === null && appliedKey !== null) {
       setAppliedKey(null)
       setColumns(null)
@@ -163,6 +158,52 @@ export function useCaseViewControls({
   )
   const saveBlockedReason = viewSaveBlocker(cases.filters, mapped?.staleRules)
   const currentSort = sortToView(cases.filters)
+
+  // What the filter bar held when the open view was last applied. When a newer
+  // version of the same view arrives (after a save here or elsewhere), local
+  // edits made since then are kept rather than replaced.
+  const appliedSnapshotRef = useRef<AppliedSnapshot | null>(null)
+  useEffect(() => {
+    if (!view || !mapped) {
+      return
+    }
+    const key = appliedKeyFor(view)
+    if (appliedKey === key) {
+      return
+    }
+    const snapshot = appliedSnapshotRef.current
+    const isNewerVersionOfOpenView =
+      appliedKey !== null && appliedKey.startsWith(`${view.id}:`)
+    const hasLocalEdits =
+      isNewerVersionOfOpenView &&
+      snapshot !== null &&
+      (!viewQueriesEqual(currentQuery, snapshot.query) ||
+        currentSort.order_by !== snapshot.orderBy ||
+        currentSort.sort !== snapshot.sort ||
+        !columnsEqual(columns, snapshot.columns))
+    if (!hasLocalEdits) {
+      replaceFilters(mapped.filters)
+      setColumns(view.columns ?? null)
+    }
+    appliedSnapshotRef.current = {
+      query: mapped.savedQuery,
+      orderBy: view.order_by ?? DEFAULT_CASE_SORT.field,
+      sort: view.sort ?? DEFAULT_CASE_SORT.direction,
+      columns: view.columns ?? null,
+    }
+    setAppliedKey(key)
+  }, [
+    view,
+    mapped,
+    appliedKey,
+    currentQuery,
+    currentSort.order_by,
+    currentSort.sort,
+    columns,
+    replaceFilters,
+    setAppliedKey,
+    setColumns,
+  ])
 
   const isModified = useMemo(() => {
     if (!view || !active.isApplied) {

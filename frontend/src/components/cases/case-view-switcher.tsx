@@ -96,7 +96,14 @@ export function CaseViewSwitcher({
   const [pendingDelete, setPendingDelete] = useState<CaseViewRead | null>(null)
 
   const view = active.view
-  const label = view?.name ?? (active.viewId ? "Loading view…" : "Cases")
+  let label = "Cases"
+  if (view) {
+    label = view.name
+  } else if (active.viewId && active.isError) {
+    label = "View not found"
+  } else if (active.viewId) {
+    label = "Loading view…"
+  }
 
   function choose(viewId: string | null) {
     setOpen(false)
@@ -210,10 +217,10 @@ export function CaseViewSwitcher({
       </Popover>
 
       {active.isError && (
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <AlertTriangleIcon className="size-3.5" />
-          View not found
-        </span>
+        <AlertTriangleIcon
+          aria-hidden
+          className="size-3.5 text-muted-foreground"
+        />
       )}
 
       {view && isModified && (
