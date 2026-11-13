@@ -332,7 +332,7 @@
         ]
       },
       {
-        "tab": "GitOps / Custom tools",
+        "tab": "GitOps / Custom integrations",
         "groups": [
           {
             "group": "Workspace Git sync",
