@@ -88,6 +88,7 @@ class SlackBotDetails(BaseModel):
     """Secrets are reported only as present or not."""
 
     provider: Literal[ChannelBotProvider.SLACK]
+    transport: ChannelBotTransport
     provider_enterprise_id: str | None
     provider_bot_user_id: str | None
     granted_scopes: list[str]
@@ -145,6 +146,14 @@ class SlackBotInstall(ChannelBotInstallBase):
     client_id: str = Field(..., min_length=1)
     client_secret: str = Field(..., min_length=1)
     signing_secret: str = Field(..., min_length=1)
+    app_token: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "App-level token with connections:write. Required when the deployment"
+            " receives Slack events over Socket Mode; rejected otherwise."
+        ),
+    )
     return_url: str = Field(..., min_length=1)
 
 
