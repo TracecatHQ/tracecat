@@ -343,7 +343,7 @@
             ]
           },
           {
-            "group": "Building custom integrations",
+            "group": "Custom integrations",
             "icon": "blocks",
             "pages": [
               "custom-actions/custom-registry",
