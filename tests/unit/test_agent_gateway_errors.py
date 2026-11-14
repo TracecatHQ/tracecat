@@ -572,7 +572,7 @@ async def test_mid_stream_provider_rate_limit_is_a_typed_sse_error(
 
 
 @pytest.mark.anyio
-async def test_mid_stream_wrapped_provider_outage_stays_platform_owned_sse_error(
+async def test_mid_stream_wrapped_provider_outage_is_user_owned_sse_error(
     gateway_callbacks: ProxyLogging,
 ) -> None:
     async def provider_stream():
@@ -600,7 +600,7 @@ async def test_mid_stream_wrapped_provider_outage_stays_platform_owned_sse_error
         502, route_is_direct=False, body=orjson.dumps(payload)
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
 
 
 def _provider_outage(kind: str) -> Exception:
@@ -669,7 +669,7 @@ async def test_provider_outage_is_typed_provider_unavailable(
         status_code, route_is_direct=False, body=body
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
