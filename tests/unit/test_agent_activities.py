@@ -45,7 +45,7 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat import config
-from tracecat.agent.channel_publisher import TURN_STARTED_PUBLISH_BUDGET, TurnStarted
+from tracecat.agent.channel_notifier import TURN_STARTED_PUSH_BUDGET, TurnStarted
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.exceptions import (
     AgentToolLimitExceededError,
@@ -1569,7 +1569,7 @@ class TestCreateSessionActivity:
     ):
         run_id = uuid.uuid4()
         session_service.get_session.return_value = _agent_session()
-        publish = AsyncMock(return_value=[None])
+        push = AsyncMock(return_value=[None])
         with (
             patch(
                 "tracecat.agent.session.activities.publish_session_event", AsyncMock()
@@ -1578,7 +1578,7 @@ class TestCreateSessionActivity:
                 "tracecat.agent.session.activities.is_channel_linked",
                 AsyncMock(return_value=linked),
             ),
-            patch("tracecat.agent.session.activities.publish_updates", publish),
+            patch("tracecat.agent.session.activities.push_updates", push),
         ):
             result = await create_session_activity(
                 CreateSessionInput(
@@ -1593,13 +1593,13 @@ class TestCreateSessionActivity:
 
         assert result.channel_linked is linked
         if linked:
-            publish.assert_awaited_once_with(
+            push.assert_awaited_once_with(
                 mock_role,
                 [TurnStarted(session_id=mock_session_id, run_id=run_id)],
-                budget=TURN_STARTED_PUBLISH_BUDGET,
+                budget=TURN_STARTED_PUSH_BUDGET,
             )
         else:
-            publish.assert_not_awaited()
+            push.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_fails_when_required_session_is_missing(
