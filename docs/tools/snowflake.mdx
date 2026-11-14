@@ -28,6 +28,16 @@ Handle of the statement to cancel.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="base_url" type="string | null">
 
 Snowflake account URL, for example https://org-account.snowflakecomputing.com.
@@ -73,6 +83,16 @@ SQL API request body. Documented fields are statement, timeout, database, schema
 Execute asynchronously and return the statement handle.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -129,6 +149,16 @@ Optional secrets:
 <ParamField path="statementHandle" type="string" required>
 
 Handle of the statement to check.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

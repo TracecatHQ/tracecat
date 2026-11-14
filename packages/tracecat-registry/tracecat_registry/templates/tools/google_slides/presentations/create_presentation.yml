@@ -24,6 +24,10 @@ definition:
       type: str | None
       description: The title of the presentation.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -44,7 +48,7 @@ definition:
         version: v1
         resource: presentations
         method_name: create
-        access_token: ${{ SECRETS.google_slides_oauth.GOOGLE_SLIDES_USER_TOKEN || SECRETS.google_slides_oauth.GOOGLE_SLIDES_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_slides_oauth.GOOGLE_SLIDES_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_slides_oauth.GOOGLE_SLIDES_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_slides_oauth.GOOGLE_SLIDES_USER_TOKEN || SECRETS.google_slides_oauth.GOOGLE_SLIDES_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/presentations"]
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.create_presentation.result }}

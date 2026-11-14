@@ -34,6 +34,16 @@ The update requests of this batch. Each Request sets exactly one of the union fi
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="include_form_in_response" type="boolean | null">
 
 Whether to return an updated version of the model in the response.
@@ -71,6 +81,16 @@ Optional secrets:
 <ParamField path="title" type="string" required>
 
 Required. The title of the form which is visible to responders.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -126,6 +146,16 @@ Required. A fully qualified Pub/Sub topic name to publish the events to. This to
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="watch_id" type="string | null">
 
 The ID to use for the watch. If specified, the ID must not already be in use. If not specified, an ID is generated. This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/.
@@ -164,6 +194,16 @@ Required. The ID of the Watch to delete.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Get form
 
 Action ID: `tools.google_forms.get_form`
@@ -185,6 +225,16 @@ Optional secrets:
 <ParamField path="form_id" type="string" required>
 
 Required. The form ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -218,6 +268,16 @@ Required. The response ID within the form.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## List responses
 
 Action ID: `tools.google_forms.list_responses`
@@ -239,6 +299,16 @@ Optional secrets:
 <ParamField path="form_id" type="string" required>
 
 Required. ID of the Form whose responses to list.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -290,6 +360,16 @@ Required. ID of the Form whose watches to list.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Renew watch
 
 Action ID: `tools.google_forms.renew_watch`
@@ -317,6 +397,16 @@ Required. The ID of the Form.
 <ParamField path="watch_id" type="string" required>
 
 Required. The ID of the Watch to renew.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -353,6 +443,16 @@ Required. Whether the form accepts responses. If `is_published` is set to `false
 <ParamField path="is_published" type="boolean" required>
 
 Required. Whether the form is published and visible to others.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

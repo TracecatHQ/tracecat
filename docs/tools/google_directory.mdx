@@ -34,6 +34,16 @@ List of the IDs of the ChromeOS devices to change. Maximum 50.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer_id" type="string">
 
 Immutable ID of the Google Workspace account.
@@ -80,6 +90,16 @@ Identifies the user member in the API request. The value can be the user's prima
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Delete application-specific password
 
 Action ID: `tools.google_directory.delete_asp`
@@ -110,6 +130,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Delete group
 
 Action ID: `tools.google_directory.delete_group`
@@ -131,6 +161,16 @@ Optional secrets:
 <ParamField path="group_key" type="string" required>
 
 Identifies the group in the API request. The value can be the group's email address, group alias, or the unique group ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -164,6 +204,16 @@ Identifies the group member in the API request. A group member can be a user or 
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Delete mobile device
 
 Action ID: `tools.google_directory.delete_mobile_device`
@@ -185,6 +235,16 @@ Optional secrets:
 <ParamField path="resource_id" type="string" required>
 
 The unique ID the API service uses to identify the mobile device.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -226,6 +286,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Delete organizational unit
 
 Action ID: `tools.google_directory.delete_orgunit`
@@ -247,6 +317,16 @@ Optional secrets:
 <ParamField path="org_unit_path" type="string" required>
 
 The full path of the organizational unit (minus the leading `/`) or its unique ID. For example, pass `corp/sales` rather than `/corp/sales`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -282,6 +362,16 @@ Immutable ID of the role assignment.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 Immutable ID of the Google Workspace account.
@@ -314,6 +404,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Generate verification codes
 
 Action ID: `tools.google_directory.generate_verification_codes`
@@ -335,6 +435,16 @@ Optional secrets:
 <ParamField path="user_key" type="string" required>
 
 Email or immutable ID of the user.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -368,6 +478,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Get ChromeOS device
 
 Action ID: `tools.google_directory.get_chromeos_device`
@@ -389,6 +509,16 @@ Optional secrets:
 <ParamField path="device_id" type="string" required>
 
 The unique ID of the device. The `deviceId`s are returned in the response from the `chromeosdevices.list` method.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -438,6 +568,16 @@ Immutable. ID of Chrome OS Device.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer_id" type="string">
 
 Immutable. ID of the Google Workspace account.
@@ -463,6 +603,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="customer_key" type="string">
 
@@ -493,6 +643,16 @@ Optional secrets:
 <ParamField path="domain_name" type="string" required>
 
 Name of domain to be retrieved.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -528,6 +688,16 @@ Identifies the group in the API request. The value can be the group's email addr
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Get member
 
 Action ID: `tools.google_directory.get_member`
@@ -558,6 +728,16 @@ Identifies the group member in the API request. A group member can be a user or 
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Get mobile device
 
 Action ID: `tools.google_directory.get_mobile_device`
@@ -579,6 +759,16 @@ Optional secrets:
 <ParamField path="resource_id" type="string" required>
 
 The unique ID the API service uses to identify the mobile device.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -628,6 +818,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Get organizational unit
 
 Action ID: `tools.google_directory.get_orgunit`
@@ -649,6 +849,16 @@ Optional secrets:
 <ParamField path="org_unit_path" type="string" required>
 
 The full path of the organizational unit (minus the leading `/`) or its unique ID. For example, pass `corp/sales` rather than `/corp/sales`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -684,6 +894,16 @@ Immutable ID of the role.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 The unique ID for the customer's Google Workspace account. In case of a multi-domain account, to fetch all groups for a customer, use this field instead of `domain`. You can also use the `my_customer` alias to represent your account's `customerId`.
@@ -716,6 +936,16 @@ Immutable ID of the role assignment.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 The unique ID for the customer's Google Workspace account. In case of a multi-domain account, to fetch all groups for a customer, use this field instead of `domain`. You can also use the `my_customer` alias to represent your account's `customerId`.
@@ -745,6 +975,16 @@ Optional secrets:
 <ParamField path="user_key" type="string" required>
 
 Identifies the user in the API request. The value can be the user's primary email address, alias email address, or unique user ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -796,6 +1036,16 @@ Group resource to create. See https://developers.google.com/workspace/admin/dire
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Insert member
 
 Action ID: `tools.google_directory.insert_member`
@@ -823,6 +1073,16 @@ The member's email address. A member can be a user or another group. This proper
 <ParamField path="group_key" type="string" required>
 
 Identifies the group in the API request. The value can be the group's email address, group alias, or the unique group ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -874,6 +1134,16 @@ OrgUnit resource to create. See https://developers.google.com/workspace/admin/di
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer_id" type="string">
 
 The unique ID for the customer's Google Workspace account. As an account administrator, you can also use the `my_customer` alias to represent your account's `customerId`.
@@ -918,6 +1188,16 @@ The scope in which this role is assigned. Acceptable values are `CUSTOMER` and `
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 Immutable ID of the Google Workspace account.
@@ -958,6 +1238,16 @@ User resource to create. See https://developers.google.com/workspace/admin/direc
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="resolve_conflict_account" type="boolean | null">
 
 Optional. If set to `true`, the option selected for handling unmanaged user accounts will apply. Default: `false`
@@ -990,6 +1280,16 @@ Email or immutable ID of the user.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Issue ChromeOS device command
 
 Action ID: `tools.google_directory.issue_chromeos_device_command`
@@ -1017,6 +1317,16 @@ The type of command. Acceptable values are `REBOOT`, `TAKE_A_SCREENSHOT`, `SET_V
 <ParamField path="device_id" type="string" required>
 
 Immutable. ID of Chrome OS Device.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1060,6 +1370,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## List ChromeOS devices
 
 Action ID: `tools.google_directory.list_chromeos_devices`
@@ -1077,6 +1397,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="customer_id" type="string">
 
@@ -1168,6 +1498,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 The unique ID for the customer's Google Workspace account. In case of a multi-domain account, to fetch all groups for a customer, use this field instead of `domain`. You can also use the `my_customer` alias to represent your account's `customerId`.
@@ -1193,6 +1533,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="customer" type="string | null">
 
@@ -1282,6 +1632,16 @@ Identifies the group in the API request. The value can be the group's email addr
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="include_derived_membership" type="boolean | null">
 
 Whether to list indirect memberships. Default: false.
@@ -1331,6 +1691,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="customer_id" type="string">
 
@@ -1412,6 +1782,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## List organizational units
 
 Action ID: `tools.google_directory.list_orgunits`
@@ -1429,6 +1809,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="customer_id" type="string">
 
@@ -1472,6 +1862,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 The unique ID for the customer's Google Workspace account. In case of a multi-domain account, to fetch all privileges for a customer, use this field instead of `domain`. You can also use the `my_customer` alias to represent your account's `customerId`.
@@ -1497,6 +1897,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="customer" type="string">
 
@@ -1564,6 +1974,16 @@ Optional secrets:
 
 ### Input fields
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer" type="string">
 
 The unique ID for the customer's Google Workspace account. In case of a multi-domain account, to fetch all groups for a customer, use this field instead of `domain`. You can also use the `my_customer` alias to represent your account's `customerId`.
@@ -1612,6 +2032,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## List users
 
 Action ID: `tools.google_directory.list_users`
@@ -1629,6 +2059,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="custom_field_mask" type="string | null">
 
@@ -1742,6 +2182,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Make user admin
 
 Action ID: `tools.google_directory.make_user_admin`
@@ -1772,6 +2222,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Move ChromeOS devices to organizational unit
 
 Action ID: `tools.google_directory.move_chromeos_devices_to_ou`
@@ -1799,6 +2259,16 @@ Chrome OS devices to be moved to OU. You can move up to 50 devices at once.
 <ParamField path="org_unit_path" type="string" required>
 
 Full path of the target organizational unit or its ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1837,6 +2307,16 @@ ChromeOsDevice resource (https://developers.google.com/workspace/admin/directory
 <ParamField path="device_id" type="string" required>
 
 The unique ID of the device. The `deviceId`s are returned in the response from the `chromeosdevices.list` method.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1886,6 +2366,16 @@ Identifies the group in the API request. The value can be the group's email addr
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Patch member
 
 Action ID: `tools.google_directory.patch_member`
@@ -1913,6 +2403,16 @@ Identifies the group in the API request. The value can be the group's email addr
 <ParamField path="member_key" type="string" required>
 
 Identifies the group member in the API request. A group member can be a user or another group. The value can be the member's (group or user) primary email address, alias, or unique ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -1962,6 +2462,16 @@ The full path of the organizational unit (minus the leading `/`) or its unique I
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="customer_id" type="string">
 
 The unique ID for the customer's Google Workspace account. As an account administrator, you can also use the `my_customer` alias to represent your account's `customerId`.
@@ -2000,6 +2510,16 @@ Identifies the user in the API request. The value can be the user's primary emai
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Perform mobile device action
 
 Action ID: `tools.google_directory.action_mobile_device`
@@ -2027,6 +2547,16 @@ The action to be performed on the device. Acceptable values are `admin_account_w
 <ParamField path="resource_id" type="string" required>
 
 The unique ID the API service uses to identify the mobile device.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -2062,6 +2592,16 @@ Identifies the target user in the API request. The value can be the user's prima
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Turn off two-step verification
 
 Action ID: `tools.google_directory.turn_off_two_step_verification`
@@ -2083,6 +2623,16 @@ Optional secrets:
 <ParamField path="user_key" type="string" required>
 
 Identifies the user in the API request. The value can be the user's primary email address, alias email address, or unique user ID.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -2113,5 +2663,15 @@ OrgUnit of User.
 <ParamField path="user_key" type="string" required>
 
 The immutable id of the user.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>

@@ -56,6 +56,8 @@ Client credentials (`client_credentials`) has no login flow and needs no redirec
 
 Registry actions reference OAuth integrations but do not create them. Configure a built-in or custom provider in Integrations first, then declare `RegistryOAuthSecret` (Python) or `type: oauth` (YAML) so the action requires that integration at runtime. See the OAuth declaration syntax and examples for [Python UDFs](/custom-actions/python-udf#python-udfs) and [YAML templates](/custom-actions/yaml-template#secrets).
 
+Built-in actions that accept both a delegated and a service account connection for the same provider have an `auth_mode` input. Set it to `delegated` to use the user token, or `application` to use the service token. The default, `auto`, uses whichever connection exists and follows the order in the input's description when both do.
+
 ## OAuth and MCP
 
 Remote MCP integrations can use an existing OAuth integration. For custom remote MCP servers:

@@ -27,6 +27,10 @@ definition:
       type: enum["DEFAULT_FOR_FIELD", "SUGGESTIONS_INLINE", "PREVIEW_WITHOUT_SUGGESTIONS"] | None
       description: How to display suggestions in the response.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: build_params
       action: core.script.run_python
@@ -47,7 +51,7 @@ definition:
         version: v1
         resource: documents
         method_name: get
-        access_token: ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_USER_TOKEN || SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_docs_oauth.GOOGLE_DOCS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_docs_oauth.GOOGLE_DOCS_USER_TOKEN || SECRETS.google_docs_oauth.GOOGLE_DOCS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/documents.readonly"]
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.get_document.result }}

@@ -40,6 +40,10 @@ definition:
       type: str
       description: 'Fields to return (''*'' for all)'
       default: "*"
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: create_permission
       action: tools.google_api.call_api
@@ -48,7 +52,7 @@ definition:
         version: v3
         resource: permissions
         method_name: create
-        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/drive"]
         params:
           fileId: ${{ inputs.file_id }}

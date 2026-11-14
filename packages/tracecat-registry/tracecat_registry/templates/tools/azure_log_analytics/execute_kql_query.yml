@@ -30,6 +30,10 @@ definition:
       type: enum["https://api.loganalytics.io", "https://api.loganalytics.us"]
       description: Base URL for the Azure Log Analytics API.
       default: https://api.loganalytics.io
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: build_payload
       action: core.script.run_python
@@ -49,7 +53,7 @@ definition:
         url: ${{ inputs.base_url }}/v1/workspaces/${{ FN.url_encode(inputs.workspace_id) }}/query
         method: POST
         headers:
-          Authorization: Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_USER_TOKEN || SECRETS.azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.execute_query.result.data }}

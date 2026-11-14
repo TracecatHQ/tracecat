@@ -40,6 +40,16 @@ Two-dimensional array of values to append.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="include_values_in_response" type="boolean">
 
 Include the appended values in the response payload.
@@ -106,6 +116,16 @@ Spreadsheet ID to clear.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Batch clear values by data filter
 
 Action ID: `tools.google_sheets.batch_clear_values_by_data_filter`
@@ -136,6 +156,16 @@ The ID of the spreadsheet to update.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Batch get values
 
 Action ID: `tools.google_sheets.batch_get_values`
@@ -163,6 +193,16 @@ A1 notation ranges to retrieve.
 <ParamField path="spreadsheet_id" type="string" required>
 
 Spreadsheet ID to read from.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -220,6 +260,16 @@ The ID of the spreadsheet to retrieve data from.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="date_time_render_option" type="string | null">
 
 How dates, times, and durations should be represented in the output. One of `SERIAL_NUMBER` or `FORMATTED_STRING`. This is ignored if value_render_option is `FORMATTED_VALUE`. The default dateTime render option is `SERIAL_NUMBER`.
@@ -274,6 +324,16 @@ The spreadsheet to apply the updates to.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="include_spreadsheet_in_response" type="boolean | null">
 
 Determines if the update response should include the spreadsheet resource.
@@ -325,6 +385,16 @@ Spreadsheet ID to update.
 <ParamField path="updates" type="array[object]" required>
 
 List of updates with range, values, and optional major_dimension per entry.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -398,6 +468,16 @@ How the input data should be interpreted. `RAW` stores the values as-is; `USER_E
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="include_values_in_response" type="boolean | null">
 
 Determines if the update response should include the values of the cells that were updated. By default, responses do not include the updated values. The `updatedData` field within each of the BatchUpdateValuesResponse.responses contains the updated values.
@@ -452,6 +532,16 @@ The ID of the spreadsheet to update.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Copy sheet
 
 Action ID: `tools.google_sheets.copy_sheet`
@@ -488,6 +578,16 @@ Source spreadsheet ID.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Create spreadsheet
 
 Action ID: `tools.google_sheets.create_spreadsheet`
@@ -509,6 +609,16 @@ Optional secrets:
 <ParamField path="title" type="string" required>
 
 Spreadsheet title.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -550,6 +660,16 @@ The ID of the spreadsheet to retrieve metadata from.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Get spreadsheet
 
 Action ID: `tools.google_sheets.get_spreadsheet`
@@ -571,6 +691,16 @@ Optional secrets:
 <ParamField path="spreadsheet_id" type="string" required>
 
 Spreadsheet ID to fetch.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -620,6 +750,16 @@ The spreadsheet to request.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="include_grid_data" type="boolean | null">
 
 True if grid data should be returned. This parameter is ignored if a field mask was set in the request.
@@ -655,6 +795,16 @@ The A1 notation or R1C1 notation of the range to retrieve values from.
 <ParamField path="spreadsheet_id" type="string" required>
 
 The ID of the spreadsheet to retrieve data from.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -712,6 +862,16 @@ The ID of the spreadsheet to retrieve metadata from.
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Update values
 
 Action ID: `tools.google_sheets.update_values`
@@ -751,6 +911,16 @@ How the input data should be interpreted. `RAW` stores the values as-is; `USER_E
 <ParamField path="values" type="array[array[string | integer | number | boolean | null]]" required>
 
 The data to be written. This is an array of arrays, the outer array representing all the data and each inner array representing a major dimension. Each item in the inner array corresponds with one cell. Supported value types are bool, string, and double. Null values will be skipped. To set a cell to an empty value, set the string value to an empty string.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

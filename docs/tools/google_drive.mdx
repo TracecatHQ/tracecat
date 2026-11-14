@@ -34,6 +34,16 @@ The file or folder ID
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="fields" type="string">
 
 Fields to return ('*' for all)
@@ -82,6 +92,16 @@ Name for the new folder
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="fields" type="string">
 
 Fields to return ('*' for all)
@@ -122,6 +142,16 @@ The file or folder ID to delete
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="fields" type="string">
 
 Fields to return ('*' for all)
@@ -154,6 +184,16 @@ The file ID
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 <ParamField path="fields" type="string">
 
 Fields to return ('*' for all)
@@ -183,6 +223,16 @@ Optional secrets:
 <ParamField path="file_id" type="string" required>
 
 The file ID
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -227,6 +277,16 @@ Optional secrets:
 - `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
 
 <ParamField path="drive_id" type="string">
 
@@ -308,6 +368,16 @@ The file or folder ID to permanently delete
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Query Drive activity
 
 Action ID: `tools.google_drive.query_activity`
@@ -331,6 +401,16 @@ Optional secrets:
 Return activities for this Drive folder, plus all children and descendants. The format is `items/ITEM_ID`.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -404,6 +484,16 @@ The permission ID to revoke
 
 </ParamField>
 
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
+
+</ParamField>
+
 ## Update Drive permission
 
 Action ID: `tools.google_drive.update_permission`
@@ -437,6 +527,16 @@ The permission ID to update
 <ParamField path="role" type="string" required>
 
 New role: reader, writer, commenter
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 
@@ -475,6 +575,16 @@ Base64-encoded file content
 <ParamField path="file_name" type="string" required>
 
 Name for the uploaded file
+
+</ParamField>
+
+<ParamField path="auth_mode" type="string">
+
+OAuth connection to use. Defaults to whichever is connected.
+
+Default: `"auto"`.
+
+Allowed values: `auto`, `delegated`, `application`.
 
 </ParamField>
 

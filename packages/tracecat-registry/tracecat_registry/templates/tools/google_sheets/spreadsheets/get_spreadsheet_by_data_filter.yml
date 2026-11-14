@@ -40,6 +40,10 @@ definition:
         True if grid data should be returned. This parameter is ignored if a field mask was set in
         the request.
       default: null
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: build_body
       action: core.script.run_python
@@ -60,7 +64,7 @@ definition:
         version: v4
         resource: spreadsheets
         method_name: getByDataFilter
-        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/spreadsheets"]
         params:
           spreadsheetId: ${{ inputs.spreadsheet_id }}

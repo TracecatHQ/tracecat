@@ -26,6 +26,10 @@ definition:
     org_unit_path:
       type: str
       description: OrgUnit of User.
+    auth_mode:
+      type: enum["auto", "delegated", "application"]
+      description: OAuth connection to use. Defaults to whichever is connected.
+      default: auto
   steps:
     - ref: undelete_user
       action: tools.google_api.call_api
@@ -34,7 +38,7 @@ definition:
         version: directory_v1
         resource: users
         method_name: undelete
-        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN if inputs.auth_mode == "delegated" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN if inputs.auth_mode == "application" else SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
         scopes: ["https://www.googleapis.com/auth/admin.directory.user"]
         params:
           userKey: ${{ inputs.user_key }}

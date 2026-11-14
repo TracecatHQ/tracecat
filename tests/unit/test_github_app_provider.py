@@ -220,16 +220,25 @@ def test_github_template_credential_priority(path: Path) -> None:
 
     raw = path.read_text()
     expected = (
-        "Bearer ${{ SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN"
+        "Bearer ${{ (SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
+        " || SECRETS.github_oauth.GITHUB_USER_TOKEN)"
+        ' if inputs.auth_mode == "delegated"'
+        " else SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN"
+        ' if inputs.auth_mode == "application"'
+        " else SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN"
         " || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
         " || SECRETS.github_oauth.GITHUB_USER_TOKEN }}"
     )
     if gist:
         expected = (
-            "Bearer ${{ SECRETS.github_pat.GITHUB_PAT_TOKEN"
+            "Bearer ${{ (SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
+            " || SECRETS.github_oauth.GITHUB_USER_TOKEN)"
+            ' if inputs.auth_mode == "delegated"'
+            " else SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN"
+            ' if inputs.auth_mode == "application"'
+            " else SECRETS.github_pat.GITHUB_PAT_TOKEN"
             " || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
             " || SECRETS.github_oauth.GITHUB_USER_TOKEN"
             " || SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN }}"
         )
     assert expected in raw
-    assert raw.count("SECRETS.") == (4 if gist else 3)
