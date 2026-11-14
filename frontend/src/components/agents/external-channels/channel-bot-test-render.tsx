@@ -14,7 +14,8 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 // Mounts as the preset builder does: once entitlements turn channels on.
 function ChannelsTab({ preset }: { preset: AgentPresetRead | null }) {
   const { hasEntitlement } = useEntitlements()
-  return hasEntitlement("agent_channels") ? (
+  return hasEntitlement("agent_channels") ||
+    hasEntitlement("agent_channels_preview") ? (
     <AgentChannelsPanel workspaceId={WORKSPACE_ID} preset={preset} />
   ) : null
 }

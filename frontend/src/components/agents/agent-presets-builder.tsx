@@ -1562,7 +1562,9 @@ function AgentPresetForm({
   )
   const [railDrill, setRailDrill] = useState<AgentPresetRailDrill | null>(null)
   const { hasEntitlement, hasEntitlementData } = useEntitlements()
-  const channelsEnabled = hasEntitlement("agent_channels")
+  // Legacy channels need agent_channels; channel bots need only the preview.
+  const channelsEnabled =
+    hasEntitlement("agent_channels") || hasEntitlement("agent_channels_preview")
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
     mode: "onBlur",

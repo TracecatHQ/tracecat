@@ -46,6 +46,14 @@ describe("AgentChannelsPanel", () => {
     expect(screen.queryByText("Legacy Slack panel")).toBeNull()
   })
 
+  it("renders the bot panel with only the preview entitlement", async () => {
+    serveEntitlements({ agent_channels_preview: true })
+    renderPanel()
+    expect(
+      await screen.findByRole("group", { name: "Custom Slack app" })
+    ).toBeInTheDocument()
+  })
+
   it("asks for a saved preset before either panel", async () => {
     renderPanel(null)
     expect(
