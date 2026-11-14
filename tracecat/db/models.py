@@ -4755,6 +4755,11 @@ class AgentChannelBot(TimestampMixin, Base):
     provider_bot_user_id: Mapped[str | None] = mapped_column(
         String, nullable=True, doc="The bot's own user, so its posts are dropped"
     )
+    provider_api_url: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="The provider's API base for this install, if not the default",
+    )
     granted_scopes: Mapped[list[str]] = mapped_column(
         ARRAY(String), nullable=False, server_default="{}"
     )

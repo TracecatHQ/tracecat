@@ -43,6 +43,7 @@ def upgrade() -> None:
         sa.Column("provider_enterprise_id", sa.String(), nullable=True),
         sa.Column("provider_app_id", sa.String(), nullable=True),
         sa.Column("provider_bot_user_id", sa.String(), nullable=True),
+        sa.Column("provider_api_url", sa.String(), nullable=True),
         sa.Column(
             "granted_scopes",
             postgresql.ARRAY(sa.String()),
