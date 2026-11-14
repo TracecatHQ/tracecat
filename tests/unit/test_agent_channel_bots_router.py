@@ -143,11 +143,27 @@ def client() -> TestClient:
     return make_client()
 
 
+def grant(monkeypatch: pytest.MonkeyPatch, *granted: Entitlement) -> AsyncMock:
+    async def check(_session: object, _role: Role, entitlement: Entitlement) -> None:
+        if entitlement not in granted:
+            raise EntitlementRequired(entitlement.value)
+
+    check_mock = AsyncMock(side_effect=check)
+    monkeypatch.setattr(router_module, "check_entitlement", check_mock)
+    return check_mock
+
+
 @pytest.fixture
 def unentitled(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    check = AsyncMock(side_effect=EntitlementRequired(Entitlement.AGENT_CHANNELS.value))
-    monkeypatch.setattr(router_module, "check_entitlement", check)
-    return check
+    return grant(monkeypatch)
+
+
+def entitlement_required_body(entitlement: Entitlement) -> dict[str, object]:
+    return {
+        "type": "EntitlementRequired",
+        "message": f"Feature '{entitlement.value}' requires an upgraded plan.",
+        "detail": {"entitlement": entitlement.value},
+    }
 
 
 ENTITLEMENT_REQUIRED_BODY = {
@@ -222,33 +238,85 @@ def test_the_entitlement_is_checked_before_the_admin_is_looked_up(
     assert response.json() == ENTITLEMENT_REQUIRED_BODY
 
 
+WORKSPACE_ROUTES = [
+    pytest.param("GET", "", None, "agent:read", id="list"),
+    pytest.param(
+        "POST",
+        "",
+        {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
+        "agent:update",
+        id="create",
+    ),
+    pytest.param(
+        "PATCH",
+        f"/{uuid.uuid4()}",
+        {"status": "paused"},
+        "agent:update",
+        id="update",
+    ),
+    pytest.param("POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"),
+    pytest.param(
+        "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
+    ),
+    pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+]
+ADMIN_METHODS = (
+    "list_bots",
+    "create_bot",
+    "update_bot",
+    "rotate_endpoint",
+    "disconnect_bot",
+    "install",
+)
+CHANNELS = Entitlement.AGENT_CHANNELS
+PREVIEW = Entitlement.AGENT_CHANNELS_PREVIEW
+
+
+@pytest.mark.parametrize(("method", "path", "body", "scope"), WORKSPACE_ROUTES)
 @pytest.mark.parametrize(
-    ("method", "path", "body", "scope"),
+    ("granted", "checked", "served"),
     [
-        pytest.param("GET", "", None, "agent:read", id="list"),
-        pytest.param(
-            "POST",
-            "",
-            {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
-            "agent:update",
-            id="create",
-        ),
-        pytest.param(
-            "PATCH",
-            f"/{uuid.uuid4()}",
-            {"status": "paused"},
-            "agent:update",
-            id="update",
-        ),
-        pytest.param(
-            "POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"
-        ),
-        pytest.param(
-            "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
-        ),
-        pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+        pytest.param({CHANNELS}, [CHANNELS, PREVIEW], False, id="agent_channels_only"),
+        # agent_channels is checked first, so an org with neither key sees today's refusal.
+        pytest.param({PREVIEW}, [CHANNELS], False, id="preview_only"),
+        pytest.param({CHANNELS, PREVIEW}, [CHANNELS, PREVIEW], True, id="both"),
     ],
 )
+def test_routes_require_agent_channels_and_the_preview(
+    admin: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    granted: set[Entitlement],
+    checked: list[Entitlement],
+    served: bool,
+    method: str,
+    path: str,
+    body: dict[str, object] | None,
+    scope: str,
+) -> None:
+    check = grant(monkeypatch, *granted)
+    admin.configure_mock(
+        **{
+            f"{name}.side_effect": TracecatNotFoundError("gone")
+            for name in ADMIN_METHODS
+        }
+    )
+
+    response = make_client(entitled=False).request(
+        method, f"/agent/channel-bots{path}", json=body
+    )
+
+    assert [c.args[2] for c in check.await_args_list] == checked
+    if served:
+        assert response.status_code == 404
+        assert response.json() == {"detail": "gone"}
+        assert len(admin.mock_calls) == 1
+    else:
+        assert response.status_code == 403
+        assert response.json() == entitlement_required_body(checked[-1])
+        assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(("method", "path", "body", "scope"), WORKSPACE_ROUTES)
 def test_routes_require_their_scope(
     admin: AsyncMock,
     method: str,
@@ -627,6 +695,23 @@ def test_callback_without_an_admin_redirects_with_an_error(
         "channel_bot_install": ["error"],
         "channel_bot_message": ["Channel bots require Tracecat Enterprise"],
     }
+
+
+def test_callback_ignores_the_channel_entitlements(
+    admin: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    check = grant(monkeypatch)
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/1", ok=True
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert response.status_code == 307
+    assert location_query(response.headers["location"]) == {
+        "channel_bot_install": ["success"]
+    }
+    check.assert_not_awaited()
 
 
 def test_a_failing_admin_redirects_with_a_generic_error(admin: AsyncMock) -> None:

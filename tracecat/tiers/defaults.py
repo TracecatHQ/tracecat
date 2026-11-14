@@ -68,7 +68,8 @@ def resolve_oss_default_entitlements(
     Non-default agent backends are gated by ``agent_runtime_preview``, and
     workflow agent actions on them also by ``agent_runtime_workflows``. Both are
     on whenever a backend is
-    installed, since installing a backend is how a deployment opts in.
+    installed, since installing a backend is how a deployment opts in. The
+    channel bot API also needs ``agent_channels_preview``, off on both paths.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -92,6 +93,7 @@ def resolve_oss_default_entitlements(
             tunnels=False,
             agent_runtime_preview=agent_backend_installed,
             agent_runtime_workflows=agent_backend_installed,
+            agent_channels_preview=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -135,6 +137,7 @@ def resolve_oss_default_entitlements(
         tunnels=False,
         agent_runtime_preview=agent_backend_installed,
         agent_runtime_workflows=agent_backend_installed,
+        agent_channels_preview=False,
     )
 
 

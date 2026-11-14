@@ -5175,6 +5175,10 @@ export type EffectiveEntitlements = {
    * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
    */
   agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 /**
@@ -5316,6 +5320,10 @@ export type EntitlementsDict = {
    * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
    */
   agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 export type ErrorModel = {
