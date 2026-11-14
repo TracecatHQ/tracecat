@@ -1,4 +1,4 @@
-"""DurableAgentWorkflow channel updates: which lifecycle activity publishes each."""
+"""DurableAgentWorkflow channel updates: which lifecycle activity pushes each."""
 
 import asyncio
 import uuid
@@ -34,7 +34,7 @@ from tests.temporal.test_durable_agent_workflow import (
     create_mock_run_agent_activity,
     replay_durable_agent_workflow_history,
 )
-from tracecat.agent.channel_publisher import (
+from tracecat.agent.channel_notifier import (
     ApprovalDecided,
     ApprovalPending,
     RunUpdate,
@@ -294,13 +294,13 @@ async def test_approval_updates_ride_the_approval_activities(
     pending = ApprovalPending(
         session_id=session_id, run_id=session_id, batch_id=batch_id
     )
-    # Without a ref the publisher finds the message by batch id.
+    # Without a ref the notifier finds the message by batch id.
     decided = ApprovalDecided(
         session_id=session_id, batch_id=batch_id, pending_ref=pending_ref
     )
     finished = TurnFinished(session_id=session_id, run_id=session_id)
     if cancel:
-        # Stop reaches the UI first; finalize publishes the decision the wait skipped.
+        # Stop reaches the UI first; finalize pushes the decision the wait skipped.
         expected = [
             ("record_approval_requests", [pending]),
             ("apply_approval_decisions", []),
