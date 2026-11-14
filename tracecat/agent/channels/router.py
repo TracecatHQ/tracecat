@@ -107,7 +107,7 @@ async def _resolve_service_role_for_workspace(*, workspace_id: uuid.UUID) -> Rol
     )
 
 
-async def _is_workspace_entitled_to_channels(
+async def _is_workspace_on_legacy_channels(
     session: AsyncSession,
     *,
     workspace_id: uuid.UUID,
@@ -117,6 +117,11 @@ async def _is_workspace_entitled_to_channels(
     )
     organization_id = result.scalar_one_or_none()
     if organization_id is None:
+        return False
+    # The channel bots preview takes over: its organizations leave the legacy path.
+    if await is_org_entitled(
+        session, organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+    ):
         return False
     return await is_org_entitled(session, organization_id, Entitlement.AGENT_CHANNELS)
 
@@ -171,11 +176,11 @@ async def handle_channel_event(
         request=request,
         session=session,
     )
-    if not await _is_workspace_entitled_to_channels(
+    if not await _is_workspace_on_legacy_channels(
         session, workspace_id=validated_token.workspace_id
     ):
         logger.warning(
-            "Ignoring channel event without agent_channels entitlement",
+            "Ignoring legacy channel event: no agent_channels, or the preview took over",
             workspace_id=str(validated_token.workspace_id),
             channel_type=channel_type.value,
         )
