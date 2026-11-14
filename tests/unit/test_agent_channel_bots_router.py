@@ -133,7 +133,7 @@ def make_client(role: Role = ROLE, *, entitled: bool = True) -> TestClient:
         get_async_session: lambda: SESSION,
     }
     if entitled:
-        overrides[router_module._require_agent_channels_entitlement] = lambda: None
+        overrides[router_module._require_agent_channels_preview] = lambda: None
     test_app.dependency_overrides.update(overrides)
     return TestClient(test_app)
 
@@ -166,11 +166,9 @@ def entitlement_required_body(entitlement: Entitlement) -> dict[str, object]:
     }
 
 
-ENTITLEMENT_REQUIRED_BODY = {
-    "type": "EntitlementRequired",
-    "message": "Feature 'agent_channels' requires an upgraded plan.",
-    "detail": {"entitlement": "agent_channels"},
-}
+ENTITLEMENT_REQUIRED_BODY = entitlement_required_body(
+    Entitlement.AGENT_CHANNELS_PREVIEW
+)
 
 
 def bot_read() -> AgentChannelBotRead:
@@ -223,7 +221,9 @@ def test_an_unentitled_workspace_is_refused(
 
     assert response.status_code == 403
     assert response.json() == ENTITLEMENT_REQUIRED_BODY
-    unentitled.assert_awaited_once_with(SESSION, ROLE, Entitlement.AGENT_CHANNELS)
+    unentitled.assert_awaited_once_with(
+        SESSION, ROLE, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
     assert admin.mock_calls == []
 
 
@@ -276,13 +276,12 @@ PREVIEW = Entitlement.AGENT_CHANNELS_PREVIEW
 @pytest.mark.parametrize(
     ("granted", "checked", "served"),
     [
-        pytest.param({CHANNELS}, [CHANNELS, PREVIEW], False, id="agent_channels_only"),
-        # agent_channels is checked first, so an org with neither key sees today's refusal.
-        pytest.param({PREVIEW}, [CHANNELS], False, id="preview_only"),
-        pytest.param({CHANNELS, PREVIEW}, [CHANNELS, PREVIEW], True, id="both"),
+        pytest.param({CHANNELS}, [PREVIEW], False, id="agent_channels_only"),
+        pytest.param({PREVIEW}, [PREVIEW], True, id="preview_only"),
+        pytest.param({CHANNELS, PREVIEW}, [PREVIEW], True, id="both"),
     ],
 )
-def test_routes_require_agent_channels_and_the_preview(
+def test_routes_require_only_the_preview(
     admin: AsyncMock,
     monkeypatch: pytest.MonkeyPatch,
     granted: set[Entitlement],
@@ -745,7 +744,7 @@ def test_admin_routes_are_entitlement_gated_and_the_callback_is_public() -> None
     assert ("/workspaces/{workspace_id}/agent/channel-bots", "GET") in paths
     assert ("/workspaces/{workspace_id}/agent/channel-bots/install", "POST") in paths
     assert ("/workspaces/{workspace_id}/agent/channel-bots/{bot_id}", "PATCH") in paths
-    gate = router_module._require_agent_channels_entitlement
+    gate = router_module._require_agent_channels_preview
     assert any(dep.dependency is gate for dep in router_module.router.dependencies)
     assert not router_module.public_router.dependencies
 
