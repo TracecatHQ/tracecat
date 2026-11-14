@@ -1,11 +1,13 @@
-"""The bundled Claude Code CLI recovers from a managed gateway stream cut.
+"""The bundled Claude Code CLI recovers from a managed mid-stream drop.
 
-A LiteLLM pod that goes away mid-response used to fail the whole agent turn:
-the LLM socket proxy fired its fatal callback and the executor cancelled the
-turn. The proxy now ends the stream with a clean EOF and lets the CLI recover
-the model call. These tests run the real path: bundled CLI -> sandbox socket
-bridge -> LLM socket proxy -> a fake gateway that resets the connection
-mid-stream.
+Two drops used to fail the whole agent turn: a LiteLLM pod going away
+mid-response, and the provider behind the gateway dropping the stream (the
+gateway then sends a typed ``tracecat_llm_provider_unavailable`` SSE error).
+The LLM socket proxy fired its fatal callback and the executor cancelled the
+turn. The proxy now ends the stream with a clean EOF, a bounded number of times
+in a row, and lets the CLI recover the model call. These tests run the real
+path: bundled CLI -> sandbox socket bridge -> LLM socket proxy -> a fake
+gateway that drops the stream mid-response.
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Literal, cast
-from unittest.mock import AsyncMock
 
 import pytest
 from claude_agent_sdk import (
@@ -34,10 +35,7 @@ from claude_agent_sdk import (
 
 from tracecat.agent.adapter.vercel import TextDeltaEventPayload, VercelStreamContext
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
-from tracecat.agent.runtime.claude_code.runtime import (
-    MODEL_REQUEST_FAILED_MESSAGE,
-    ClaudeAgentRuntime,
-)
+from tracecat.agent.sandbox import llm_proxy
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
     LLMRoute,
@@ -48,13 +46,22 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     LLM_MAX_BODY_SIZE,
     SandboxSocketBridge,
 )
+from tracecat.runtime.errors import RuntimeErrorKind
 
 _TOOL_NAME = "mcp__counter__count"
 _DEAD_TEXT = "Text from the dead stream. "
 _INTRO_TEXT = "Counting now. "
 _FINAL_TEXT = "Counted exactly once."
 
-type _Fault = Literal["after_tool_use", "after_text", "after_text_always", "mid_text"]
+type _Fault = Literal[
+    "after_tool_use",
+    "after_text",
+    "after_text_always",
+    "mid_text",
+    "provider_drop",
+    "provider_drop_always",
+]
+_ALWAYS_FAULTS = frozenset({"after_text_always", "provider_drop_always"})
 
 
 def _sse(event: str, data: dict[str, Any]) -> bytes:
@@ -159,8 +166,8 @@ def _has_tool_result(messages: list[dict[str, Any]]) -> bool:
 class _GatewayState:
     """What the fake gateway saw.
 
-    The first main streaming request gets the fault; ``after_text_always``
-    faults every one.
+    The first main streaming request gets the fault; the ``*_always`` faults
+    hit every one.
     """
 
     fault: _Fault
@@ -244,7 +251,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         self.send_header("transfer-encoding", "chunked")
         self.end_headers()
         events = [_message_start(message_id, model)]
-        if main_index == 1 or state.fault == "after_text_always":
+        if main_index == 1 or state.fault in _ALWAYS_FAULTS:
             # Faulted response: never reaches message_delta or message_stop.
             match state.fault:
                 case "after_tool_use":
@@ -252,11 +259,14 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     events += _tool_use_block(1, f"toolu_{message_id}")
                 case "after_text" | "after_text_always":
                     events += _text_block(0, _DEAD_TEXT)
-                case "mid_text":
+                case "mid_text" | "provider_drop" | "provider_drop_always":
                     events += _text_block(0, _DEAD_TEXT, complete=False)
             for event in events:
                 self._write_chunk(event)
-            self._reset_connection()
+            if state.fault in {"provider_drop", "provider_drop_always"}:
+                self._end_with_provider_error()
+            else:
+                self._reset_connection()
             return
         if wants_final:
             events += _text_block(0, final_text) + _message_end("end_turn")
@@ -266,6 +276,25 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             events += _message_end("tool_use")
         for event in events:
             self._write_chunk(event)
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+
+    def _end_with_provider_error(self) -> None:
+        """End the response the way LiteLLM reports a dropped provider stream."""
+        self._write_chunk(
+            _sse(
+                "error",
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "tracecat_llm_provider_unavailable",
+                        "message": (
+                            "The LLM provider is temporarily unavailable; retry later"
+                        ),
+                    },
+                },
+            )
+        )
         self.wfile.write(b"0\r\n\r\n")
         self.wfile.flush()
 
@@ -459,26 +488,49 @@ async def test_cut_after_complete_text_keeps_it_and_continues(short_dir: Path) -
 
 
 @pytest.mark.anyio
-async def test_repeated_cuts_after_complete_text_fail_the_turn(short_dir: Path) -> None:
-    """When the CLI runs out of continuations, the runtime fails the turn.
+async def test_repeated_cuts_fail_the_turn_as_stream_interrupted(
+    short_dir: Path,
+) -> None:
+    """Cuts in a row exhaust the proxy's bound before the CLI's own limit.
 
-    Every response is cut after a completed block, so the proxy suppresses every
-    interruption and never reaches its fatal path. The CLI gives up with an API
-    error result that must not be recorded as the turn's answer.
+    The proxy ends the first cuts cleanly, then fires its fatal callback, which
+    makes the executor fail the turn as a platform-owned stream interruption.
     """
     outcome = await _run_turn("after_text_always", short_dir)
 
+    assert len(outcome.main_requests) >= llm_proxy._MAX_STREAM_RECOVERIES + 1
+    assert len(outcome.proxy_errors) == 1
+    kind = outcome.proxy_errors[0].classification.kind
+    assert kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
+
+
+@pytest.mark.anyio
+async def test_provider_drop_mid_stream_restreams_and_completes(
+    short_dir: Path,
+) -> None:
+    """A provider dropping the stream is held back, and the CLI re-streams."""
+    outcome = await _run_turn("provider_drop", short_dir)
+
     assert outcome.proxy_errors == []
-    assert outcome.tool_calls == 0
     assert outcome.result is not None
-    assert outcome.result.is_error is True
-    assert outcome.result.subtype == "success"
-    assert outcome.result.terminal_reason == "api_error"
+    assert outcome.result.is_error is False
+    assert outcome.result.result is not None
+    assert _FINAL_TEXT in outcome.result.result
+    assert outcome.tool_calls == 1
+    assert len(outcome.main_requests) == 3
+    assert outcome.main_requests[1] == outcome.main_requests[0]
 
-    writer = AsyncMock()
-    runtime = ClaudeAgentRuntime(writer, transport_factory=lambda _: AsyncMock())
-    await runtime._handle_result_message(outcome.result)
 
-    writer.send_result.assert_awaited_once()
-    assert writer.send_result.await_args.kwargs["output"] is None
-    writer.send_error.assert_awaited_once_with(MODEL_REQUEST_FAILED_MESSAGE)
+@pytest.mark.anyio
+async def test_repeated_provider_drops_fail_as_provider_unavailable(
+    short_dir: Path,
+) -> None:
+    """Once the bound runs out, the turn fails with the provider's own error."""
+    outcome = await _run_turn("provider_drop_always", short_dir)
+
+    # Only the fatal callback matters: in production the executor cancels the
+    # turn on it. This harness has no executor, so the CLI carries on.
+    assert len(outcome.main_requests) >= llm_proxy._MAX_STREAM_RECOVERIES + 1
+    assert len(outcome.proxy_errors) == 1
+    kind = outcome.proxy_errors[0].classification.kind
+    assert kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE

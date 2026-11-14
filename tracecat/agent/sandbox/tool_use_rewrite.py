@@ -88,13 +88,24 @@ class ToolUseStreamRewriter:
 
     With ``rewrite_read=False`` no block is buffered or rewritten; the stream
     is only observed for errors and progress.
+
+    An ``error`` event whose type is in ``held_error_types`` is not forwarded;
+    it is kept in ``held_error_event`` so the caller decides whether the
+    client sees it.
     """
 
-    def __init__(self, *, rewrite_read: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        rewrite_read: bool = True,
+        held_error_types: frozenset[str] = frozenset(),
+    ) -> None:
         self._rewrite_read = rewrite_read
+        self._held_error_types = held_error_types
         self._buffer = b""
         self._pending: dict[int, _PendingToolUse] = {}
         self.error: dict[str, Any] | None = None
+        self.held_error_event: bytes | None = None
         # Stream progress for observability; never carries event content.
         self.event_count = 0
         self.saw_message_stop = False
@@ -154,6 +165,9 @@ class ToolUseStreamRewriter:
                 return b""
             case {"type": "error", "error": dict() as error}:
                 self.error = error
+                if error.get("type") in self._held_error_types:
+                    self.held_error_event = event
+                    return b""
                 return event
             case {"type": "message_stop"}:
                 self.saw_message_stop = True

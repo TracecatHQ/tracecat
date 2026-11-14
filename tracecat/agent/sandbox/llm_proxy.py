@@ -60,6 +60,7 @@ from tracecat.agent.error_policy import (
     agent_llm_provider_unavailable,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
+    agent_llm_stream_interrupted,
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
@@ -178,6 +179,12 @@ _TRACE_REQUEST_ID_HEADER = "x-request-id"
 # an interrupted stream can be attributed to the gateway process that served it.
 _GATEWAY_IDENTITY_HEADER = "x-tracecat-gateway"
 _MAX_GATEWAY_IDENTITY_CHARS = 128
+# Managed streams that drop mid-response in a row and still end cleanly so the
+# Claude Code CLI re-streams the model call. The next drop fails the turn.
+# Kept under the CLI's own continuation limit (3), so the turn fails with the
+# drop's own classification rather than a generic model-request failure.
+_MAX_STREAM_RECOVERIES = 2
+_PROVIDER_UNAVAILABLE_ERROR_TYPE = "tracecat_llm_provider_unavailable"
 _TRACER_NAME = "tracecat.agent.llm_proxy"
 _UPSTREAM_SPAN_NAME = "tracecat.agent.llm_proxy.upstream"
 _FIRST_BYTE_EVENT = "tracecat.agent.llm_proxy.first_byte"
@@ -448,6 +455,32 @@ def _is_managed_stream_interruption(error: Exception, *, route_is_direct: bool) 
     return not route_is_direct and isinstance(
         error, httpx.RemoteProtocolError | httpx.ReadError
     )
+
+
+def _is_recoverable_stream_drop(error: Exception, *, route_is_direct: bool) -> bool:
+    """Whether a managed stream broke in a way a fresh model call can recover.
+
+    Either the gateway connection dropped mid-body, or the gateway reported that
+    the provider dropped the stream (a typed ``provider_unavailable`` SSE error).
+    """
+    if _is_managed_stream_interruption(error, route_is_direct=route_is_direct):
+        return True
+    return (
+        not route_is_direct
+        and isinstance(error, _UpstreamStreamError)
+        and error.error_type == _PROVIDER_UNAVAILABLE_ERROR_TYPE
+    )
+
+
+def _stream_transport_error_classification(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+) -> RuntimeErrorClassification:
+    """Classify a transport failure after response headers reached the runtime."""
+    if _is_managed_stream_interruption(error, route_is_direct=route_is_direct):
+        return agent_llm_stream_interrupted(error)
+    return _transport_error_classification(error, route_is_direct=route_is_direct)
 
 
 def _transport_proxy_error(
@@ -1029,12 +1062,28 @@ _STREAM_ERROR_STATUS_CODES = {
 
 
 class _UpstreamStreamError(Exception):
-    """A typed upstream SSE ``error`` event that was already forwarded."""
+    """A typed upstream SSE ``error`` event, held back from the client.
 
-    def __init__(self, error: dict[str, Any], *, status_code: int) -> None:
+    ``event`` is the raw SSE event. The proxy forwards it only when the stream
+    is not recovered.
+    """
+
+    def __init__(
+        self, error: dict[str, Any], *, status_code: int, event: bytes
+    ) -> None:
         super().__init__(str(error.get("message", "")))
         self.status_code = status_code
+        self.error_type = str(error.get("type"))
         self.body = orjson.dumps({"type": "error", "error": error})
+        self.event = event
+
+
+def _sse_rewriter(*, rewrite_read: bool = True) -> ToolUseStreamRewriter:
+    """Build the stream rewriter that holds back typed upstream error events."""
+    return ToolUseStreamRewriter(
+        rewrite_read=rewrite_read,
+        held_error_types=frozenset(_STREAM_ERROR_STATUS_CODES),
+    )
 
 
 async def _rewrite_sse_stream(
@@ -1044,12 +1093,12 @@ async def _rewrite_sse_stream(
     async for chunk in chunks:
         if out := rewriter.feed(chunk):
             yield out
-        if rewriter.error is not None and (
-            status_code := _STREAM_ERROR_STATUS_CODES.get(
-                str(rewriter.error.get("type"))
+        if rewriter.error is not None and (event := rewriter.held_error_event):
+            raise _UpstreamStreamError(
+                rewriter.error,
+                status_code=_STREAM_ERROR_STATUS_CODES[str(rewriter.error.get("type"))],
+                event=event,
             )
-        ):
-            raise _UpstreamStreamError(rewriter.error, status_code=status_code)
     if out := rewriter.flush():
         yield out
 
@@ -1269,6 +1318,8 @@ class LLMSocketProxy:
         self._stopping = False
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
+        # Consecutive mid-stream drops ended cleanly for runtime recovery.
+        self._stream_recoveries = 0
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -1300,6 +1351,7 @@ class LLMSocketProxy:
 
         self._stopping = False
         self._error_emitted = False
+        self._stream_recoveries = 0
 
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
@@ -1925,7 +1977,7 @@ class LLMSocketProxy:
             return response.aiter_bytes(), headers, None
         content_type = response.headers.get("content-type", "").lower()
         if "text/event-stream" in content_type:
-            rewriter = ToolUseStreamRewriter(rewrite_read=self.rewrite_tool_use)
+            rewriter = _sse_rewriter(rewrite_read=self.rewrite_tool_use)
             return (
                 _rewrite_sse_stream(response.aiter_bytes(), rewriter),
                 headers,
@@ -2069,6 +2121,8 @@ class LLMSocketProxy:
                 logger.info("LLM proxy stream finished", **progress)
                 if upstream is not None:
                     upstream.stream_ended(progress)
+                if progress["saw_message_stop"]:
+                    self._stream_recoveries = 0
         except Exception as exc:
             if self._stopping:
                 logger.debug("Response stream closed during proxy shutdown")
@@ -2091,19 +2145,32 @@ class LLMSocketProxy:
                     first_chunk_at=first_chunk_at,
                     last_chunk_at=last_chunk_at,
                 )
-            if is_streaming_response and _is_managed_stream_interruption(
-                exc, route_is_direct=route_is_direct
+            if (
+                is_streaming_response
+                and self._stream_recoveries < _MAX_STREAM_RECOVERIES
+                and _is_recoverable_stream_drop(exc, route_is_direct=route_is_direct)
             ):
                 # Not fatal: on a clean EOF the Claude Code CLI re-streams the
                 # same request, or keeps the completed blocks and continues.
                 # An SSE error event would push it to a non-streaming fallback.
-                # Failures of its follow-up requests still surface here, and
-                # the activity timeout bounds the rest.
+                # After _MAX_STREAM_RECOVERIES drops in a row, the next one
+                # fails the turn below with its own classification.
+                self._stream_recoveries += 1
+                progress = stream_progress()
+                if upstream is not None:
+                    upstream.stream_ended(progress)
                 logger.warning(
                     "LLM stream interrupted after headers sent, ending stream "
                     "for runtime recovery",
                     error_type=type(exc).__name__,
-                    **stream_progress(),
+                    upstream_error_type=(
+                        exc.error_type
+                        if isinstance(exc, _UpstreamStreamError)
+                        else None
+                    ),
+                    recovery=self._stream_recoveries,
+                    max_recoveries=_MAX_STREAM_RECOVERIES,
+                    **progress,
                 )
                 return
             if is_streaming_response:
@@ -2116,6 +2183,13 @@ class LLMSocketProxy:
                         f"Model response timed out after {timeout_duration} "
                         "without receiving data. Please retry the agent execution."
                     )
+                    surfaced_error = detail
+                elif _is_managed_stream_interruption(
+                    exc, route_is_direct=route_is_direct
+                ):
+                    # Transport text is not source-owned; surface the policy message.
+                    status_code = 502
+                    detail = agent_llm_stream_interrupted().message
                     surfaced_error = detail
                 else:
                     status_code = getattr(exc, "status_code", 502)
@@ -2137,7 +2211,7 @@ class LLMSocketProxy:
                     upstream.stream_ended(progress)
                 if path is not None and not _is_non_critical_request(method, path):
                     classification = (
-                        _transport_error_classification(
+                        _stream_transport_error_classification(
                             exc, route_is_direct=route_is_direct
                         )
                         if isinstance(exc, httpx.TransportError)
@@ -2162,18 +2236,21 @@ class LLMSocketProxy:
                         ),
                     )
                 if isinstance(exc, _UpstreamStreamError):
-                    return
-                error_payload = orjson.dumps(
-                    {
-                        "type": "error",
-                        "error": {
-                            "type": "server_error",
-                            "message": detail,
-                        },
-                    }
-                )
+                    # Forward the gateway's own typed event.
+                    error_event = exc.event
+                else:
+                    error_payload = orjson.dumps(
+                        {
+                            "type": "error",
+                            "error": {
+                                "type": "server_error",
+                                "message": detail,
+                            },
+                        }
+                    )
+                    error_event = b"event: error\ndata: " + error_payload + b"\n\n"
                 try:
-                    writer.write(b"event: error\ndata: " + error_payload + b"\n\n")
+                    writer.write(error_event)
                     await writer.drain()
                 except Exception:
                     logger.debug(
