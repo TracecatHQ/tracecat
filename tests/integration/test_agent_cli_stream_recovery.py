@@ -46,7 +46,7 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     LLM_MAX_BODY_SIZE,
     SandboxSocketBridge,
 )
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 
 _TOOL_NAME = "mcp__counter__count"
 _DEAD_TEXT = "Text from the dead stream. "
@@ -532,5 +532,6 @@ async def test_repeated_provider_drops_fail_as_provider_unavailable(
     # turn on it. This harness has no executor, so the CLI carries on.
     assert len(outcome.main_requests) >= llm_proxy._MAX_STREAM_RECOVERIES + 1
     assert len(outcome.proxy_errors) == 1
-    kind = outcome.proxy_errors[0].classification.kind
-    assert kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    classification = outcome.proxy_errors[0].classification
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.USER
