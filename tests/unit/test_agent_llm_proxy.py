@@ -2719,6 +2719,47 @@ async def test_held_error_classifies_even_when_a_later_error_follows(
 
 
 @pytest.mark.anyio
+async def test_drop_after_completed_tool_call_is_not_recovered(
+    tmp_path: Path,
+) -> None:
+    """The CLI would run a kept tool call without message_stop; fail instead."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    tool_block = (
+        b"event: content_block_start\ndata: "
+        + orjson.dumps(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "mcp__tracecat-registry__core__http_request",
+                    "input": {},
+                },
+            }
+        )
+        + b"\n\nevent: content_block_stop\ndata: "
+        + orjson.dumps({"type": "content_block_stop", "index": 0})
+        + b"\n\n"
+    )
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, tool_block, _PROVIDER_DROP_EVENT]
+    )
+
+    assert body.endswith(_PROVIDER_DROP_EVENT)
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    )
+
+
+@pytest.mark.anyio
 async def test_other_typed_stream_errors_are_not_recovered(tmp_path: Path) -> None:
     """Only provider drops re-stream; gateway capacity errors still fail at once."""
     errors: list[LLMProxyError] = []

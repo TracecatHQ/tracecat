@@ -128,10 +128,10 @@ CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
 # The approval hook may wait ROOT_MESSAGE_DONE_TIMEOUT_SECONDS for the root
-# message to finish before it denies the call. A model stream that dropped
-# mid-response never sends message_stop, so the hook must outlive that wait:
-# the CLI's default hook timeout (60 s) would otherwise give up before the deny.
-PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS = ROOT_MESSAGE_DONE_TIMEOUT_SECONDS + 30.0
+# message to finish, then interrupt (an SDK control request with its own 60 s
+# timeout), before it denies the call. The hook must outlive both: the CLI's
+# default hook timeout (60 s) would otherwise give up before the deny.
+PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS = ROOT_MESSAGE_DONE_TIMEOUT_SECONDS + 90.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:

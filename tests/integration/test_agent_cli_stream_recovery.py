@@ -429,21 +429,17 @@ async def _run_turn(fault: _Fault, root: Path) -> _TurnOutcome:
 
 
 @pytest.mark.anyio
-async def test_cut_after_complete_tool_use_continues_turn(short_dir: Path) -> None:
-    """Completed blocks are kept: the tool runs once and the turn continues."""
+async def test_cut_after_complete_tool_use_fails_the_turn(short_dir: Path) -> None:
+    """A drop after a completed tool call is not recovered.
+
+    The CLI would keep and run that call with no ``message_stop`` ever coming,
+    which stalls the approval flow for gated tools. The proxy fails the turn.
+    """
     outcome = await _run_turn("after_tool_use", short_dir)
 
-    assert outcome.proxy_errors == []
-    assert outcome.result is not None
-    assert outcome.result.is_error is False
-    assert outcome.result.result is not None
-    assert _FINAL_TEXT in outcome.result.result
-    assert outcome.tool_calls == 1
-    # The follow-up request carries the result; the tool call is not re-issued.
-    assert len(outcome.main_requests) == 2
-    assert _has_tool_result(outcome.main_requests[1])
-    assert outcome.ui_text.count(_INTRO_TEXT) == 1
-    assert outcome.ui_text.count(_FINAL_TEXT) == 1
+    assert len(outcome.proxy_errors) == 1
+    kind = outcome.proxy_errors[0].classification.kind
+    assert kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
 
 
 @pytest.mark.anyio

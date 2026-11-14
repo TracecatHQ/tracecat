@@ -458,12 +458,22 @@ def _is_managed_stream_interruption(error: Exception, *, route_is_direct: bool) 
     )
 
 
-def _is_recoverable_stream_drop(error: Exception, *, route_is_direct: bool) -> bool:
+def _is_recoverable_stream_drop(
+    error: Exception,
+    *,
+    route_is_direct: bool,
+    rewriter: ToolUseStreamRewriter | None,
+) -> bool:
     """Whether a managed stream broke in a way a fresh model call can recover.
 
     Either the gateway connection dropped mid-body, or the gateway reported that
     the provider dropped the stream (a typed ``provider_unavailable`` SSE error).
+    A drop after a completed tool call is not recovered: the CLI would keep and
+    run that call without ever seeing ``message_stop``, which stalls the
+    approval flow for gated tools.
     """
+    if rewriter is None or rewriter.completed_tool_use:
+        return False
     if _is_managed_stream_interruption(error, route_is_direct=route_is_direct):
         return True
     return (
@@ -2157,7 +2167,9 @@ class LLMSocketProxy:
             if (
                 is_streaming_response
                 and self._stream_recoveries < _MAX_STREAM_RECOVERIES
-                and _is_recoverable_stream_drop(exc, route_is_direct=route_is_direct)
+                and _is_recoverable_stream_drop(
+                    exc, route_is_direct=route_is_direct, rewriter=stream_rewriter
+                )
             ):
                 # Not fatal: on a clean EOF the Claude Code CLI re-streams the
                 # same request, or keeps the completed blocks and continues.
