@@ -4764,12 +4764,12 @@ class AgentChannelBot(TimestampMixin, Base):
     )
 
 
-class AgentChannelThread(TimestampMixin, Base):
+class AgentSessionThread(TimestampMixin, Base):
     """A session's link to one provider thread; one session per thread per bot."""
 
-    __tablename__ = "agent_channel_thread"
+    __tablename__ = "agent_session_thread"
     __table_args__ = (
-        UniqueConstraint("bot_id", "thread_key"),
+        UniqueConstraint("bot_id", "provider_thread_id"),
         ForeignKeyConstraint(
             ["bot_id", "workspace_id"],
             ["agent_channel_bot.id", "agent_channel_bot.workspace_id"],
@@ -4793,10 +4793,9 @@ class AgentChannelThread(TimestampMixin, Base):
         index=True,
     )
     bot_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
-    thread: Mapped[dict[str, JsonValue]] = mapped_column(
-        JSONB, nullable=False, doc="Provider thread address; thread_key is its key"
+    provider_thread_id: Mapped[dict[str, JsonValue]] = mapped_column(
+        JSONB, nullable=False, doc="The provider's ids naming the thread"
     )
-    thread_key: Mapped[str] = mapped_column(String, nullable=False)
     sync_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
