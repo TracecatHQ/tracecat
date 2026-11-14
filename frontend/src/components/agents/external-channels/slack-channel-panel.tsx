@@ -167,6 +167,7 @@ export function SlackChannelPanel({
         endpointUrl,
         oauthRedirectUrl,
         appName: preset?.name ?? "Tracecat",
+        legacy: true,
       }),
       null,
       2

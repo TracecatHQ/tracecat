@@ -15,7 +15,7 @@ describe("buildSlackManifest", () => {
       org_deploy_enabled: false,
       socket_mode_enabled: true,
       token_rotation_enabled: false,
-      event_subscriptions: { bot_events: ["app_mention"] },
+      event_subscriptions: { bot_events: ["app_mention", "message.im"] },
     })
     expect(manifest.oauth_config).toEqual(
       expect.objectContaining({ redirect_urls: [REDIRECT] })
@@ -74,9 +74,30 @@ describe("buildSlackManifest", () => {
       endpointUrl,
       oauthRedirectUrl,
       appName: "Triage",
+      legacy: true,
     })
     expect(JSON.stringify(manifest, null, 2)).toBe(
       JSON.stringify(legacy, null, 2)
     )
+  })
+
+  it("labels a channel bot an agent and lets users message it", () => {
+    const manifest = buildSlackManifest({
+      endpointUrl: null,
+      oauthRedirectUrl: REDIRECT,
+      appName: "Triage",
+    }) as {
+      features: Record<string, unknown>
+      oauth_config: { scopes: { bot: string[] } }
+    }
+    expect(manifest.features).toEqual(
+      expect.objectContaining({
+        app_home: expect.objectContaining({
+          messages_tab_read_only_enabled: false,
+        }),
+        agent_view: { agent_description: "Tracecat agent" },
+      })
+    )
+    expect(manifest.oauth_config.scopes.bot).toContain("assistant:write")
   })
 })
