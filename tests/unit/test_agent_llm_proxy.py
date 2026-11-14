@@ -546,7 +546,7 @@ async def test_write_stream_response_emits_error_after_headers_sent(
         (
             "tracecat_llm_provider_unavailable",
             RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
-            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorOwner.USER,
         ),
         (
             "tracecat_llm_deployment_unavailable",
@@ -1673,13 +1673,14 @@ def test_generic_http_error_message(
 
 
 @pytest.mark.parametrize(
-    ("status_code", "error_type", "direct", "kind"),
+    ("status_code", "error_type", "direct", "kind", "owner"),
     [
         pytest.param(
             500,
             "tracecat_llm_provider_unavailable",
             False,
             RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            RuntimeErrorOwner.USER,
             id="managed-500-provider",
         ),
         pytest.param(
@@ -1687,6 +1688,7 @@ def test_generic_http_error_message(
             "tracecat_llm_provider_unavailable",
             False,
             RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            RuntimeErrorOwner.USER,
             id="managed-502-provider",
         ),
         pytest.param(
@@ -1694,6 +1696,7 @@ def test_generic_http_error_message(
             "tracecat_llm_provider_unavailable",
             False,
             RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+            RuntimeErrorOwner.USER,
             id="managed-503-provider",
         ),
         pytest.param(
@@ -1701,6 +1704,7 @@ def test_generic_http_error_message(
             "tracecat_llm_deployment_unavailable",
             False,
             RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+            RuntimeErrorOwner.PLATFORM,
             id="managed-503-router-cooldown",
         ),
         pytest.param(
@@ -1708,6 +1712,7 @@ def test_generic_http_error_message(
             None,
             False,
             RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+            RuntimeErrorOwner.PLATFORM,
             id="managed-502-untyped-stays-unclassified",
         ),
         pytest.param(
@@ -1715,6 +1720,7 @@ def test_generic_http_error_message(
             "tracecat_llm_provider_unavailable",
             False,
             RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT,
+            RuntimeErrorOwner.PLATFORM,
             id="managed-504-still-timeout",
         ),
         pytest.param(
@@ -1722,6 +1728,7 @@ def test_generic_http_error_message(
             None,
             False,
             RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+            RuntimeErrorOwner.PLATFORM,
             id="managed-500-untyped-gateway-bug",
         ),
         pytest.param(
@@ -1729,6 +1736,7 @@ def test_generic_http_error_message(
             "tracecat_llm_provider_unavailable",
             True,
             RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+            RuntimeErrorOwner.USER,
             id="direct-503-unchanged",
         ),
     ],
@@ -1738,6 +1746,7 @@ def test_managed_5xx_classification(
     error_type: str | None,
     direct: bool,
     kind: RuntimeErrorKind,
+    owner: RuntimeErrorOwner,
 ) -> None:
     error: dict[str, str] = {"message": "Bearer synthetic-secret upstream detail"}
     if error_type is not None:
@@ -1747,9 +1756,9 @@ def test_managed_5xx_classification(
     )
 
     assert classification.kind is kind
+    assert classification.owner is owner
     assert "synthetic-secret" not in classification.message
     if not direct:
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
