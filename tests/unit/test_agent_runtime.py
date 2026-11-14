@@ -1700,6 +1700,10 @@ class TestClaudeAgentRuntimeRun:
 
         assert captured_options
         assert captured_options[0].sandbox["enabled"] is disable_nsjail
+        # The hook outlives its wait for the root message, so it always denies.
+        [matcher] = captured_options[0].hooks["PreToolUse"]
+        assert matcher.timeout is not None
+        assert matcher.timeout > runtime_module.ROOT_MESSAGE_DONE_TIMEOUT_SECONDS
         [client] = clients
         client.query.assert_awaited_once_with(approval_payload.user_prompt)
         client.interrupt.assert_awaited_once()

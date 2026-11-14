@@ -2626,6 +2626,39 @@ async def test_completed_stream_resets_stream_recoveries(tmp_path: Path) -> None
 
 
 @pytest.mark.anyio
+async def test_completed_json_response_resets_stream_recoveries(
+    tmp_path: Path,
+) -> None:
+    """A successful non-streaming model call also ends the run of drops."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+
+    for _ in range(llm_proxy._MAX_STREAM_RECOVERIES):
+        await _write_managed_stream(
+            socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+        )
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, _FakeWriter()),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "application/json"},
+        body_chunks=[b'{"type":"message","content":[]}'],
+        method="POST",
+        path="/v1/messages",
+    )
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+    )
+
+    assert b"event: error" not in body
+    assert errors == []
+
+
+@pytest.mark.anyio
 async def test_managed_stream_cut_fails_as_stream_interrupted_after_recoveries(
     tmp_path: Path,
 ) -> None:
@@ -2655,6 +2688,34 @@ async def test_managed_stream_cut_fails_as_stream_interrupted_after_recoveries(
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_held_error_classifies_even_when_a_later_error_follows(
+    tmp_path: Path,
+) -> None:
+    """A second error event in the same chunk cannot replace the held one."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._stream_recoveries = llm_proxy._MAX_STREAM_RECOVERIES
+    overloaded_event = (
+        b'event: error\ndata: {"type":"error","error":'
+        b'{"type":"overloaded_error","message":"synthetic"}}\n\n'
+    )
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT + overloaded_event]
+    )
+
+    assert body.endswith(_PROVIDER_DROP_EVENT)
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    )
 
 
 @pytest.mark.anyio

@@ -127,6 +127,11 @@ MODEL_REQUEST_FAILED_MESSAGE = (
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
+# The approval hook may wait ROOT_MESSAGE_DONE_TIMEOUT_SECONDS for the root
+# message to finish before it denies the call. A model stream that dropped
+# mid-response never sends message_stop, so the hook must outlive that wait:
+# the CLI's default hook timeout (60 s) would otherwise give up before the deny.
+PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS = ROOT_MESSAGE_DONE_TIMEOUT_SECONDS + 30.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -1703,7 +1708,12 @@ class ClaudeAgentRuntime:
             stderr=stderr,
             sandbox=self._sandbox_settings(),
             hooks={
-                "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
+                "PreToolUse": [
+                    HookMatcher(
+                        hooks=[self._pre_tool_use_hook],
+                        timeout=PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS,
+                    )
+                ],
                 "Stop": [HookMatcher(hooks=[self._stop_hook])],
             },
             cwd=self._cwd,
