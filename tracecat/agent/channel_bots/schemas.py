@@ -17,6 +17,13 @@ class ChannelBotProvider(StrEnum):
     SLACK = "slack"
 
 
+class ChannelBotTransport(StrEnum):
+    """How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them."""
+
+    HTTP = "http"
+    SOCKET = "socket"
+
+
 def oauth_callback_path(provider: ChannelBotProvider) -> str:
     """The public path a provider sends the browser back to after OAuth consent."""
     return OAUTH_CALLBACK_ROUTE.format(provider=provider.value)
