@@ -30,6 +30,8 @@ CHANNEL_PUBLISHER_ENTRY_POINT_GROUP = "tracecat.agent_channel_publisher"
 
 # Per update, retries included; a host activity's start_to_close grows by this.
 PUBLISH_BUDGET = timedelta(seconds=20)
+# A status line is not worth holding the turn's start for.
+TURN_STARTED_PUBLISH_BUDGET = timedelta(seconds=5)
 _PUBLISH_ATTEMPTS = 3
 # Bounded well inside create_session_activity's 30 s budget.
 CHANNEL_LINK_CHECK_TIMEOUT_SECONDS = 5
@@ -39,6 +41,13 @@ class RunUpdateBase(Variant, discriminator="kind"):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     session_id: uuid.UUID
+
+
+class TurnStarted(RunUpdateBase):
+    """A run began work; show the channel that the agent is working."""
+
+    kind: Literal["turn_started"] = "turn_started"
+    run_id: uuid.UUID
 
 
 class TurnFinished(RunUpdateBase):
@@ -82,7 +91,8 @@ class ApprovalDecided(RunUpdateBase):
 
 
 RunUpdate = Annotated[
-    TurnFinished | ApprovalPending | ApprovalDecided, Field(discriminator="kind")
+    TurnStarted | TurnFinished | ApprovalPending | ApprovalDecided,
+    Field(discriminator="kind"),
 ]
 
 
@@ -150,14 +160,19 @@ def publish_budget(updates: Sequence[RunUpdate]) -> timedelta:
     return PUBLISH_BUDGET * len(updates)
 
 
-async def publish_updates(role: Role, updates: Sequence[RunUpdate]) -> list[str | None]:
+async def publish_updates(
+    role: Role,
+    updates: Sequence[RunUpdate],
+    *,
+    budget: timedelta = PUBLISH_BUDGET,
+) -> list[str | None]:
     """Publish in order, after the host's own writes; never fails the host."""
-    return [await _publish(role, update) for update in updates]
+    return [await _publish(role, update, budget) for update in updates]
 
 
-async def _publish(role: Role, update: RunUpdate) -> str | None:
+async def _publish(role: Role, update: RunUpdate, budget: timedelta) -> str | None:
     try:
-        async with asyncio.timeout(PUBLISH_BUDGET.total_seconds()):
+        async with asyncio.timeout(budget.total_seconds()):
             publisher = get_channel_publisher()
             if publisher is None:
                 # Only linked runs publish, and linking needs a publisher.

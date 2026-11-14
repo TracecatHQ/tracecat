@@ -16,7 +16,9 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.channel_publisher import (
+    TURN_STARTED_PUBLISH_BUDGET,
     RunUpdate,
+    TurnStarted,
     is_channel_linked,
     publish_updates,
 )
@@ -295,6 +297,12 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             )
 
         linked = await is_channel_linked(input.role, input.session_id)
+        if linked and input.curr_run_id is not None:
+            await publish_updates(
+                input.role,
+                [TurnStarted(session_id=input.session_id, run_id=input.curr_run_id)],
+                budget=TURN_STARTED_PUBLISH_BUDGET,
+            )
         return CreateSessionResult(
             session_id=input.session_id, success=True, channel_linked=linked
         )

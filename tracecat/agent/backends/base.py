@@ -10,6 +10,7 @@ from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
@@ -39,9 +40,12 @@ from tracecat.agent.backends.types import (
     SessionDispatchUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
+    SessionTurnActiveError,
     SessionTurnContext,
     SessionWorkflowContext,
+    TurnAlreadyStarted,
     TurnResult,
+    TurnStartState,
     WithdrawResult,
 )
 from tracecat.agent.cancellation import signal_turn_cancel
@@ -73,6 +77,14 @@ _START_RPC_TIMEOUT = timedelta(seconds=30)
 # Until then a missing workflow may be a start still in flight. Tombstoning it
 # would drop that turn for a quick second send, so keep the conflict instead.
 _TOMBSTONE_MIN_AGE = _START_RPC_TIMEOUT + timedelta(seconds=5)
+# Describe failures a retry of the same input can outlast.
+_TRANSIENT_RPC_STATUSES = frozenset(
+    {
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+    }
+)
 
 
 async def claim_unstarted_workflow_id(client: Client, workflow_id: str) -> bool:
@@ -223,27 +235,54 @@ class AgentBackend[InputT, OutputT](ABC):
         session = await context.db.scalar(locked_session)
         if session is None:
             raise TracecatConflictError("This chat already has an active turn")
-        if session.curr_run_id is not None:
+        reissue = session.curr_run_id == context.run_id
+        if reissue:
+            # A retry of the same input found its own reservation. Re-issue the
+            # start under the lock; Temporal rejects it if the first one landed.
+            if session.active_stream_id is None:
+                raise RuntimeError(f"Reserved turn {context.run_id} has no stream")
+            context = replace(context, stream_id=session.active_stream_id)
+        elif session.curr_run_id is not None:
             recovered = await self._release_terminal_turn(
                 replace(context, session=session), client
             )
             if not recovered:
-                raise TracecatConflictError("This chat already has an active turn")
+                raise SessionTurnActiveError(session.curr_run_id)
             # Recovery commits independently so a subsequent preparation failure
             # cannot restore stale ownership. Reacquire the lock before admission.
             session = await context.db.scalar(locked_session)
-            if session is None or session.curr_run_id is not None:
+            if session is None:
                 raise TracecatConflictError("This chat already has an active turn")
+            if session.curr_run_id is not None:
+                raise SessionTurnActiveError(session.curr_run_id)
         # Once admitted, finish the ownership decision before releasing the
         # request's DB session. Cancellation must not interrupt a commit that
         # PostgreSQL may already have accepted, or skip dispatch/cleanup after it.
         await rejoin_future_on_cancel(
             asyncio.create_task(
                 self._prepare_and_dispatch_turn(
-                    replace(context, session=session), client
+                    replace(context, session=session), client, reissue=reissue
                 )
             )
         )
+
+    async def turn_start_state(self, run_id: UUID) -> TurnStartState:
+        """Whether a turn's workflow ID is free, taken by the turn, or tombstoned.
+
+        Closed workflows count until Temporal's retention removes them.
+        """
+        handle = await self.handle(run_id)
+        try:
+            description = await handle.describe(rpc_timeout=timedelta(seconds=5))
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                return "missing"
+            if e.status in _TRANSIENT_RPC_STATUSES:
+                raise SessionDispatchUncertain("Temporal is unavailable") from e
+            raise
+        if description.workflow_type == _TOMBSTONE_WORKFLOW:
+            return "tombstoned"
+        return "started"
 
     async def retains_terminal_ownership(
         self, context: SessionTurnContext, run_id: UUID
@@ -364,7 +403,7 @@ class AgentBackend[InputT, OutputT](ABC):
         return await claim_unstarted_workflow_id(client, self.workflow_id(run_id))
 
     async def _prepare_and_dispatch_turn(
-        self, context: SessionTurnContext, client: Client
+        self, context: SessionTurnContext, client: Client, *, reissue: bool
     ) -> None:
         """Settle preparation, dispatch, and cleanup while caller cancellation waits."""
         session = context.session
@@ -426,9 +465,9 @@ class AgentBackend[InputT, OutputT](ABC):
             raise
         except Exception:
             if not dispatch.committed:
-                if dispatch.commit_attempted:
+                if dispatch.commit_attempted and not reissue:
                     commit_reconciled = await self._reconcile_failed_commit(
-                        context, session_id
+                        context, session_id, client
                     )
                 else:
                     await context.db.rollback()
@@ -445,33 +484,28 @@ class AgentBackend[InputT, OutputT](ABC):
             if dispatch.commit_attempted and not commit_reconciled:
                 raise SessionDispatchUncertain("Dispatch requires reconciliation")
             raise RuntimeError("Agent workflow start failed before dispatch")
-        if dispatch.rejected:
+        if dispatch.already_started:
+            # An earlier start of this run holds the ID, maybe a concurrent retry's,
+            # and owns the reservation; or a tombstone, whose recovery releases it.
+            raise TurnAlreadyStarted(f"Agent turn {context.run_id} already started")
+        # A re-issued reservation may belong to the original start still in flight.
+        if dispatch.rejected and not reissue:
             # Do this in the shared lifecycle so non-HTTP callers also release
             # rejected turns. Never clear a different turn's reservation.
             try:
-                released = await context.db.scalar(
-                    update(AgentSession)
-                    .where(
-                        AgentSession.id == session_id,
-                        AgentSession.workspace_id == context.role.workspace_id,
-                        AgentSession.curr_run_id == context.run_id,
-                        AgentSession.active_stream_id == context.stream_id,
+                # A rejection proves only that this RPC did not start the run;
+                # a duplicate's re-issued start may have, so claim the ID first.
+                released = await self._claim_unstarted_turn(context.run_id, client)
+                if released:
+                    released = await self._release_reservation(
+                        context.db, context, session_id
                     )
-                    .values(
-                        curr_run_id=None,
-                        active_stream_id=None,
-                        reserved_run_id=None,
-                        reserved_at=None,
-                    )
-                    .returning(AgentSession.id)
-                )
-                await context.db.commit()
             except Exception:
                 # Cleanup itself may have an uncertain outcome. Keep the router
                 # from attempting a less restrictive second cleanup.
                 pass
             else:
-                if released is not None:
+                if released:
                     await _publish_run_finished(context, context.run_id)
                     raise RuntimeError("Agent workflow start was rejected")
         # Raise outside the handler so SDK context cannot leak. Ownership stays
@@ -479,10 +513,36 @@ class AgentBackend[InputT, OutputT](ABC):
         raise SessionDispatchUncertain("Dispatch requires reconciliation")
 
     @staticmethod
-    async def _reconcile_failed_commit(
-        context: SessionTurnContext, session_id: UUID
+    async def _release_reservation(
+        db: AsyncSession, context: SessionTurnContext, session_id: UUID
     ) -> bool:
-        """Release only this reservation when commit raised before any start RPC."""
+        """Clear this turn's reservation and commit; never another turn's."""
+        released = await db.scalar(
+            update(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == context.role.workspace_id,
+                AgentSession.curr_run_id == context.run_id,
+                AgentSession.active_stream_id == context.stream_id,
+            )
+            .values(
+                curr_run_id=None,
+                active_stream_id=None,
+                reserved_run_id=None,
+                reserved_at=None,
+            )
+            .returning(AgentSession.id)
+        )
+        await db.commit()
+        return released is not None
+
+    async def _reconcile_failed_commit(
+        self, context: SessionTurnContext, session_id: UUID, client: Client
+    ) -> bool:
+        """Release only this reservation when commit raised before any start RPC.
+
+        ``session_id`` is read before the rollback expires ``context.session``.
+        """
         role_token = ctx_role.set(context.role)
         try:
             # A lost acknowledgement can leave the original session unusable.
@@ -491,29 +551,17 @@ class AgentBackend[InputT, OutputT](ABC):
                 await context.db.rollback()
             except Exception:
                 await context.db.invalidate()
+            # A duplicate may have re-issued this reservation's start; release only
+            # once a claimed ID proves no start can ever run.
+            if not await self._claim_unstarted_turn(context.run_id, client):
+                return False
             async with get_async_session_context_manager() as db:
-                released = await db.scalar(
-                    update(AgentSession)
-                    .where(
-                        AgentSession.id == session_id,
-                        AgentSession.workspace_id == context.role.workspace_id,
-                        AgentSession.curr_run_id == context.run_id,
-                        AgentSession.active_stream_id == context.stream_id,
-                    )
-                    .values(
-                        curr_run_id=None,
-                        active_stream_id=None,
-                        reserved_run_id=None,
-                        reserved_at=None,
-                    )
-                    .returning(AgentSession.id)
-                )
-                await db.commit()
+                released = await self._release_reservation(db, context, session_id)
         except Exception:
             return False
         else:
             # If ownership changed, suppress the router's less restrictive cleanup.
-            if released is None:
+            if not released:
                 return False
             await _publish_run_finished(context, context.run_id)
             return True
