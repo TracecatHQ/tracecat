@@ -134,12 +134,21 @@ Tracecat signs each token locally with the service's AWS credentials and reuses 
     Tracecat 1.5.0-alpha.3 and earlier refuse the membership these calls give the Entra administrator in each role. On those versions, run `REVOKE app, migrator, agent_runtime FROM "<entra-admin>";` before role setup.
   </Step>
   <Step title="Allow Tracecat's extensions">
-    Azure only creates extensions that the server's `azure.extensions` parameter lists, and migrations need `vector` and `pg_trgm`. Add both to the list, keeping any extensions already in it (check with `az postgres flexible-server parameter show` first):
+    Azure only creates extensions that the server's `azure.extensions` parameter lists, and migrations need `vector` and `pg_trgm`. Setting the parameter replaces the whole list, so read it first:
+
+    ```bash
+    az postgres flexible-server parameter show --resource-group <resource-group> \
+      --server-name <server-name> --name azure.extensions --query value --output tsv
+    ```
+
+    Then set it to `VECTOR,PG_TRGM` plus every extension that printed, comma-separated:
 
     ```bash
     az postgres flexible-server parameter set --resource-group <resource-group> \
-      --server-name <server-name> --name azure.extensions --value VECTOR,PG_TRGM
+      --server-name <server-name> --name azure.extensions --value VECTOR,PG_TRGM,<existing-extensions>
     ```
+
+    With an empty list, use `--value VECTOR,PG_TRGM`.
 
     Then, as the Entra administrator, connected to the Tracecat database, create them (see [pgvector](/self-hosting/pgvector) for the version Tracecat needs):
 
