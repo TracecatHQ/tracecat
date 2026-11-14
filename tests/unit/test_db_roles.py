@@ -16,6 +16,9 @@ Invariants:
   login isn't ``migrator`` or ``public`` awaits the upgrade, and then applies
   the owner-level grants as ``migrator``, which needs no CREATEROLE.
 - Admin-level SQL can't change without a ``ROLE_SETUP_VERSION`` bump.
+- A login role's members are judged by each grant's own flags: on PG 16+ the
+  running admin's ADMIN-only creator grant passes, even where pg_has_role
+  reports USAGE or SET for it (Azure), and an INHERIT or SET grant fails.
 """
 
 from __future__ import annotations
@@ -630,12 +633,16 @@ def test_refuses_a_login_role_with_unexpected_members(scratch: Scratch) -> None:
             _run(conn, f"DROP ROLE IF EXISTS {quote_ident(squatter)}")
 
 
-def test_refuses_admin_only_members_other_than_the_admin(scratch: Scratch) -> None:
-    """ADMIN OPTION lets its holder grant itself SET, so only the running admin may hold it."""
+def _skip_before_pg16() -> None:
     with _superuser() as conn:
         version = conn.execute("SHOW server_version_num").fetchone()
     if version and int(version[0]) < 160000:
         pytest.skip("per-grant INHERIT/SET options are PostgreSQL 16+")
+
+
+def test_refuses_admin_only_members_other_than_the_admin(scratch: Scratch) -> None:
+    """ADMIN OPTION lets its holder grant itself SET, so only the running admin may hold it."""
+    _skip_before_pg16()
     roles = scratch.roles
     holder = f"holder_{_suffix()}"
     with _superuser() as conn:
@@ -657,6 +664,84 @@ def test_refuses_admin_only_members_other_than_the_admin(scratch: Scratch) -> No
     finally:
         with _superuser() as conn:
             _run(conn, f"DROP ROLE IF EXISTS {quote_ident(holder)}")
+
+
+@pytest.mark.parametrize(
+    ("options", "accepted"),
+    [
+        ("ADMIN TRUE, INHERIT FALSE, SET FALSE", True),
+        ("ADMIN TRUE, INHERIT TRUE, SET FALSE", False),
+        ("ADMIN TRUE, INHERIT FALSE, SET TRUE", False),
+    ],
+    ids=["admin-only", "inherit", "set"],
+)
+def test_admin_grant_is_judged_by_its_own_flags(
+    scratch: Scratch, options: str, accepted: bool
+) -> None:
+    """Azure's Entra admin: pg_has_role says USAGE and SET whatever the grant's flags.
+
+    A superuser gets the same answer from pg_has_role, so it stands in for that
+    admin. Only an ADMIN-only grant (the creator grant) is the admin's to hold.
+    """
+    _skip_before_pg16()
+    roles = scratch.roles
+    admin = f"entra_admin_{_suffix()}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(admin)} LOGIN SUPERUSER PASSWORD 'admin'")
+        _run(conn, f"CREATE ROLE {quote_ident(roles.migrator)} LOGIN")
+        _run(
+            conn,
+            f"GRANT {quote_ident(roles.migrator)} TO {quote_ident(admin)} WITH {options}",
+        )
+    try:
+        with psycopg.connect(
+            _url(admin, "admin", scratch.database), autocommit=True
+        ) as conn:
+            if accepted:
+                run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+            else:
+                with pytest.raises(
+                    psycopg.errors.RaiseException, match="unexpected members"
+                ):
+                    run_bootstrap(conn, LoginMethod.PASSWORD, LoginPasswords(), roles)
+        assert _role_exists(roles.owner) is accepted
+    finally:
+        # The admin owns what bootstrap set up in the database, so drop it first.
+        _drop_all(scratch.database, [admin])
+
+
+def test_azure_upgrade_accepts_the_entra_admins_creator_grants() -> None:
+    """``upgrade --login azure_entra`` passes with the grants Azure leaves.
+
+    pgaadauth_create_principal_with_oid makes the calling admin an ADMIN-only
+    member of each login role, and Azure's pg_has_role answers USAGE and SET
+    for that admin anyway. A superuser admin reproduces both.
+    """
+    _skip_before_pg16()
+    suffix = _suffix()
+    roles = _test_roles(suffix)
+    admin = f"entra_admin_{suffix}"
+    database = f"azure_{suffix}"
+    with _superuser() as conn:
+        _run(conn, f"CREATE ROLE {quote_ident(admin)} LOGIN SUPERUSER PASSWORD 'admin'")
+        _run(
+            conn, f"CREATE DATABASE {quote_ident(database)} OWNER {quote_ident(admin)}"
+        )
+        for login in roles.logins:
+            _run(conn, f"CREATE ROLE {quote_ident(login)} LOGIN")
+            _run(
+                conn,
+                f"GRANT {quote_ident(login)} TO {quote_ident(admin)} "
+                "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
+            )
+    try:
+        with psycopg.connect(_url(admin, "admin", database), autocommit=True) as conn:
+            result = run_upgrade(conn, LoginMethod.AZURE_ENTRA, LoginPasswords(), roles)
+            state = read_role_setup(conn, roles)
+        assert result.complete
+        assert state.version == ROLE_SETUP_VERSION
+    finally:
+        _drop_all(database, [*roles.logins, *roles.keyrings, admin])
 
 
 def test_refuses_a_pre_created_owner_keyring_holding_app(scratch: Scratch) -> None:
@@ -2317,8 +2402,10 @@ def test_owner_level_sql_runs_as_a_plain_migrator(topology: Topology) -> None:
 
 
 # sha256 of the admin-level SQL per ROLE_SETUP_VERSION, for every login method.
+# A safety check that only refuses less changes no stamped database, so it
+# updates the fingerprint without a bump (1: the Azure creator grant).
 ADMIN_SQL_FINGERPRINTS = {
-    1: "6e24e96a6d56bed3b93a05d430a31f84f739fc856e153a1d18440e567484a843",
+    1: "ba8d8d8d558f74b36fb28ca3d81aa60671b3b2950c8e718ed8aa211b3dc8a051",
 }
 
 

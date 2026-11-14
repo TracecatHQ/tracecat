@@ -375,13 +375,20 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         f"    WHERE g.rolname IN ({logins})\n"
         f"      AND NOT (g.rolname = {quote_literal(roles.agent_runtime)}"
         f" AND u.rolname = {quote_literal(roles.app)})\n"
-        # CASE, not AND: the 'SET' privilege type only exists from PG 16.
+        # Judge the grant by its own flags, not pg_has_role: Azure answers
+        # USAGE/SET true for its admins without them. Any other path into the
+        # login role is a row of its own, checked here too. inherit_option and
+        # set_option exist from PG 16, so read them through to_jsonb (NULL,
+        # hence not exempt, if absent) and skip the exemption before PG 16.
         "      AND NOT CASE WHEN pg_catalog.current_setting('server_version_num')::int < 160000\n"
         "                   THEN false\n"
         "               ELSE m.admin_option\n"
-        "                    AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'USAGE')\n"
-        "                    AND NOT pg_catalog.pg_has_role(u.oid, g.oid, 'SET')\n"
+        "                    AND (pg_catalog.to_jsonb(m) ->> 'inherit_option')::boolean IS FALSE\n"
+        "                    AND (pg_catalog.to_jsonb(m) ->> 'set_option')::boolean IS FALSE\n"
         # USAGE, not MEMBER: MEMBER would count this very grant (via migrator).
+        # USAGE calls has_privs_of_role, the function Postgres itself uses for
+        # the owner's rights, so a role it says yes for already holds them.
+        # Which identity a pre-created login role maps to is the admin's to check.
         "                    AND (u.rolname = session_user\n"
         f"                         OR pg_catalog.pg_has_role(u.oid, {quote_literal(roles.owner)}, 'USAGE'))\n"
         "           END\n"
