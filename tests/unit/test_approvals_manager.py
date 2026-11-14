@@ -26,7 +26,7 @@ from tracecat_ee.agent.approvals.service import (
 from tracecat_ee.agent.context import AgentContext
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.channel_publisher import ApprovalDecided
+from tracecat.agent.channel_notifier import ApprovalDecided
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.types import ToolDenied
@@ -279,7 +279,7 @@ class TestApprovalManager:
         decided = {d.tool_call_id: d.approved for d in payload.decisions}
         assert decided == {"call_123": False, "call_456": True}
 
-    async def test_handle_decisions_publishes_the_decision_once(
+    async def test_handle_decisions_pushes_the_decision_once(
         self,
         approval_manager: ApprovalManager,
         sample_tool_calls: list[ToolCallContent],
@@ -289,7 +289,7 @@ class TestApprovalManager:
         decided = ApprovalDecided(
             session_id=uuid.uuid4(), batch_id=uuid.uuid4(), pending_ref=None
         )
-        approval_manager._unpublished_decision = decided
+        approval_manager._unpushed_decision = decided
 
         with patch(
             "tracecat_ee.agent.approvals.service.workflow.execute_activity",
@@ -299,7 +299,7 @@ class TestApprovalManager:
 
         assert execute_activity.await_args is not None
         assert execute_activity.await_args.kwargs["arg"].channel_updates == [decided]
-        assert approval_manager.take_unpublished_decision() == []
+        assert approval_manager.take_unpushed_decision() == []
 
     def test_apply_approval_decisions_result_stays_none(self) -> None:
         # Workers before this result decode it as None; any other value fails replay.
@@ -336,8 +336,8 @@ class TestRecordApprovalRequestsActivity:
             approvals=approvals,
         )
 
-        # Execute the activity logic directly. With nothing to publish it
-        # returns None, which workflow code from before publishing still decodes.
+        # Execute the activity logic directly. With nothing to push it
+        # returns None, which workflow code from before pushing still decodes.
         assert await ApprovalManager.record_approval_requests(input_data) is None
 
         # Verify records were created

@@ -559,12 +559,18 @@ async def test_argument_builder_receives_isolated_data_without_database_access(
             assert snapshot.role is not ctx.role
             return await super().build_workflow_args(snapshot)
 
-    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
+    ):
         if rejected:
             with pytest.raises(RuntimeError, match="was rejected"):
                 await SnapshotBackend().start_turn(ctx)
         else:
             await SnapshotBackend().start_turn(ctx)
+    assert claim.await_count == int(rejected)
 
     assert ctx.config.model_settings == {"temperature": 0.2}
     assert ctx.session.tools == ["core.cases.get_case"]
@@ -1498,9 +1504,13 @@ async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
     rpc.side_effect = RPCError("private SDK details", status, b"")
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
         pytest.raises(RuntimeError, match="was rejected") as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
     assert not isinstance(caught.value, SessionDispatchUncertain)
     assert caught.value.__context__ is None
     assert caught.value.__cause__ is None
@@ -1515,7 +1525,9 @@ async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("failure", ["execute", "commit", "ownership_changed"])
+@pytest.mark.parametrize(
+    "failure", ["claim_refused", "claim", "execute", "commit", "ownership_changed"]
+)
 async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
@@ -1527,13 +1539,20 @@ async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
         ctx.db.scalar.side_effect = [ctx.session, RuntimeError("private DB details")]
     elif failure == "commit":
         ctx.db.commit.side_effect = [None, RuntimeError("private DB details")]
-    else:
+    elif failure == "ownership_changed":
         ctx.db.scalar.side_effect = [ctx.session, None]
+    claim = AsyncMock(return_value=failure != "claim_refused")
+    if failure == "claim":
+        claim.side_effect = RuntimeError("private claim details")
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(DefaultBackend, "_claim_unstarted_turn", claim),
         pytest.raises(SessionDispatchUncertain) as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
+    # A refused or failed claim never releases the reservation.
+    assert ctx.db.scalar.await_count == (1 if "claim" in failure else 2)
     assert caught.value.__context__ is None
     assert caught.value.__cause__ is None
     assert "private" not in str(caught.value)
@@ -1573,9 +1592,13 @@ async def test_commit_failure_reconciles_with_a_fresh_session(
             "tracecat.agent.backends.base.get_async_session_context_manager",
             cleanup_session,
         ),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
         pytest.raises(RuntimeError) as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
     assert isinstance(caught.value, SessionDispatchUncertain) == (
         failure in {"execute", "commit", "ownership"}
     )

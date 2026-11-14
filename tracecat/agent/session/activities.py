@@ -15,12 +15,12 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
-from tracecat.agent.channel_publisher import (
-    TURN_STARTED_PUBLISH_BUDGET,
+from tracecat.agent.channel_notifier import (
+    TURN_STARTED_PUSH_BUDGET,
     RunUpdate,
     TurnStarted,
     is_channel_linked,
-    publish_updates,
+    push_updates,
 )
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.error_policy import invalid_agent_configuration
@@ -298,10 +298,10 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
         linked = await is_channel_linked(input.role, input.session_id)
         if linked and input.curr_run_id is not None:
-            await publish_updates(
+            await push_updates(
                 input.role,
                 [TurnStarted(session_id=input.session_id, run_id=input.curr_run_id)],
-                budget=TURN_STARTED_PUBLISH_BUDGET,
+                budget=TURN_STARTED_PUSH_BUDGET,
             )
         return CreateSessionResult(
             session_id=input.session_id, success=True, channel_linked=linked
@@ -508,7 +508,7 @@ class FinalizeTurnInput(BaseModel):
     # set emit_terminal_done=True and pass their captured per-turn stream ID.
     active_stream_id: uuid.UUID | None = None
     emit_terminal_done: bool = False
-    # Published before the release, so the reply posts before the next turn starts.
+    # Pushed before the release, so the reply posts before the next turn starts.
     channel_updates: list[RunUpdate] = Field(default_factory=list)
 
 
@@ -531,7 +531,7 @@ async def finalize_turn_activity(
     result and use their temporary stream-emission fallback.
     """
     ctx_role.set(input.role)
-    await publish_updates(input.role, input.channel_updates)
+    await push_updates(input.role, input.channel_updates)
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
             if input.emit_terminal_done:
