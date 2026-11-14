@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from tracecat.agent import channel_publisher
-from tracecat.agent.channel_publisher import TurnFinished
+from tracecat.agent import channel_notifier
+from tracecat.agent.channel_notifier import TurnFinished
 from tracecat.agent.session.activities import (
     FinalizeTurnInput,
     PendingToolResult,
@@ -73,7 +73,7 @@ async def test_finalize_turn_activity_bridges_workflow_versions(
 
 
 @pytest.mark.anyio
-async def test_finalize_turn_publishes_before_the_release_even_when_publishing_fails(
+async def test_finalize_turn_pushes_before_the_release_even_when_pushing_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     order: list[str] = []
@@ -86,14 +86,14 @@ async def test_finalize_turn_publishes_before_the_release_even_when_publishing_f
         MagicMock(return_value=ctx),
     )
 
-    class _DownPublisher:
-        async def publish(self, role: Role, update: TurnFinished) -> str | None:
+    class _DownNotifier:
+        async def push(self, role: Role, update: TurnFinished) -> str | None:
             del role, update
-            order.append("publish")
+            order.append("push")
             raise ApplicationError("channel gone", non_retryable=True)
 
     monkeypatch.setattr(
-        channel_publisher, "get_channel_publisher", lambda: _DownPublisher()
+        channel_notifier, "get_channel_notifier", lambda: _DownNotifier()
     )
     session_id, run_id = uuid.uuid4(), uuid.uuid4()
     role = Role(
@@ -110,7 +110,7 @@ async def test_finalize_turn_publishes_before_the_release_even_when_publishing_f
         )
     )
 
-    assert order == ["publish", "release"]
+    assert order == ["push", "release"]
     assert result is not None and result.terminal_done_emitted is True
 
 
