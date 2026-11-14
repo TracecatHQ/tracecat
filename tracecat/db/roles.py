@@ -386,9 +386,9 @@ def _verify(login: LoginMethod, roles: RoleNames) -> str:
         "                    AND (pg_catalog.to_jsonb(m) ->> 'inherit_option')::boolean IS FALSE\n"
         "                    AND (pg_catalog.to_jsonb(m) ->> 'set_option')::boolean IS FALSE\n"
         # USAGE, not MEMBER: MEMBER would count this very grant (via migrator).
-        # USAGE is the check Postgres itself makes for the owner's rights, so a
-        # role it says yes for (an Azure admin too) already holds them. Which
-        # identity a pre-created login role maps to is the admin's to check.
+        # USAGE calls has_privs_of_role, the function Postgres itself uses for
+        # the owner's rights, so a role it says yes for already holds them.
+        # Which identity a pre-created login role maps to is the admin's to check.
         "                    AND (u.rolname = session_user\n"
         f"                         OR pg_catalog.pg_has_role(u.oid, {quote_literal(roles.owner)}, 'USAGE'))\n"
         "           END\n"
