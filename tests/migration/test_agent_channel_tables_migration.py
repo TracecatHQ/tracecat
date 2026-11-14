@@ -25,9 +25,9 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.db.models import (
     AgentChannelBot,
-    AgentChannelThread,
     AgentPreset,
     AgentSession,
+    AgentSessionThread,
     Base,
     Organization,
     Workspace,
@@ -35,7 +35,7 @@ from tracecat.db.models import (
 
 MIGRATION_REVISION = "e20249352688"
 PREVIOUS_REVISION = "ec392d96f2b0"
-TABLES = {"agent_channel_bot", "agent_channel_thread"}
+TABLES = {"agent_channel_bot", "agent_session_thread"}
 _POSTGRESQL_ENUM_DIFFS = frozenset({"create_enum", "drop_enum", "change_enum_variants"})
 
 
@@ -121,10 +121,10 @@ def _links(engine: Engine, ws: uuid.UUID) -> set[tuple[uuid.UUID, uuid.UUID, str
     with Session(engine) as db:
         rows = db.execute(
             select(
-                AgentChannelThread.session_id,
-                AgentChannelThread.bot_id,
-                AgentChannelThread.thread_key,
-            ).where(AgentChannelThread.workspace_id == ws)
+                AgentSessionThread.session_id,
+                AgentSessionThread.bot_id,
+                AgentSessionThread.provider_thread_id["thread_ts"].astext,
+            ).where(AgentSessionThread.workspace_id == ws)
         )
         return set(rows.tuples())
 
@@ -164,8 +164,8 @@ def _rls_tables(engine: Engine) -> set[str]:
             text(
                 "SELECT c.relname FROM pg_class c JOIN pg_policies p"
                 " ON p.tablename = c.relname AND p.policyname = 'rls_policy_' || c.relname"
-                " WHERE c.relrowsecurity AND c.relname LIKE 'agent_channel_%'"
-                " AND c.relname <> 'agent_channel_token'"
+                " WHERE c.relrowsecurity"
+                " AND c.relname IN ('agent_channel_bot', 'agent_session_thread')"
                 # Both predicates scope to the workspace, not just a policy by that name.
                 " AND p.cmd = 'ALL'"
                 " AND p.qual LIKE '%workspace_id = %app.current_workspace_id%'"
@@ -180,7 +180,7 @@ def _channel_tables(engine: Engine) -> set[str]:
         rows = conn.execute(
             text(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-                " AND tablename IN ('agent_channel_bot', 'agent_channel_thread')"
+                " AND tablename IN ('agent_channel_bot', 'agent_session_thread')"
             )
         )
         return set(rows.scalars())
@@ -229,19 +229,18 @@ def _link(
     session_id: uuid.UUID,
     workspace_id: uuid.UUID,
     thread_ts: str = "1.1",
-) -> AgentChannelThread:
+) -> AgentSessionThread:
     thread = {
         "provider": "slack",
         "team_id": "T1",
         "channel_id": "C1",
         "thread_ts": thread_ts,
     }
-    return AgentChannelThread(
+    return AgentSessionThread(
         session_id=session_id,
         workspace_id=workspace_id,
         bot_id=bot_id,
-        thread=thread,
-        thread_key=f"slack:T1:C1:{thread_ts}",
+        provider_thread_id=thread,
     )
 
 
@@ -264,23 +263,23 @@ def test_links_stay_in_their_bots_and_sessions_workspace(
 
     def link(
         session_id: uuid.UUID, workspace_id: uuid.UUID = ws, thread_ts: str = "1.1"
-    ) -> AgentChannelThread:
+    ) -> AgentSessionThread:
         return _link(bot.id, session_id, workspace_id, thread_ts)
 
     with Session(engine) as db, db.begin():
         db.add(link(mine.id))
     rejected = [
         # One session per thread per bot.
-        (link(also_mine.id), "uq_agent_channel_thread_bot_id_thread_key"),
+        (link(also_mine.id), "uq_agent_session_thread_bot_id_provider_thread_id"),
         # A link names its bot's workspace, so RLS on the link means the bot's tenant.
         (
             link(foreign.id, other_ws, "1.2"),
-            "fk_agent_channel_thread_bot_id_workspace_id_agent_channel_bot",
+            "fk_agent_session_thread_bot_id_workspace_id_agent_channel_bot",
         ),
         # A link never names another workspace's session.
         (
             link(foreign.id, ws, "1.3"),
-            "fk_agent_channel_thread_session_id_workspace_id_agent_session",
+            "fk_agent_session_thread_session_id_workspace_id_agent_session",
         ),
     ]
     for row, constraint in rejected:
@@ -309,7 +308,7 @@ def test_a_link_can_be_inserted_before_its_session(db_url: str, engine: Engine) 
         # An immediate session key would refuse the link here.
         db.flush()
         db.add(session)
-    assert _links(engine, ws) == {(session.id, bot.id, "slack:T1:C1:1.1")}
+    assert _links(engine, ws) == {(session.id, bot.id, "1.1")}
 
 
 def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
