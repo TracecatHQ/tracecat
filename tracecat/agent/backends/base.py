@@ -493,9 +493,13 @@ class AgentBackend[InputT, OutputT](ABC):
             # Do this in the shared lifecycle so non-HTTP callers also release
             # rejected turns. Never clear a different turn's reservation.
             try:
-                released = await self._release_reservation(
-                    context.db, context, session_id
-                )
+                # A rejection proves only that this RPC did not start the run;
+                # a duplicate's re-issued start may have, so claim the ID first.
+                released = await self._claim_unstarted_turn(context.run_id, client)
+                if released:
+                    released = await self._release_reservation(
+                        context.db, context, session_id
+                    )
             except Exception:
                 # Cleanup itself may have an uncertain outcome. Keep the router
                 # from attempting a less restrictive second cleanup.
