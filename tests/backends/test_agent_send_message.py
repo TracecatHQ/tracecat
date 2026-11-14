@@ -76,7 +76,8 @@ class FakeTemporal:
     executions: dict[str, tuple[str, Status.ValueType]] = field(default_factory=dict)
     starts: list[str] = field(default_factory=list)
     # lost: never reaches Temporal. ack_lost: starts, but the answer is lost.
-    fault: Literal["lost", "ack_lost"] | None = None
+    # rejected: refused before the ID is checked, as an auth failure is.
+    fault: Literal["lost", "ack_lost", "rejected"] | None = None
     # Runs as a start arrives, before Temporal handles it.
     on_start: Callable[[StartWorkflowExecutionRequest], Awaitable[None]] | None = None
 
@@ -89,6 +90,8 @@ class FakeTemporal:
                 fault, self.fault = self.fault, None
                 if fault == "lost":
                     raise unavailable()
+                if fault == "rejected":
+                    raise RPCError("denied", RPCStatusCode.UNAUTHENTICATED, b"")
                 if req.workflow_id in self.executions:
                     raise already_started()
                 self.executions[req.workflow_id] = (
@@ -448,6 +451,81 @@ async def test_a_lost_commit_ack_with_no_duplicate_tombstones_and_releases(
     replacement = message_run_id(session_id, "slack:Ev1", 1)
     assert retried == RunStarted(run_id=replacement)
     assert fake.executions[f"agent/{lost}"] == (
+        TOMBSTONE_WORKFLOW,
+        Status.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+    )
+    assert fake.agent_runs() == [f"agent/{replacement}"]
+
+
+async def test_a_rejected_start_keeps_the_reservation_a_duplicate_reissued(
+    connection: AsyncConnection,
+) -> None:
+    """Duplicate B re-issues and starts the run while A's start is in flight;
+    Temporal then refuses A's start, whose cleanup must not release B's turn."""
+    fake = FakeTemporal()
+    duplicate: list[RunStarted] = []
+    async with (
+        AsyncSession(connection, expire_on_commit=False) as db,
+        AsyncSession(connection, expire_on_commit=False) as other_db,
+    ):
+        context = await make_context(db)
+        session_id = context.session.id
+        own = message_run_id(session_id, "slack:Ev1", 0)
+        with temporal(fake):
+            async with (
+                channel_service(db, context) as service,
+                channel_service(other_db, context) as other_service,
+            ):
+
+                async def duplicate_reissues(
+                    _req: StartWorkflowExecutionRequest,
+                ) -> None:
+                    fake.on_start = None
+                    duplicate.append(
+                        await other_service.start_message(**message(session_id))
+                    )
+                    fake.fault = "rejected"
+
+                fake.on_start = duplicate_reissues
+                with pytest.raises(SessionDispatchUncertain):
+                    await service.start_message(**message(session_id))
+                await assert_reserved_by(connection, session_id, own)
+                following = await other_service.send_message(
+                    **message(session_id, "slack:Ev2")
+                )
+
+    assert duplicate == [RunStarted(run_id=own)]
+    assert following == RunBusy(run_id=own)
+    assert fake.agent_runs() == [f"agent/{own}"]
+
+
+async def test_a_rejected_start_with_no_duplicate_tombstones_and_releases(
+    connection: AsyncConnection,
+) -> None:
+    fake = FakeTemporal(fault="rejected")
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        rejected = message_run_id(session_id, "slack:Ev1", 0)
+        with (
+            temporal(fake),
+            patch(
+                "tracecat.agent.backends.base._publish_run_finished",
+                new_callable=AsyncMock,
+            ) as run_finished,
+        ):
+            async with channel_service(db, context) as service:
+                with pytest.raises(RuntimeError, match="start was rejected"):
+                    await service.start_message(**message(session_id))
+                await assert_reserved_by(connection, session_id, None)
+                retried = await service.send_message(**message(session_id))
+
+    run_finished.assert_awaited_once()
+    assert run_finished.await_args is not None
+    assert run_finished.await_args.args[1] == rejected
+    replacement = message_run_id(session_id, "slack:Ev1", 1)
+    assert retried == RunStarted(run_id=replacement)
+    assert fake.executions[f"agent/{rejected}"] == (
         TOMBSTONE_WORKFLOW,
         Status.WORKFLOW_EXECUTION_STATUS_TERMINATED,
     )
