@@ -498,6 +498,69 @@ async def test_load_session_history_keeps_meta_prompt_between_assistant_messages
 
 
 @pytest.mark.anyio
+async def test_load_session_history_hides_continuation_under_unanswered_meta() -> None:
+    """A mis-kinded continuation prompt under a dropped meta row stays hidden."""
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    service.get_session = AsyncMock(
+        return_value=SimpleNamespace(
+            id=session_id,
+            forked_from_session_id=None,
+            forked_from_sdk_session_id=None,
+            sdk_session_id="sdk-session-123",
+        )
+    )
+    entries = [
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "prompt-uuid",
+                "message": {"role": "user", "content": "Summarize the case."},
+            },
+        ),
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "assistant",
+                "uuid": "partial-uuid",
+                "parentUuid": "prompt-uuid",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "Partial answer."}],
+                },
+            },
+        ),
+        _history_row(
+            MessageKind.INTERNAL,
+            {
+                "type": "user",
+                "uuid": "meta-uuid",
+                "isMeta": True,
+                "parentUuid": "partial-uuid",
+                "message": {"role": "user", "content": "Resume where it stopped."},
+            },
+        ),
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "continue-uuid",
+                "parentUuid": "meta-uuid",
+                "message": {"role": "user", "content": APPROVAL_CONTINUATION_PROMPT},
+            },
+        ),
+    ]
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result(entries))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    assert [line["uuid"] for line in lines] == ["prompt-uuid", "partial-uuid"]
+
+
+@pytest.mark.anyio
 async def test_list_messages_skips_misclassified_continuation_artifacts() -> None:
     service, agent_session = _build_service()
     session_id = agent_session.id

@@ -48,6 +48,8 @@ from tracecat.agent.sandbox.shim_entrypoint import (
 )
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 
+pytestmark = pytest.mark.integration
+
 _TOOL_NAME = "mcp__counter__count"
 _DEAD_TEXT = "Text from the dead stream. "
 _INTRO_TEXT = "Counting now. "

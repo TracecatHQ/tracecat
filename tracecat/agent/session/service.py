@@ -1415,14 +1415,18 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.CANCELLED.value:
                 continue
 
+            # A held meta prompt that no assistant row answers is dropped before
+            # the continuation filter, so rows descending from it stay hidden.
+            if held_meta is not None and content.get("type") != "assistant":
+                if (held_uuid := session_line_uuid(held_meta.content)) is not None:
+                    dropped_uuids.add(held_uuid)
+                held_meta = None
+
             if mark_hidden_continuation(content, dropped_uuids, internal_row=False):
                 continue
 
             if held_meta is not None:
-                if content.get("type") == "assistant":
-                    append_line(held_meta.content, held_meta.raw_line)
-                elif (held_uuid := session_line_uuid(held_meta.content)) is not None:
-                    dropped_uuids.add(held_uuid)
+                append_line(held_meta.content, held_meta.raw_line)
                 held_meta = None
 
             append_line(content, history_content.raw_line)
