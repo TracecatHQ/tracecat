@@ -200,6 +200,15 @@ class ChannelBotPlatformApp(BaseModel):
     provider: ChannelBotProvider
 
 
+class ChannelBotPlatformAppSetup(BaseModel):
+    """What a platform admin pastes into the deployment's own provider app."""
+
+    transport: ChannelBotTransport
+    oauth_redirect_url: str
+    # Events and interactions share it; None over Socket Mode.
+    request_url: str | None
+
+
 class ChannelBotPlatformInstall(BaseModel):
     """Install the platform app, which the deployment registers, over OAuth; or reconnect."""
 

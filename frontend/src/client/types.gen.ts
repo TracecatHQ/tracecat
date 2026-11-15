@@ -3569,6 +3569,15 @@ export type ChannelBotPlatformApp = {
 }
 
 /**
+ * What a platform admin pastes into the deployment's own provider app.
+ */
+export type ChannelBotPlatformAppSetup = {
+  transport: ChannelBotTransport
+  oauth_redirect_url: string
+  request_url: string | null
+}
+
+/**
  * Install the platform app, which the deployment registers, over OAuth; or reconnect.
  */
 export type ChannelBotPlatformInstall = {
@@ -11264,6 +11273,34 @@ export type SlackOAuthStartResponse = {
 }
 
 /**
+ * The registration without its secrets, and what to paste into Slack.
+ */
+export type SlackPlatformAppRead = {
+  app_id: string | null
+  client_id: string | null
+  client_secret_set: boolean
+  signing_secret_set: boolean
+  app_token_set: boolean
+  unreadable: boolean
+  setup: ChannelBotPlatformAppSetup
+}
+
+/**
+ * Register or change the app. An omitted secret keeps its stored value while the
+ * app ID stays the same.
+ */
+export type SlackPlatformAppUpdate = {
+  app_id: string
+  client_id: string
+  client_secret?: string | null
+  signing_secret?: string | null
+  /**
+   * App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.
+   */
+  app_token?: string | null
+}
+
+/**
  * A document source part of a message.
  */
 export type SourceDocumentUIPart = {
@@ -17732,6 +17769,16 @@ export type AdminRegistryDeleteRegistryVersionData = {
 }
 
 export type AdminRegistryDeleteRegistryVersionResponse = void
+
+export type AdminSlackAppGetSlackAppResponse = SlackPlatformAppRead
+
+export type AdminSlackAppSaveSlackAppData = {
+  requestBody: SlackPlatformAppUpdate
+}
+
+export type AdminSlackAppSaveSlackAppResponse = SlackPlatformAppRead
+
+export type AdminSlackAppDeleteSlackAppResponse = void
 
 export type InboxGetPendingCountData = {
   workspaceId: string
@@ -25784,6 +25831,37 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/slack-app": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+      }
+    }
+    put: {
+      req: AdminSlackAppSaveSlackAppData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
       }
     }
   }

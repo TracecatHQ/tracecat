@@ -127,6 +127,10 @@ import type {
   AdminSaveReferenceMatchesResponse,
   AdminSetSourceData,
   AdminSetSourceResponse,
+  AdminSlackAppDeleteSlackAppResponse,
+  AdminSlackAppGetSlackAppResponse,
+  AdminSlackAppSaveSlackAppData,
+  AdminSlackAppSaveSlackAppResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminTestAuditWebhookData,
@@ -11127,6 +11131,56 @@ export const adminRegistryDeleteRegistryVersion = (
     },
   })
 }
+
+/**
+ * Get Slack App
+ * The registration without its secrets, and what to paste into Slack.
+ * @returns SlackPlatformAppRead Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppGetSlackApp =
+  (): CancelablePromise<AdminSlackAppGetSlackAppResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/slack-app",
+    })
+  }
+
+/**
+ * Save Slack App
+ * Register or change the app every organization installs.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SlackPlatformAppRead Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppSaveSlackApp = (
+  data: AdminSlackAppSaveSlackAppData
+): CancelablePromise<AdminSlackAppSaveSlackAppResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/slack-app",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Slack App
+ * Unregister the app; its installs stop serving until it is registered again.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppDeleteSlackApp =
+  (): CancelablePromise<AdminSlackAppDeleteSlackAppResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/admin/slack-app",
+    })
+  }
 
 /**
  * Get Pending Count

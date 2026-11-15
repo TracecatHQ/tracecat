@@ -13168,6 +13168,34 @@ export const $ChannelBotPlatformApp = {
     "A provider app the deployment owns, which a workspace installs in one step.",
 } as const
 
+export const $ChannelBotPlatformAppSetup = {
+  properties: {
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+    request_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Url",
+    },
+  },
+  type: "object",
+  required: ["transport", "oauth_redirect_url", "request_url"],
+  title: "ChannelBotPlatformAppSetup",
+  description:
+    "What a platform admin pastes into the deployment's own provider app.",
+} as const
+
 export const $ChannelBotPlatformInstall = {
   properties: {
     provider: {
@@ -36929,6 +36957,124 @@ export const $SlackOAuthStartResponse = {
   required: ["authorization_url", "token"],
   title: "SlackOAuthStartResponse",
   description: "Response schema for Slack OAuth start.",
+} as const
+
+export const $SlackPlatformAppRead = {
+  properties: {
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret_set: {
+      type: "boolean",
+      title: "Client Secret Set",
+    },
+    signing_secret_set: {
+      type: "boolean",
+      title: "Signing Secret Set",
+    },
+    app_token_set: {
+      type: "boolean",
+      title: "App Token Set",
+    },
+    unreadable: {
+      type: "boolean",
+      title: "Unreadable",
+    },
+    setup: {
+      $ref: "#/components/schemas/ChannelBotPlatformAppSetup",
+    },
+  },
+  type: "object",
+  required: [
+    "app_id",
+    "client_id",
+    "client_secret_set",
+    "signing_secret_set",
+    "app_token_set",
+    "unreadable",
+    "setup",
+  ],
+  title: "SlackPlatformAppRead",
+  description:
+    "The registration without its secrets, and what to paste into Slack.",
+} as const
+
+export const $SlackPlatformAppUpdate = {
+  properties: {
+    app_id: {
+      type: "string",
+      minLength: 1,
+      title: "App Id",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["app_id", "client_id"],
+  title: "SlackPlatformAppUpdate",
+  description: `Register or change the app. An omitted secret keeps its stored value while the
+app ID stays the same.`,
 } as const
 
 export const $SourceDocumentUIPart = {

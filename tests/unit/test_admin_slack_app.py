@@ -1,0 +1,294 @@
+from __future__ import annotations
+
+import uuid
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tracecat.admin.slack_app import router as router_module
+from tracecat.agent.channel_bots import platform_app
+from tracecat.agent.channel_bots.platform_app import (
+    SLACK_PLATFORM_APP_KEY,
+    SlackPlatformApp,
+    read_slack_platform_app,
+    slack_platform_app,
+)
+from tracecat.agent.channel_bots.schemas import (
+    ChannelBotPlatformAppSetup,
+    ChannelBotProvider,
+    ChannelBotTransport,
+)
+from tracecat.audit.service import AuditService
+from tracecat.auth.credentials import _require_superuser, _require_superuser_step_up
+from tracecat.auth.types import PlatformRole
+from tracecat.auth.users import current_active_user
+from tracecat.db.engine import get_async_session_bypass_rls
+from tracecat.db.models import PlatformSetting, User
+
+pytestmark = pytest.mark.usefixtures("db")
+
+HTTP_SETUP = ChannelBotPlatformAppSetup(
+    transport=ChannelBotTransport.HTTP,
+    oauth_redirect_url="https://api.example.com/agent/channel-bots/slack/oauth/callback",
+    request_url="https://api.example.com/platform-events",
+)
+SOCKET_SETUP = HTTP_SETUP.model_copy(
+    update={"transport": ChannelBotTransport.SOCKET, "request_url": None}
+)
+SECRETS = {
+    "client_secret": "synthetic-client-secret",
+    "signing_secret": "synthetic-signing-secret",
+    "app_token": "xapp-synthetic-app-token",
+}
+FULL = {"app_id": "A0SYNTHETIC", "client_id": "111.222", **SECRETS}
+
+
+class ChannelBotAdmin:
+    """The installed extension, as the admin routes ask it for the deployment's setup."""
+
+    def __init__(self) -> None:
+        self.setup = HTTP_SETUP
+        self.asked: list[ChannelBotProvider] = []
+
+    def platform_app_setup(
+        self, provider: ChannelBotProvider
+    ) -> ChannelBotPlatformAppSetup:
+        self.asked.append(provider)
+        return self.setup
+
+
+@pytest.fixture
+def channel_bot_admin(monkeypatch: pytest.MonkeyPatch) -> ChannelBotAdmin:
+    admin = ChannelBotAdmin()
+    monkeypatch.setattr(router_module, "get_channel_bot_admin", lambda: admin)
+    return admin
+
+
+@pytest.fixture
+def audit_events(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+    return create_event
+
+
+@pytest.fixture(autouse=True)
+def requests_read_the_test_session(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> Iterator[None]:
+    @asynccontextmanager
+    async def bypass_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        platform_app, "get_async_session_bypass_rls_context_manager", bypass_session
+    )
+    slack_platform_app.cache_clear()
+    yield
+    slack_platform_app.cache_clear()
+
+
+def make_app(session: AsyncSession, *, superuser: bool) -> FastAPI:
+    app = FastAPI()
+    app.include_router(router_module.router, prefix="/admin")
+    user = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        hashed_password="synthetic",
+        is_active=True,
+        is_verified=True,
+        is_superuser=superuser,
+    )
+
+    async def test_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    app.dependency_overrides[current_active_user] = lambda: user
+    app.dependency_overrides[get_async_session_bypass_rls] = test_session
+    if superuser:
+        role = PlatformRole(type="user", user_id=user.id, service_id="tracecat-api")
+        # Past the IP allowlist and the security key step-up, which have their own tests.
+        app.dependency_overrides[_require_superuser] = lambda: role
+        app.dependency_overrides[_require_superuser_step_up] = lambda: role
+    return app
+
+
+@asynccontextmanager
+async def client(
+    session: AsyncSession, *, superuser: bool = True
+) -> AsyncIterator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=make_app(session, superuser=superuser))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://synthetic"
+    ) as http:
+        yield http
+
+
+async def stored_row(session: AsyncSession) -> PlatformSetting | None:
+    return await session.scalar(
+        select(PlatformSetting).where(PlatformSetting.key == SLACK_PLATFORM_APP_KEY)
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "body"),
+    [("GET", None), ("PUT", FULL), ("DELETE", None)],
+)
+async def test_a_non_superuser_is_refused_on_every_route(
+    session: AsyncSession,
+    channel_bot_admin: ChannelBotAdmin,
+    audit_events: AsyncMock,
+    method: str,
+    body: dict[str, str] | None,
+) -> None:
+    async with client(session, superuser=False) as http:
+        response = await http.request(method, "/admin/slack-app", json=body)
+
+    assert response.status_code == 403
+    assert channel_bot_admin.asked == []
+    assert await stored_row(session) is None
+
+
+@pytest.mark.anyio
+async def test_a_saved_app_is_stored_encrypted_and_never_returns_its_secrets(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    async with client(session) as http:
+        saved = await http.put("/admin/slack-app", json=FULL)
+        read = await http.get("/admin/slack-app")
+
+    assert saved.status_code == read.status_code == 200
+    for response in (saved, read):
+        assert not any(secret in response.text for secret in SECRETS.values())
+    assert read.json() == {
+        "app_id": "A0SYNTHETIC",
+        "client_id": "111.222",
+        "client_secret_set": True,
+        "signing_secret_set": True,
+        "app_token_set": True,
+        "unreadable": False,
+        "setup": HTTP_SETUP.model_dump(mode="json"),
+    }
+    row = await stored_row(session)
+    assert row is not None and row.is_encrypted
+    assert not any(secret.encode() in row.value for secret in SECRETS.values())
+    assert await read_slack_platform_app(session) == SlackPlatformApp(**FULL)
+    assert [c.kwargs["action"] for c in audit_events.await_args_list] == [
+        "update",
+        "update",
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("dropped", "status", "named"),
+    [
+        ("client_secret", 400, "client secret"),
+        ("signing_secret", 400, "signing secret"),
+        ("app_id", 422, "app_id"),
+        ("client_id", 422, "client_id"),
+    ],
+)
+async def test_a_partial_registration_is_refused(
+    session: AsyncSession,
+    channel_bot_admin: ChannelBotAdmin,
+    audit_events: AsyncMock,
+    dropped: str,
+    status: int,
+    named: str,
+) -> None:
+    body = {k: v for k, v in FULL.items() if k != dropped}
+
+    async with client(session) as http:
+        response = await http.put("/admin/slack-app", json=body)
+
+    assert response.status_code == status
+    assert named in response.text
+    assert await stored_row(session) is None
+
+
+@pytest.mark.anyio
+async def test_socket_mode_needs_the_app_token(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    channel_bot_admin.setup = SOCKET_SETUP
+    without_token = {k: v for k, v in FULL.items() if k != "app_token"}
+
+    async with client(session) as http:
+        refused = await http.put("/admin/slack-app", json=without_token)
+        saved = await http.put("/admin/slack-app", json=FULL)
+
+    assert refused.status_code == 400
+    assert "app-level token" in refused.json()["detail"]
+    assert saved.status_code == 200
+    assert saved.json()["app_token_set"] is True
+    assert saved.json()["setup"]["request_url"] is None
+
+
+@pytest.mark.anyio
+async def test_an_omitted_secret_keeps_its_stored_value_only_for_the_same_app(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    async with client(session) as http:
+        await http.put("/admin/slack-app", json=FULL)
+        renamed = await http.put(
+            "/admin/slack-app", json={"app_id": "A0SYNTHETIC", "client_id": "333.444"}
+        )
+        other_app = await http.put(
+            "/admin/slack-app", json={"app_id": "A0OTHER", "client_id": "333.444"}
+        )
+
+    assert renamed.status_code == 200
+    assert other_app.status_code == 400
+    assert await read_slack_platform_app(session) == SlackPlatformApp(
+        **{**FULL, "client_id": "333.444"}
+    )
+
+
+@pytest.mark.anyio
+async def test_removing_the_app_unregisters_it_for_the_next_request(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    async with client(session) as http:
+        await http.put("/admin/slack-app", json=FULL)
+        assert await slack_platform_app() == SlackPlatformApp(**FULL)
+        removed = await http.delete("/admin/slack-app")
+        read = await http.get("/admin/slack-app")
+
+    assert removed.status_code == 204
+    assert await slack_platform_app() is None
+    assert read.json()["app_id"] is None
+    assert read.json()["client_secret_set"] is False
+    assert await stored_row(session) is None
+    assert audit_events.await_args_list[-1].kwargs["action"] == "delete"
+
+
+@pytest.mark.anyio
+async def test_a_registration_that_no_longer_decrypts_reads_as_unreadable(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    session.add(
+        PlatformSetting(
+            key=SLACK_PLATFORM_APP_KEY,
+            value=b"not-a-ciphertext",
+            value_type="json",
+            is_encrypted=True,
+        )
+    )
+    await session.commit()
+
+    async with client(session) as http:
+        read = await http.get("/admin/slack-app")
+        saved = await http.put("/admin/slack-app", json=FULL)
+
+    assert read.json()["unreadable"] is True
+    assert read.json()["app_id"] is None
+    assert await slack_platform_app() is not None
+    assert saved.status_code == 200
+    assert saved.json()["unreadable"] is False

@@ -47,6 +47,7 @@ from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.build_info.router import router as admin_build_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
+from tracecat.admin.slack_app.router import router as admin_slack_app_router
 from tracecat.agent.access.router import router as agent_model_access_router
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
@@ -815,6 +816,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(admin_build_router, prefix="/admin")
     app.include_router(admin_maintenance_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
+    app.include_router(admin_slack_app_router, prefix="/admin")
     _include_workspace_scoped_router(app, inbox_router)
     _include_workspace_scoped_router(app, editor_router)
     app.include_router(registry_repos_router)

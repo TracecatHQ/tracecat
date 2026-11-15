@@ -20,6 +20,7 @@ from tracecat.agent.channel_bots.schemas import (
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
     ChannelBotPlatformApp,
+    ChannelBotPlatformAppSetup,
     ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
@@ -77,6 +78,12 @@ class ChannelBotAdmin(Protocol):
         self, session: AsyncSession, role: Role
     ) -> list[ChannelBotPlatformApp]:
         """The deployment's own provider apps; empty when it registers none."""
+        ...
+
+    def platform_app_setup(
+        self, provider: ChannelBotProvider
+    ) -> ChannelBotPlatformAppSetup:
+        """How the deployment's own app for `provider` reaches it."""
         ...
 
     async def install_platform(

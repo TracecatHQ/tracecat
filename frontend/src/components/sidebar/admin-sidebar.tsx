@@ -10,6 +10,7 @@ import {
   MousePointerClickIcon,
   PackageIcon,
   ShieldCheckIcon,
+  SlackIcon,
   UsersIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -66,6 +67,12 @@ export function AdminSidebar({
       url: "/admin/agent",
       icon: MousePointerClickIcon,
       isActive: pathname?.includes("/admin/agent"),
+    },
+    {
+      title: "Slack",
+      url: "/admin/slack",
+      icon: SlackIcon,
+      isActive: pathname?.includes("/admin/slack"),
     },
     {
       title: "Managed Workspaces",
