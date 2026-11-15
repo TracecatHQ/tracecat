@@ -26,7 +26,7 @@ export function CopyField({
       .join(" ") || undefined
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+      <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2 focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring">
         <div className="flex min-w-0 flex-1 flex-col">
           <Label
             htmlFor={id}
