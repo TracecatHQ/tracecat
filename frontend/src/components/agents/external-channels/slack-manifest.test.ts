@@ -100,4 +100,24 @@ describe("buildSlackManifest", () => {
     )
     expect(manifest.oauth_config.scopes.bot).toContain("assistant:write")
   })
+
+  it("requests only the scopes a channel bot uses", () => {
+    const manifest = buildSlackManifest({
+      endpointUrl: null,
+      oauthRedirectUrl: REDIRECT,
+      appName: "Triage",
+    }) as { oauth_config: { scopes: { bot: string[] } } }
+    expect(manifest.oauth_config.scopes.bot).toEqual([
+      "app_mentions:read",
+      "assistant:write",
+      "channels:history",
+      "chat:write",
+      "chat:write.customize",
+      "groups:history",
+      "im:history",
+      "mpim:history",
+      "users:read",
+      "users:read.email",
+    ])
+  })
 })

@@ -57,8 +57,8 @@ export function buildSlackManifest({
           "groups:history",
           "im:history",
           "mpim:history",
-          "reactions:read",
-          "reactions:write",
+          // Only the legacy token path reacts to messages.
+          ...(legacy ? ["reactions:read", "reactions:write"] : []),
           "users:read",
           "users:read.email",
         ],
