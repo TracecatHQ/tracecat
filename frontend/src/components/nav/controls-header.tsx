@@ -2507,6 +2507,7 @@ function getPageConfig(
             currentPage="Channels"
           />
         ),
+        actions: <AgentsActions />,
       }
     }
 
