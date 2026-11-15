@@ -440,6 +440,9 @@ describe("Creating the custom Slack app", () => {
     serveBots([slackBot()])
     renderPanel()
     expect(await screen.findByText(/with the bot's name/)).toBeInTheDocument()
+    expect(
+      screen.getByText("/invite", { selector: "code" })
+    ).toBeInTheDocument()
   })
 })
 
