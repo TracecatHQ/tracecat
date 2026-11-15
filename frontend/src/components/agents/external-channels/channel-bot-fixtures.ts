@@ -1,13 +1,18 @@
 import {
   type AgentChannelBotRead,
   type AgentPresetRead,
+  type AgentPresetReadMinimal,
   agentChannelBotsCreateBot,
+  agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
+  agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
+  agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
+  agentPresetsListAgentPresets,
   type ChannelBotDetails,
   type OrganizationGetOrganizationEntitlementsResponse,
   type OrganizationGetOrganizationResponse,
@@ -25,10 +30,19 @@ export const api = {
   disconnectBot: jest.mocked(agentChannelBotsDisconnectBot),
   listPlatformApps: jest.mocked(agentChannelBotsListPlatformApps),
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
+  listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
+  setRoute: jest.mocked(agentChannelBotsSetBotRoute),
+  deleteRoute: jest.mocked(agentChannelBotsDeleteBotRoute),
+  listPresets: jest.mocked(agentPresetsListAgentPresets),
 }
 
 export const WORKSPACE_ID = "workspace-1"
 export const PRESET = { id: "preset-1", name: "Triage" } as AgentPresetRead
+// The workspace's agents, as the agent pickers list them.
+export const AGENTS = [
+  { id: PRESET.id, name: PRESET.name },
+  { id: "preset-2", name: "Phishing" },
+] as AgentPresetReadMinimal[]
 export const SLACK_ENDPOINT = "https://api.example.com/agent/channels/slack/abc"
 export const SLACK_REDIRECT =
   "https://api.example.com/agent/channel-bots/slack/oauth/callback"
@@ -115,6 +129,8 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
       )
   )
   api.listPlatformApps.mockResolvedValue([])
+  api.listRoutes.mockResolvedValue([])
+  api.listPresets.mockResolvedValue(AGENTS)
 }
 
 /** An install of the platform app for Slack, by default for `PRESET`. */

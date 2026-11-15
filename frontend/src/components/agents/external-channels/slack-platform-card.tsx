@@ -10,6 +10,7 @@ import {
   goToChannelBotAuthorization,
   pickChannelBot,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { PlatformChannelRoutes } from "@/components/agents/external-channels/platform-channel-routes"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
@@ -141,6 +142,13 @@ export function SlackPlatformCard({
             disconnectDescription="Tracecat stops answering in this Slack workspace until you add it again, and another Tracecat workspace can then add it there."
           />
         </div>
+      ) : null}
+      {install && installed ? (
+        <PlatformChannelRoutes
+          workspaceId={workspaceId}
+          install={install}
+          canUpdate={canUpdateAgent}
+        />
       ) : null}
     </div>
   )

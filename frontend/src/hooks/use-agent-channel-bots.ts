@@ -3,12 +3,17 @@ import {
   type AgentChannelBotCreate,
   type AgentChannelBotRead,
   type AgentChannelBotUpdate,
+  type AgentChannelRouteRead,
+  type AgentChannelRouteSet,
   agentChannelBotsCreateBot,
+  agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
+  agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
+  agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   type ChannelBotInstall,
   type ChannelBotInstallResult,
@@ -145,6 +150,21 @@ export function usePlatformChannelBots(
   return { installs }
 }
 
+/** Which agent answers new threads in each channel of a platform install. */
+export function useChannelBotRoutes(workspaceId: string, botId: string) {
+  const { data: routes } = useQuery<
+    Array<AgentChannelRouteRead>,
+    TracecatApiError
+  >({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes"],
+    queryFn: async () =>
+      await agentChannelBotsListBotRoutes({ workspaceId, botId }),
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { routes }
+}
+
 /** Whether any channel bot mutation in the workspace is still running. */
 export function useChannelBotsBusy(workspaceId: string): boolean {
   return (
@@ -232,7 +252,7 @@ export function useInstallAgentChannelBot(
   return { installBot, installBotIsPending }
 }
 
-/** Installs the deployment's app, or reconnects an install of it. */
+/** Installs the platform app, or reconnects an install of it. */
 export function useInstallPlatformChannelBot(
   workspaceId: string,
   provider: ChannelBotProvider
@@ -283,4 +303,50 @@ export function useDisconnectAgentChannelBot(
     "disconnect"
   )
   return { disconnectBot }
+}
+
+/** Routes a channel's new threads to an agent, adding or replacing its route. */
+export function useSetChannelBotRoute(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: setRoute } = useChannelBotMutation(
+    workspaceId,
+    provider,
+    async ({
+      botId,
+      requestBody,
+    }: {
+      botId: string
+      requestBody: AgentChannelRouteSet
+    }) =>
+      await agentChannelBotsSetBotRoute({ workspaceId, botId, requestBody }),
+    "route a channel for"
+  )
+  return { setRoute }
+}
+
+/** Sends a channel's new threads back to the install's default agent. */
+export function useDeleteChannelBotRoute(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: deleteRoute } = useChannelBotMutation(
+    workspaceId,
+    provider,
+    async ({
+      botId,
+      providerChannelId,
+    }: {
+      botId: string
+      providerChannelId: string
+    }) =>
+      await agentChannelBotsDeleteBotRoute({
+        workspaceId,
+        botId,
+        providerChannelId,
+      }),
+    "remove a channel route from"
+  )
+  return { deleteRoute }
 }
