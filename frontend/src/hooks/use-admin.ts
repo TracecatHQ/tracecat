@@ -1088,6 +1088,26 @@ export function useAdminSlackApp() {
     retry: false,
   })
 
+  const {
+    mutateAsync: removeSlackApp,
+    isPending: removeSlackAppIsPending,
+    error: removeSlackAppError,
+    reset: resetRemoveSlackApp,
+  } = useMutation<void, TracecatApiError, void>({
+    mutationFn: async () => await adminSlackAppDeleteSlackApp(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ADMIN_SLACK_APP_QUERY_KEY })
+      toast({ title: "Slack app removed" })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to remove the Slack app",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
   const { mutateAsync: saveSlackApp, isPending: saveSlackAppIsPending } =
     useMutation<SlackPlatformAppRead, TracecatApiError, SlackPlatformAppUpdate>(
       {
@@ -1095,6 +1115,7 @@ export function useAdminSlackApp() {
           await adminSlackAppSaveSlackApp({ requestBody }),
         onSuccess: (saved) => {
           queryClient.setQueryData(ADMIN_SLACK_APP_QUERY_KEY, saved)
+          resetRemoveSlackApp()
           toast({ title: "Slack app saved" })
         },
         onError: (error) => {
@@ -1123,25 +1144,6 @@ export function useAdminSlackApp() {
     onError: (error) => {
       toast({
         title: "Failed to update the setup step",
-        description: getApiErrorDetail(error) ?? "Please try again.",
-        variant: "destructive",
-      })
-    },
-  })
-
-  const {
-    mutateAsync: removeSlackApp,
-    isPending: removeSlackAppIsPending,
-    error: removeSlackAppError,
-  } = useMutation<void, TracecatApiError, void>({
-    mutationFn: async () => await adminSlackAppDeleteSlackApp(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ADMIN_SLACK_APP_QUERY_KEY })
-      toast({ title: "Slack app removed" })
-    },
-    onError: (error) => {
-      toast({
-        title: "Failed to remove the Slack app",
         description: getApiErrorDetail(error) ?? "Please try again.",
         variant: "destructive",
       })

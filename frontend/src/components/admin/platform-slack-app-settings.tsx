@@ -65,7 +65,8 @@ export function PlatformSlackAppSettings() {
   if (slackAppIsLoading) {
     return <div className="text-muted-foreground">Loading...</div>
   }
-  if (slackAppError || !slackApp) {
+  // A failed refetch keeps the loaded app, so typed credentials survive it.
+  if (!slackApp) {
     return (
       <p className="text-sm text-muted-foreground">
         {getApiErrorDetail(slackAppError) ?? "Failed to load the Slack app."}
