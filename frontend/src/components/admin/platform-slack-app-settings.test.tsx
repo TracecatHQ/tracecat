@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import {
   adminSlackAppDeleteSlackApp,
   adminSlackAppGetSlackApp,
+  adminSlackAppMarkSlackAppSetupSteps,
   adminSlackAppSaveSlackApp,
   type SlackPlatformAppRead,
 } from "@/client"
@@ -21,6 +22,7 @@ jest.mock("@/lib/utils", () => ({
 const api = {
   get: jest.mocked(adminSlackAppGetSlackApp),
   save: jest.mocked(adminSlackAppSaveSlackApp),
+  mark: jest.mocked(adminSlackAppMarkSlackAppSetupSteps),
   remove: jest.mocked(adminSlackAppDeleteSlackApp),
 }
 const REQUEST_URL = "https://api.example.com/platform-events"
@@ -34,6 +36,8 @@ function slackApp(
     client_secret_set: false,
     signing_secret_set: false,
     app_token_set: false,
+    icon_uploaded: false,
+    distribution_enabled: false,
     unreadable: false,
     setup: {
       transport: "http",
@@ -52,7 +56,7 @@ const SAVED = slackApp({
   signing_secret_set: true,
 })
 
-function renderSettings(): void {
+function renderSettings(): () => void {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -63,7 +67,7 @@ function renderSettings(): void {
       </QueryClientProvider>
     )
   }
-  render(<PlatformSlackAppSettings />, { wrapper: Wrapper })
+  return render(<PlatformSlackAppSettings />, { wrapper: Wrapper }).unmount
 }
 
 beforeEach(() => {
@@ -191,8 +195,15 @@ describe("PlatformSlackAppSettings", () => {
     expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument()
   })
 
-  it("collapses the Slack-only steps once both are ticked off", async () => {
+  it("saves each Slack-only step marked done and collapses once both are", async () => {
     api.get.mockResolvedValue(SAVED)
+    api.mark
+      .mockResolvedValueOnce({ ...SAVED, icon_uploaded: true })
+      .mockResolvedValueOnce({
+        ...SAVED,
+        icon_uploaded: true,
+        distribution_enabled: true,
+      })
     renderSettings()
 
     const icon = await screen.findByRole("group", {
@@ -201,17 +212,57 @@ describe("PlatformSlackAppSettings", () => {
     await userEvent.click(
       within(icon).getByRole("button", { name: "Mark done" })
     )
+    expect(api.mark).toHaveBeenLastCalledWith({
+      requestBody: { icon_uploaded: true },
+    })
+    expect(
+      await within(icon).findByRole("button", { name: "Done" })
+    ).toHaveAttribute("aria-pressed", "true")
     const distribution = screen.getByRole("group", {
       name: "Turn on public distribution",
     })
     await userEvent.click(
       within(distribution).getByRole("button", { name: "Mark done" })
     )
+    expect(api.mark).toHaveBeenLastCalledWith({
+      requestBody: { distribution_enabled: true },
+    })
 
-    expect(screen.getByText("Public distribution on")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Public distribution on")
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("group", { name: "Turn on public distribution" })
     ).toBeNull()
+  })
+
+  it("shows a step marked done from the server after a remount", async () => {
+    api.get.mockResolvedValue(SAVED)
+    api.mark.mockResolvedValue({ ...SAVED, icon_uploaded: true })
+    const unmount = renderSettings()
+    const icon = await screen.findByRole("group", {
+      name: "Upload the Tracecat icon",
+    })
+    await userEvent.click(
+      within(icon).getByRole("button", { name: "Mark done" })
+    )
+    await waitFor(() => expect(api.mark).toHaveBeenCalledTimes(1))
+    unmount()
+
+    api.get.mockResolvedValue({ ...SAVED, icon_uploaded: true })
+    renderSettings()
+
+    const remounted = await screen.findByRole("group", {
+      name: "Upload the Tracecat icon",
+    })
+    expect(
+      within(remounted).getByRole("button", { name: "Done" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      within(
+        screen.getByRole("group", { name: "Turn on public distribution" })
+      ).getByRole("button", { name: "Mark done" })
+    ).toHaveAttribute("aria-pressed", "false")
   })
 
   it("keeps saved secrets that are left blank", async () => {

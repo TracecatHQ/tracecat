@@ -36,6 +36,9 @@ class SlackPlatformApp(BaseModel):
     app_token: str | None = Field(default=None, repr=False)
     # Only beside a rotating `xoxe.xapp-` app-level token.
     app_refresh_token: str | None = Field(default=None, repr=False)
+    # Slack-only settings an admin marks done; a different app ID starts them over.
+    icon_uploaded: bool = False
+    distribution_enabled: bool = False
 
 
 class UnreadableSlackPlatformApp(Exception):

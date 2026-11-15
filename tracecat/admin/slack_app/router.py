@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppRead,
+    SlackPlatformAppSetupStepsUpdate,
     SlackPlatformAppUpdate,
 )
 from tracecat.admin.slack_app.service import (
+    SlackPlatformAppNotRegistered,
     SlackPlatformAppService,
     SlackPlatformAppStillInstalled,
 )
@@ -62,6 +64,25 @@ async def save_slack_app(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    clear_slack_platform_app_cache()
+    return result
+
+
+# No security key step-up: these are an admin's notes, not credentials.
+@router.patch("/setup", response_model=SlackPlatformAppRead)
+async def mark_slack_app_setup_steps(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    setup: SlackSetup,
+    params: SlackPlatformAppSetupStepsUpdate,
+) -> SlackPlatformAppRead:
+    """Remember which Slack-only setup steps an admin marked done."""
+    try:
+        result = await SlackPlatformAppService(session, role).mark_setup_steps(
+            params, setup
+        )
+    except SlackPlatformAppNotRegistered as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     clear_slack_platform_app_cache()
     return result
 

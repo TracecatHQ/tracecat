@@ -63,6 +63,7 @@ import {
   adminRevokeOrganizationInvitation,
   adminSlackAppDeleteSlackApp,
   adminSlackAppGetSlackApp,
+  adminSlackAppMarkSlackAppSetupSteps,
   adminSlackAppSaveSlackApp,
   adminSyncOrgRepository,
   adminTestAuditWebhook,
@@ -93,6 +94,7 @@ import {
   type RegistryArtifactsBackfillStartRequest,
   type RegistryArtifactsBackfillStartResponse,
   type SlackPlatformAppRead,
+  type SlackPlatformAppSetupStepsUpdate,
   type SlackPlatformAppUpdate,
   type TierCreate,
   type TierRead,
@@ -1071,7 +1073,8 @@ export function useAdminSecuritySettings() {
 
 const ADMIN_SLACK_APP_QUERY_KEY = ["admin", "slack-app"]
 
-/** Read, save, and remove the Tracecat Slack app every organization installs. */
+/** Read, save, and remove the Tracecat Slack app every organization installs,
+ * and remember the Slack-only setup steps an admin marked done. */
 export function useAdminSlackApp() {
   const queryClient = useQueryClient()
 
@@ -1105,6 +1108,28 @@ export function useAdminSlackApp() {
     )
 
   const {
+    mutateAsync: markSlackAppSetupSteps,
+    isPending: markSlackAppSetupStepsIsPending,
+  } = useMutation<
+    SlackPlatformAppRead,
+    TracecatApiError,
+    SlackPlatformAppSetupStepsUpdate
+  >({
+    mutationFn: async (requestBody) =>
+      await adminSlackAppMarkSlackAppSetupSteps({ requestBody }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(ADMIN_SLACK_APP_QUERY_KEY, saved)
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to update the setup step",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
     mutateAsync: removeSlackApp,
     isPending: removeSlackAppIsPending,
     error: removeSlackAppError,
@@ -1129,6 +1154,8 @@ export function useAdminSlackApp() {
     slackAppError,
     saveSlackApp,
     saveSlackAppIsPending,
+    markSlackAppSetupSteps,
+    markSlackAppSetupStepsIsPending,
     removeSlackApp,
     removeSlackAppIsPending,
     removeSlackAppError,

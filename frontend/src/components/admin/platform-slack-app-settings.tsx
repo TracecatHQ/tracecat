@@ -53,6 +53,8 @@ export function PlatformSlackAppSettings() {
     slackAppError,
     saveSlackApp,
     saveSlackAppIsPending,
+    markSlackAppSetupSteps,
+    markSlackAppSetupStepsIsPending,
     removeSlackApp,
     removeSlackAppIsPending,
     removeSlackAppError,
@@ -186,7 +188,11 @@ export function PlatformSlackAppSettings() {
       <div className="space-y-2 p-4">
         <SetupDoneLine>App created in Slack</SetupDoneLine>
         <SetupDoneLine>Credentials saved</SetupDoneLine>
-        <FinishInSlack appId={slackApp.app_id} />
+        <FinishInSlack
+          slackApp={slackApp}
+          onMark={markSlackAppSetupSteps}
+          marking={markSlackAppSetupStepsIsPending}
+        />
       </div>
       <SlackAppSummary
         slackApp={slackApp}
@@ -229,10 +235,21 @@ function SlackAppCard({
   )
 }
 
-/** The settings only Slack can change; ticks live in this page only. */
-function FinishInSlack({ appId }: { appId: string | null }) {
-  const [iconDone, setIconDone] = useState(false)
-  const [distributionDone, setDistributionDone] = useState(false)
+/** The settings only Slack can change; ticks are saved with the app. */
+function FinishInSlack({
+  slackApp,
+  onMark,
+  marking,
+}: {
+  slackApp: SlackPlatformAppRead
+  onMark: AdminSlackApp["markSlackAppSetupSteps"]
+  marking: boolean
+}) {
+  const appId = slackApp.app_id
+  const iconDone = slackApp.icon_uploaded
+  const distributionDone = slackApp.distribution_enabled
+  const mark = (step: Parameters<typeof onMark>[0]) =>
+    void onMark(step).catch(() => undefined)
 
   if (iconDone && distributionDone) {
     return (
@@ -254,7 +271,8 @@ function FinishInSlack({ appId }: { appId: string | null }) {
       <TickOff
         title="Upload the Tracecat icon"
         done={iconDone}
-        onToggle={() => setIconDone(!iconDone)}
+        disabled={marking}
+        onToggle={() => mark({ icon_uploaded: !iconDone })}
         actions={
           <>
             <Button type="button" size="sm" variant="outline" asChild>
@@ -281,7 +299,8 @@ function FinishInSlack({ appId }: { appId: string | null }) {
       <TickOff
         title="Turn on public distribution"
         done={distributionDone}
-        onToggle={() => setDistributionDone(!distributionDone)}
+        disabled={marking}
+        onToggle={() => mark({ distribution_enabled: !distributionDone })}
         actions={
           <Button type="button" size="sm" variant="outline" asChild>
             <a
@@ -305,12 +324,14 @@ function FinishInSlack({ appId }: { appId: string | null }) {
 function TickOff({
   title,
   done,
+  disabled,
   onToggle,
   actions,
   children,
 }: {
   title: string
   done: boolean
+  disabled: boolean
   onToggle: () => void
   actions?: ReactNode
   children: ReactNode
@@ -337,6 +358,7 @@ function TickOff({
           size="sm"
           variant={done ? "secondary" : "outline"}
           aria-pressed={done}
+          disabled={disabled}
           onClick={onToggle}
         >
           {done ? "Done" : "Mark done"}

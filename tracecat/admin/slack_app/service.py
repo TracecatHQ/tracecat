@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppRead,
+    SlackPlatformAppSetupStepsUpdate,
     SlackPlatformAppUpdate,
 )
 from tracecat.agent.channel_bots.platform_app import (
@@ -24,12 +25,20 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.db.models import AgentChannelBot
-from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.service import BasePlatformService
 
 
 class SlackPlatformAppStillInstalled(TracecatConflictError):
     """Organizations still have the Tracecat Slack app installed."""
+
+
+class SlackPlatformAppNotRegistered(TracecatNotFoundError):
+    """No readable Tracecat Slack app is registered."""
 
 
 class SlackPlatformAppService(BasePlatformService):
@@ -85,7 +94,28 @@ class SlackPlatformAppService(BasePlatformService):
             signing_secret=signing_secret,
             app_token=app_token,
             app_refresh_token=app_refresh_token,
+            icon_uploaded=kept.icon_uploaded if kept else False,
+            distribution_enabled=kept.distribution_enabled if kept else False,
         )
+        await write_slack_platform_app(self.session, app)
+        await self.session.commit()
+        return _read(app, setup, unreadable=False)
+
+    @audit_log(resource_type="platform_setting", action="update")
+    async def mark_setup_steps(
+        self,
+        params: SlackPlatformAppSetupStepsUpdate,
+        setup: ChannelBotPlatformAppSetup,
+    ) -> SlackPlatformAppRead:
+        try:
+            stored = await read_slack_platform_app(self.session)
+        except UnreadableSlackPlatformApp:
+            stored = None
+        if stored is None:
+            raise SlackPlatformAppNotRegistered(
+                "Register the Tracecat Slack app before marking its setup steps"
+            )
+        app = stored.model_copy(update=params.model_dump(exclude_none=True))
         await write_slack_platform_app(self.session, app)
         await self.session.commit()
         return _read(app, setup, unreadable=False)
@@ -124,6 +154,8 @@ def _read(
         client_secret_set=app is not None,
         signing_secret_set=app is not None,
         app_token_set=app is not None and app.app_token is not None,
+        icon_uploaded=app is not None and app.icon_uploaded,
+        distribution_enabled=app is not None and app.distribution_enabled,
         unreadable=unreadable,
         setup=setup,
     )

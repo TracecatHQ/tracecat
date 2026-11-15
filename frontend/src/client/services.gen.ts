@@ -129,6 +129,8 @@ import type {
   AdminSetSourceResponse,
   AdminSlackAppDeleteSlackAppResponse,
   AdminSlackAppGetSlackAppResponse,
+  AdminSlackAppMarkSlackAppSetupStepsData,
+  AdminSlackAppMarkSlackAppSetupStepsResponse,
   AdminSlackAppSaveSlackAppData,
   AdminSlackAppSaveSlackAppResponse,
   AdminSyncOrgRepositoryData,
@@ -11181,6 +11183,28 @@ export const adminSlackAppDeleteSlackApp =
       url: "/admin/slack-app",
     })
   }
+
+/**
+ * Mark Slack App Setup Steps
+ * Remember which Slack-only setup steps an admin marked done.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SlackPlatformAppRead Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppMarkSlackAppSetupSteps = (
+  data: AdminSlackAppMarkSlackAppSetupStepsData
+): CancelablePromise<AdminSlackAppMarkSlackAppSetupStepsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/slack-app/setup",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get Pending Count

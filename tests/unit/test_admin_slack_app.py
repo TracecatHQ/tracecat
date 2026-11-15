@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -7,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ from tracecat.agent.channel_bots.platform_app import (
     SlackPlatformApp,
     read_slack_platform_app,
     slack_platform_app,
+    write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
     ChannelBotPlatformAppSetup,
@@ -26,6 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.audit.service import AuditService
 from tracecat.auth.credentials import _require_superuser, _require_superuser_step_up
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole
 from tracecat.auth.users import current_active_user
 from tracecat.db.engine import get_async_session_bypass_rls
@@ -36,6 +39,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
+from tracecat.secrets.encryption import encrypt_value
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -53,6 +57,7 @@ SECRETS = {
     "app_token": "xapp-synthetic-app-token",
 }
 FULL = {"app_id": "A0SYNTHETIC", "client_id": "111.222", **SECRETS}
+REGISTERED = SlackPlatformApp.model_validate(FULL)
 
 
 class ChannelBotAdmin:
@@ -99,7 +104,13 @@ def requests_read_the_test_session(
     slack_platform_app.cache_clear()
 
 
-def make_app(session: AsyncSession, *, superuser: bool) -> FastAPI:
+def _no_recent_security_key() -> PlatformRole:
+    raise HTTPException(status_code=403, detail="Security key verification required")
+
+
+def make_app(
+    session: AsyncSession, *, superuser: bool, security_key: bool = True
+) -> FastAPI:
     app = FastAPI()
     app.include_router(router_module.router, prefix="/admin")
     user = User(
@@ -120,15 +131,19 @@ def make_app(session: AsyncSession, *, superuser: bool) -> FastAPI:
         role = PlatformRole(type="user", user_id=user.id, service_id="tracecat-api")
         # Past the IP allowlist and the security key step-up, which have their own tests.
         app.dependency_overrides[_require_superuser] = lambda: role
-        app.dependency_overrides[_require_superuser_step_up] = lambda: role
+        app.dependency_overrides[_require_superuser_step_up] = (
+            (lambda: role) if security_key else _no_recent_security_key
+        )
     return app
 
 
 @asynccontextmanager
 async def client(
-    session: AsyncSession, *, superuser: bool = True
+    session: AsyncSession, *, superuser: bool = True, security_key: bool = True
 ) -> AsyncIterator[httpx.AsyncClient]:
-    transport = httpx.ASGITransport(app=make_app(session, superuser=superuser))
+    transport = httpx.ASGITransport(
+        app=make_app(session, superuser=superuser, security_key=security_key)
+    )
     async with httpx.AsyncClient(
         transport=transport, base_url="http://synthetic"
     ) as http:
@@ -143,18 +158,24 @@ async def stored_row(session: AsyncSession) -> PlatformSetting | None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("method", "body"),
-    [("GET", None), ("PUT", FULL), ("DELETE", None)],
+    ("method", "path", "body"),
+    [
+        ("GET", "/admin/slack-app", None),
+        ("PUT", "/admin/slack-app", FULL),
+        ("DELETE", "/admin/slack-app", None),
+        ("PATCH", "/admin/slack-app/setup", {"icon_uploaded": True}),
+    ],
 )
 async def test_a_non_superuser_is_refused_on_every_route(
     session: AsyncSession,
     channel_bot_admin: ChannelBotAdmin,
     audit_events: AsyncMock,
     method: str,
-    body: dict[str, str] | None,
+    path: str,
+    body: dict[str, object] | None,
 ) -> None:
     async with client(session, superuser=False) as http:
-        response = await http.request(method, "/admin/slack-app", json=body)
+        response = await http.request(method, path, json=body)
 
     assert response.status_code == 403
     assert channel_bot_admin.asked == []
@@ -178,13 +199,15 @@ async def test_a_saved_app_is_stored_encrypted_and_never_returns_its_secrets(
         "client_secret_set": True,
         "signing_secret_set": True,
         "app_token_set": True,
+        "icon_uploaded": False,
+        "distribution_enabled": False,
         "unreadable": False,
         "setup": HTTP_SETUP.model_dump(mode="json"),
     }
     row = await stored_row(session)
     assert row is not None and row.is_encrypted
     assert not any(secret.encode() in row.value for secret in SECRETS.values())
-    assert await read_slack_platform_app(session) == SlackPlatformApp(**FULL)
+    assert await read_slack_platform_app(session) == REGISTERED
     assert [c.kwargs["action"] for c in audit_events.await_args_list] == [
         "update",
         "update",
@@ -252,8 +275,8 @@ async def test_an_omitted_secret_keeps_its_stored_value_only_for_the_same_app(
 
     assert renamed.status_code == 200
     assert other_app.status_code == 400
-    assert await read_slack_platform_app(session) == SlackPlatformApp(
-        **{**FULL, "client_id": "333.444"}
+    assert await read_slack_platform_app(session) == REGISTERED.model_copy(
+        update={"client_id": "333.444"}
     )
 
 
@@ -263,7 +286,7 @@ async def test_removing_the_app_unregisters_it_for_the_next_request(
 ) -> None:
     async with client(session) as http:
         await http.put("/admin/slack-app", json=FULL)
-        assert await slack_platform_app() == SlackPlatformApp(**FULL)
+        assert await slack_platform_app() == REGISTERED
         removed = await http.delete("/admin/slack-app")
         read = await http.get("/admin/slack-app")
 
@@ -345,8 +368,8 @@ async def test_removing_the_app_is_refused_while_an_organization_has_it_installe
     if refused:
         assert removed.status_code == 409
         assert "1 Slack workspace(s) still have" in removed.json()["detail"]
-        assert await read_slack_platform_app(session) == SlackPlatformApp(**FULL)
-        assert await slack_platform_app() == SlackPlatformApp(**FULL)
+        assert await read_slack_platform_app(session) == REGISTERED
+        assert await slack_platform_app() == REGISTERED
     else:
         assert removed.status_code == 204
         assert await stored_row(session) is None
@@ -405,3 +428,136 @@ async def test_a_registration_that_no_longer_decrypts_reads_as_unreadable(
     assert await slack_platform_app() is not None
     assert saved.status_code == 200
     assert saved.json()["unreadable"] is False
+
+
+@pytest.mark.anyio
+async def test_setup_steps_marked_done_persist_across_a_read(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    async with client(session) as http:
+        await http.put("/admin/slack-app", json=FULL)
+        icon = await http.patch("/admin/slack-app/setup", json={"icon_uploaded": True})
+        after_icon = await http.get("/admin/slack-app")
+        both = await http.patch(
+            "/admin/slack-app/setup", json={"distribution_enabled": True}
+        )
+        after_both = await http.get("/admin/slack-app")
+
+    assert icon.status_code == both.status_code == 200
+    assert icon.json() == after_icon.json()
+    assert (
+        after_icon.json()["icon_uploaded"],
+        after_icon.json()["distribution_enabled"],
+    ) == (True, False)
+    assert both.json() == after_both.json()
+    assert (
+        after_both.json()["icon_uploaded"],
+        after_both.json()["distribution_enabled"],
+    ) == (True, True)
+    assert await read_slack_platform_app(session) == REGISTERED.model_copy(
+        update={"icon_uploaded": True, "distribution_enabled": True}
+    )
+    assert audit_events.await_args_list[-1].kwargs["action"] == "update"
+
+
+@pytest.mark.anyio
+async def test_a_registration_stored_before_the_setup_steps_reads_them_as_not_done(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin
+) -> None:
+    session.add(
+        PlatformSetting(
+            key=SLACK_PLATFORM_APP_KEY,
+            value=encrypt_value(json.dumps(FULL).encode(), key=get_db_encryption_key()),
+            value_type="json",
+            is_encrypted=True,
+        )
+    )
+    await session.commit()
+
+    async with client(session) as http:
+        read = await http.get("/admin/slack-app")
+
+    assert read.json()["app_id"] == "A0SYNTHETIC"
+    assert read.json()["unreadable"] is False
+    assert read.json()["icon_uploaded"] is False
+    assert read.json()["distribution_enabled"] is False
+
+
+@pytest.mark.anyio
+async def test_saving_another_app_resets_the_setup_steps_and_the_same_app_keeps_them(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    done = {"icon_uploaded": True, "distribution_enabled": True}
+    async with client(session) as http:
+        await http.put("/admin/slack-app", json=FULL)
+        await http.patch("/admin/slack-app/setup", json=done)
+        same_app = await http.put(
+            "/admin/slack-app", json={"app_id": "A0SYNTHETIC", "client_id": "333.444"}
+        )
+        other_app = await http.put(
+            "/admin/slack-app", json={**FULL, "app_id": "A0OTHER"}
+        )
+
+    assert same_app.status_code == other_app.status_code == 200
+    assert (
+        same_app.json()["icon_uploaded"],
+        same_app.json()["distribution_enabled"],
+    ) == (True, True)
+    assert (
+        other_app.json()["icon_uploaded"],
+        other_app.json()["distribution_enabled"],
+    ) == (False, False)
+    stored = await read_slack_platform_app(session)
+    assert stored is not None
+    assert (stored.icon_uploaded, stored.distribution_enabled) == (False, False)
+
+
+@pytest.mark.anyio
+async def test_marking_a_setup_step_done_without_a_registered_app_is_not_found(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    async with client(session) as http:
+        response = await http.patch(
+            "/admin/slack-app/setup", json={"icon_uploaded": True}
+        )
+
+    assert response.status_code == 404
+    assert await stored_row(session) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body", [{}, {"icon_uploaded": None}, {"icon_uploaded": True, "app_id": "A0X"}]
+)
+async def test_marking_setup_steps_needs_one_known_step(
+    session: AsyncSession,
+    channel_bot_admin: ChannelBotAdmin,
+    audit_events: AsyncMock,
+    body: dict[str, object],
+) -> None:
+    await write_slack_platform_app(session, REGISTERED)
+    await session.commit()
+
+    async with client(session) as http:
+        response = await http.patch("/admin/slack-app/setup", json=body)
+
+    assert response.status_code == 422
+    assert await read_slack_platform_app(session) == REGISTERED
+
+
+@pytest.mark.anyio
+async def test_marking_setup_steps_does_not_need_a_recent_security_key(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    await write_slack_platform_app(session, REGISTERED)
+    await session.commit()
+
+    async with client(session, security_key=False) as http:
+        marked = await http.patch(
+            "/admin/slack-app/setup", json={"distribution_enabled": True}
+        )
+        saved = await http.put("/admin/slack-app", json=FULL)
+
+    assert saved.status_code == 403
+    assert marked.status_code == 200
+    assert marked.json()["distribution_enabled"] is True

@@ -11281,8 +11281,18 @@ export type SlackPlatformAppRead = {
   client_secret_set: boolean
   signing_secret_set: boolean
   app_token_set: boolean
+  icon_uploaded: boolean
+  distribution_enabled: boolean
   unreadable: boolean
   setup: ChannelBotPlatformAppSetup
+}
+
+/**
+ * Mark the Slack-only setup steps done or not done; an omitted step keeps its value.
+ */
+export type SlackPlatformAppSetupStepsUpdate = {
+  icon_uploaded?: boolean | null
+  distribution_enabled?: boolean | null
 }
 
 /**
@@ -17783,6 +17793,12 @@ export type AdminSlackAppSaveSlackAppData = {
 export type AdminSlackAppSaveSlackAppResponse = SlackPlatformAppRead
 
 export type AdminSlackAppDeleteSlackAppResponse = void
+
+export type AdminSlackAppMarkSlackAppSetupStepsData = {
+  requestBody: SlackPlatformAppSetupStepsUpdate
+}
+
+export type AdminSlackAppMarkSlackAppSetupStepsResponse = SlackPlatformAppRead
 
 export type InboxGetPendingCountData = {
   workspaceId: string
@@ -25866,6 +25882,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+      }
+    }
+  }
+  "/admin/slack-app/setup": {
+    patch: {
+      req: AdminSlackAppMarkSlackAppSetupStepsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

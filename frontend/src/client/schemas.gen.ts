@@ -36995,6 +36995,14 @@ export const $SlackPlatformAppRead = {
       type: "boolean",
       title: "App Token Set",
     },
+    icon_uploaded: {
+      type: "boolean",
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      type: "boolean",
+      title: "Distribution Enabled",
+    },
     unreadable: {
       type: "boolean",
       title: "Unreadable",
@@ -37010,12 +37018,46 @@ export const $SlackPlatformAppRead = {
     "client_secret_set",
     "signing_secret_set",
     "app_token_set",
+    "icon_uploaded",
+    "distribution_enabled",
     "unreadable",
     "setup",
   ],
   title: "SlackPlatformAppRead",
   description:
     "The registration without its secrets, and what to paste into Slack.",
+} as const
+
+export const $SlackPlatformAppSetupStepsUpdate = {
+  properties: {
+    icon_uploaded: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Distribution Enabled",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "SlackPlatformAppSetupStepsUpdate",
+  description:
+    "Mark the Slack-only setup steps done or not done; an omitted step keeps its value.",
 } as const
 
 export const $SlackPlatformAppUpdate = {

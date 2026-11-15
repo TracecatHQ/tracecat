@@ -20,6 +20,8 @@ class SlackPlatformAppRead(BaseModel):
     client_secret_set: bool
     signing_secret_set: bool
     app_token_set: bool
+    icon_uploaded: bool
+    distribution_enabled: bool
     # A stored registration that no longer decrypts; saving replaces it.
     unreadable: bool
     setup: ChannelBotPlatformAppSetup
@@ -55,4 +57,19 @@ class SlackPlatformAppUpdate(BaseModel):
     @model_validator(mode="after")
     def _refresh_token_matches_app_token(self) -> Self:
         check_slack_app_refresh_token(self.app_token, self.app_refresh_token)
+        return self
+
+
+class SlackPlatformAppSetupStepsUpdate(BaseModel):
+    """Mark the Slack-only setup steps done or not done; an omitted step keeps its value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    icon_uploaded: bool | None = None
+    distribution_enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def _names_a_step(self) -> Self:
+        if self.icon_uploaded is None and self.distribution_enabled is None:
+            raise ValueError("Mark at least one setup step")
         return self
