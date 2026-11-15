@@ -67,6 +67,8 @@ class SlackPlatformAppService(BasePlatformService):
             stored = None
         # Another app's secrets never carry over.
         kept = stored if stored is not None and stored.app_id == params.app_id else None
+        if stored is not None and kept is None:
+            await self._require_no_installs("replacing it with another Slack app")
         client_secret = params.client_secret or (kept.client_secret if kept else "")
         signing_secret = params.signing_secret or (kept.signing_secret if kept else "")
         # A refresh token belongs to the app-level token it was issued with.
@@ -130,6 +132,11 @@ class SlackPlatformAppService(BasePlatformService):
     @audit_log(resource_type="platform_setting", action="delete")
     async def remove(self) -> None:
         """Refused while any organization still has the app installed."""
+        await self._require_no_installs("removing the app")
+        await delete_slack_platform_app(self.session)
+        await self.session.commit()
+
+    async def _require_no_installs(self, action: str) -> None:
         installs = await self.session.scalar(
             select(func.count())
             .select_from(AgentChannelBot)
@@ -143,10 +150,8 @@ class SlackPlatformAppService(BasePlatformService):
         if installs:
             raise SlackPlatformAppStillInstalled(
                 f"{installs} Slack workspace(s) still have the Tracecat Slack app"
-                " installed; disconnect them before removing the app"
+                f" installed; disconnect them before {action}"
             )
-        await delete_slack_platform_app(self.session)
-        await self.session.commit()
 
 
 def _read(

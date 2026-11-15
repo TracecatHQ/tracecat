@@ -60,6 +60,8 @@ async def save_slack_app(
     """Register or change the app every organization installs."""
     try:
         result = await SlackPlatformAppService(session, role).save(params, setup)
+    except SlackPlatformAppStillInstalled as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)

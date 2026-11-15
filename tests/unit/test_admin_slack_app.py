@@ -377,6 +377,42 @@ async def test_removing_the_app_is_refused_while_an_organization_has_it_installe
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "refused"), [("active", True), ("disconnected", False)]
+)
+async def test_replacing_the_app_is_refused_while_an_organization_has_it_installed(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    channel_bot_admin: ChannelBotAdmin,
+    audit_events: AsyncMock,
+    status: str,
+    refused: bool,
+) -> None:
+    await add_bot(
+        session, svc_workspace, app_owner="platform", status=status, tenant="T1"
+    )
+    other = {**FULL, "app_id": "A0OTHER", "client_id": "333.444"}
+
+    async with client(session) as http:
+        await http.put("/admin/slack-app", json=FULL)
+        same_app = await http.put(
+            "/admin/slack-app", json={**FULL, "client_id": "555.666"}
+        )
+        replaced = await http.put("/admin/slack-app", json=other)
+
+    assert same_app.status_code == 200
+    stored = await read_slack_platform_app(session)
+    assert stored is not None
+    if refused:
+        assert replaced.status_code == 409
+        assert "before replacing it with another Slack app" in replaced.json()["detail"]
+        assert stored.app_id == FULL["app_id"]
+    else:
+        assert replaced.status_code == 200
+        assert stored.app_id == "A0OTHER"
+
+
+@pytest.mark.anyio
 async def test_a_rotating_app_token_is_saved_with_its_refresh_token(
     session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
 ) -> None:
