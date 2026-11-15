@@ -145,7 +145,7 @@ describe("PlatformSlackAppSettings", () => {
     await userEvent.click(
       await screen.findByRole("link", { name: "Create in Slack" })
     )
-    expect(screen.getByText("App created in Slack")).toBeInTheDocument()
+    expect(screen.getByText("Slack app ready")).toBeInTheDocument()
     const save = screen.getByRole("button", { name: "Save" })
     expect(screen.getByLabelText("Client ID")).toHaveAccessibleDescription(
       "App Credentials → Client ID"

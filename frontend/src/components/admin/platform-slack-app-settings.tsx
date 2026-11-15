@@ -87,9 +87,15 @@ export function PlatformSlackAppSettings() {
       manifest={manifest}
     />
   )
+  // A removed app starts over at Create, not in a stale edit form.
+  const removeAndReset = async () => {
+    await removeSlackApp()
+    setEditing(false)
+    setCreated(false)
+  }
   const removeAction = (
     <RemoveSlackApp
-      onRemove={removeSlackApp}
+      onRemove={removeAndReset}
       removing={removeSlackAppIsPending}
     />
   )
@@ -141,7 +147,7 @@ export function PlatformSlackAppSettings() {
         </div>
         {created ? (
           <div className="space-y-4 p-4">
-            <SetupDoneLine>App created in Slack</SetupDoneLine>
+            <SetupDoneLine>Slack app ready</SetupDoneLine>
             <SlackAppCredentials
               slackApp={slackApp}
               onSave={saveSlackApp}
