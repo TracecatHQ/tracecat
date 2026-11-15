@@ -1,28 +1,28 @@
 "use client"
 
-import { useState } from "react"
+import Link from "next/link"
 import type {
   AgentChannelBotRead,
   AgentPresetRead,
   ChannelBotProvider,
 } from "@/client"
 import {
-  channelBotDetails,
+  CHANNEL_BOT_STATES,
   channelBotState,
   pickChannelBot,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { SlackBotCard } from "@/components/agents/external-channels/slack-bot-card"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
-import { SlackPlatformCard } from "@/components/agents/external-channels/slack-platform-card"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   useAgentChannelBots,
   useChannelBotInstallResult,
-  useChannelBotPlatformApps,
+  useChannelBotRoutes,
+  usePlatformChannelBots,
+  useSlackPlatformAppAvailable,
 } from "@/hooks/use-agent-channel-bots"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { getApiErrorDetail, isEntitlementRequiredError } from "@/lib/errors"
@@ -53,10 +53,7 @@ export function AgentChannelsPanel({
   return <ChannelBotsPanel workspaceId={workspaceId} preset={preset} />
 }
 
-/**
- * Add to Slack first; a custom Slack app only when the deployment has no
- * platform app, the agent already has one, or the user asks for it.
- */
+/** The agent's own Slack app; Tracecat for Slack lives on the Channels page. */
 function ChannelBotsPanel({
   workspaceId,
   preset,
@@ -64,16 +61,14 @@ function ChannelBotsPanel({
   workspaceId: string
   preset: AgentPresetRead
 }) {
-  const installFailure = useChannelBotInstallResult()
+  // Toasts a custom app's OAuth return.
+  useChannelBotInstallResult()
   const { bots, botsIsLoading, botsError } = useAgentChannelBots(
     workspaceId,
     preset.id
   )
-  const { platformApps, platformAppsIsLoading } =
-    useChannelBotPlatformApps(workspaceId)
-  const [useCustomApp, setUseCustomApp] = useState(false)
 
-  if (botsIsLoading || platformAppsIsLoading) {
+  if (botsIsLoading) {
     return <CenteredSpinner />
   }
   // A failed refresh keeps the loaded bots, and with them any open dialog.
@@ -108,48 +103,83 @@ function ChannelBotsPanel({
     )
   }
 
-  const customBot = botFor("slack")
-  const customState = channelBotState(
-    customBot,
-    channelBotDetails(customBot, "slack")?.has_bot_token === true
-  )
-  const platformAvailable =
-    platformApps?.some((app) => app.provider === "slack") === true
-  const showCustomApp =
-    !platformAvailable || customState !== "not_connected" || useCustomApp
-
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-3 px-4 pt-4 pb-16">
-        {/* One card; its rows render nothing until they have data. */}
-        <div className="divide-y rounded-md border empty:hidden">
-          <SlackPlatformCard
+        <div className="rounded-md border">
+          <SlackBotCard
             workspaceId={workspaceId}
             preset={preset}
-            workspaceClaimed={installFailure === "slack_workspace_claimed"}
+            bot={botFor("slack")}
           />
-          {showCustomApp ? (
-            <SlackBotCard
-              workspaceId={workspaceId}
-              preset={preset}
-              bot={customBot}
-            />
-          ) : null}
         </div>
-        {showCustomApp ? null : (
-          <p className="text-xs text-muted-foreground">
-            Want the bot to have its own name and icon?{" "}
-            <Button
-              type="button"
-              variant="link"
-              className="h-auto p-0 text-xs text-muted-foreground underline"
-              onClick={() => setUseCustomApp(true)}
-            >
-              Use your own Slack app instead
-            </Button>
-          </p>
-        )}
+        <PlatformSlackNote
+          workspaceId={workspaceId}
+          agentPresetId={preset.id}
+        />
       </div>
     </ScrollArea>
+  )
+}
+
+/** Names Tracecat for Slack when its install answers with this agent. */
+function PlatformSlackNote({
+  workspaceId,
+  agentPresetId,
+}: {
+  workspaceId: string
+  agentPresetId: string
+}) {
+  const { slackPlatformAvailable } = useSlackPlatformAppAvailable(workspaceId)
+  const { installs } = usePlatformChannelBots(
+    workspaceId,
+    "slack",
+    slackPlatformAvailable
+  )
+  const install = installs ? pickChannelBot(installs) : null
+  const state = channelBotState(install, install?.provider_app_id != null)
+  if (
+    !slackPlatformAvailable ||
+    !install ||
+    !CHANNEL_BOT_STATES[state].installed
+  ) {
+    return null
+  }
+  return (
+    <PlatformSlackRoutesNote
+      workspaceId={workspaceId}
+      install={install}
+      agentPresetId={agentPresetId}
+    />
+  )
+}
+
+function PlatformSlackRoutesNote({
+  workspaceId,
+  install,
+  agentPresetId,
+}: {
+  workspaceId: string
+  install: AgentChannelBotRead
+  agentPresetId: string
+}) {
+  const { routes } = useChannelBotRoutes(workspaceId, install.id)
+  const answers =
+    install.agent_preset_id === agentPresetId ||
+    routes?.some((route) => route.agent_preset_id === agentPresetId) === true
+  if (!answers) {
+    return null
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Answers in Slack via{" "}
+      <Link
+        href={`/workspaces/${workspaceId}/agents/channels`}
+        className="underline underline-offset-2 hover:text-foreground"
+      >
+        Tracecat for Slack
+      </Link>
+      .
+    </p>
   )
 }

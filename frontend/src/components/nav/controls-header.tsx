@@ -51,6 +51,7 @@ import {
 } from "@/components/agents/agents-catalog-view-toggle"
 import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
+import { AgentsChannelsButton } from "@/components/agents/external-channels/agents-channels-button"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -834,6 +835,9 @@ function AgentsActions() {
         branchSlug="agents"
         resources={["agent_preset"]}
       />
+      {catalogView === AgentsCatalogViewMode.Agents ? (
+        <AgentsChannelsButton workspaceId={workspaceId} />
+      ) : null}
       {agentActionControls}
     </>
   )
@@ -2490,6 +2494,18 @@ function getPageConfig(
       return {
         title: "Agents",
         actions: <AgentsActions />,
+      }
+    }
+
+    if (pagePath === "/agents/channels") {
+      return {
+        title: (
+          <FolderPathBreadcrumb
+            rootLabel="Agents"
+            rootHref={`${basePath}/agents`}
+            currentPage="Channels"
+          />
+        ),
       }
     }
 

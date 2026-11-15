@@ -2,13 +2,11 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   api,
-  PRESET,
   platformSlackBot,
   serveBots,
   serveEntitlements,
-  slackBot,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
-import { renderPanel } from "@/components/agents/external-channels/channel-bot-test-render"
+import { renderChannelsPage } from "@/components/agents/external-channels/channel-bot-test-render"
 import { goToChannelBotAuthorization } from "@/components/agents/external-channels/channel-bot-utils"
 import { toast } from "@/components/ui/use-toast"
 
@@ -29,6 +27,7 @@ jest.mock("@/components/auth/scope-guard", () => ({
 
 const goTo = jest.mocked(goToChannelBotAuthorization)
 const AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize?client_id=123.456"
+const PAGE_PATH = "/workspaces/workspace-1/agents/channels"
 
 function servePlatform(installs = [platformSlackBot()]): void {
   serveBots(installs)
@@ -39,26 +38,60 @@ async function platformRow(): Promise<HTMLElement> {
   return await screen.findByRole("group", { name: "Tracecat for Slack" })
 }
 
+async function chooseDefaultAgent(
+  row: HTMLElement,
+  agent: string
+): Promise<void> {
+  await userEvent.click(
+    within(row).getByRole("combobox", { name: "Default agent" })
+  )
+  await userEvent.click(await screen.findByRole("option", { name: agent }))
+}
+
+beforeAll(() => {
+  // Radix Select captures the pointer, which jsdom does not implement.
+  HTMLElement.prototype.hasPointerCapture = jest.fn(() => false)
+  HTMLElement.prototype.releasePointerCapture = jest.fn()
+})
+
 beforeEach(() => {
   jest.clearAllMocks()
   serveEntitlements()
   serveBots([])
+  window.history.replaceState({}, "", PAGE_PATH)
 })
 
 afterEach(() => {
   window.history.replaceState({}, "", "/")
 })
 
-describe("SlackPlatformCard", () => {
-  it("is hidden when the deployment registers no Slack app", async () => {
-    renderPanel()
-    await screen.findByRole("group", { name: "Custom Slack app" })
+describe("Channels page", () => {
+  it("says Tracecat for Slack is unavailable when the deployment registers no Slack app", async () => {
+    renderChannelsPage()
+    expect(
+      await screen.findByText(
+        "Tracecat for Slack is not available in this workspace."
+      )
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("group", { name: "Tracecat for Slack" })
     ).toBeNull()
   })
 
-  it("adds Tracecat to Slack with this agent as the default", async () => {
+  it("is unavailable without the preview entitlement", async () => {
+    serveEntitlements({ agent_channels: true })
+    servePlatform()
+    renderChannelsPage()
+    expect(
+      await screen.findByText(
+        "Tracecat for Slack is not available in this workspace."
+      )
+    ).toBeInTheDocument()
+    expect(api.listPlatformApps).not.toHaveBeenCalled()
+    expect(api.listBots).not.toHaveBeenCalled()
+  })
+
+  it("adds Tracecat to Slack with the chosen default agent and returns here", async () => {
     servePlatform([])
     api.installPlatformBot.mockResolvedValue({
       bot: platformSlackBot({
@@ -67,38 +100,27 @@ describe("SlackPlatformCard", () => {
       }),
       authorization_url: AUTHORIZE_URL,
     })
-    renderPanel()
+    renderChannelsPage()
     const row = await platformRow()
-    await userEvent.click(
-      within(row).getByRole("button", { name: "Add to Slack" })
-    )
+    const add = within(row).getByRole("button", { name: "Add to Slack" })
+    expect(add).toBeDisabled()
+
+    await chooseDefaultAgent(row, "Phishing")
+    await userEvent.click(add)
+
     expect(api.installPlatformBot).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
-      requestBody: expect.objectContaining({
+      requestBody: {
         provider: "slack",
-        agent_preset_id: PRESET.id,
-      }),
+        return_url: `http://localhost${PAGE_PATH}`,
+        bot_id: undefined,
+        agent_preset_id: "preset-2",
+      },
     })
     await waitFor(() => expect(goTo).toHaveBeenCalledWith(AUTHORIZE_URL))
   })
 
-  it("makes this agent the default of an install another agent answers", async () => {
-    servePlatform([platformSlackBot({ agent_preset_id: "preset-2" })])
-    api.updateBot.mockResolvedValue(platformSlackBot())
-    renderPanel()
-    const row = await platformRow()
-    expect(within(row).getByText(/another agent answers/)).toBeInTheDocument()
-    await userEvent.click(
-      within(row).getByRole("button", { name: "Make default" })
-    )
-    expect(api.updateBot).toHaveBeenCalledWith({
-      workspaceId: "workspace-1",
-      botId: "platform-1",
-      requestBody: { agent_preset_id: PRESET.id },
-    })
-  })
-
-  it("adds a disconnected install again with this agent as the default", async () => {
+  it("adds a disconnected install again with its last default agent", async () => {
     servePlatform([
       platformSlackBot({
         status: "disconnected",
@@ -110,8 +132,13 @@ describe("SlackPlatformCard", () => {
       bot: platformSlackBot(),
       authorization_url: AUTHORIZE_URL,
     })
-    renderPanel()
+    renderChannelsPage()
     const row = await platformRow()
+    await waitFor(() =>
+      expect(
+        within(row).getByRole("combobox", { name: "Default agent" })
+      ).toHaveTextContent("Phishing")
+    )
     await userEvent.click(
       within(row).getByRole("button", { name: "Add to Slack" })
     )
@@ -119,7 +146,7 @@ describe("SlackPlatformCard", () => {
       workspaceId: "workspace-1",
       requestBody: expect.objectContaining({
         bot_id: "platform-1",
-        agent_preset_id: PRESET.id,
+        agent_preset_id: "preset-2",
       }),
     })
   })
@@ -135,7 +162,7 @@ describe("SlackPlatformCard", () => {
       bot: platformSlackBot(),
       authorization_url: AUTHORIZE_URL,
     })
-    renderPanel()
+    renderChannelsPage()
     const row = await platformRow()
     await userEvent.click(
       within(row).getByRole("button", { name: "Reconnect" })
@@ -146,34 +173,22 @@ describe("SlackPlatformCard", () => {
     })
   })
 
-  it("offers the custom app as a link once the platform app exists", async () => {
+  it("manages a connected install: routes, pause and disconnect", async () => {
     servePlatform()
-    renderPanel()
+    renderChannelsPage()
     const row = await platformRow()
     expect(within(row).getByText("Active")).toBeInTheDocument()
     expect(within(row).getByText("Connected to Slack")).toBeInTheDocument()
-    expect(screen.queryByRole("group", { name: "Custom Slack app" })).toBeNull()
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Use your own Slack app instead" })
-    )
-    const custom = await screen.findByRole("group", {
-      name: "Custom Slack app",
-    })
     expect(
-      within(custom).getByRole("button", { name: "Connect" })
+      await within(row).findByRole("combobox", { name: "Default agent" })
     ).toBeInTheDocument()
-  })
-
-  it("keeps showing a custom app the agent already has", async () => {
-    servePlatform([platformSlackBot(), slackBot()])
-    renderPanel()
-    await platformRow()
+    expect(within(row).getByLabelText("Channel ID")).toBeInTheDocument()
+    expect(within(row).getByRole("button", { name: "Pause" })).toBeEnabled()
     expect(
-      await screen.findByRole("group", { name: "Custom Slack app" })
-    ).toBeInTheDocument()
+      within(row).getByRole("button", { name: "Disconnect" })
+    ).toBeEnabled()
     expect(
-      screen.queryByRole("button", { name: "Use your own Slack app instead" })
+      within(row).queryByRole("button", { name: "Add to Slack" })
     ).toBeNull()
   })
 
@@ -181,12 +196,12 @@ describe("SlackPlatformCard", () => {
     window.history.replaceState(
       {},
       "",
-      `/?channel_bot_install=error&channel_bot_message=${encodeURIComponent(
+      `${PAGE_PATH}?channel_bot_install=error&channel_bot_message=${encodeURIComponent(
         "Tracecat is already installed in this Slack workspace. Disconnect that install, or ask a Slack admin to remove the app in Slack"
       )}`
     )
     servePlatform([])
-    renderPanel()
+    renderChannelsPage()
     const row = await platformRow()
     expect(
       within(row).getByText(

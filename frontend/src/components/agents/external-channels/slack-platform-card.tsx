@@ -1,7 +1,7 @@
 "use client"
 
 import { Loader2 } from "lucide-react"
-import type { AgentPresetRead } from "@/client"
+import { useState } from "react"
 import {
   ChannelBotHeader,
   ChannelBotLifecycleActions,
@@ -14,53 +14,54 @@ import {
   goToChannelBotAuthorization,
   pickChannelBot,
 } from "@/components/agents/external-channels/channel-bot-utils"
-import { PlatformChannelRoutes } from "@/components/agents/external-channels/platform-channel-routes"
+import {
+  AgentSelect,
+  PlatformChannelRoutes,
+} from "@/components/agents/external-channels/platform-channel-routes"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
-import { toast } from "@/components/ui/use-toast"
 import {
-  useChannelBotPlatformApps,
   useChannelBotsBusy,
   useInstallPlatformChannelBot,
   usePlatformChannelBots,
-  useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 
 /**
  * The platform app for Slack: one install per workspace, answering new threads
- * with its default agent. Shown only when the deployment registers it.
+ * with its default agent or a channel's own. Render only when the deployment
+ * registers it.
  */
 export function SlackPlatformCard({
   workspaceId,
-  preset,
   workspaceClaimed = false,
 }: {
   workspaceId: string
-  preset: AgentPresetRead
   /** The last Add to Slack hit a Slack workspace another Tracecat workspace holds. */
   workspaceClaimed?: boolean
 }) {
-  const { platformApps } = useChannelBotPlatformApps(workspaceId)
-  const available = platformApps?.some((app) => app.provider === "slack")
-  const { installs } = usePlatformChannelBots(
-    workspaceId,
-    "slack",
-    available === true
-  )
+  const { installs } = usePlatformChannelBots(workspaceId, "slack", true)
+  const { presets } = useAgentPresets(workspaceId)
   const { installPlatformBot, installPlatformBotIsPending } =
     useInstallPlatformChannelBot(workspaceId, "slack")
-  const { updateBot } = useUpdateAgentChannelBot(workspaceId, "slack")
   const busy = useChannelBotsBusy(workspaceId)
   const canUpdateAgent = useScopeCheck("agent:update") === true
+  const [chosenAgentId, setChosenAgentId] = useState<string | null>(null)
 
-  if (!available || !installs) {
+  if (!installs) {
     return null
   }
   const install = pickChannelBot(installs)
   // Only a finished install records the Slack app.
   const state = channelBotState(install, install?.provider_app_id != null)
   const { installed } = CHANNEL_BOT_STATES[state]
-  const isDefault = install?.agent_preset_id === preset.id
+  const agents = presets ?? []
+  // Adding a disconnected install again offers its last default agent.
+  const previousAgentId =
+    install && agents.some((agent) => agent.id === install.agent_preset_id)
+      ? install.agent_preset_id
+      : ""
+  const defaultAgentId = chosenAgentId ?? previousAgentId
 
   function addToSlack(): void {
     installPlatformBot(
@@ -68,8 +69,8 @@ export function SlackPlatformCard({
         provider: "slack",
         return_url: channelBotReturnUrl(),
         bot_id: install?.id,
-        // A reconnect keeps the default agent; adding again makes it this one.
-        agent_preset_id: installed ? undefined : preset.id,
+        // A reconnect keeps the default agent; a first install needs one.
+        agent_preset_id: installed ? undefined : defaultAgentId,
       },
       {
         onSuccess: ({ authorization_url }) => {
@@ -81,24 +82,13 @@ export function SlackPlatformCard({
     )
   }
 
-  function makeDefault(): void {
-    if (!install) {
-      return
-    }
-    updateBot(
-      { botId: install.id, requestBody: { agent_preset_id: preset.id } },
-      { onSuccess: () => toast({ title: "Default Slack agent changed" }) }
-    )
-  }
-
   let title = "Slack"
   let description =
-    "Mention @Tracecat in a channel and this agent answers in the thread. Replies, approvals and the session stay in sync with Tracecat."
+    "Mention @Tracecat in a channel and an agent answers in the thread. Replies, approvals and the session stay in sync with Tracecat."
   if (installed) {
     title = "Connected to Slack"
-    description = isDefault
-      ? "This agent answers new Slack threads in this workspace."
-      : "Installed for this workspace; another agent answers new threads."
+    description =
+      "New threads go to the default agent, or to the agent set for their channel."
   }
 
   return (
@@ -109,23 +99,14 @@ export function SlackPlatformCard({
         description={description}
         state={state}
       >
-        {installed && !isDefault ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={makeDefault}
-            disabled={busy || !canUpdateAgent}
-          >
-            Make default
-          </Button>
-        ) : null}
         {!installed || state === "needs_reconnect" ? (
           <Button
             type="button"
             size="sm"
             onClick={addToSlack}
-            disabled={busy || !canUpdateAgent}
+            disabled={
+              busy || !canUpdateAgent || (!installed && !defaultAgentId)
+            }
           >
             {installPlatformBotIsPending ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
@@ -143,6 +124,24 @@ export function SlackPlatformCard({
           </ChannelBotNotice>
         </div>
       ) : null}
+      {installed ? null : (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t p-4">
+          <div className="min-w-48 flex-1">
+            <p className="text-xs font-medium">Default agent</p>
+            <p className="text-xs text-muted-foreground">
+              Answers DMs and every channel. Pick one before you add Tracecat to
+              Slack.
+            </p>
+          </div>
+          <AgentSelect
+            label="Default agent"
+            value={defaultAgentId}
+            agents={agents}
+            disabled={busy || !canUpdateAgent}
+            onChange={setChosenAgentId}
+          />
+        </div>
+      )}
       {install && installed ? (
         <div className="space-y-6 border-t p-4">
           <PlatformChannelRoutes

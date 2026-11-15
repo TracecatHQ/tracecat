@@ -137,6 +137,22 @@ export function useChannelBotPlatformApps(workspaceId: string) {
   return { platformApps, platformAppsIsLoading }
 }
 
+/**
+ * Whether the workspace can manage Tracecat for Slack: the preview entitlement
+ * and a Slack app the deployment registers.
+ */
+export function useSlackPlatformAppAvailable(workspaceId: string) {
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const { platformApps, platformAppsIsLoading } =
+    useChannelBotPlatformApps(workspaceId)
+  return {
+    slackPlatformAvailable:
+      hasEntitlement("agent_channels_preview") &&
+      platformApps?.some((app) => app.provider === "slack") === true,
+    slackPlatformIsLoading: entitlementsLoading || platformAppsIsLoading,
+  }
+}
+
 /** The workspace's installs of the platform app for `provider`, any agent. */
 export function usePlatformChannelBots(
   workspaceId: string,

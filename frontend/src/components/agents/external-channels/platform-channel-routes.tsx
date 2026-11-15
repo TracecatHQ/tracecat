@@ -24,7 +24,8 @@ import {
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 
-function AgentSelect({
+/** Picks one of the workspace's agents. */
+export function AgentSelect({
   label,
   value,
   agents,

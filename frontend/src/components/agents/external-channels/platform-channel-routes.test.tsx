@@ -9,12 +9,9 @@ import {
   serveEntitlements,
   WORKSPACE_ID,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
-import { renderPanel } from "@/components/agents/external-channels/channel-bot-test-render"
+import { renderChannelsPage } from "@/components/agents/external-channels/channel-bot-test-render"
 
 jest.mock("@/client")
-jest.mock("@/components/agents/external-channels/slack-channel-panel", () => ({
-  SlackChannelPanel: () => "Legacy Slack panel",
-}))
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
@@ -37,9 +34,9 @@ function servePlatform(routes: AgentChannelRouteRead[] = []): void {
   api.listRoutes.mockResolvedValue(routes)
 }
 
-/** Renders the Channels tab and waits for the install's route editor. */
+/** Renders the Channels page and waits for the install's route editor. */
 async function editor(): Promise<HTMLElement> {
-  renderPanel()
+  renderChannelsPage()
   const card = await screen.findByRole("group", { name: "Tracecat for Slack" })
   await within(card).findByText("Channels")
   return card
@@ -152,9 +149,11 @@ describe("PlatformChannelRoutes", () => {
 
   it("is hidden, with the card, without the preview entitlement", async () => {
     serveEntitlements({ agent_channels: true })
-    renderPanel()
+    renderChannelsPage()
 
-    expect(await screen.findByText("Legacy Slack panel")).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Tracecat for Slack is not available/)
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("group", { name: "Tracecat for Slack" })
     ).toBeNull()
