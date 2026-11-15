@@ -11,7 +11,8 @@ from datetime import UTC, datetime
 from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.secrets import get_db_encryption_key
@@ -69,8 +70,10 @@ async def read_slack_platform_app(
 
 
 def _decrypt(raw: bytes) -> SlackPlatformApp:
+    # Outside the try: a missing key is a deployment error, not an unreadable row.
+    key = get_db_encryption_key()
     try:
-        plain = decrypt_value(raw, key=get_db_encryption_key())
+        plain = decrypt_value(raw, key=key)
         return SlackPlatformApp.model_validate_json(plain)
     except (InvalidToken, ValueError) as e:
         raise UnreadableSlackPlatformApp from e
@@ -138,21 +141,19 @@ async def write_slack_platform_app(
 ) -> None:
     """Replace the registration; the caller commits."""
     value = encrypt_value(app.model_dump_json().encode(), key=get_db_encryption_key())
-    setting = await session.scalar(
-        select(PlatformSetting).where(PlatformSetting.key == SLACK_PLATFORM_APP_KEY)
-    )
-    if setting is None:
-        session.add(
-            PlatformSetting(
-                key=SLACK_PLATFORM_APP_KEY,
-                value=value,
-                value_type="json",
-                is_encrypted=True,
-            )
+    await session.execute(
+        insert(PlatformSetting)
+        .values(
+            key=SLACK_PLATFORM_APP_KEY,
+            value=value,
+            value_type="json",
+            is_encrypted=True,
         )
-    else:
-        setting.value = value
-        setting.is_encrypted = True
+        .on_conflict_do_update(
+            index_elements=[PlatformSetting.key],
+            set_={"value": value, "is_encrypted": True, "updated_at": func.now()},
+        )
+    )
 
 
 async def delete_slack_platform_app(session: AsyncSession) -> None:
