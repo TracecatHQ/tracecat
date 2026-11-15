@@ -3,6 +3,7 @@
 import { ExternalLink, Loader2, Zap } from "lucide-react"
 import { useCallback, useMemo, useRef } from "react"
 import type { OAuthGrantType } from "@/client"
+import { CopyField } from "@/components/copy-field"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
@@ -139,6 +140,13 @@ export function OAuthIntegrationDialog({
           )}
           {!providerIsLoading && provider && (
             <div className="space-y-6">
+              {provider.redirect_uri && (
+                <CopyField
+                  label="Redirect URI"
+                  value={provider.redirect_uri}
+                  help="Add this redirect URI to your OAuth app before you connect."
+                />
+              )}
               <ProviderConfigForm
                 provider={provider}
                 onSuccess={handleSubmitSuccess}

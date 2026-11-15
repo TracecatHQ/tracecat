@@ -11,6 +11,8 @@ import {
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { GitHubAppManifestResponse } from "@/client"
+import { CopyField } from "@/components/copy-field"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { GitHubAppManualForm } from "@/components/organization/org-vcs-github-manual-form"
 import {
@@ -248,7 +250,7 @@ function GitHubConnectionDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  manifest: { manifest: Record<string, unknown> } | undefined
+  manifest: GitHubAppManifestResponse | undefined
   onFormSuccess: () => void
   hasStoredCredentials: boolean
   existingAppId?: string
@@ -374,6 +376,9 @@ function GitHubConnectionDialog({
                       </FormItem>
                     )}
                   />
+                  {manifest?.manifest ? (
+                    <GitHubAppManifestUrls manifest={manifest.manifest} />
+                  ) : null}
                   <Button
                     type="submit"
                     className="gap-2"
@@ -396,5 +401,49 @@ function GitHubConnectionDialog({
         </DialogBody>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The URLs Tracecat writes into the GitHub App manifest, for allowlisting or review. */
+function GitHubAppManifestUrls({
+  manifest,
+}: {
+  manifest: GitHubAppManifestResponse["manifest"]
+}) {
+  const callbackUrls = manifest.callback_urls.filter(
+    (url) => url !== manifest.redirect_url
+  )
+  return (
+    <div className="space-y-3 border-t pt-4">
+      <div className="space-y-1">
+        <h4 className="text-sm font-medium">GitHub App URLs</h4>
+        <p className="text-xs text-muted-foreground">
+          Tracecat sets these in the app manifest. Copy them if your GitHub
+          Enterprise allowlist or app review needs them.
+        </p>
+      </div>
+      <CopyField
+        label="Redirect URL"
+        value={manifest.redirect_url}
+        help="Also the callback URL. GitHub returns here after creating the app."
+      />
+      {callbackUrls.map((url) => (
+        <CopyField key={url} label="Callback URL" value={url} />
+      ))}
+      <CopyField
+        label="Setup URL"
+        value={manifest.setup_url}
+        help="GitHub returns here after the app is installed."
+      />
+      <CopyField
+        label="Webhook URL"
+        value={manifest.hook_attributes.url}
+        help={
+          manifest.hook_attributes.active
+            ? "GitHub sends push and pull request events here."
+            : "Placeholder for local deployments. The webhook is created inactive."
+        }
+      />
+    </div>
   )
 }

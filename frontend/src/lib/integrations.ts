@@ -123,3 +123,14 @@ export const integrationKeys = {
     source?: McpIntegrationsListMcpIntegrationsData["source"]
   ) => ["mcp-integrations", workspaceId, source] as const,
 } as const
+
+/**
+ * The OAuth redirect URI Tracecat sends for every authorization code flow.
+ *
+ * Mirrors `AuthorizationCodeOAuthProvider.redirect_uri()` in
+ * `tracecat/integrations/providers/base.py`. Prefer a provider's
+ * `redirect_uri` from the API when one is loaded.
+ */
+export function oauthRedirectUri(publicAppUrl: string): string {
+  return `${publicAppUrl}/integrations/callback`
+}

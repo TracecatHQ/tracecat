@@ -5,6 +5,7 @@ import { Loader2, Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { OAuthRedirectUriField } from "@/components/integrations/oauth-redirect-uri-field"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
@@ -269,6 +270,9 @@ export function CreateCustomProviderDialog({
                   </FormItem>
                 )}
               />
+              {grantType === "authorization_code" && (
+                <OAuthRedirectUriField help="Add this redirect URI to the provider's OAuth app." />
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}

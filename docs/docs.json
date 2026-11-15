@@ -631,6 +631,10 @@
     {
       "source": "/manage-platform/git-sync",
       "destination": "/gitops/workspace-git-sync"
+    },
+    {
+      "source": "/quickstart/github-workflow-sync-setup",
+      "destination": "/gitops/workspace-git-sync"
     }
   ],
   "logo": {
