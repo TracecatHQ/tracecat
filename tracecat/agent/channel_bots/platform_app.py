@@ -34,6 +34,8 @@ class SlackPlatformApp(BaseModel):
     signing_secret: str = Field(min_length=1, repr=False)
     # Socket Mode only: the app-level `xapp-` token with `connections:write`.
     app_token: str | None = Field(default=None, repr=False)
+    # Only beside a rotating `xoxe.xapp-` app-level token.
+    app_refresh_token: str | None = Field(default=None, repr=False)
 
 
 class UnreadableSlackPlatformApp(Exception):

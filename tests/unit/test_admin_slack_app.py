@@ -270,6 +270,36 @@ async def test_removing_the_app_unregisters_it_for_the_next_request(
 
 
 @pytest.mark.anyio
+async def test_a_rotating_app_token_is_saved_with_its_refresh_token(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    channel_bot_admin.setup = SOCKET_SETUP
+    rotating = {**FULL, "app_token": "xoxe.xapp-synthetic-rotating"}
+
+    async with client(session) as http:
+        without_refresh = await http.put("/admin/slack-app", json=rotating)
+        refresh_without_rotation = await http.put(
+            "/admin/slack-app",
+            json={**FULL, "app_refresh_token": "xoxe-synthetic-refresh"},
+        )
+        saved = await http.put(
+            "/admin/slack-app",
+            json={**rotating, "app_refresh_token": "xoxe-synthetic-refresh"},
+        )
+        kept = await http.put(
+            "/admin/slack-app", json={"app_id": "A0SYNTHETIC", "client_id": "111.222"}
+        )
+
+    assert without_refresh.status_code == refresh_without_rotation.status_code == 422
+    assert saved.status_code == kept.status_code == 200
+    assert "xoxe" not in saved.text
+    stored = await read_slack_platform_app(session)
+    assert stored is not None
+    assert stored.app_token == "xoxe.xapp-synthetic-rotating"
+    assert stored.app_refresh_token == "xoxe-synthetic-refresh"
+
+
+@pytest.mark.anyio
 async def test_a_registration_that_no_longer_decrypts_reads_as_unreadable(
     session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
 ) -> None:

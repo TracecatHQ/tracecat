@@ -11295,9 +11295,13 @@ export type SlackPlatformAppUpdate = {
   client_secret?: string | null
   signing_secret?: string | null
   /**
-   * App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.
+   * App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.
    */
   app_token?: string | null
+  /**
+   * The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.
+   */
+  app_refresh_token?: string | null
 }
 
 /**

@@ -143,6 +143,7 @@ function SlackAppCredentials({
   const [clientSecret, setClientSecret] = useState("")
   const [signingSecret, setSigningSecret] = useState("")
   const [appToken, setAppToken] = useState("")
+  const [appRefreshToken, setAppRefreshToken] = useState("")
 
   useEffect(() => {
     setAppId(slackApp.app_id ?? "")
@@ -150,6 +151,8 @@ function SlackAppCredentials({
   }, [slackApp.app_id, slackApp.client_id])
 
   const socket = slackApp.setup.transport === "socket"
+  // Rotating app-level tokens come with a refresh token that Slack shows once.
+  const rotatingAppToken = appToken.trim().startsWith("xoxe.")
   const registered = slackApp.app_id !== null || slackApp.unreadable
   // The API keeps a saved secret only while the app ID stays the same.
   const sameApp = slackApp.app_id !== null && appId.trim() === slackApp.app_id
@@ -160,7 +163,8 @@ function SlackAppCredentials({
     clientId.trim() !== "" &&
     has(clientSecret, slackApp.client_secret_set) &&
     has(signingSecret, slackApp.signing_secret_set) &&
-    (!socket || has(appToken, slackApp.app_token_set))
+    (!socket || has(appToken, slackApp.app_token_set)) &&
+    (!rotatingAppToken || appRefreshToken.trim() !== "")
 
   function placeholder(saved: boolean, empty: string): string {
     return sameApp && saved ? "Saved; leave blank to keep" : empty
@@ -175,6 +179,8 @@ function SlackAppCredentials({
         client_secret: clientSecret.trim() || null,
         signing_secret: signingSecret.trim() || null,
         app_token: socket ? appToken.trim() || null : null,
+        app_refresh_token:
+          socket && rotatingAppToken ? appRefreshToken.trim() : null,
       })
     } catch {
       return
@@ -182,6 +188,7 @@ function SlackAppCredentials({
     setClientSecret("")
     setSigningSecret("")
     setAppToken("")
+    setAppRefreshToken("")
   }
 
   return (
@@ -238,10 +245,26 @@ function SlackAppCredentials({
           id="slack-app-token"
           label="App-level token"
           value={appToken}
-          onChange={setAppToken}
+          onChange={(value) => {
+            // A refresh token belongs to the token it was shown with.
+            setAppToken(value)
+            setAppRefreshToken("")
+          }}
           disabled={saving}
           placeholder={placeholder(slackApp.app_token_set, "xapp-...")}
           help="An app-level token with connections:write, for Socket Mode."
+          secret
+        />
+      ) : null}
+      {socket && rotatingAppToken ? (
+        <CredentialField
+          id="slack-app-refresh-token"
+          label="App-level refresh token"
+          value={appRefreshToken}
+          onChange={setAppRefreshToken}
+          disabled={saving}
+          placeholder="xoxe-..."
+          help="Slack shows it once, beside the token."
           secret
         />
       ) : null}

@@ -87,6 +87,7 @@ describe("PlatformSlackAppSettings", () => {
     expect(manifest.oauth_config.redirect_urls).toEqual([
       "https://api.example.com/agent/channel-bots/slack/oauth/callback",
     ])
+    expect(manifest.settings.token_rotation_enabled).toBe(true)
   })
 
   it("registers a new app only once every credential is filled in", async () => {
@@ -110,6 +111,7 @@ describe("PlatformSlackAppSettings", () => {
           client_secret: "client",
           signing_secret: "signing",
           app_token: null,
+          app_refresh_token: null,
         },
       })
     )
@@ -137,6 +139,7 @@ describe("PlatformSlackAppSettings", () => {
           client_secret: null,
           signing_secret: null,
           app_token: null,
+          app_refresh_token: null,
         },
       })
     )
@@ -156,6 +159,44 @@ describe("PlatformSlackAppSettings", () => {
     expect(save).toBeDisabled()
     await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
     expect(save).toBeEnabled()
+  })
+
+  it("saves a rotating app-level token with its refresh token", async () => {
+    const socket = slackApp({
+      ...SAVED,
+      setup: { ...SAVED.setup, transport: "socket", request_url: null },
+    })
+    api.get.mockResolvedValue(socket)
+    api.save.mockResolvedValue(socket)
+    renderSettings()
+
+    const save = await screen.findByRole("button", { name: "Save" })
+    expect(
+      screen.queryByLabelText("App-level refresh token")
+    ).not.toBeInTheDocument()
+    await userEvent.type(
+      screen.getByLabelText("App-level token"),
+      "xoxe.xapp-1"
+    )
+    expect(save).toBeDisabled()
+    await userEvent.type(
+      screen.getByLabelText("App-level refresh token"),
+      "xoxe-1"
+    )
+    await userEvent.click(save)
+
+    await waitFor(() =>
+      expect(api.save).toHaveBeenCalledWith({
+        requestBody: {
+          app_id: "A0SYNTHETIC",
+          client_id: "111.222",
+          client_secret: null,
+          signing_secret: null,
+          app_token: "xoxe.xapp-1",
+          app_refresh_token: "xoxe-1",
+        },
+      })
+    )
   })
 
   it("removes the app after a confirmation", async () => {

@@ -47,7 +47,13 @@ class SlackPlatformAppService(BasePlatformService):
         kept = stored if stored is not None and stored.app_id == params.app_id else None
         client_secret = params.client_secret or (kept.client_secret if kept else "")
         signing_secret = params.signing_secret or (kept.signing_secret if kept else "")
-        app_token = params.app_token or (kept.app_token if kept else None)
+        # A refresh token belongs to the app-level token it was issued with.
+        if params.app_token is not None:
+            app_token, app_refresh_token = params.app_token, params.app_refresh_token
+        elif kept is not None:
+            app_token, app_refresh_token = kept.app_token, kept.app_refresh_token
+        else:
+            app_token = app_refresh_token = None
         missing = [
             name
             for name, value in (
@@ -68,6 +74,7 @@ class SlackPlatformAppService(BasePlatformService):
             client_secret=client_secret,
             signing_secret=signing_secret,
             app_token=app_token,
+            app_refresh_token=app_refresh_token,
         )
         await write_slack_platform_app(self.session, app)
         await self.session.commit()

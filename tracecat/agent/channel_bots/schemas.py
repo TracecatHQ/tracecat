@@ -179,16 +179,23 @@ class SlackBotInstall(ChannelBotInstallBase):
 
     @model_validator(mode="after")
     def _refresh_token_matches_app_token(self) -> Self:
-        rotating = self.app_token is not None and self.app_token.startswith("xoxe.")
-        if rotating and self.app_refresh_token is None:
-            raise ValueError(
-                "A rotating `xoxe.xapp-` app-level token needs its refresh token"
-            )
-        if not rotating and self.app_refresh_token is not None:
-            raise ValueError(
-                "Only a rotating `xoxe.xapp-` app-level token takes a refresh token"
-            )
+        check_slack_app_refresh_token(self.app_token, self.app_refresh_token)
         return self
+
+
+def check_slack_app_refresh_token(
+    app_token: str | None, app_refresh_token: str | None
+) -> None:
+    """A rotating `xoxe.xapp-` app-level token comes with its refresh token, and only one does."""
+    rotating = app_token is not None and app_token.startswith("xoxe.")
+    if rotating and app_refresh_token is None:
+        raise ValueError(
+            "A rotating `xoxe.xapp-` app-level token needs its refresh token"
+        )
+    if not rotating and app_refresh_token is not None:
+        raise ValueError(
+            "Only a rotating `xoxe.xapp-` app-level token takes a refresh token"
+        )
 
 
 type ChannelBotInstall = Annotated[SlackBotInstall, Field(discriminator="provider")]

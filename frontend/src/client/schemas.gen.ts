@@ -37058,7 +37058,7 @@ export const $SlackPlatformAppUpdate = {
       anyOf: [
         {
           type: "string",
-          pattern: "^xapp-.+",
+          pattern: "^(xoxe\\.)?xapp-.+",
         },
         {
           type: "null",
@@ -37066,7 +37066,21 @@ export const $SlackPlatformAppUpdate = {
       ],
       title: "App Token",
       description:
-        "App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.",
+        "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.",
+    },
+    app_refresh_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xoxe-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Refresh Token",
+      description:
+        "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.",
     },
   },
   additionalProperties: false,
