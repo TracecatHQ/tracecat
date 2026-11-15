@@ -376,9 +376,6 @@ function GitHubConnectionDialog({
                       </FormItem>
                     )}
                   />
-                  {manifest?.manifest ? (
-                    <GitHubAppManifestUrls manifest={manifest.manifest} />
-                  ) : null}
                   <Button
                     type="submit"
                     className="gap-2"
@@ -387,6 +384,9 @@ function GitHubConnectionDialog({
                     <ExternalLinkIcon className="size-4" />
                     Create GitHub App
                   </Button>
+                  {manifest?.manifest ? (
+                    <GitHubAppManifestUrls manifest={manifest.manifest} />
+                  ) : null}
                 </form>
               </Form>
             </TabsContent>
