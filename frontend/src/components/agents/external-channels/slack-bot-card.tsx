@@ -17,7 +17,6 @@ import {
   useChannelBotDialog,
 } from "@/components/agents/external-channels/channel-bot-card"
 import {
-  CopyField,
   CredentialField,
   EndpointField,
 } from "@/components/agents/external-channels/channel-bot-fields"
@@ -33,6 +32,7 @@ import {
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { CopyField } from "@/components/copy-field"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
