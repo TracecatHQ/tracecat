@@ -1589,7 +1589,7 @@ export const $AgentChannelBotRead = {
       ],
       title: "Endpoint Url",
       description:
-        "Inbound event URL; None for a provider that delivers events over a socket.",
+        "Inbound event URL; None when the bot's events arrive over a socket.",
     },
     created_at: {
       type: "string",
@@ -13106,7 +13106,7 @@ export const $ChannelBotTransport = {
   enum: ["http", "socket"],
   title: "ChannelBotTransport",
   description:
-    "How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them.",
+    "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
 } as const
 
 export const $ChannelType = {
@@ -36620,7 +36620,7 @@ export const $SlackBotInstall = {
       anyOf: [
         {
           type: "string",
-          minLength: 1,
+          pattern: "^xapp-",
         },
         {
           type: "null",
@@ -36628,7 +36628,7 @@ export const $SlackBotInstall = {
       ],
       title: "App Token",
       description:
-        "App-level token with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.",
+        "App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.",
     },
     return_url: {
       type: "string",

@@ -300,7 +300,7 @@ def test_routes_hand_the_request_to_the_installed_admin(
 @pytest.mark.parametrize(
     "body",
     [INSTALL_BODY, {**INSTALL_BODY, "app_token": "xapp-1"}],
-    ids=["http", "socket"],
+    ids=["without_app_token", "with_app_token"],
 )
 def test_install_hands_the_parsed_provider_request_to_the_admin(
     client: TestClient, admin: AsyncMock, body: dict[str, str]
@@ -319,15 +319,18 @@ def test_install_hands_the_parsed_provider_request_to_the_admin(
     )
 
 
-def test_install_refuses_a_blank_app_token(
-    client: TestClient, admin: AsyncMock
+@pytest.mark.parametrize(
+    "app_token", ["", "xoxb-bot-token"], ids=["blank", "bot_token"]
+)
+def test_install_refuses_a_token_that_is_not_an_app_token(
+    client: TestClient, admin: AsyncMock, app_token: str
 ) -> None:
     response = client.post(
-        "/agent/channel-bots/install", json={**INSTALL_BODY, "app_token": ""}
+        "/agent/channel-bots/install", json={**INSTALL_BODY, "app_token": app_token}
     )
 
     assert response.status_code == 422
-    assert [e["loc"][-1] for e in response.json()["detail"]] == ["app_token"]
+    assert [error["loc"][-1] for error in response.json()["detail"]] == ["app_token"]
     assert admin.mock_calls == []
 
 

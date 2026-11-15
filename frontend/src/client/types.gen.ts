@@ -478,7 +478,7 @@ export type AgentChannelBotRead = {
   provider_tenant_id: string | null
   provider_app_id: string | null
   /**
-   * Inbound event URL; None for a provider that delivers events over a socket.
+   * Inbound event URL; None when the bot's events arrive over a socket.
    */
   endpoint_url: string | null
   created_at: string
@@ -3550,7 +3550,7 @@ export type ChannelBotStatus =
   | "needs_reconnect"
 
 /**
- * How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them.
+ * How a bot's events arrive: posted to our endpoint, or read from a provider socket.
  */
 export type ChannelBotTransport = "http" | "socket"
 
@@ -11137,7 +11137,7 @@ export type SlackBotInstall = {
   client_secret: string
   signing_secret: string
   /**
-   * App-level token with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.
+   * App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.
    */
   app_token?: string | null
   return_url: string
