@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -229,22 +230,29 @@ async def test_an_admin_change_waits_for_an_in_flight_refresh_and_keeps_its_toke
                 await service.mark_setup_steps(steps, setup)
 
         save = asyncio.create_task(admin_change())
-        async with sessions() as observer:
-            for _ in range(100):
-                wait_event = await observer.scalar(
-                    text(
-                        "SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"
-                    ),
-                    {"pid": save_pid},
-                )
-                if wait_event == "Lock":
-                    break
-                await asyncio.sleep(0.05)
-            else:
-                pytest.fail("the admin save never waited on the refresh's row lock")
-        await store_refreshed(refreshing)
-        await refreshing.commit()
-        await save
+        try:
+            async with sessions() as observer:
+                for _ in range(100):
+                    wait_event = await observer.scalar(
+                        text(
+                            "SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"
+                        ),
+                        {"pid": save_pid},
+                    )
+                    if wait_event == "Lock":
+                        break
+                    await asyncio.sleep(0.05)
+                else:
+                    pytest.fail("the admin save never waited on the refresh's row lock")
+            await store_refreshed(refreshing)
+            await refreshing.commit()
+            await save
+        finally:
+            # Never outlive the sessions closing below.
+            if not save.done():
+                save.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await save
 
     async with sessions() as check:
         stored = await read_slack_platform_app(check)

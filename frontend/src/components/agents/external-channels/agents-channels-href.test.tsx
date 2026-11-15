@@ -12,6 +12,7 @@ import {
   WORKSPACE_ID,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
 import { renderWithClient } from "@/components/agents/external-channels/channel-bot-test-render"
+import { useSlackPlatformAppAvailable } from "@/hooks/use-agent-channel-bots"
 
 jest.mock("@/client")
 
@@ -23,12 +24,17 @@ beforeEach(() => {
 
 function hrefOf() {
   let href: string | undefined
+  let loading = true
   function Probe(): ReactNode {
     href = useAgentsChannelsHref(WORKSPACE_ID)
+    loading = useSlackPlatformAppAvailable(WORKSPACE_ID).slackPlatformIsLoading
     return null
   }
   renderWithClient(<Probe />)
-  return () => href
+  const read = () => href
+  // Settled, so an undefined href is the answer rather than a pending query.
+  read.settled = () => waitFor(() => expect(loading).toBe(false))
+  return read
 }
 
 describe("useAgentsChannelsHref", () => {
@@ -43,7 +49,7 @@ describe("useAgentsChannelsHref", () => {
   it("is undefined without a registered Slack app", async () => {
     const href = hrefOf()
     await waitFor(() => expect(api.listPlatformApps).toHaveBeenCalled())
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await href.settled()
     expect(href()).toBeUndefined()
   })
 
