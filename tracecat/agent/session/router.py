@@ -1061,6 +1061,11 @@ async def cancel_session(
             status_code=status.HTTP_409_CONFLICT,
             detail=e.detail or str(e),
         ) from e
+    except AgentControlUncertain as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cancel outcome is unknown; retry",
+        ) from e
 
 
 @router.post("/{session_id}/control")

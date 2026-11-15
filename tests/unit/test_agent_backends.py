@@ -879,6 +879,9 @@ async def test_lifecycle_and_cancel_use_selected_backend():
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DefaultBackend)
     provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.get_turn_lifecycle_for_control = AsyncMock(
+        return_value=TurnLifecycle.RUNNING
+    )
     provider.cancel = AsyncMock()
     with (
         patch.object(service, "get_session", return_value=ctx.session),
@@ -894,6 +897,7 @@ async def test_lifecycle_and_cancel_use_selected_backend():
         assert result.lifecycle == TurnLifecycle.RUNNING
         await service.request_cancel(ctx.session.id)
     provider.get_turn_lifecycle.assert_awaited_with(ctx.run_id)
+    provider.get_turn_lifecycle_for_control.assert_awaited_with(ctx.run_id)
     provider.cancel.assert_awaited_once_with(ctx.run_id)
 
 
@@ -907,6 +911,7 @@ def _control_provider(
     provider.steering = steering
     provider.withdrawing = withdrawing
     provider.get_turn_lifecycle = AsyncMock(return_value=lifecycle)
+    provider.get_turn_lifecycle_for_control = AsyncMock(return_value=lifecycle)
     provider.steer = AsyncMock(return_value=True)
     provider.withdraw = AsyncMock(return_value=WithdrawResult())
     provider.cancel = AsyncMock()
@@ -1845,6 +1850,51 @@ async def test_backend_missing_execution_keeps_reconnect_terminal():
         assert (
             await DefaultBackend().get_turn_lifecycle(uuid4()) == TurnLifecycle.FAILED
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "code", [RPCStatusCode.UNAVAILABLE, RPCStatusCode.DEADLINE_EXCEEDED]
+)
+async def test_control_lookup_outage_is_uncertain_not_finished(code):
+    handle = Mock(describe=AsyncMock(side_effect=RPCError("down", code, b"")))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await DefaultBackend().get_turn_lifecycle_for_control(uuid4())
+
+
+@pytest.mark.anyio
+async def test_control_lookup_missing_execution_is_finished():
+    handle = Mock(
+        describe=AsyncMock(side_effect=RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+    )
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        lifecycle = await DefaultBackend().get_turn_lifecycle_for_control(uuid4())
+    assert lifecycle == TurnLifecycle.FAILED
+
+
+@pytest.mark.anyio
+async def test_stop_during_temporal_outage_is_uncertain():
+    ctx = context()
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = _control_provider()
+    provider.get_turn_lifecycle_for_control = AsyncMock(
+        side_effect=AgentControlUncertain("Temporal is unavailable")
+    )
+    with (
+        patch.object(service, "_controlled_session", return_value=ctx.session),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await service.stop_run(ctx.session.id, run_id=ctx.run_id)
+    provider.cancel.assert_not_awaited()
 
 
 @pytest.mark.anyio

@@ -713,18 +713,24 @@ class AgentBackend[InputT, OutputT](ABC):
                 "Failed to describe agent workflow for reconnect", run_id=str(run_id)
             )
             return TurnLifecycle.FAILED
-        match description.status:
-            case (
-                WorkflowExecutionStatus.RUNNING
-                | WorkflowExecutionStatus.CONTINUED_AS_NEW
-            ):
-                return TurnLifecycle.RUNNING
-            case WorkflowExecutionStatus.COMPLETED:
-                return TurnLifecycle.COMPLETED
-            case WorkflowExecutionStatus.CANCELED:
-                return TurnLifecycle.CANCELLED
-            case _:
+        return _turn_lifecycle(description.status)
+
+    async def get_turn_lifecycle_for_control(self, run_id: UUID) -> TurnLifecycle:
+        """Resolve execution status for a control that acts on the answer.
+
+        Raises:
+            AgentControlUncertain: If Temporal is unavailable, so the turn may still run.
+        """
+        handle = await self.handle(run_id)
+        try:
+            description = await handle.describe()
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
                 return TurnLifecycle.FAILED
+            if e.status in _TRANSIENT_RPC_STATUSES:
+                raise AgentControlUncertain("Temporal is unavailable") from e
+            raise
+        return _turn_lifecycle(description.status)
 
     async def cancel(self, run_id: UUID) -> None:
         """Interrupt the live executor and durably request workflow cancellation."""
@@ -742,3 +748,15 @@ class AgentBackend[InputT, OutputT](ABC):
                 id=f"cancel:{run_id}",
             ),
         )
+
+
+def _turn_lifecycle(status: WorkflowExecutionStatus | None) -> TurnLifecycle:
+    match status:
+        case WorkflowExecutionStatus.RUNNING | WorkflowExecutionStatus.CONTINUED_AS_NEW:
+            return TurnLifecycle.RUNNING
+        case WorkflowExecutionStatus.COMPLETED:
+            return TurnLifecycle.COMPLETED
+        case WorkflowExecutionStatus.CANCELED:
+            return TurnLifecycle.CANCELLED
+        case _:
+            return TurnLifecycle.FAILED

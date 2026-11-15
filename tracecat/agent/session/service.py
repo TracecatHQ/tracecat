@@ -2571,13 +2571,21 @@ class AgentSessionService(BaseWorkspaceService):
     async def _cancel_if_running(
         self, agent_session: AgentSession
     ) -> TurnLifecycleResult:
-        """Cancel the session's turn if it is running; return the lifecycle seen."""
-        result = await self.get_turn_lifecycle(agent_session)
-        if result.lifecycle is TurnLifecycle.RUNNING and result.run_id is not None:
+        """Cancel the session's turn if it is running; return the lifecycle seen.
+
+        Raises:
+            AgentControlUncertain: If Temporal cannot say whether the turn runs.
+        """
+        curr_run_id = agent_session.curr_run_id
+        backend = find_agent_backend(agent_session.backend_id)
+        if curr_run_id is None or backend is None:
+            return await self.get_turn_lifecycle(agent_session)
+        lifecycle = await backend.get_turn_lifecycle_for_control(curr_run_id)
+        if lifecycle is TurnLifecycle.RUNNING:
             await get_agent_backend(
                 agent_session.backend_id, harness_type=agent_session.harness_type
-            ).cancel(result.run_id)
-        return result
+            ).cancel(curr_run_id)
+        return TurnLifecycleResult(lifecycle, curr_run_id)
 
     async def control(
         self, session_id: uuid.UUID, request: AgentControlRequest
