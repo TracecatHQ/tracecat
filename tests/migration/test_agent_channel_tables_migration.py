@@ -398,7 +398,9 @@ def test_a_bot_never_targets_another_workspaces_preset(
     )
 
 
-def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -> None:
+def test_rls_isolates_bots_links_and_routes_by_workspace(
+    db_url: str, engine: Engine
+) -> None:
     """A non-owner role sees and writes only its current workspace's rows."""
     _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, other_ws = _workspace(engine)
@@ -415,6 +417,8 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
             [
                 _link(bot.id, session.id, ws),
                 _link(other_bot.id, other_session.id, other_ws),
+                _route(bot.id, ws, preset_id),
+                _route(other_bot.id, other_ws, other_preset_id),
             ]
         )
     role = f"channel_rls_{uuid.uuid4().hex[:8]}"
@@ -424,8 +428,8 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
             conn.execute(text(f'GRANT USAGE ON SCHEMA public TO "{role}"'))
             conn.execute(
                 text(
-                    "GRANT SELECT, INSERT ON agent_channel_bot, agent_session_thread"
-                    f' TO "{role}"'
+                    "GRANT SELECT, INSERT ON agent_channel_bot, agent_session_thread,"
+                    f' agent_channel_route TO "{role}"'
                 )
             )
 
@@ -436,7 +440,7 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
                 {"ws": str(ws)},
             )
 
-            def visible() -> tuple[set[uuid.UUID], set[uuid.UUID]]:
+            def visible() -> tuple[set[uuid.UUID], set[uuid.UUID], set[uuid.UUID]]:
                 # Other tests share this database; count only this test's rows.
                 mine = (ws, other_ws)
                 bots = conn.execute(
@@ -449,9 +453,14 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
                         AgentSessionThread.workspace_id.in_(mine)
                     )
                 ).scalars()
-                return set(bots), set(links)
+                routes = conn.execute(
+                    select(AgentChannelRoute.bot_id).where(
+                        AgentChannelRoute.workspace_id.in_(mine)
+                    )
+                ).scalars()
+                return set(bots), set(links), set(routes)
 
-            assert visible() == ({bot.id}, {session.id})
+            assert visible() == ({bot.id}, {session.id}, {bot.id})
             with (
                 pytest.raises(ProgrammingError, match="row-level security"),
                 conn.begin_nested(),
@@ -466,8 +475,25 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
                     )
                 )
 
+            with (
+                pytest.raises(ProgrammingError, match="row-level security"),
+                conn.begin_nested(),
+            ):
+                conn.execute(
+                    insert(AgentChannelRoute).values(
+                        bot_id=other_bot.id,
+                        workspace_id=other_ws,
+                        provider_channel_id="C2",
+                        agent_preset_id=other_preset_id,
+                    )
+                )
+
             conn.execute(text("SELECT set_config('app.rls_bypass', 'on', true)"))
-            assert visible() == ({bot.id, other_bot.id}, {session.id, other_session.id})
+            assert visible() == (
+                {bot.id, other_bot.id},
+                {session.id, other_session.id},
+                {bot.id, other_bot.id},
+            )
     finally:
         with engine.begin() as conn:
             conn.execute(text(f'DROP OWNED BY "{role}"'))
