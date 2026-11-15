@@ -90,6 +90,10 @@ export function useChannelBotDialog({
   }
 }
 
+/** What a user without `agent:update` sees instead of steps they cannot take. */
+export const ASK_AN_AGENT_EDITOR =
+  "Ask someone who can edit this agent to connect it again."
+
 /** A provider row in the Channels tab. */
 export function ChannelBotCard({
   providerId,
@@ -141,7 +145,9 @@ export function ChannelBotCard({
       {state === "needs_reconnect" ? (
         <Alert>
           <AlertTitle>Reconnect needed</AlertTitle>
-          <AlertDescription>{reconnectHint}</AlertDescription>
+          <AlertDescription>
+            {canUpdateAgent ? reconnectHint : ASK_AN_AGENT_EDITOR}
+          </AlertDescription>
         </Alert>
       ) : null}
       {children}

@@ -10,6 +10,7 @@ import type {
   SlackBotInstall,
 } from "@/client"
 import {
+  ASK_AN_AGENT_EDITOR,
   ChannelBotCard,
   ChannelBotDialog,
   ChannelBotLifecycleActions,
@@ -31,6 +32,7 @@ import {
   httpsUrlOrNull,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
@@ -67,6 +69,7 @@ export function SlackBotCard({
   const details = channelBotDetails(bot, "slack")
   const state = channelBotState(bot, details?.has_bot_token === true)
   const missingScopes = details?.missing_scopes ?? []
+  const canUpdateAgent = useScopeCheck("agent:update") === true
   const updateNeeded =
     CHANNEL_BOT_STATES[state].installed &&
     (details?.update_needed === true || missingScopes.length > 0)
@@ -89,11 +92,18 @@ export function SlackBotCard({
         <Alert>
           <AlertTitle>Update needed</AlertTitle>
           <AlertDescription>
-            Update the Slack app from the latest manifest, then connect again
-            {missingScopes.length > 0
-              ? ` to grant: ${missingScopes.join(", ")}`
-              : ""}
-            .
+            {canUpdateAgent ? (
+              <>
+                Update the Slack app from the latest manifest, then connect
+                again
+                {missingScopes.length > 0
+                  ? ` to grant: ${missingScopes.join(", ")}`
+                  : ""}
+                .
+              </>
+            ) : (
+              ASK_AN_AGENT_EDITOR
+            )}
           </AlertDescription>
         </Alert>
       ) : null}

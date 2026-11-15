@@ -129,13 +129,15 @@ export function httpsUrlOrNull(value: string | null): string | null {
   }
 }
 
-const LOOPBACK_HOST = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
+// Loopback, unspecified, link-local, and RFC 1918 private hosts.
+const PRIVATE_HOST =
+  /^(localhost|.+\.localhost|0\.0\.0\.0|127(\.\d{1,3}){3}|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|169\.254(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|\[::1\])$/i
 
-/** Whether a provider cannot call `url`: it is not https, or is a loopback host. */
+/** Whether a provider cannot call `url`: it is not https, or its host is private. */
 export function isUnreachableEndpoint(url: string): boolean {
   try {
     const { protocol, hostname } = new URL(url)
-    return protocol !== "https:" || LOOPBACK_HOST.test(hostname)
+    return protocol !== "https:" || PRIVATE_HOST.test(hostname)
   } catch {
     return true
   }

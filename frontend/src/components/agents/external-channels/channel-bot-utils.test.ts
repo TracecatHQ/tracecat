@@ -72,6 +72,18 @@ describe("isUnreachableEndpoint", () => {
     expect(isUnreachableEndpoint("https://127.0.0.1:8000/x")).toBe(true)
     expect(isUnreachableEndpoint("https://[::1]/x")).toBe(true)
     expect(isUnreachableEndpoint("not a url")).toBe(true)
+    for (const host of [
+      "0.0.0.0",
+      "10.1.2.3",
+      "172.16.0.1",
+      "172.31.255.255",
+      "192.168.1.10",
+      "169.254.169.254",
+    ]) {
+      expect(isUnreachableEndpoint(`https://${host}/x`)).toBe(true)
+    }
+    expect(isUnreachableEndpoint("https://172.32.0.1/x")).toBe(false)
+    expect(isUnreachableEndpoint("https://11.0.0.1/x")).toBe(false)
   })
 })
 

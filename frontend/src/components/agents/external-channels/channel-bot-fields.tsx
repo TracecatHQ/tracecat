@@ -25,18 +25,18 @@ export function CopyField({
 }) {
   const id = useId()
   const warningId = `${id}-warning`
+  const helpId = `${id}-help`
+  const describedBy =
+    [warning ? warningId : null, help ? helpId : null]
+      .filter(Boolean)
+      .join(" ") || undefined
   return (
     <div className="space-y-2">
       <Label htmlFor={id} className="text-xs">
         {label}
       </Label>
       <div className="flex items-center gap-2">
-        <Input
-          id={id}
-          readOnly
-          value={value}
-          aria-describedby={warning ? warningId : undefined}
-        />
+        <Input id={id} readOnly value={value} aria-describedby={describedBy} />
         <CopyButton
           value={value}
           toastMessage={`${label} copied`}
@@ -48,7 +48,11 @@ export function CopyField({
           {warning}
         </p>
       ) : null}
-      {help ? <p className="text-xs text-muted-foreground">{help}</p> : null}
+      {help ? (
+        <p id={helpId} className="text-xs text-muted-foreground">
+          {help}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -113,8 +117,13 @@ export function CredentialField({
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
         placeholder={placeholder}
+        aria-describedby={help ? `${id}-help` : undefined}
       />
-      {help ? <p className="text-xs text-muted-foreground">{help}</p> : null}
+      {help ? (
+        <p id={`${id}-help`} className="text-xs text-muted-foreground">
+          {help}
+        </p>
+      ) : null}
     </div>
   )
 }

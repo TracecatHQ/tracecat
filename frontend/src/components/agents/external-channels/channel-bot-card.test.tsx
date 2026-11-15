@@ -156,6 +156,16 @@ describe.each(PROVIDERS)(
       expect(within(row).getByRole("button", { name: action })).toBeDisabled()
     })
 
+    it("asks a user without agent:update to find an editor", async () => {
+      mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+      serveBots([installed({ status: "needs_reconnect" })])
+      renderPanel()
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Ask someone who can edit this agent"
+      )
+    })
+
     it("flags a bot that needs reconnecting", async () => {
       serveBots([installed({ status: "needs_reconnect" })])
       renderPanel()
