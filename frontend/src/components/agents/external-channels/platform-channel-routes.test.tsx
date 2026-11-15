@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import type { AgentChannelRouteRead } from "@/client"
 import {
   api,
+  apiError,
   PRESET,
   platformSlackBot,
   serveBots,
@@ -11,9 +12,11 @@ import {
 } from "@/components/agents/external-channels/channel-bot-fixtures"
 import { renderChannelsPage } from "@/components/agents/external-channels/channel-bot-test-render"
 
+const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
+
 jest.mock("@/client")
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
 }))
 
 const INSTALL_ID = "platform-1"
@@ -59,6 +62,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockUseScopeCheck.mockImplementation(() => true)
   serveEntitlements()
   servePlatform()
   api.setRoute.mockResolvedValue(route("C1", PRESET.id))
@@ -73,7 +77,7 @@ describe("PlatformChannelRoutes", () => {
       within(card).getByText("Every channel uses the default agent.")
     ).toBeInTheDocument()
 
-    await userEvent.type(within(card).getByLabelText("Channel ID"), " C9 ")
+    await userEvent.type(within(card).getByLabelText("Channel ID"), " c9 ")
     await choose(card, "Agent for the new route", "Phishing")
     await userEvent.click(within(card).getByRole("button", { name: "Add" }))
 
@@ -113,6 +117,49 @@ describe("PlatformChannelRoutes", () => {
       botId: INSTALL_ID,
       requestBody: { provider_channel_id: "C1", agent_preset_id: PRESET.id },
     })
+  })
+
+  it("keeps the new-route form when a listed channel changes agent", async () => {
+    servePlatform([route("C1", "preset-2")])
+    const card = await editor()
+    await within(card).findByText("C1")
+    await userEvent.type(within(card).getByLabelText("Channel ID"), "C9")
+
+    await choose(card, "Agent for C1", "Triage")
+
+    await waitFor(() => expect(api.setRoute).toHaveBeenCalled())
+    expect(within(card).getByLabelText("Channel ID")).toHaveValue("C9")
+  })
+
+  it("blocks adding a route until the channels load", async () => {
+    api.listRoutes.mockRejectedValue(apiError(400, { detail: "Flaky" }))
+    renderChannelsPage()
+    const card = await screen.findByRole("group", {
+      name: "Tracecat for Slack",
+    })
+    expect(await within(card).findByText("Flaky")).toBeInTheDocument()
+    expect(within(card).getByLabelText("Channel ID")).toBeDisabled()
+    expect(within(card).getByRole("button", { name: "Add" })).toBeDisabled()
+  })
+
+  it("is read-only without agent:update", async () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    servePlatform([route("C1", "preset-2")])
+    const card = await editor()
+    await within(card).findByText("C1")
+
+    for (const name of [
+      "Default agent",
+      "Agent for C1",
+      "Agent for the new route",
+    ]) {
+      expect(within(card).getByRole("combobox", { name })).toBeDisabled()
+    }
+    expect(within(card).getByLabelText("Channel ID")).toBeDisabled()
+    expect(within(card).getByRole("button", { name: "Add" })).toBeDisabled()
+    expect(
+      within(card).getByRole("button", { name: "Remove C1" })
+    ).toBeDisabled()
   })
 
   it("removes a channel's route", async () => {

@@ -26,6 +26,7 @@ import {
   usePlatformChannelBots,
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
+import { getApiErrorDetail } from "@/lib/errors"
 
 /**
  * The platform app for Slack: one install per workspace, answering new threads
@@ -40,7 +41,11 @@ export function SlackPlatformCard({
   /** The last Add to Slack hit a Slack workspace another Tracecat workspace holds. */
   workspaceClaimed?: boolean
 }) {
-  const { installs } = usePlatformChannelBots(workspaceId, "slack", true)
+  const { installs, installsError } = usePlatformChannelBots(
+    workspaceId,
+    "slack",
+    true
+  )
   const { presets } = useAgentPresets(workspaceId)
   const { installPlatformBot, installPlatformBotIsPending } =
     useInstallPlatformChannelBot(workspaceId, "slack")
@@ -49,7 +54,12 @@ export function SlackPlatformCard({
   const [chosenAgentId, setChosenAgentId] = useState<string | null>(null)
 
   if (!installs) {
-    return null
+    return installsError ? (
+      <p className="p-4 text-sm text-destructive">
+        {getApiErrorDetail(installsError) ??
+          "Failed to load Tracecat for Slack."}
+      </p>
+    ) : null
   }
   const install = pickChannelBot(installs)
   // Only a finished install records the Slack app.

@@ -123,10 +123,11 @@ export function useAgentChannelBots(
 /** The providers whose app this deployment registers, installable in one click. */
 export function useChannelBotPlatformApps(workspaceId: string) {
   const { hasEntitlement } = useEntitlements()
-  const { data: platformApps, isLoading: platformAppsIsLoading } = useQuery<
-    Array<ChannelBotPlatformApp>,
-    TracecatApiError
-  >({
+  const {
+    data: platformApps,
+    isLoading: platformAppsIsLoading,
+    error: platformAppsError,
+  } = useQuery<Array<ChannelBotPlatformApp>, TracecatApiError>({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform-apps"],
     queryFn: async () =>
       await agentChannelBotsListPlatformApps({ workspaceId }),
@@ -134,7 +135,7 @@ export function useChannelBotPlatformApps(workspaceId: string) {
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { platformApps, platformAppsIsLoading }
+  return { platformApps, platformAppsIsLoading, platformAppsError }
 }
 
 /**
@@ -143,13 +144,14 @@ export function useChannelBotPlatformApps(workspaceId: string) {
  */
 export function useSlackPlatformAppAvailable(workspaceId: string) {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const { platformApps, platformAppsIsLoading } =
+  const { platformApps, platformAppsIsLoading, platformAppsError } =
     useChannelBotPlatformApps(workspaceId)
   return {
     slackPlatformAvailable:
       hasEntitlement("agent_channels_preview") &&
       platformApps?.some((app) => app.provider === "slack") === true,
     slackPlatformIsLoading: entitlementsLoading || platformAppsIsLoading,
+    slackPlatformError: platformAppsError,
   }
 }
 
@@ -159,7 +161,7 @@ export function usePlatformChannelBots(
   provider: ChannelBotProvider,
   enabled: boolean
 ) {
-  const { data: installs } = useQuery<
+  const { data: installs, error: installsError } = useQuery<
     Array<AgentChannelBotRead>,
     TracecatApiError
   >({
@@ -177,22 +179,23 @@ export function usePlatformChannelBots(
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { installs }
+  return { installs, installsError }
 }
 
 /** Which agent answers new threads in each channel of a platform install. */
 export function useChannelBotRoutes(workspaceId: string, botId: string) {
-  const { data: routes } = useQuery<
-    Array<AgentChannelRouteRead>,
-    TracecatApiError
-  >({
+  const {
+    data: routes,
+    isLoading: routesIsLoading,
+    error: routesError,
+  } = useQuery<Array<AgentChannelRouteRead>, TracecatApiError>({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes"],
     queryFn: async () =>
       await agentChannelBotsListBotRoutes({ workspaceId, botId }),
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { routes }
+  return { routes, routesIsLoading, routesError }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */

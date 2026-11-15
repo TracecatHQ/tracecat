@@ -23,6 +23,7 @@ import {
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
+import { getApiErrorDetail } from "@/lib/errors"
 
 /** Picks one of the workspace's agents. */
 export function AgentSelect({
@@ -68,7 +69,10 @@ export function PlatformChannelRoutes({
   canUpdate: boolean
 }) {
   const { presets } = useAgentPresets(workspaceId)
-  const { routes } = useChannelBotRoutes(workspaceId, install.id)
+  const { routes, routesIsLoading, routesError } = useChannelBotRoutes(
+    workspaceId,
+    install.id
+  )
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(
@@ -76,19 +80,27 @@ export function PlatformChannelRoutes({
     install.provider
   )
   const disabled = useChannelBotsBusy(workspaceId) || !canUpdate
+  // An unloaded list hides the routes an add would overwrite.
+  const routesDisabled = disabled || !routes
   const [channel, setChannel] = useState("")
   const [agentPresetId, setAgentPresetId] = useState("")
   const channelInputId = useId()
   const agents = presets ?? []
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[install.provider]
 
-  const newChannel = channel.trim()
+  // Slack channel IDs are uppercase; events never match a lowercase one.
+  const newChannel =
+    install.provider === "slack" ? channel.trim().toUpperCase() : channel.trim()
   const taken = routes?.some((r) => r.provider_channel_id === newChannel)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
 
-  function route(providerChannelId: string, agentId: string): void {
+  function route(
+    providerChannelId: string,
+    agentId: string,
+    onSuccess?: () => void
+  ): void {
     setRoute(
       {
         botId: install.id,
@@ -97,19 +109,17 @@ export function PlatformChannelRoutes({
           agent_preset_id: agentId,
         },
       },
-      {
-        onSuccess: () => {
-          setChannel("")
-          setAgentPresetId("")
-        },
-      }
+      { onSuccess }
     )
   }
 
   function addRoute(event: FormEvent): void {
     event.preventDefault()
     if (canAdd) {
-      route(newChannel, agentPresetId)
+      route(newChannel, agentPresetId, () => {
+        setChannel("")
+        setAgentPresetId("")
+      })
     }
   }
 
@@ -142,7 +152,13 @@ export function PlatformChannelRoutes({
       </div>
       <div className="space-y-2">
         <p className="text-xs font-medium">Channels</p>
-        {routes && routes.length > 0 ? (
+        {routesError ? (
+          <p className="text-xs text-destructive">
+            {getApiErrorDetail(routesError) ?? "Failed to load the channels."}
+          </p>
+        ) : routesIsLoading ? (
+          <p className="text-xs text-muted-foreground">Loading channels...</p>
+        ) : routes && routes.length > 0 ? (
           <ul className="space-y-2" aria-label="Channels">
             {routes.map((r) => (
               <li
@@ -198,21 +214,21 @@ export function PlatformChannelRoutes({
               onChange={(e) => setChannel(e.target.value)}
               placeholder="C0123456789"
               className="h-8 font-mono text-xs"
-              disabled={disabled}
+              disabled={routesDisabled}
             />
           </div>
           <AgentSelect
             label="Agent for the new route"
             value={agentPresetId}
             agents={agents}
-            disabled={disabled}
+            disabled={routesDisabled}
             onChange={setAgentPresetId}
           />
           <Button
             type="submit"
             size="sm"
             variant="outline"
-            disabled={disabled || !canAdd}
+            disabled={routesDisabled || !canAdd}
           >
             <Plus className="mr-2 size-4" />
             Add

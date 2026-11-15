@@ -6,6 +6,7 @@ import {
   useChannelBotInstallResult,
   useSlackPlatformAppAvailable,
 } from "@/hooks/use-agent-channel-bots"
+import { getApiErrorDetail } from "@/lib/errors"
 
 /** The workspace's Channels page: Tracecat for Slack, where available. */
 export function WorkspaceChannelsView({
@@ -14,7 +15,7 @@ export function WorkspaceChannelsView({
   workspaceId: string
 }) {
   const installFailure = useChannelBotInstallResult()
-  const { slackPlatformAvailable, slackPlatformIsLoading } =
+  const { slackPlatformAvailable, slackPlatformIsLoading, slackPlatformError } =
     useSlackPlatformAppAvailable(workspaceId)
 
   if (slackPlatformIsLoading) {
@@ -32,7 +33,12 @@ export function WorkspaceChannelsView({
             </p>
           </div>
         </div>
-        {slackPlatformAvailable ? (
+        {slackPlatformError ? (
+          <p className="text-sm text-destructive">
+            {getApiErrorDetail(slackPlatformError) ??
+              "Failed to load Tracecat for Slack."}
+          </p>
+        ) : slackPlatformAvailable ? (
           <div className="rounded-md border">
             <SlackPlatformCard
               workspaceId={workspaceId}

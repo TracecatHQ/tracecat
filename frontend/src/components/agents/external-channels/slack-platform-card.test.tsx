@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   api,
+  apiError,
   platformSlackBot,
   serveBots,
   serveEntitlements,
@@ -9,6 +10,8 @@ import {
 import { renderChannelsPage } from "@/components/agents/external-channels/channel-bot-test-render"
 import { goToChannelBotAuthorization } from "@/components/agents/external-channels/channel-bot-utils"
 import { toast } from "@/components/ui/use-toast"
+
+const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 
 jest.mock("@/client")
 jest.mock("@/components/ui/use-toast", () => ({
@@ -22,7 +25,7 @@ jest.mock("@/components/agents/external-channels/channel-bot-utils", () => ({
   goToChannelBotAuthorization: jest.fn(),
 }))
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
 }))
 
 const goTo = jest.mocked(goToChannelBotAuthorization)
@@ -56,6 +59,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockUseScopeCheck.mockImplementation(() => true)
   serveEntitlements()
   serveBots([])
   window.history.replaceState({}, "", PAGE_PATH)
@@ -190,6 +194,47 @@ describe("Channels page", () => {
     expect(
       within(row).queryByRole("button", { name: "Add to Slack" })
     ).toBeNull()
+  })
+
+  it("is read-only without agent:update", async () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    servePlatform([])
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(
+      within(row).getByRole("button", { name: "Add to Slack" })
+    ).toBeDisabled()
+    expect(
+      within(row).getByRole("combobox", { name: "Default agent" })
+    ).toBeDisabled()
+  })
+
+  it("shows connected controls disabled without agent:update", async () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    servePlatform()
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(
+      await within(row).findByRole("combobox", { name: "Default agent" })
+    ).toBeDisabled()
+    expect(within(row).getByLabelText("Channel ID")).toBeDisabled()
+    expect(within(row).getByRole("button", { name: "Add" })).toBeDisabled()
+    expect(within(row).queryByRole("button", { name: "Pause" })).toBeNull()
+    expect(within(row).queryByRole("button", { name: "Disconnect" })).toBeNull()
+  })
+
+  it("shows why the installs failed to load", async () => {
+    api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
+    api.listBots.mockRejectedValue(apiError(400, { detail: "Flaky" }))
+    renderChannelsPage()
+    expect(await screen.findByText("Flaky")).toBeInTheDocument()
+  })
+
+  it("shows why the platform apps failed to load", async () => {
+    api.listPlatformApps.mockRejectedValue(apiError(400, { detail: "Flaky" }))
+    renderChannelsPage()
+    expect(await screen.findByText("Flaky")).toBeInTheDocument()
+    expect(screen.queryByText(/is not available/)).toBeNull()
   })
 
   it("explains a Slack workspace another Tracecat workspace holds", async () => {
