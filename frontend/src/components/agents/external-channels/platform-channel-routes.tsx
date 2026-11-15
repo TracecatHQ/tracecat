@@ -108,7 +108,13 @@ function ChannelPicker({
   onChange: (channelId: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
   const selected = channels.find((c) => c.id === value)
+  // Slack lists only private channels the bot is in, so others are routed by ID.
+  const typedId = search.trim().toUpperCase()
+  const offerTypedId =
+    /^[CG][A-Z0-9]{6,}$/.test(typedId) &&
+    !channels.some((c) => c.id === typedId)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -122,8 +128,14 @@ function ChannelPicker({
           className="h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal shadow-none"
         >
           <ChannelIcon channel={selected} />
-          <span className="min-w-0 flex-1 truncate text-left">
-            {selected?.name ??
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-left",
+              !selected && value && "font-mono"
+            )}
+          >
+            {selected?.name ||
+              value ||
               (isLoading ? "Loading channels…" : "Pick a channel")}
           </span>
           <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
@@ -134,11 +146,32 @@ function ChannelPicker({
         className="w-[--radix-popover-trigger-width] min-w-64 p-0"
       >
         <Command>
-          <CommandInput placeholder="Search channels" className="h-8 text-xs" />
+          <CommandInput
+            placeholder="Search channels or paste a channel ID"
+            className="h-8 text-xs"
+            value={search}
+            onValueChange={setSearch}
+          />
           <CommandList className="max-h-64">
             <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
-              No channels found
+              No channels found. Paste a channel ID to route a private channel.
             </CommandEmpty>
+            {offerTypedId && (
+              <CommandItem
+                value={`use ${typedId}`}
+                onSelect={() => {
+                  onChange(typedId)
+                  setSearch("")
+                  setOpen(false)
+                }}
+                className="gap-2 text-xs"
+              >
+                <Lock className="size-3.5 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">
+                  Use channel ID <span className="font-mono">{typedId}</span>
+                </span>
+              </CommandItem>
+            )}
             {channels.map((c) => (
               <CommandItem
                 key={c.id}
@@ -317,9 +350,12 @@ export function PlatformChannelRoutes({
                   <Trash2 className="size-4" />
                 </Button>
               </div>
-              {known?.is_private && !known.is_member && (
+              {((known?.is_private && !known.is_member) ||
+                (!known && channels && !channelsError)) && (
                 <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
-                  {`Invite @Tracecat in #${known.name} to finish`}
+                  {known
+                    ? `Invite @Tracecat in #${known.name} to finish`
+                    : "Invite @Tracecat in this channel to finish"}
                   <CopyButton
                     value={INVITE_COMMAND}
                     toastMessage="Invite command copied"

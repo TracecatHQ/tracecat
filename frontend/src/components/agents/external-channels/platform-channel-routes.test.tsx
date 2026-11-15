@@ -130,7 +130,7 @@ describe("PlatformChannelRoutes", () => {
     expect(screen.getAllByRole("option")).toHaveLength(3)
 
     await userEvent.type(
-      screen.getByPlaceholderText("Search channels"),
+      screen.getByPlaceholderText("Search channels or paste a channel ID"),
       "phish"
     )
 
@@ -205,8 +205,41 @@ describe("PlatformChannelRoutes", () => {
     expect(
       within(card).getByRole("button", { name: "Remove C9" })
     ).toBeInTheDocument()
-    // A channel the bot is in needs no invite.
-    expect(within(card).queryByText(/Invite @Tracecat/)).toBeNull()
+    // Only the unlisted channel, likely private without the bot, needs an invite.
+    expect(within(card).getAllByText(/Invite @Tracecat/)).toHaveLength(1)
+    expect(
+      within(card).getByText("Invite @Tracecat in this channel to finish")
+    ).toBeInTheDocument()
+  })
+
+  it("routes a pasted channel ID the list does not have", async () => {
+    const card = await editor()
+    await openPicker(card)
+    const search = screen.getByPlaceholderText(
+      "Search channels or paste a channel ID"
+    )
+    await userEvent.type(search, "C1")
+    expect(screen.queryByRole("option", { name: /Use channel ID/ })).toBeNull()
+
+    await userEvent.clear(search)
+    await userEvent.type(search, "c0123abcd")
+    await userEvent.click(
+      screen.getByRole("option", { name: "Use channel ID C0123ABCD" })
+    )
+    expect(
+      within(card).getByRole("combobox", { name: "Channel" })
+    ).toHaveTextContent("C0123ABCD")
+    await choose(card, "Agent for the new route", "Phishing")
+    await userEvent.click(within(card).getByRole("button", { name: "Add" }))
+
+    expect(api.addRoute).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
+      botId: INSTALL_ID,
+      requestBody: {
+        provider_channel_id: "C0123ABCD",
+        agent_preset_id: "preset-2",
+      },
+    })
   })
 
   it("marks a routed private channel with a lock", async () => {
