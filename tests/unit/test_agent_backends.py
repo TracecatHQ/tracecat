@@ -1859,6 +1859,7 @@ async def test_backend_missing_execution_keeps_reconnect_terminal():
         RPCStatusCode.UNAVAILABLE,
         RPCStatusCode.DEADLINE_EXCEEDED,
         RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.CANCELLED,
     ],
 )
 async def test_control_lookup_outage_is_uncertain_not_finished(code):
@@ -1869,6 +1870,26 @@ async def test_control_lookup_outage_is_uncertain_not_finished(code):
         pytest.raises(AgentControlUncertain),
     ):
         await DefaultBackend().get_turn_lifecycle_for_control(uuid4())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "code",
+    [
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.CANCELLED,
+    ],
+)
+async def test_turn_start_lookup_outage_is_dispatch_uncertain(code):
+    handle = Mock(describe=AsyncMock(side_effect=RPCError("down", code, b"")))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(SessionDispatchUncertain),
+    ):
+        await DefaultBackend().turn_start_state(uuid4())
 
 
 @pytest.mark.anyio

@@ -2309,6 +2309,7 @@ class AgentSessionService(BaseWorkspaceService):
         A retry of the same ``request_id`` returns the run the first attempt
         started and re-issues a start whose outcome was lost. Recovery may
         tombstone that lost start; the retry then starts the next attempt's run.
+        Commits the caller's session before each Temporal lookup.
 
         Raises:
             SessionTurnActiveError: If another run holds the session; nothing
@@ -2325,6 +2326,8 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session, backend = await self._message_session(session_id, request_id)
         admitted = False
         for _ in range(_MESSAGE_ADMISSION_TRIES):
+            # Release the DB connection before the remote call.
+            await self.session.commit()
             # Checked before admission: an accepted retry is never refused.
             run = await self._message_run(backend, session_id, request_id)
             if isinstance(run, RunStarted):
@@ -2337,6 +2340,7 @@ class AgentSessionService(BaseWorkspaceService):
                 # own reservation's ID was just read as missing, so it is not running.
                 curr_run_id = agent_session.curr_run_id
                 if curr_run_id is not None and curr_run_id != run_id:
+                    await self.session.commit()
                     lifecycle, _ = await self.get_turn_lifecycle(agent_session)
                     if lifecycle is TurnLifecycle.RUNNING:
                         raise SessionTurnActiveError(curr_run_id)
@@ -2370,7 +2374,8 @@ class AgentSessionService(BaseWorkspaceService):
         Unlike the web control ``steer``, it is keyed by ``request_id`` and a
         refusal is ``RunBusy``. A message whose own run already started returns
         that run as accepted and steers nothing. The message's run id is the
-        steer id, so a retry never reaches a second turn.
+        steer id, so a retry never reaches a second turn. Commits the caller's
+        session before each Temporal lookup.
 
         Raises:
             TracecatValidationError: If ``request_id`` is blank.
@@ -2399,6 +2404,8 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> MessageResult | TurnLifecycle:
         """Steer the session's running turn, or return the lifecycle seen if none."""
         agent_session, backend = await self._message_session(session_id, request_id)
+        # Release the DB connection before each remote call.
+        await self.session.commit()
         # Re-read even after a start saw another run: this message's own run may
         # have started and finished since, and must not be delivered twice.
         message_run = await self._message_run(backend, session_id, request_id)
@@ -2407,6 +2414,7 @@ class AgentSessionService(BaseWorkspaceService):
         await self._admit_message(agent_session)
         # The loaded row may name a run that has since released the session.
         await self.session.refresh(agent_session, ["curr_run_id"])
+        await self.session.commit()
         # A duplicate delivery may have reserved this message's run since the lookup.
         # The row proves only the reservation; never steer into it.
         if agent_session.curr_run_id == message_run:

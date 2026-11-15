@@ -83,6 +83,7 @@ _TRANSIENT_RPC_STATUSES = frozenset(
         RPCStatusCode.UNAVAILABLE,
         RPCStatusCode.DEADLINE_EXCEEDED,
         RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.CANCELLED,
     }
 )
 
