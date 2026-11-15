@@ -1,6 +1,6 @@
 "use client"
 
-import { ExternalLink } from "lucide-react"
+import { Download, ExternalLink } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import type { SlackPlatformAppRead } from "@/client"
 import {
@@ -26,6 +26,7 @@ import { getApiErrorDetail } from "@/lib/errors"
 import { copyToClipboard } from "@/lib/utils"
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"
+const TRACECAT_ICON_URL = "/icon.png"
 
 /** Register the one Slack app every organization installs with one click. */
 export function PlatformSlackAppSettings() {
@@ -105,6 +106,10 @@ function SlackAppSetup({ slackApp }: { slackApp: SlackPlatformAppRead }) {
         Turn on public distribution under Manage Distribution so other Slack
         workspaces can install the app.
       </p>
+      <p className="text-xs text-muted-foreground">
+        A manifest cannot set the app icon: upload the Tracecat logo under Basic
+        Information.
+      </p>
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
@@ -113,6 +118,12 @@ function SlackAppSetup({ slackApp }: { slackApp: SlackPlatformAppRead }) {
           onClick={handleCopyManifest}
         >
           Copy app manifest
+        </Button>
+        <Button type="button" size="sm" variant="outline" asChild>
+          <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
+            <Download className="mr-2 size-4" />
+            Download logo
+          </a>
         </Button>
         <Button type="button" size="sm" variant="outline" asChild>
           <a href={SLACK_APPS_URL} target="_blank" rel="noreferrer">

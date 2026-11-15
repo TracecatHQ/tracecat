@@ -92,6 +92,10 @@ describe("PlatformSlackAppSettings", () => {
     expect(manifest.oauth_config.scopes.bot).toEqual(
       expect.arrayContaining(["channels:read", "groups:read", "channels:join"])
     )
+    expect(screen.getByRole("link", { name: "Download logo" })).toHaveAttribute(
+      "href",
+      "/icon.png"
+    )
   })
 
   it("registers a new app only once every credential is filled in", async () => {
