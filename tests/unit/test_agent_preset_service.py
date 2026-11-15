@@ -47,9 +47,12 @@ from tracecat.agent.subagents import (
     has_manual_tool_approvals,
 )
 from tracecat.agent.types import AgentConfig
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelBot,
     AgentChannelToken,
     AgentFolder,
     AgentModelAccess,
@@ -3310,6 +3313,73 @@ class TestAgentPresetService:
 
         await agent_preset_service.session.refresh(token)
         assert token.is_active is False
+
+    @pytest.mark.parametrize(
+        ("app_owner", "status", "tenant", "refused"),
+        [
+            ("platform", "active", "T1", True),
+            ("platform", "needs_reconnect", "T1", True),
+            # The browser never came back from Slack: nothing is installed.
+            ("platform", "needs_reconnect", None, False),
+            ("platform", "disconnected", None, False),
+            ("customer", "active", "T1", False),
+        ],
+    )
+    async def test_delete_preset_refuses_a_platform_installs_default_agent(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        app_owner: str,
+        status: str,
+        tenant: str | None,
+        refused: bool,
+    ) -> None:
+        """Deleting a platform install's default agent would silence the whole install."""
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        agent_preset_service.session.add(
+            AgentChannelBot(
+                workspace_id=agent_preset_service.workspace_id,
+                agent_preset_id=preset.id,
+                provider="slack",
+                app_owner=app_owner,
+                status=status,
+                provider_tenant_id=tenant,
+                granted_scopes=[],
+                manifest_version=0,
+                encrypted_credentials=b"sealed",
+            )
+        )
+        await agent_preset_service.session.commit()
+
+        if refused:
+            with pytest.raises(TracecatValidationError, match="make another agent"):
+                await agent_preset_service.delete_preset(preset)
+            await agent_preset_service.session.rollback()
+            await agent_preset_service.session.refresh(preset)
+            assert preset.deleted_at is None
+        else:
+            await agent_preset_service.delete_preset(preset)
+            assert preset.deleted_at is not None
+
+    async def test_delete_preset_audits_the_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        create_event = AsyncMock()
+        monkeypatch.setattr(AuditService, "create_event", create_event)
+
+        await agent_preset_service.delete_preset(preset)
+
+        assert [
+            (call.kwargs["resource_id"], call.kwargs["status"])
+            for call in create_event.await_args_list
+        ] == [
+            (preset.id, AuditEventStatus.ATTEMPT),
+            (preset.id, AuditEventStatus.SUCCESS),
+        ]
 
     async def test_delete_preset_removes_pending_slack_channel_tokens(
         self,

@@ -78,6 +78,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_comment_agent_invocation",
     "agent_channel_token",
     "agent_channel_bot",
+    "agent_channel_route",
     "agent_session_thread",
     "agent_preset_version",
     "agent_folder",

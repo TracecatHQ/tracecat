@@ -472,8 +472,12 @@ export type AgentChannelBotCreate = {
 export type AgentChannelBotRead = {
   id: string
   workspace_id: string
+  /**
+   * The agent that answers; a platform install's default agent.
+   */
   agent_preset_id: string
   provider: ChannelBotProvider
+  app_owner: ChannelBotAppOwner
   status: ChannelBotStatus
   provider_tenant_id: string | null
   provider_app_id: string | null
@@ -496,6 +500,22 @@ export type AgentChannelBotUpdate = {
    * Must name the bot's provider.
    */
   credentials?: ChannelBotCredentialsUpdate | null
+}
+
+export type AgentChannelRouteRead = {
+  bot_id: string
+  provider_channel_id: string
+  agent_preset_id: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Answer new threads in one channel with another agent than the default.
+ */
+export type AgentChannelRouteSet = {
+  provider_channel_id: string
+  agent_preset_id: string
 }
 
 /**
@@ -3522,6 +3542,11 @@ export type CatalogMappingSelection = {
   target_catalog_id: string
 }
 
+/**
+ * Who owns a bot's provider app.
+ */
+export type ChannelBotAppOwner = "customer" | "platform"
+
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
 
 export type ChannelBotDetails = SlackBotDetails
@@ -3534,6 +3559,29 @@ export type ChannelBotInstallResult = {
    * Where to send the browser to finish the install; None when the provider has no browser step.
    */
   authorization_url: string | null
+}
+
+/**
+ * A provider app the deployment owns, which a workspace installs in one step.
+ */
+export type ChannelBotPlatformApp = {
+  provider: ChannelBotProvider
+}
+
+/**
+ * Install the platform app, which the deployment registers, over OAuth; or reconnect.
+ */
+export type ChannelBotPlatformInstall = {
+  provider: ChannelBotProvider
+  /**
+   * Platform install to reconnect. If omitted, creates one.
+   */
+  bot_id?: string | null
+  /**
+   * The install's default agent. Required without bot_id; with it, replaces it.
+   */
+  agent_preset_id?: string | null
+  return_url: string
 }
 
 export type ChannelBotProvider = "slack"
@@ -16370,6 +16418,7 @@ export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
 
 export type AgentChannelBotsListBotsData = {
   agentPresetId?: string | null
+  appOwner?: ChannelBotAppOwner | null
   cursor?: string | null
   limit?: number
   provider?: ChannelBotProvider | null
@@ -16414,6 +16463,43 @@ export type AgentChannelBotsInstallBotData = {
 }
 
 export type AgentChannelBotsInstallBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsListPlatformAppsData = {
+  workspaceId: string
+}
+
+export type AgentChannelBotsListPlatformAppsResponse =
+  Array<ChannelBotPlatformApp>
+
+export type AgentChannelBotsInstallPlatformBotData = {
+  requestBody: ChannelBotPlatformInstall
+  workspaceId: string
+}
+
+export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsListBotRoutesData = {
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotRoutesResponse = Array<AgentChannelRouteRead>
+
+export type AgentChannelBotsSetBotRouteData = {
+  botId: string
+  requestBody: AgentChannelRouteSet
+  workspaceId: string
+}
+
+export type AgentChannelBotsSetBotRouteResponse = AgentChannelRouteRead
+
+export type AgentChannelBotsDeleteBotRouteData = {
+  botId: string
+  providerChannelId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsDeleteBotRouteResponse = void
 
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
@@ -23276,6 +23362,79 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/channel-bots/platform-apps": {
+    get: {
+      req: AgentChannelBotsListPlatformAppsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChannelBotPlatformApp>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/platform-apps/install": {
+    post: {
+      req: AgentChannelBotsInstallPlatformBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes": {
+    get: {
+      req: AgentChannelBotsListBotRoutesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentChannelRouteRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentChannelBotsSetBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelRouteRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes/{provider_channel_id}": {
+    delete: {
+      req: AgentChannelBotsDeleteBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets": {
     get: {
       req: AgentPresetsListAgentPresetsData
@@ -23384,6 +23543,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset is the default agent of an installed channel app
+         */
+        400: unknown
         /**
          * Agent preset not found
          */

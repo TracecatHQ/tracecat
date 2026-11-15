@@ -8,6 +8,7 @@ import type {
 import { pickChannelBot } from "@/components/agents/external-channels/channel-bot-utils"
 import { SlackBotCard } from "@/components/agents/external-channels/slack-bot-card"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
+import { SlackPlatformCard } from "@/components/agents/external-channels/slack-platform-card"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -97,6 +98,7 @@ function ChannelBotsPanel({
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-4 px-4 pt-4 pb-16">
+        <SlackPlatformCard workspaceId={workspaceId} preset={preset} />
         <SlackBotCard
           workspaceId={workspaceId}
           preset={preset}

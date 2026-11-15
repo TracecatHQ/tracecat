@@ -24,6 +24,15 @@ class ChannelBotTransport(StrEnum):
     SOCKET = "socket"
 
 
+class ChannelBotAppOwner(StrEnum):
+    """Who owns a bot's provider app."""
+
+    # The customer's own app, answering as one agent.
+    CUSTOMER = "customer"
+    # The deployment's app: one install per provider tenant, routed per channel.
+    PLATFORM = "platform"
+
+
 def oauth_callback_path(provider: ChannelBotProvider) -> str:
     """The public path a provider sends the browser back to after OAuth consent."""
     return OAUTH_CALLBACK_ROUTE.format(provider=provider.value)
@@ -110,8 +119,11 @@ type ChannelBotDetails = Annotated[SlackBotDetails, Field(discriminator="provide
 class AgentChannelBotRead(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
-    agent_preset_id: uuid.UUID
+    agent_preset_id: uuid.UUID = Field(
+        description="The agent that answers; a platform install's default agent."
+    )
     provider: ChannelBotProvider
+    app_owner: ChannelBotAppOwner
     status: ChannelBotStatus
     provider_tenant_id: str | None
     provider_app_id: str | None
@@ -180,6 +192,48 @@ class SlackBotInstall(ChannelBotInstallBase):
 
 
 type ChannelBotInstall = Annotated[SlackBotInstall, Field(discriminator="provider")]
+
+
+class ChannelBotPlatformApp(BaseModel):
+    """A provider app the deployment owns, which a workspace installs in one step."""
+
+    provider: ChannelBotProvider
+
+
+class ChannelBotPlatformInstall(BaseModel):
+    """Install the platform app, which the deployment registers, over OAuth; or reconnect."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: ChannelBotProvider
+    bot_id: uuid.UUID | None = Field(
+        default=None,
+        description="Platform install to reconnect. If omitted, creates one.",
+    )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="The install's default agent. Required without bot_id; with it, replaces it.",
+    )
+    return_url: str = Field(..., min_length=1)
+
+
+class AgentChannelRouteSet(BaseModel):
+    """Answer new threads in one channel with another agent than the default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_channel_id: str = Field(
+        ..., min_length=1, max_length=255, pattern=r"^\S+$"
+    )
+    agent_preset_id: uuid.UUID
+
+
+class AgentChannelRouteRead(BaseModel):
+    bot_id: uuid.UUID
+    provider_channel_id: str
+    agent_preset_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
 
 
 class ChannelBotInstallResult(BaseModel):

@@ -6,10 +6,14 @@ import {
   agentChannelBotsCreateBot,
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
+  agentChannelBotsInstallPlatformBot,
   agentChannelBotsListBots,
+  agentChannelBotsListPlatformApps,
   agentChannelBotsUpdateBot,
   type ChannelBotInstall,
   type ChannelBotInstallResult,
+  type ChannelBotPlatformApp,
+  type ChannelBotPlatformInstall,
   type ChannelBotProvider,
 } from "@/client"
 import {
@@ -65,7 +69,7 @@ export function useChannelBotInstallResult(): void {
 }
 
 /**
- * Lists an agent preset's channel bots, every provider in one call. Never
+ * Lists an agent preset's custom-app bots, every provider in one call. Never
  * requests without the preview entitlement, which the API requires.
  */
 export function useAgentChannelBots(
@@ -84,6 +88,7 @@ export function useAgentChannelBots(
       const page = await agentChannelBotsListBots({
         workspaceId,
         agentPresetId,
+        appOwner: "customer",
         limit: 100,
       })
       return page.items
@@ -94,6 +99,50 @@ export function useAgentChannelBots(
   })
 
   return { bots, botsIsLoading, botsError }
+}
+
+/** The providers whose app this deployment registers, installable in one click. */
+export function useChannelBotPlatformApps(workspaceId: string) {
+  const { hasEntitlement } = useEntitlements()
+  const { data: platformApps } = useQuery<
+    Array<ChannelBotPlatformApp>,
+    TracecatApiError
+  >({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform-apps"],
+    queryFn: async () =>
+      await agentChannelBotsListPlatformApps({ workspaceId }),
+    enabled: hasEntitlement("agent_channels_preview"),
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { platformApps }
+}
+
+/** The workspace's installs of the platform app for `provider`, any agent. */
+export function usePlatformChannelBots(
+  workspaceId: string,
+  provider: ChannelBotProvider,
+  enabled: boolean
+) {
+  const { data: installs } = useQuery<
+    Array<AgentChannelBotRead>,
+    TracecatApiError
+  >({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform", provider],
+    queryFn: async () => {
+      const page = await agentChannelBotsListBots({
+        workspaceId,
+        provider,
+        appOwner: "platform",
+        limit: 100,
+      })
+      return page.items
+    },
+    enabled,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { installs }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */
@@ -181,6 +230,22 @@ export function useInstallAgentChannelBot(
       "connect"
     )
   return { installBot, installBotIsPending }
+}
+
+/** Installs the deployment's app, or reconnects an install of it. */
+export function useInstallPlatformChannelBot(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: installPlatformBot, isPending: installPlatformBotIsPending } =
+    useChannelBotMutation<ChannelBotInstallResult, ChannelBotPlatformInstall>(
+      workspaceId,
+      provider,
+      async (requestBody) =>
+        await agentChannelBotsInstallPlatformBot({ workspaceId, requestBody }),
+      "connect"
+    )
+  return { installPlatformBot, installPlatformBotIsPending }
 }
 
 /** Pauses, resumes or replaces the credentials of a bot. */

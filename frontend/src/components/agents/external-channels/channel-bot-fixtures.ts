@@ -4,7 +4,9 @@ import {
   agentChannelBotsCreateBot,
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
+  agentChannelBotsInstallPlatformBot,
   agentChannelBotsListBots,
+  agentChannelBotsListPlatformApps,
   agentChannelBotsUpdateBot,
   type ChannelBotDetails,
   type OrganizationGetOrganizationEntitlementsResponse,
@@ -12,6 +14,7 @@ import {
   organizationGetOrganization,
   organizationGetOrganizationEntitlements,
 } from "@/client"
+import { CancelablePromise } from "@/client/core/CancelablePromise"
 
 // Test files call `jest.mock("@/client")`; these are its channel bot calls.
 export const api = {
@@ -20,6 +23,8 @@ export const api = {
   installBot: jest.mocked(agentChannelBotsInstallBot),
   updateBot: jest.mocked(agentChannelBotsUpdateBot),
   disconnectBot: jest.mocked(agentChannelBotsDisconnectBot),
+  listPlatformApps: jest.mocked(agentChannelBotsListPlatformApps),
+  installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
 }
 
 export const WORKSPACE_ID = "workspace-1"
@@ -40,6 +45,7 @@ export function slackBot(
     workspace_id: WORKSPACE_ID,
     agent_preset_id: PRESET.id,
     provider: "slack",
+    app_owner: "customer",
     status: "active",
     provider_tenant_id: "T1",
     provider_app_id: "A1",
@@ -90,9 +96,38 @@ export function reservedSlackBot(
   )
 }
 
-/** Serves `bots` from the list call; mutations change what it serves. */
+/** Serves `bots` from the list call, filtered as the API filters them. The
+ * deployment registers no platform app unless a test serves one. */
 export function serveBots(bots: AgentChannelBotRead[]): void {
-  api.listBots.mockResolvedValue({ items: bots, next_cursor: null })
+  api.listBots.mockImplementation(
+    ({ agentPresetId, provider, appOwner }) =>
+      new CancelablePromise((resolve) =>
+        resolve({
+          items: bots.filter(
+            (bot) =>
+              (agentPresetId == null ||
+                bot.agent_preset_id === agentPresetId) &&
+              (provider == null || bot.provider === provider) &&
+              (appOwner == null || bot.app_owner === appOwner)
+          ),
+          next_cursor: null,
+        })
+      )
+  )
+  api.listPlatformApps.mockResolvedValue([])
+}
+
+/** An install of the platform app for Slack, by default for `PRESET`. */
+export function platformSlackBot(
+  overrides: Partial<AgentChannelBotRead> = {}
+): AgentChannelBotRead {
+  return slackBot({
+    id: "platform-1",
+    app_owner: "platform",
+    provider_app_id: "APLAT",
+    endpoint_url: null,
+    ...overrides,
+  })
 }
 
 /** Serves the organization's entitlements; by default both channel ones. */

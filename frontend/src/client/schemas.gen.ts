@@ -1549,9 +1549,14 @@ export const $AgentChannelBotRead = {
       type: "string",
       format: "uuid",
       title: "Agent Preset Id",
+      description:
+        "The agent that answers; a platform install's default agent.",
     },
     provider: {
       $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    app_owner: {
+      $ref: "#/components/schemas/ChannelBotAppOwner",
     },
     status: {
       $ref: "#/components/schemas/ChannelBotStatus",
@@ -1611,6 +1616,7 @@ export const $AgentChannelBotRead = {
     "workspace_id",
     "agent_preset_id",
     "provider",
+    "app_owner",
     "status",
     "provider_tenant_id",
     "provider_app_id",
@@ -1663,6 +1669,67 @@ export const $AgentChannelBotUpdate = {
   additionalProperties: false,
   type: "object",
   title: "AgentChannelBotUpdate",
+} as const
+
+export const $AgentChannelRouteRead = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "bot_id",
+    "provider_channel_id",
+    "agent_preset_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentChannelRouteRead",
+} as const
+
+export const $AgentChannelRouteSet = {
+  properties: {
+    provider_channel_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^\\S+$",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider_channel_id", "agent_preset_id"],
+  title: "AgentChannelRouteSet",
+  description:
+    "Answer new threads in one channel with another agent than the default.",
 } as const
 
 export const $AgentChannelTokenCreate = {
@@ -13015,6 +13082,13 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelBotAppOwner = {
+  type: "string",
+  enum: ["customer", "platform"],
+  title: "ChannelBotAppOwner",
+  description: "Who owns a bot's provider app.",
+} as const
+
 export const $ChannelBotCredentialsUpdate = {
   oneOf: [
     {
@@ -13079,6 +13153,65 @@ export const $ChannelBotInstallResult = {
   type: "object",
   required: ["bot", "authorization_url"],
   title: "ChannelBotInstallResult",
+} as const
+
+export const $ChannelBotPlatformApp = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "ChannelBotPlatformApp",
+  description:
+    "A provider app the deployment owns, which a workspace installs in one step.",
+} as const
+
+export const $ChannelBotPlatformInstall = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description: "Platform install to reconnect. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "The install's default agent. Required without bot_id; with it, replaces it.",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider", "return_url"],
+  title: "ChannelBotPlatformInstall",
+  description:
+    "Install the platform app, which the deployment registers, over OAuth; or reconnect.",
 } as const
 
 export const $ChannelBotProvider = {

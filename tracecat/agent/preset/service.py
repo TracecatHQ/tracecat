@@ -20,6 +20,7 @@ from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
 from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.channel_bots.schemas import ChannelBotAppOwner
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -86,6 +87,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelBot,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
@@ -1065,6 +1067,25 @@ class AgentPresetService(BaseWorkspaceService):
             for ref in config.subagents
         ]
 
+    async def _require_no_platform_channel_install(self, preset_id: uuid.UUID) -> None:
+        """A platform app install answers every unrouted channel with its default agent, so
+        losing it would silence the install. Only one that holds a tenant counts."""
+        install_id = await self.session.scalar(
+            select(AgentChannelBot.id)
+            .where(
+                AgentChannelBot.workspace_id == self.workspace_id,
+                AgentChannelBot.agent_preset_id == preset_id,
+                AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM,
+                AgentChannelBot.provider_tenant_id.is_not(None),
+            )
+            .limit(1)
+        )
+        if install_id is not None:
+            raise TracecatValidationError(
+                "This agent is the default agent of an installed Tracecat channel app;"
+                " make another agent the default before deleting this one"
+            )
+
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
     async def delete_preset(
@@ -1089,6 +1110,7 @@ class AgentPresetService(BaseWorkspaceService):
             )
         )
         await self._lock_preset_row(preset.id)
+        await self._require_no_platform_channel_install(preset.id)
         channel_service = AgentChannelService(self.session, role=self.role)
         await channel_service.deactivate_tokens_for_preset(preset.id)
         for model in (AgentPreset, AgentPresetVersion):

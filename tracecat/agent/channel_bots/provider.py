@@ -12,10 +12,15 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotCreate,
     AgentChannelBotRead,
     AgentChannelBotUpdate,
+    AgentChannelRouteRead,
+    AgentChannelRouteSet,
+    ChannelBotAppOwner,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
+    ChannelBotPlatformApp,
+    ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
 from tracecat.api.extensions import load_api_extensions
@@ -35,6 +40,7 @@ class ChannelBotAdmin(Protocol):
         *,
         agent_preset_id: uuid.UUID | None,
         provider: ChannelBotProvider | None,
+        app_owner: ChannelBotAppOwner | None,
         page: PageParams,
     ) -> CursorPaginatedResponse[AgentChannelBotRead]:
         """Return a page with ``has_more`` and ``has_previous`` set from its cursors.
@@ -67,10 +73,45 @@ class ChannelBotAdmin(Protocol):
         self, session: AsyncSession, role: Role, params: ChannelBotInstall
     ) -> ChannelBotInstallResult: ...
 
+    async def list_platform_apps(
+        self, session: AsyncSession, role: Role
+    ) -> list[ChannelBotPlatformApp]:
+        """The deployment's own provider apps; empty when it registers none."""
+        ...
+
+    async def install_platform(
+        self, session: AsyncSession, role: Role, params: ChannelBotPlatformInstall
+    ) -> ChannelBotInstallResult: ...
+
+    async def list_routes(
+        self, session: AsyncSession, role: Role, bot_id: uuid.UUID
+    ) -> list[AgentChannelRouteRead]: ...
+
+    async def set_route(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        params: AgentChannelRouteSet,
+    ) -> AgentChannelRouteRead: ...
+
+    async def delete_route(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        provider_channel_id: str,
+    ) -> None: ...
+
     async def complete_oauth(
-        self, provider: ChannelBotProvider, callback: ChannelBotOAuthCallback
+        self,
+        provider: ChannelBotProvider,
+        callback: ChannelBotOAuthCallback,
+        *,
+        user_id: uuid.UUID | None,
     ) -> ChannelBotOAuthResult:
         """Public: the state carries the workspace and must be issued for `provider`.
+        `user_id` is the browser's signed-in user, if any.
 
         Return a failed result for a bad request instead of raising.
         """

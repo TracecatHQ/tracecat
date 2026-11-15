@@ -4700,10 +4700,15 @@ class AgentChannelToken(WorkspaceModel):
 
 
 class AgentChannelBot(TimestampMixin, Base):
-    """One installed provider app (a Slack bot), targeting one agent preset."""
+    """One installed provider app (a Slack bot), targeting one agent preset.
+
+    A platform-owned app is installed once per provider tenant; its preset is the default
+    agent, and `AgentChannelRoute` rows pick another agent per channel.
+    """
 
     __tablename__ = "agent_channel_bot"
     __table_args__ = (
+        # One install per app and tenant, so a platform app's tenant has one workspace.
         UniqueConstraint(
             "provider",
             "provider_tenant_id",
@@ -4718,6 +4723,7 @@ class AgentChannelBot(TimestampMixin, Base):
             name="status",
         ),
         CheckConstraint("transport IN ('http', 'socket')", name="transport"),
+        CheckConstraint("app_owner IN ('customer', 'platform')", name="app_owner"),
         Index(
             "ix_agent_channel_bot_token_refresh_due_at",
             "token_refresh_due_at",
@@ -4749,6 +4755,12 @@ class AgentChannelBot(TimestampMixin, Base):
         server_default="http",
         doc="How events arrive; set at install from the deployment's ingress mode",
     )
+    app_owner: Mapped[Literal["customer", "platform"]] = mapped_column(
+        String,
+        nullable=False,
+        server_default="customer",
+        doc="The customer's own app, or the deployment's app shared by every tenant",
+    )
     provider_tenant_id: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
@@ -4773,6 +4785,37 @@ class AgentChannelBot(TimestampMixin, Base):
         nullable=True,
         doc="Earliest due refresh of a rotating token; null when none rotates",
     )
+
+
+class AgentChannelRoute(TimestampMixin, Base):
+    """The agent that starts new threads in one channel of a bot; elsewhere the bot's preset."""
+
+    __tablename__ = "agent_channel_route"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["bot_id", "workspace_id"],
+            ["agent_channel_bot.id", "agent_channel_bot.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # A route never targets another workspace's preset.
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    provider_channel_id: Mapped[str] = mapped_column(
+        String, primary_key=True, doc="The provider's id for the channel"
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
 
 
 class AgentSessionThread(TimestampMixin, Base):

@@ -22,9 +22,14 @@ from tracecat.agent.channel_bots import router as router_module
 from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotRead,
     AgentChannelBotUpdate,
+    AgentChannelRouteRead,
+    AgentChannelRouteSet,
+    ChannelBotAppOwner,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
+    ChannelBotPlatformApp,
+    ChannelBotPlatformInstall,
     ChannelBotProvider,
     ChannelBotRunState,
     ChannelBotStatus,
@@ -43,6 +48,7 @@ from tracecat.api.app import (
 from tracecat.api.lifespan import StoppableTaskFactory
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
+from tracecat.auth.users import optional_current_active_user
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -80,6 +86,12 @@ INSTALL_BODY = {
     "signing_secret": "signing",
     "return_url": f"{APP_URL}/agents/1",
 }
+PLATFORM_INSTALL_BODY = {
+    "provider": "slack",
+    "agent_preset_id": str(uuid.uuid4()),
+    "return_url": f"{APP_URL}/agents/1",
+}
+ROUTE_BODY = {"provider_channel_id": "C1", "agent_preset_id": str(uuid.uuid4())}
 
 
 @pytest.fixture(autouse=True)
@@ -89,6 +101,14 @@ def clean_caches() -> Iterator[None]:
     yield
     extensions.load_api_extensions.cache_clear()
     provider_module.get_channel_bot_admin.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def signed_out_browser() -> Iterator[None]:
+    """The callback's browser has no Tracecat session unless a test signs one in."""
+    app.dependency_overrides[optional_current_active_user] = lambda: None
+    yield
+    app.dependency_overrides.pop(optional_current_active_user, None)
 
 
 class PlainExtension:
@@ -179,6 +199,7 @@ def bot_read() -> AgentChannelBotRead:
         workspace_id=uuid.uuid4(),
         agent_preset_id=uuid.uuid4(),
         provider=ChannelBotProvider.SLACK,
+        app_owner=ChannelBotAppOwner.CUSTOMER,
         status=ChannelBotStatus.ACTIVE,
         provider_tenant_id="T1",
         provider_app_id="A1",
@@ -261,6 +282,21 @@ WORKSPACE_ROUTES = [
         "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
     ),
     pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+    pytest.param("GET", "/platform-apps", None, "agent:read", id="platform_apps"),
+    pytest.param(
+        "POST",
+        "/platform-apps/install",
+        PLATFORM_INSTALL_BODY,
+        "agent:update",
+        id="install_platform",
+    ),
+    pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
+    pytest.param(
+        "PUT", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="set_route"
+    ),
+    pytest.param(
+        "DELETE", f"/{uuid.uuid4()}/routes/C1", None, "agent:update", id="delete_route"
+    ),
 ]
 ADMIN_METHODS = (
     "list_bots",
@@ -269,6 +305,11 @@ ADMIN_METHODS = (
     "rotate_endpoint",
     "disconnect_bot",
     "install",
+    "list_platform_apps",
+    "install_platform",
+    "list_routes",
+    "set_route",
+    "delete_route",
 )
 CHANNELS = Entitlement.AGENT_CHANNELS
 PREVIEW = Entitlement.AGENT_CHANNELS_PREVIEW
@@ -464,11 +505,95 @@ def test_install_requires_a_known_provider(
     assert admin.mock_calls == []
 
 
+def test_platform_routes_hand_the_request_to_the_admin(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.list_platform_apps.return_value = [
+        ChannelBotPlatformApp(provider=ChannelBotProvider.SLACK)
+    ]
+    installed = ChannelBotInstallResult(
+        bot=bot_read(), authorization_url="https://slack.com/oauth/v2/authorize?x=1"
+    )
+    admin.install_platform.return_value = installed
+    now = datetime.now(UTC)
+    route = AgentChannelRouteRead(
+        bot_id=bot_id,
+        provider_channel_id="C1",
+        agent_preset_id=uuid.UUID(ROUTE_BODY["agent_preset_id"]),
+        created_at=now,
+        updated_at=now,
+    )
+    admin.list_routes.return_value = [route]
+    admin.set_route.return_value = route
+    admin.delete_route.return_value = None
+
+    apps = client.get("/agent/channel-bots/platform-apps")
+    install = client.post(
+        "/agent/channel-bots/platform-apps/install", json=PLATFORM_INSTALL_BODY
+    )
+    listed = client.get(f"/agent/channel-bots/{bot_id}/routes")
+    put = client.put(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
+    deleted = client.delete(f"/agent/channel-bots/{bot_id}/routes/C1")
+
+    assert apps.json() == [{"provider": "slack"}]
+    assert install.json() == installed.model_dump(mode="json")
+    assert listed.json() == [route.model_dump(mode="json")]
+    assert put.json() == route.model_dump(mode="json")
+    assert deleted.status_code == 204
+    admin.list_platform_apps.assert_awaited_once_with(SESSION, ROLE)
+    admin.install_platform.assert_awaited_once_with(
+        SESSION, ROLE, ChannelBotPlatformInstall.model_validate(PLATFORM_INSTALL_BODY)
+    )
+    admin.list_routes.assert_awaited_once_with(SESSION, ROLE, bot_id)
+    admin.set_route.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
+    )
+    admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, "C1")
+
+
+def test_a_platform_reconnect_can_replace_the_default_agent(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.install_platform.return_value = ChannelBotInstallResult(
+        bot=bot_read(), authorization_url="https://slack.com/oauth/v2/authorize"
+    )
+    body = {
+        "provider": "slack",
+        "bot_id": str(uuid.uuid4()),
+        "agent_preset_id": str(uuid.uuid4()),
+        "return_url": f"{APP_URL}/agents/1",
+    }
+
+    response = client.post("/agent/channel-bots/platform-apps/install", json=body)
+
+    assert response.status_code == 200
+    admin.install_platform.assert_awaited_once_with(
+        SESSION, ROLE, ChannelBotPlatformInstall.model_validate(body)
+    )
+
+
+@pytest.mark.parametrize("channel", ["", " C1", "C 1", "C" * 256])
+def test_a_route_needs_a_channel_id(
+    client: TestClient, admin: AsyncMock, channel: str
+) -> None:
+    response = client.put(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes",
+        json={**ROUTE_BODY, "provider_channel_id": channel},
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
 def test_list_hands_the_page_to_the_admin(client: TestClient, admin: AsyncMock) -> None:
     expected = CursorPaginatedResponse(items=[bot_read()], next_cursor="next")
     admin.list_bots.return_value = expected
 
-    response = client.get("/agent/channel-bots", params={"limit": 5, "cursor": "prev"})
+    response = client.get(
+        "/agent/channel-bots",
+        params={"limit": 5, "cursor": "prev", "app_owner": "platform"},
+    )
 
     assert response.status_code == 200
     assert response.json() == expected.model_dump(mode="json")
@@ -477,6 +602,7 @@ def test_list_hands_the_page_to_the_admin(client: TestClient, admin: AsyncMock) 
         ROLE,
         agent_preset_id=None,
         provider=None,
+        app_owner=ChannelBotAppOwner.PLATFORM,
         page=PageParams(limit=5, cursor="prev"),
     )
 
@@ -530,6 +656,16 @@ def test_a_bad_cursor_keeps_its_error_code(
             id="credentials",
         ),
         pytest.param("POST", "/install", {**INSTALL_BODY, "x": 1}, "x", id="install"),
+        pytest.param(
+            "POST",
+            "/platform-apps/install",
+            {**PLATFORM_INSTALL_BODY, "client_id": "1.2"},
+            "client_id",
+            id="install_platform",
+        ),
+        pytest.param(
+            "PUT", f"/{uuid.uuid4()}/routes", {**ROUTE_BODY, "x": 1}, "x", id="route"
+        ),
     ],
 )
 def test_request_models_reject_unknown_fields(
@@ -576,7 +712,28 @@ def test_callback_redirects_to_the_return_url_on_the_app_host(
         "channel_bot_install": ["success"],
     }
     admin.complete_oauth.assert_awaited_once_with(
-        ChannelBotProvider.SLACK, ChannelBotOAuthCallback(state="s", code="c")
+        ChannelBotProvider.SLACK,
+        ChannelBotOAuthCallback(state="s", code="c"),
+        user_id=None,
+    )
+
+
+def test_callback_passes_the_browsers_signed_in_user(admin: AsyncMock) -> None:
+    user_id = uuid.uuid4()
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/1", ok=True
+    )
+    app.dependency_overrides[optional_current_active_user] = lambda: SimpleNamespace(
+        id=user_id
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert response.status_code == 307
+    admin.complete_oauth.assert_awaited_once_with(
+        ChannelBotProvider.SLACK,
+        ChannelBotOAuthCallback(state="s", code="c"),
+        user_id=user_id,
     )
 
 

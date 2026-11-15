@@ -153,14 +153,24 @@ import type {
   AdminUpdateTierResponse,
   AgentChannelBotsCreateBotData,
   AgentChannelBotsCreateBotResponse,
+  AgentChannelBotsDeleteBotRouteData,
+  AgentChannelBotsDeleteBotRouteResponse,
   AgentChannelBotsDisconnectBotData,
   AgentChannelBotsDisconnectBotResponse,
   AgentChannelBotsInstallBotData,
   AgentChannelBotsInstallBotResponse,
+  AgentChannelBotsInstallPlatformBotData,
+  AgentChannelBotsInstallPlatformBotResponse,
+  AgentChannelBotsListBotRoutesData,
+  AgentChannelBotsListBotRoutesResponse,
   AgentChannelBotsListBotsData,
   AgentChannelBotsListBotsResponse,
+  AgentChannelBotsListPlatformAppsData,
+  AgentChannelBotsListPlatformAppsResponse,
   AgentChannelBotsRotateBotEndpointData,
   AgentChannelBotsRotateBotEndpointResponse,
+  AgentChannelBotsSetBotRouteData,
+  AgentChannelBotsSetBotRouteResponse,
   AgentChannelBotsUpdateBotData,
   AgentChannelBotsUpdateBotResponse,
   AgentChannelsCreateChannelTokenData,
@@ -6698,6 +6708,7 @@ export const agentChannelsStartSlackOauth = (
  * @param data.workspaceId
  * @param data.agentPresetId
  * @param data.provider
+ * @param data.appOwner
  * @param data.limit
  * @param data.cursor
  * @returns CursorPaginatedResponse_AgentChannelBotRead_ Successful Response
@@ -6715,6 +6726,7 @@ export const agentChannelBotsListBots = (
     query: {
       agent_preset_id: data.agentPresetId,
       provider: data.provider,
+      app_owner: data.appOwner,
       limit: data.limit,
       cursor: data.cursor,
     },
@@ -6843,6 +6855,130 @@ export const agentChannelBotsInstallBot = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Platform Apps
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ChannelBotPlatformApp Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListPlatformApps = (
+  data: AgentChannelBotsListPlatformAppsData
+): CancelablePromise<AgentChannelBotsListPlatformAppsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/platform-apps",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Install Platform Bot
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChannelBotInstallResult Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsInstallPlatformBot = (
+  data: AgentChannelBotsInstallPlatformBotData
+): CancelablePromise<AgentChannelBotsInstallPlatformBotResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/platform-apps/install",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Bot Routes
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @returns AgentChannelRouteRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBotRoutes = (
+  data: AgentChannelBotsListBotRoutesData
+): CancelablePromise<AgentChannelBotsListBotRoutesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Set Bot Route
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelRouteRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsSetBotRoute = (
+  data: AgentChannelBotsSetBotRouteData
+): CancelablePromise<AgentChannelBotsSetBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bot Route
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.providerChannelId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsDeleteBotRoute = (
+  data: AgentChannelBotsDeleteBotRouteData
+): CancelablePromise<AgentChannelBotsDeleteBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes/{provider_channel_id}",
+    path: {
+      bot_id: data.botId,
+      provider_channel_id: data.providerChannelId,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
@@ -7034,6 +7170,7 @@ export const agentPresetsDeleteAgentPreset = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      400: "Agent preset is the default agent of an installed channel app",
       404: "Agent preset not found",
       422: "Validation Error",
     },

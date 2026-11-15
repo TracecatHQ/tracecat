@@ -242,11 +242,13 @@ export function ChannelBotLifecycleActions({
   bot,
   state,
   onDisconnected,
+  disconnectDescription = "The stored credentials are deleted and the bot stops answering until you connect it again.",
 }: {
   workspaceId: string
   bot: AgentChannelBotRead
   state: ChannelBotState
-  onDisconnected: () => void
+  onDisconnected?: () => void
+  disconnectDescription?: string
 }) {
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, bot.provider)
   const { disconnectBot } = useDisconnectAgentChannelBot(
@@ -272,7 +274,7 @@ export function ChannelBotLifecycleActions({
   function disconnect(): void {
     disconnectBot(bot.id, {
       onSuccess: () => {
-        onDisconnected()
+        onDisconnected?.()
         toast({ title: `${providerName} bot disconnected` })
       },
     })
@@ -316,8 +318,7 @@ export function ChannelBotLifecycleActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect {providerName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              The stored credentials are deleted and the bot stops answering
-              until you connect it again.
+              {disconnectDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
