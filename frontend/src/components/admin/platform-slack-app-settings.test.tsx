@@ -87,7 +87,11 @@ describe("PlatformSlackAppSettings", () => {
     expect(manifest.oauth_config.redirect_urls).toEqual([
       "https://api.example.com/agent/channel-bots/slack/oauth/callback",
     ])
+    expect(manifest.display_information.name).toBe("Tracecat")
     expect(manifest.settings.token_rotation_enabled).toBe(true)
+    expect(manifest.oauth_config.scopes.bot).toEqual(
+      expect.arrayContaining(["channels:read", "groups:read", "channels:join"])
+    )
   })
 
   it("registers a new app only once every credential is filled in", async () => {

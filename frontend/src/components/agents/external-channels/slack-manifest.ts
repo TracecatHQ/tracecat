@@ -4,6 +4,7 @@ export function buildSlackManifest({
   oauthRedirectUrl,
   appName,
   legacy = false,
+  channelAccess = false,
 }: {
   /** Where Slack posts events and interactions, or null over Socket Mode. */
   endpointUrl: string | null
@@ -11,6 +12,8 @@ export function buildSlackManifest({
   appName: string
   /** The legacy channel token path: mentions only, and no agent_view (one-way per app). */
   legacy?: boolean
+  /** Read and join channels. Scopes added after install make every workspace re-approve. */
+  channelAccess?: boolean
 }): Record<string, unknown> {
   const socket = endpointUrl === null
   const requestUrl = socket ? {} : { request_url: endpointUrl }
@@ -55,9 +58,11 @@ export function buildSlackManifest({
           // Agent label, and `assistant.threads.setStatus`.
           ...(legacy ? [] : ["assistant:write"]),
           "channels:history",
+          ...(channelAccess ? ["channels:join", "channels:read"] : []),
           "chat:write",
           "chat:write.customize",
           "groups:history",
+          ...(channelAccess ? ["groups:read"] : []),
           "im:history",
           "mpim:history",
           "reactions:read",
@@ -70,4 +75,20 @@ export function buildSlackManifest({
     },
     settings,
   }
+}
+
+/** The manifest for the Tracecat app that every organization installs. */
+export function buildSlackPlatformManifest({
+  endpointUrl,
+  oauthRedirectUrl,
+}: {
+  endpointUrl: string | null
+  oauthRedirectUrl: string
+}): Record<string, unknown> {
+  return buildSlackManifest({
+    endpointUrl,
+    oauthRedirectUrl,
+    appName: "Tracecat",
+    channelAccess: true,
+  })
 }

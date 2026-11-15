@@ -7,7 +7,7 @@ import {
   CredentialField,
   EndpointField,
 } from "@/components/agents/external-channels/channel-bot-fields"
-import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
+import { buildSlackPlatformManifest } from "@/components/agents/external-channels/slack-manifest"
 import { CopyField } from "@/components/copy-field"
 import {
   AlertDialog,
@@ -68,10 +68,9 @@ function SlackAppSetup({ slackApp }: { slackApp: SlackPlatformAppRead }) {
   const { setup } = slackApp
 
   function handleCopyManifest(): void {
-    const manifest = buildSlackManifest({
+    const manifest = buildSlackPlatformManifest({
       endpointUrl: setup.request_url ?? null,
       oauthRedirectUrl: setup.oauth_redirect_url,
-      appName: "Tracecat",
     })
     void copyToClipboard({
       value: JSON.stringify(manifest, null, 2),

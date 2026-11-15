@@ -1,4 +1,7 @@
-import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
+import {
+  buildSlackManifest,
+  buildSlackPlatformManifest,
+} from "@/components/agents/external-channels/slack-manifest"
 
 const REDIRECT =
   "https://api.example.com/agent/channel-bots/slack/oauth/callback"
@@ -119,5 +122,71 @@ describe("buildSlackManifest", () => {
       })
     )
     expect(manifest.oauth_config.scopes.bot).toContain("assistant:write")
+  })
+
+  it("never asks a custom app for channel access", () => {
+    const manifest = buildSlackManifest({
+      endpointUrl: null,
+      oauthRedirectUrl: REDIRECT,
+      appName: "Triage",
+    }) as { oauth_config: { scopes: { bot: string[] } } }
+    for (const scope of ["channels:read", "groups:read", "channels:join"]) {
+      expect(manifest.oauth_config.scopes.bot).not.toContain(scope)
+    }
+  })
+})
+
+describe("buildSlackPlatformManifest", () => {
+  type Manifest = {
+    display_information: { name: string }
+    features: { bot_user: { display_name: string } }
+    oauth_config: { scopes: { bot: string[] } }
+    settings: Record<string, unknown>
+  }
+
+  it("names the app Tracecat and asks for channel access up front", () => {
+    const manifest = buildSlackPlatformManifest({
+      endpointUrl: "https://api.example.com/platform-events",
+      oauthRedirectUrl: REDIRECT,
+    }) as Manifest
+    expect(manifest.display_information.name).toBe("Tracecat")
+    expect(manifest.features.bot_user.display_name).toBe("Tracecat")
+    expect(manifest.oauth_config.scopes.bot).toEqual([
+      "app_mentions:read",
+      "assistant:write",
+      "channels:history",
+      "channels:join",
+      "channels:read",
+      "chat:write",
+      "chat:write.customize",
+      "groups:history",
+      "groups:read",
+      "im:history",
+      "mpim:history",
+      "reactions:read",
+      "reactions:write",
+      "users:read",
+      "users:read.email",
+    ])
+    expect(manifest.settings).toEqual(
+      expect.objectContaining({ token_rotation_enabled: true })
+    )
+    expect(manifest.settings).not.toHaveProperty(
+      "app_level_token_rotation_enabled"
+    )
+  })
+
+  it("rotates the app-level token over Socket Mode", () => {
+    const manifest = buildSlackPlatformManifest({
+      endpointUrl: null,
+      oauthRedirectUrl: REDIRECT,
+    }) as Manifest
+    expect(manifest.settings).toEqual(
+      expect.objectContaining({
+        socket_mode_enabled: true,
+        token_rotation_enabled: true,
+        app_level_token_rotation_enabled: true,
+      })
+    )
   })
 })
