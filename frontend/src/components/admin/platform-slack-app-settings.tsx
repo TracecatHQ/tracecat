@@ -37,6 +37,7 @@ export function PlatformSlackAppSettings() {
     saveSlackAppIsPending,
     removeSlackApp,
     removeSlackAppIsPending,
+    removeSlackAppError,
   } = useAdminSlackApp()
 
   if (slackAppIsLoading) {
@@ -58,6 +59,7 @@ export function PlatformSlackAppSettings() {
         saving={saveSlackAppIsPending}
         onRemove={removeSlackApp}
         removing={removeSlackAppIsPending}
+        removeError={getApiErrorDetail(removeSlackAppError)}
       />
     </div>
   )
@@ -130,12 +132,14 @@ function SlackAppCredentials({
   saving,
   onRemove,
   removing,
+  removeError,
 }: {
   slackApp: SlackPlatformAppRead
   onSave: ReturnType<typeof useAdminSlackApp>["saveSlackApp"]
   saving: boolean
   onRemove: ReturnType<typeof useAdminSlackApp>["removeSlackApp"]
   removing: boolean
+  removeError: string | null
 }) {
   const [appId, setAppId] = useState(slackApp.app_id ?? "")
   const [clientId, setClientId] = useState(slackApp.client_id ?? "")
@@ -287,13 +291,15 @@ function SlackAppCredentials({
               <AlertDialogHeader>
                 <AlertDialogTitle>Remove the Slack app</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Every organization's install of this app stops answering in
-                  Slack until the app is registered again.
+                  Removal is refused while any organization still has the app
+                  installed.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void onRemove()}>
+                <AlertDialogAction
+                  onClick={() => void onRemove().catch(() => undefined)}
+                >
                   Remove
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -301,6 +307,9 @@ function SlackAppCredentials({
           </AlertDialog>
         ) : null}
       </div>
+      {removeError ? (
+        <p className="text-sm text-destructive">{removeError}</p>
+      ) : null}
     </form>
   )
 }

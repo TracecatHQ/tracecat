@@ -217,4 +217,22 @@ describe("PlatformSlackAppSettings", () => {
 
     await waitFor(() => expect(api.remove).toHaveBeenCalledTimes(1))
   })
+
+  it("shows why removal was refused while organizations have it installed", async () => {
+    const detail =
+      "1 Slack workspace(s) still have the Tracecat Slack app installed; disconnect them before removing the app"
+    api.get.mockResolvedValue(SAVED)
+    api.remove.mockRejectedValue(
+      Object.assign(new Error("Conflict"), { status: 409, body: { detail } })
+    )
+    renderSettings()
+
+    await userEvent.click(await screen.findByRole("button", { name: "Remove" }))
+    const dialog = await screen.findByRole("alertdialog")
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Remove" })
+    )
+
+    expect(await screen.findByText(detail)).toBeInTheDocument()
+  })
 })

@@ -11170,7 +11170,7 @@ export const adminSlackAppSaveSlackApp = (
 
 /**
  * Delete Slack App
- * Unregister the app; its installs stop serving until it is registered again.
+ * Unregister the app; refused while any organization still has it installed.
  * @returns void Successful Response
  * @throws ApiError
  */

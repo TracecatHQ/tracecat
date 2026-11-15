@@ -29,7 +29,13 @@ from tracecat.auth.credentials import _require_superuser, _require_superuser_ste
 from tracecat.auth.types import PlatformRole
 from tracecat.auth.users import current_active_user
 from tracecat.db.engine import get_async_session_bypass_rls
-from tracecat.db.models import PlatformSetting, User
+from tracecat.db.models import (
+    AgentChannelBot,
+    AgentPreset,
+    PlatformSetting,
+    User,
+    Workspace,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -267,6 +273,83 @@ async def test_removing_the_app_unregisters_it_for_the_next_request(
     assert read.json()["client_secret_set"] is False
     assert await stored_row(session) is None
     assert audit_events.await_args_list[-1].kwargs["action"] == "delete"
+
+
+async def add_bot(
+    session: AsyncSession,
+    workspace: Workspace,
+    *,
+    app_owner: str,
+    status: str,
+    tenant: str | None,
+) -> None:
+    preset_id = uuid.uuid4()
+    session.add(
+        AgentPreset(
+            id=preset_id,
+            workspace_id=workspace.id,
+            name="p",
+            slug=f"p-{preset_id.hex}",
+            model_name="m",
+            model_provider="p",
+        )
+    )
+    await session.flush()
+    session.add(
+        AgentChannelBot(
+            workspace_id=workspace.id,
+            agent_preset_id=preset_id,
+            provider="slack",
+            app_owner=app_owner,
+            status=status,
+            provider_tenant_id=tenant,
+            granted_scopes=[],
+            manifest_version=0,
+            encrypted_credentials=b"sealed",
+        )
+    )
+    await session.commit()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("app_owner", "status", "tenant", "refused"),
+    [
+        ("platform", "active", "T1", True),
+        ("platform", "paused", "T1", True),
+        ("platform", "needs_reconnect", "T1", True),
+        # The browser never came back from Slack: nothing is installed.
+        ("platform", "needs_reconnect", None, False),
+        ("platform", "disconnected", "T1", False),
+        ("customer", "active", "T1", False),
+    ],
+)
+async def test_removing_the_app_is_refused_while_an_organization_has_it_installed(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    channel_bot_admin: ChannelBotAdmin,
+    audit_events: AsyncMock,
+    app_owner: str,
+    status: str,
+    tenant: str | None,
+    refused: bool,
+) -> None:
+    await add_bot(
+        session, svc_workspace, app_owner=app_owner, status=status, tenant=tenant
+    )
+
+    async with client(session) as http:
+        await http.put("/admin/slack-app", json=FULL)
+        removed = await http.delete("/admin/slack-app")
+
+    if refused:
+        assert removed.status_code == 409
+        assert "1 Slack workspace(s) still have" in removed.json()["detail"]
+        assert await read_slack_platform_app(session) == SlackPlatformApp(**FULL)
+        assert await slack_platform_app() == SlackPlatformApp(**FULL)
+    else:
+        assert removed.status_code == 204
+        assert await stored_row(session) is None
 
 
 @pytest.mark.anyio

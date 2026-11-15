@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy import func, select
+
 from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppRead,
     SlackPlatformAppUpdate,
@@ -14,12 +16,20 @@ from tracecat.agent.channel_bots.platform_app import (
     write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
+    ChannelBotAppOwner,
     ChannelBotPlatformAppSetup,
+    ChannelBotProvider,
+    ChannelBotStatus,
     ChannelBotTransport,
 )
 from tracecat.audit.logger import audit_log
-from tracecat.exceptions import TracecatValidationError
+from tracecat.db.models import AgentChannelBot
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.service import BasePlatformService
+
+
+class SlackPlatformAppStillInstalled(TracecatConflictError):
+    """Organizations still have the Tracecat Slack app installed."""
 
 
 class SlackPlatformAppService(BasePlatformService):
@@ -82,7 +92,22 @@ class SlackPlatformAppService(BasePlatformService):
 
     @audit_log(resource_type="platform_setting", action="delete")
     async def remove(self) -> None:
-        """Installs of the app stop serving until it is registered again."""
+        """Refused while any organization still has the app installed."""
+        installs = await self.session.scalar(
+            select(func.count())
+            .select_from(AgentChannelBot)
+            .where(
+                AgentChannelBot.provider == ChannelBotProvider.SLACK,
+                AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM,
+                AgentChannelBot.provider_tenant_id.is_not(None),
+                AgentChannelBot.status != ChannelBotStatus.DISCONNECTED,
+            )
+        )
+        if installs:
+            raise SlackPlatformAppStillInstalled(
+                f"{installs} Slack workspace(s) still have the Tracecat Slack app"
+                " installed; disconnect them before removing the app"
+            )
         await delete_slack_platform_app(self.session)
         await self.session.commit()
 

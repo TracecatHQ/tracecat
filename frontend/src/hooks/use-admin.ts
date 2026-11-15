@@ -1104,21 +1104,24 @@ export function useAdminSlackApp() {
       }
     )
 
-  const { mutateAsync: removeSlackApp, isPending: removeSlackAppIsPending } =
-    useMutation<void, TracecatApiError, void>({
-      mutationFn: async () => await adminSlackAppDeleteSlackApp(),
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ADMIN_SLACK_APP_QUERY_KEY })
-        toast({ title: "Slack app removed" })
-      },
-      onError: (error) => {
-        toast({
-          title: "Failed to remove the Slack app",
-          description: getApiErrorDetail(error) ?? "Please try again.",
-          variant: "destructive",
-        })
-      },
-    })
+  const {
+    mutateAsync: removeSlackApp,
+    isPending: removeSlackAppIsPending,
+    error: removeSlackAppError,
+  } = useMutation<void, TracecatApiError, void>({
+    mutationFn: async () => await adminSlackAppDeleteSlackApp(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ADMIN_SLACK_APP_QUERY_KEY })
+      toast({ title: "Slack app removed" })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to remove the Slack app",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
 
   return {
     slackApp,
@@ -1128,6 +1131,7 @@ export function useAdminSlackApp() {
     saveSlackAppIsPending,
     removeSlackApp,
     removeSlackAppIsPending,
+    removeSlackAppError,
   }
 }
 

@@ -8,7 +8,10 @@ from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppRead,
     SlackPlatformAppUpdate,
 )
-from tracecat.admin.slack_app.service import SlackPlatformAppService
+from tracecat.admin.slack_app.service import (
+    SlackPlatformAppService,
+    SlackPlatformAppStillInstalled,
+)
 from tracecat.agent.channel_bots.platform_app import clear_slack_platform_app_cache
 from tracecat.agent.channel_bots.provider import get_channel_bot_admin
 from tracecat.agent.channel_bots.schemas import (
@@ -68,6 +71,9 @@ async def delete_slack_app(
     role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
 ) -> None:
-    """Unregister the app; its installs stop serving until it is registered again."""
-    await SlackPlatformAppService(session, role).remove()
+    """Unregister the app; refused while any organization still has it installed."""
+    try:
+        await SlackPlatformAppService(session, role).remove()
+    except SlackPlatformAppStillInstalled as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     clear_slack_platform_app_cache()
