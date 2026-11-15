@@ -1,7 +1,7 @@
 "use client"
 
 import { Hash, Plus, Trash2 } from "lucide-react"
-import { type FormEvent, useId, useState } from "react"
+import { type FormEvent, type ReactNode, useId, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
 import { CHANNEL_BOT_PROVIDER_NAMES } from "@/components/agents/external-channels/channel-bot-utils"
 import { Button } from "@/components/ui/button"
@@ -133,6 +133,64 @@ export function PlatformChannelRoutes({
     )
   }
 
+  let routeList: ReactNode
+  if (routesError) {
+    routeList = (
+      <p className="text-xs text-destructive">
+        {getApiErrorDetail(routesError) ?? "Failed to load the channels."}
+      </p>
+    )
+  } else if (routesIsLoading) {
+    routeList = (
+      <p className="text-xs text-muted-foreground">Loading channels...</p>
+    )
+  } else if (routes && routes.length > 0) {
+    routeList = (
+      <ul className="space-y-2" aria-label="Channels">
+        {routes.map((r) => (
+          <li key={r.provider_channel_id} className="flex items-center gap-2">
+            <Hash
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1 truncate font-mono text-xs">
+              {r.provider_channel_id}
+            </span>
+            <AgentSelect
+              label={`Agent for ${r.provider_channel_id}`}
+              value={r.agent_preset_id}
+              agents={agents}
+              disabled={disabled}
+              onChange={(agentId) => route(r.provider_channel_id, agentId)}
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              aria-label={`Remove ${r.provider_channel_id}`}
+              disabled={disabled}
+              onClick={() =>
+                deleteRoute({
+                  botId: install.id,
+                  providerChannelId: r.provider_channel_id,
+                })
+              }
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </li>
+        ))}
+      </ul>
+    )
+  } else {
+    routeList = (
+      <p className="text-xs text-muted-foreground">
+        Every channel uses the default agent.
+      </p>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -152,57 +210,7 @@ export function PlatformChannelRoutes({
       </div>
       <div className="space-y-2">
         <p className="text-xs font-medium">Channels</p>
-        {routesError ? (
-          <p className="text-xs text-destructive">
-            {getApiErrorDetail(routesError) ?? "Failed to load the channels."}
-          </p>
-        ) : routesIsLoading ? (
-          <p className="text-xs text-muted-foreground">Loading channels...</p>
-        ) : routes && routes.length > 0 ? (
-          <ul className="space-y-2" aria-label="Channels">
-            {routes.map((r) => (
-              <li
-                key={r.provider_channel_id}
-                className="flex items-center gap-2"
-              >
-                <Hash
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                  {r.provider_channel_id}
-                </span>
-                <AgentSelect
-                  label={`Agent for ${r.provider_channel_id}`}
-                  value={r.agent_preset_id}
-                  agents={agents}
-                  disabled={disabled}
-                  onChange={(agentId) => route(r.provider_channel_id, agentId)}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  aria-label={`Remove ${r.provider_channel_id}`}
-                  disabled={disabled}
-                  onClick={() =>
-                    deleteRoute({
-                      botId: install.id,
-                      providerChannelId: r.provider_channel_id,
-                    })
-                  }
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Every channel uses the default agent.
-          </p>
-        )}
+        {routeList}
         <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">

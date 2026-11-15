@@ -1,5 +1,7 @@
 "use client"
 
+import type { ReactNode } from "react"
+
 import { SlackPlatformCard } from "@/components/agents/external-channels/slack-platform-card"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
@@ -22,6 +24,31 @@ export function WorkspaceChannelsView({
     return <CenteredSpinner />
   }
 
+  let body: ReactNode
+  if (slackPlatformError) {
+    body = (
+      <p className="text-sm text-destructive">
+        {getApiErrorDetail(slackPlatformError) ??
+          "Failed to load Tracecat for Slack."}
+      </p>
+    )
+  } else if (slackPlatformAvailable) {
+    body = (
+      <div className="rounded-md border">
+        <SlackPlatformCard
+          workspaceId={workspaceId}
+          workspaceClaimed={installFailure === "slack_workspace_claimed"}
+        />
+      </div>
+    )
+  } else {
+    body = (
+      <p className="text-sm text-muted-foreground">
+        Tracecat for Slack is not available in this workspace.
+      </p>
+    )
+  }
+
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12 py-8">
@@ -33,23 +60,7 @@ export function WorkspaceChannelsView({
             </p>
           </div>
         </div>
-        {slackPlatformError ? (
-          <p className="text-sm text-destructive">
-            {getApiErrorDetail(slackPlatformError) ??
-              "Failed to load Tracecat for Slack."}
-          </p>
-        ) : slackPlatformAvailable ? (
-          <div className="rounded-md border">
-            <SlackPlatformCard
-              workspaceId={workspaceId}
-              workspaceClaimed={installFailure === "slack_workspace_claimed"}
-            />
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Tracecat for Slack is not available in this workspace.
-          </p>
-        )}
+        {body}
       </div>
     </div>
   )
