@@ -49,11 +49,12 @@ def _require_admin() -> ChannelBotAdmin:
     return admin
 
 
-async def _require_agent_channels_entitlement(
+async def _require_agent_channels_preview(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> None:
-    await check_entitlement(session, role, Entitlement.AGENT_CHANNELS)
+    # `agent_channels` alone keeps the legacy channels; channel bots need only the preview.
+    await check_entitlement(session, role, Entitlement.AGENT_CHANNELS_PREVIEW)
 
 
 Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
@@ -61,7 +62,7 @@ Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
 router = APIRouter(
     prefix=CHANNEL_BOTS_PREFIX,
     tags=["agent-channel-bots"],
-    dependencies=[Depends(_require_agent_channels_entitlement)],
+    dependencies=[Depends(_require_agent_channels_preview)],
 )
 public_router = APIRouter(tags=["public"])
 

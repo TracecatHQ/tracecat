@@ -122,6 +122,12 @@ class EffectiveEntitlements(Schema):
         " other than the built-in one. Takes effect only together with"
         " agent_runtime_preview",
     )
+    agent_channels_preview: bool = Field(
+        default=False,
+        title="Agent channels preview",
+        description="Whether the organization uses the channel bot API in place"
+        " of legacy agent channels",
+    )
 
 
 class TierRead(Schema):

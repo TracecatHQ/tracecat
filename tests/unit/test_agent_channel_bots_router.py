@@ -134,7 +134,7 @@ def make_client(role: Role = ROLE, *, entitled: bool = True) -> TestClient:
         get_async_session: lambda: SESSION,
     }
     if entitled:
-        overrides[router_module._require_agent_channels_entitlement] = lambda: None
+        overrides[router_module._require_agent_channels_preview] = lambda: None
     test_app.dependency_overrides.update(overrides)
     return TestClient(test_app)
 
@@ -144,18 +144,32 @@ def client() -> TestClient:
     return make_client()
 
 
+def grant(monkeypatch: pytest.MonkeyPatch, *granted: Entitlement) -> AsyncMock:
+    async def check(_session: object, _role: Role, entitlement: Entitlement) -> None:
+        if entitlement not in granted:
+            raise EntitlementRequired(entitlement.value)
+
+    check_mock = AsyncMock(side_effect=check)
+    monkeypatch.setattr(router_module, "check_entitlement", check_mock)
+    return check_mock
+
+
 @pytest.fixture
 def unentitled(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    check = AsyncMock(side_effect=EntitlementRequired(Entitlement.AGENT_CHANNELS.value))
-    monkeypatch.setattr(router_module, "check_entitlement", check)
-    return check
+    return grant(monkeypatch)
 
 
-ENTITLEMENT_REQUIRED_BODY = {
-    "type": "EntitlementRequired",
-    "message": "Feature 'agent_channels' requires an upgraded plan.",
-    "detail": {"entitlement": "agent_channels"},
-}
+def entitlement_required_body(entitlement: Entitlement) -> dict[str, object]:
+    return {
+        "type": "EntitlementRequired",
+        "message": f"Feature '{entitlement.value}' requires an upgraded plan.",
+        "detail": {"entitlement": entitlement.value},
+    }
+
+
+ENTITLEMENT_REQUIRED_BODY = entitlement_required_body(
+    Entitlement.AGENT_CHANNELS_PREVIEW
+)
 
 
 def bot_read() -> AgentChannelBotRead:
@@ -209,7 +223,9 @@ def test_an_unentitled_workspace_is_refused(
 
     assert response.status_code == 403
     assert response.json() == ENTITLEMENT_REQUIRED_BODY
-    unentitled.assert_awaited_once_with(SESSION, ROLE, Entitlement.AGENT_CHANNELS)
+    unentitled.assert_awaited_once_with(
+        SESSION, ROLE, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
     assert admin.mock_calls == []
 
 
@@ -224,33 +240,84 @@ def test_the_entitlement_is_checked_before_the_admin_is_looked_up(
     assert response.json() == ENTITLEMENT_REQUIRED_BODY
 
 
+WORKSPACE_ROUTES = [
+    pytest.param("GET", "", None, "agent:read", id="list"),
+    pytest.param(
+        "POST",
+        "",
+        {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
+        "agent:update",
+        id="create",
+    ),
+    pytest.param(
+        "PATCH",
+        f"/{uuid.uuid4()}",
+        {"status": "paused"},
+        "agent:update",
+        id="update",
+    ),
+    pytest.param("POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"),
+    pytest.param(
+        "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
+    ),
+    pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+]
+ADMIN_METHODS = (
+    "list_bots",
+    "create_bot",
+    "update_bot",
+    "rotate_endpoint",
+    "disconnect_bot",
+    "install",
+)
+CHANNELS = Entitlement.AGENT_CHANNELS
+PREVIEW = Entitlement.AGENT_CHANNELS_PREVIEW
+
+
+@pytest.mark.parametrize(("method", "path", "body", "scope"), WORKSPACE_ROUTES)
 @pytest.mark.parametrize(
-    ("method", "path", "body", "scope"),
+    ("granted", "checked", "served"),
     [
-        pytest.param("GET", "", None, "agent:read", id="list"),
-        pytest.param(
-            "POST",
-            "",
-            {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
-            "agent:update",
-            id="create",
-        ),
-        pytest.param(
-            "PATCH",
-            f"/{uuid.uuid4()}",
-            {"status": "paused"},
-            "agent:update",
-            id="update",
-        ),
-        pytest.param(
-            "POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"
-        ),
-        pytest.param(
-            "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
-        ),
-        pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+        pytest.param({CHANNELS}, [PREVIEW], False, id="agent_channels_only"),
+        pytest.param({PREVIEW}, [PREVIEW], True, id="preview_only"),
+        pytest.param({CHANNELS, PREVIEW}, [PREVIEW], True, id="both"),
     ],
 )
+def test_routes_require_only_the_preview(
+    admin: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    granted: set[Entitlement],
+    checked: list[Entitlement],
+    served: bool,
+    method: str,
+    path: str,
+    body: dict[str, object] | None,
+    scope: str,
+) -> None:
+    check = grant(monkeypatch, *granted)
+    admin.configure_mock(
+        **{
+            f"{name}.side_effect": TracecatNotFoundError("gone")
+            for name in ADMIN_METHODS
+        }
+    )
+
+    response = make_client(entitled=False).request(
+        method, f"/agent/channel-bots{path}", json=body
+    )
+
+    assert [c.args[2] for c in check.await_args_list] == checked
+    if served:
+        assert response.status_code == 404
+        assert response.json() == {"detail": "gone"}
+        assert len(admin.mock_calls) == 1
+    else:
+        assert response.status_code == 403
+        assert response.json() == entitlement_required_body(checked[-1])
+        assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(("method", "path", "body", "scope"), WORKSPACE_ROUTES)
 def test_routes_require_their_scope(
     admin: AsyncMock,
     method: str,
@@ -653,6 +720,23 @@ def test_callback_without_an_admin_redirects_with_an_error(
     }
 
 
+def test_callback_ignores_the_channel_entitlements(
+    admin: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    check = grant(monkeypatch)
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/1", ok=True
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert response.status_code == 307
+    assert location_query(response.headers["location"]) == {
+        "channel_bot_install": ["success"]
+    }
+    check.assert_not_awaited()
+
+
 def test_a_failing_admin_redirects_with_a_generic_error(admin: AsyncMock) -> None:
     admin.complete_oauth.side_effect = RuntimeError("boom")
 
@@ -684,7 +768,7 @@ def test_admin_routes_are_entitlement_gated_and_the_callback_is_public() -> None
     assert ("/workspaces/{workspace_id}/agent/channel-bots", "GET") in paths
     assert ("/workspaces/{workspace_id}/agent/channel-bots/install", "POST") in paths
     assert ("/workspaces/{workspace_id}/agent/channel-bots/{bot_id}", "PATCH") in paths
-    gate = router_module._require_agent_channels_entitlement
+    gate = router_module._require_agent_channels_preview
     assert any(dep.dependency is gate for dep in router_module.router.dependencies)
     assert not router_module.public_router.dependencies
 
