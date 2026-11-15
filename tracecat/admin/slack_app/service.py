@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import func, select
 
 from tracecat.admin.slack_app.schemas import (
@@ -59,7 +61,8 @@ class SlackPlatformAppService(BasePlatformService):
     ) -> SlackPlatformAppRead:
         """Refuses a registration the deployment cannot serve."""
         try:
-            stored = await read_slack_platform_app(self.session)
+            # Locked so an in-flight token refresh commits before its tokens are kept.
+            stored = await read_slack_platform_app(self.session, for_update=True)
         except UnreadableSlackPlatformApp:
             stored = None
         # Another app's secrets never carry over.
@@ -69,10 +72,13 @@ class SlackPlatformAppService(BasePlatformService):
         # A refresh token belongs to the app-level token it was issued with.
         if params.app_token is not None:
             app_token, app_refresh_token = params.app_token, params.app_refresh_token
+            # A pasted token's expiry is unknown, so the next sweep refreshes it.
+            refresh_due_at = datetime.now(UTC) if app_refresh_token else None
         elif kept is not None:
             app_token, app_refresh_token = kept.app_token, kept.app_refresh_token
+            refresh_due_at = kept.app_token_refresh_due_at
         else:
-            app_token = app_refresh_token = None
+            app_token = app_refresh_token = refresh_due_at = None
         missing = [
             name
             for name, value in (
@@ -94,6 +100,7 @@ class SlackPlatformAppService(BasePlatformService):
             signing_secret=signing_secret,
             app_token=app_token,
             app_refresh_token=app_refresh_token,
+            app_token_refresh_due_at=refresh_due_at,
             icon_uploaded=kept.icon_uploaded if kept else False,
             distribution_enabled=kept.distribution_enabled if kept else False,
         )
@@ -108,7 +115,7 @@ class SlackPlatformAppService(BasePlatformService):
         setup: ChannelBotPlatformAppSetup,
     ) -> SlackPlatformAppRead:
         try:
-            stored = await read_slack_platform_app(self.session)
+            stored = await read_slack_platform_app(self.session, for_update=True)
         except UnreadableSlackPlatformApp:
             stored = None
         if stored is None:

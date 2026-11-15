@@ -6,9 +6,11 @@ Stored as one encrypted platform setting, so a registration is never partial.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +38,8 @@ class SlackPlatformApp(BaseModel):
     app_token: str | None = Field(default=None, repr=False)
     # Only beside a rotating `xoxe.xapp-` app-level token.
     app_refresh_token: str | None = Field(default=None, repr=False)
+    # When the rotating app-level token is next refreshed; None when it doesn't rotate.
+    app_token_refresh_due_at: AwareDatetime | None = None
     # Slack-only settings an admin marks done; a different app ID starts them over.
     icon_uploaded: bool = False
     distribution_enabled: bool = False
@@ -45,20 +49,88 @@ class UnreadableSlackPlatformApp(Exception):
     """The stored registration no longer decrypts; a platform admin saves it again."""
 
 
-async def read_slack_platform_app(session: AsyncSession) -> SlackPlatformApp | None:
+class UnregisteredSlackPlatformApp(Exception):
+    """No Tracecat Slack app is registered."""
+
+
+async def read_slack_platform_app(
+    session: AsyncSession, *, for_update: bool = False
+) -> SlackPlatformApp | None:
     """The registered app, or None. Raises `UnreadableSlackPlatformApp`."""
-    raw = await session.scalar(
-        select(PlatformSetting.value).where(
-            PlatformSetting.key == SLACK_PLATFORM_APP_KEY
-        )
+    statement = select(PlatformSetting.value).where(
+        PlatformSetting.key == SLACK_PLATFORM_APP_KEY
     )
+    if for_update:
+        statement = statement.with_for_update()
+    raw = await session.scalar(statement)
     if raw is None:
         return None
+    return _decrypt(raw)
+
+
+def _decrypt(raw: bytes) -> SlackPlatformApp:
     try:
         plain = decrypt_value(raw, key=get_db_encryption_key())
         return SlackPlatformApp.model_validate_json(plain)
     except (InvalidToken, ValueError) as e:
         raise UnreadableSlackPlatformApp from e
+
+
+async def lock_slack_platform_app_for_refresh(
+    session: AsyncSession,
+) -> SlackPlatformApp | None:
+    """The app, row-locked until the caller's transaction ends, if its rotating token is due."""
+    raw = await session.scalar(
+        select(PlatformSetting.value)
+        .where(PlatformSetting.key == SLACK_PLATFORM_APP_KEY)
+        .with_for_update(skip_locked=True)
+    )
+    if raw is None:
+        return None
+    try:
+        app = _decrypt(raw)
+    except UnreadableSlackPlatformApp:
+        logger.error(
+            "The Tracecat Slack app's registration does not decrypt; its app-level"
+            " token cannot be refreshed until a platform admin saves it again"
+        )
+        return None
+    due = app.app_token_refresh_due_at
+    if (
+        app.app_token is None
+        or app.app_refresh_token is None
+        or due is None
+        or due > datetime.now(UTC)
+    ):
+        return None
+    return app
+
+
+async def store_slack_platform_app_tokens(
+    session: AsyncSession,
+    *,
+    app_token: str,
+    app_refresh_token: str,
+    refresh_due_at: datetime,
+) -> SlackPlatformApp:
+    """Replace only the rotated tokens and their due time; the caller commits.
+
+    Raises `UnregisteredSlackPlatformApp` or `UnreadableSlackPlatformApp`.
+    """
+    stored = await read_slack_platform_app(session, for_update=True)
+    if stored is None:
+        raise UnregisteredSlackPlatformApp
+    # Validated, so a naive due time never reaches storage and fails every later read.
+    app = SlackPlatformApp.model_validate(
+        stored.model_dump()
+        | {
+            "app_token": app_token,
+            "app_refresh_token": app_refresh_token,
+            "app_token_refresh_due_at": refresh_due_at,
+        }
+    )
+    await write_slack_platform_app(session, app)
+    return app
 
 
 async def write_slack_platform_app(

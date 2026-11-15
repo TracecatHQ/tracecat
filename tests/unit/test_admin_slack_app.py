@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import httpx
@@ -403,6 +404,41 @@ async def test_a_rotating_app_token_is_saved_with_its_refresh_token(
     assert stored is not None
     assert stored.app_token == "xoxe.xapp-synthetic-rotating"
     assert stored.app_refresh_token == "xoxe-synthetic-refresh"
+
+
+async def stored_refresh_due_at(session: AsyncSession) -> datetime | None:
+    stored = await read_slack_platform_app(session)
+    assert stored is not None
+    return stored.app_token_refresh_due_at
+
+
+@pytest.mark.anyio
+async def test_a_rotating_app_token_is_due_a_refresh_from_when_it_is_saved(
+    session: AsyncSession, channel_bot_admin: ChannelBotAdmin, audit_events: AsyncMock
+) -> None:
+    rotating = {
+        **FULL,
+        "app_token": "xoxe.xapp-synthetic-rotating",
+        "app_refresh_token": "xoxe-synthetic-refresh",
+    }
+    without_token = {k: v for k, v in FULL.items() if k != "app_token"}
+
+    async with client(session) as http:
+        before = datetime.now(UTC)
+        await http.put("/admin/slack-app", json=rotating)
+        after = datetime.now(UTC)
+        due = await stored_refresh_due_at(session)
+        await http.put("/admin/slack-app", json=without_token)
+        kept = await stored_refresh_due_at(session)
+        await http.put("/admin/slack-app", json=FULL)
+        not_rotating = await stored_refresh_due_at(session)
+        await http.put("/admin/slack-app", json={**without_token, "app_id": "A0OTHER"})
+        no_token = await stored_refresh_due_at(session)
+
+    assert due is not None and before <= due <= after
+    assert kept == due
+    assert not_rotating is None
+    assert no_token is None
 
 
 @pytest.mark.anyio
