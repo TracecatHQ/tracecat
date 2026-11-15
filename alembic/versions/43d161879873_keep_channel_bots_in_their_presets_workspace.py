@@ -18,6 +18,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # The keys lock agent_preset and agent_channel_bot; fail fast rather than
+    # queue behind a long transaction.
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.create_unique_constraint(
         op.f("uq_agent_preset_id_workspace_id"), "agent_preset", ["id", "workspace_id"]
     )
@@ -37,6 +40,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.drop_constraint(
         op.f("fk_agent_channel_bot_agent_preset_id_workspace_id_agent_preset"),
         "agent_channel_bot",

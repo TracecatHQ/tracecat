@@ -36620,7 +36620,7 @@ export const $SlackBotInstall = {
       anyOf: [
         {
           type: "string",
-          pattern: "^xapp-",
+          pattern: "^xapp-.+",
         },
         {
           type: "null",
@@ -36628,7 +36628,7 @@ export const $SlackBotInstall = {
       ],
       title: "App Token",
       description:
-        "App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.",
+        "App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise. Rotating `xoxe.xapp-` tokens expire in 12 hours and are not supported.",
     },
     return_url: {
       type: "string",

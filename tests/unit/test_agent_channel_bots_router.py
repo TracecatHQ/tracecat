@@ -320,7 +320,9 @@ def test_install_hands_the_parsed_provider_request_to_the_admin(
 
 
 @pytest.mark.parametrize(
-    "app_token", ["", "xoxb-bot-token"], ids=["blank", "bot_token"]
+    "app_token",
+    ["", "xapp-", "xoxe.xapp-1", "xoxb-bot-token"],
+    ids=["blank", "bare_prefix", "rotating", "bot_token"],
 )
 def test_install_refuses_a_token_that_is_not_an_app_token(
     client: TestClient, admin: AsyncMock, app_token: str

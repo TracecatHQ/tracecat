@@ -148,10 +148,11 @@ class SlackBotInstall(ChannelBotInstallBase):
     signing_secret: str = Field(..., min_length=1)
     app_token: str | None = Field(
         default=None,
-        pattern=r"^xapp-",
+        pattern=r"^xapp-.+",
         description=(
             "App-level token (`xapp-`) with connections:write. Required when the deployment"
-            " receives Slack events over Socket Mode; rejected otherwise."
+            " receives Slack events over Socket Mode; rejected otherwise. Rotating"
+            " `xoxe.xapp-` tokens expire in 12 hours and are not supported."
         ),
     )
     return_url: str = Field(..., min_length=1)
