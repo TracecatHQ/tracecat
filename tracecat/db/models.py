@@ -4718,6 +4718,11 @@ class AgentChannelBot(TimestampMixin, Base):
             name="status",
         ),
         CheckConstraint("transport IN ('http', 'socket')", name="transport"),
+        Index(
+            "ix_agent_channel_bot_token_refresh_due_at",
+            "token_refresh_due_at",
+            postgresql_where=text("token_refresh_due_at IS NOT NULL"),
+        ),
         # A bot never targets another workspace's preset.
         ForeignKeyConstraint(
             ["agent_preset_id", "workspace_id"],
@@ -4762,6 +4767,11 @@ class AgentChannelBot(TimestampMixin, Base):
     manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
     encrypted_credentials: Mapped[bytes] = mapped_column(
         LargeBinary, nullable=False, doc="DB-encrypted provider credentials document"
+    )
+    token_refresh_due_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Earliest due refresh of a rotating token; null when none rotates",
     )
 
 

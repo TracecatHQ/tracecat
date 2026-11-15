@@ -12,12 +12,15 @@ export function buildSlackManifest({
   /** The legacy channel token path: mentions only, and no agent_view (one-way per app). */
   legacy?: boolean
 }): Record<string, unknown> {
-  const requestUrl = endpointUrl === null ? {} : { request_url: endpointUrl }
+  const socket = endpointUrl === null
+  const requestUrl = socket ? {} : { request_url: endpointUrl }
   const settings = {
     interactivity: { is_enabled: true, ...requestUrl },
     org_deploy_enabled: false,
-    socket_mode_enabled: endpointUrl === null,
-    token_rotation_enabled: false,
+    socket_mode_enabled: socket,
+    // Slack cannot turn rotation off again; the legacy path cannot refresh tokens.
+    token_rotation_enabled: !legacy,
+    ...(socket ? { app_level_token_rotation_enabled: true } : {}),
     event_subscriptions: {
       ...requestUrl,
       bot_events: legacy ? ["app_mention"] : ["app_mention", "message.im"],

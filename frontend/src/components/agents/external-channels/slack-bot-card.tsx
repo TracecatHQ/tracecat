@@ -165,10 +165,13 @@ function SlackBotDialog({
   const [clientSecret, setClientSecret] = useState("")
   const [signingSecret, setSigningSecret] = useState("")
   const [appToken, setAppToken] = useState("")
+  const [appRefreshToken, setAppRefreshToken] = useState("")
 
   const status = CHANNEL_BOT_STATES[state]
   const mode = slackDialogMode(status.installed, reconnecting)
   const socket = details.transport === "socket"
+  // Rotating app-level tokens come with a refresh token that Slack shows once.
+  const rotatingAppToken = appToken.trim().startsWith("xoxe.")
 
   function handleInstall(): void {
     const body: SlackBotInstall = {
@@ -182,6 +185,9 @@ function SlackBotDialog({
     }
     if (socket) {
       body.app_token = appToken.trim()
+      if (rotatingAppToken) {
+        body.app_refresh_token = appRefreshToken.trim()
+      }
     }
     installBot(body, {
       onSuccess: (result) => {
@@ -228,7 +234,8 @@ function SlackBotDialog({
     clientId.trim() &&
       clientSecret.trim() &&
       signingSecret.trim() &&
-      (!socket || appToken.trim())
+      (!socket ||
+        (appToken.trim() && (!rotatingAppToken || appRefreshToken.trim())))
   )
   const canSaveCredentials = Boolean(
     (clientId.trim() && clientId.trim() !== details.client_id) ||
@@ -334,16 +341,34 @@ function SlackBotDialog({
         }
       />
       {socket && mode !== "edit" ? (
-        <CredentialField
-          id="slack-at"
-          label="App-level token"
-          secret
-          value={appToken}
-          onChange={setAppToken}
-          disabled={busy}
-          placeholder="xapp-..."
-          help="Generate one with the connections:write scope under Basic Information in your Slack app."
-        />
+        <>
+          <CredentialField
+            id="slack-at"
+            label="App-level token"
+            secret
+            value={appToken}
+            onChange={(value) => {
+              // A refresh token belongs to the token it was shown with.
+              setAppToken(value)
+              setAppRefreshToken("")
+            }}
+            disabled={busy}
+            placeholder="xapp-..."
+            help="Generate one with the connections:write scope under Basic Information in your Slack app."
+          />
+          {rotatingAppToken ? (
+            <CredentialField
+              id="slack-art"
+              label="App-level refresh token"
+              secret
+              value={appRefreshToken}
+              onChange={setAppRefreshToken}
+              disabled={busy}
+              placeholder="xoxe-..."
+              help="Slack shows it once, beside the token. Tracecat rotates both, so generate a new token for each connect."
+            />
+          ) : null}
+        </>
       ) : null}
       {socket && mode === "edit" ? (
         <p className="text-xs text-muted-foreground">

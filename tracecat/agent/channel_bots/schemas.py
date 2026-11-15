@@ -148,14 +148,35 @@ class SlackBotInstall(ChannelBotInstallBase):
     signing_secret: str = Field(..., min_length=1)
     app_token: str | None = Field(
         default=None,
-        pattern=r"^xapp-.+",
+        pattern=r"^(xoxe\.)?xapp-.+",
         description=(
-            "App-level token (`xapp-`) with connections:write. Required when the deployment"
-            " receives Slack events over Socket Mode; rejected otherwise. Rotating"
-            " `xoxe.xapp-` tokens expire in 12 hours and are not supported."
+            "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write."
+            " Required when the deployment receives Slack events over Socket Mode; rejected"
+            " otherwise."
+        ),
+    )
+    app_refresh_token: str | None = Field(
+        default=None,
+        pattern=r"^xoxe-.+",
+        description=(
+            "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level"
+            " token. Required with one; rejected otherwise."
         ),
     )
     return_url: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _refresh_token_matches_app_token(self) -> Self:
+        rotating = self.app_token is not None and self.app_token.startswith("xoxe.")
+        if rotating and self.app_refresh_token is None:
+            raise ValueError(
+                "A rotating `xoxe.xapp-` app-level token needs its refresh token"
+            )
+        if not rotating and self.app_refresh_token is not None:
+            raise ValueError(
+                "Only a rotating `xoxe.xapp-` app-level token takes a refresh token"
+            )
+        return self
 
 
 type ChannelBotInstall = Annotated[SlackBotInstall, Field(discriminator="provider")]

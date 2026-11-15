@@ -897,6 +897,7 @@ CREDENTIAL_NAME = re.compile(
 # that matches CREDENTIAL_NAME must go here or in READONLY_HIDDEN_COLUMNS.
 SAFE_CREDENTIAL_NAMED_COLUMNS = {
     ("agent_catalog", "last_refreshed_at"),
+    ("agent_channel_bot", "token_refresh_due_at"),  # a timestamp
     ("agent_custom_provider", "api_key_header"),  # a header name
     ("agent_custom_provider", "last_refreshed_at"),
     ("agent_session_command", "payload_hash"),

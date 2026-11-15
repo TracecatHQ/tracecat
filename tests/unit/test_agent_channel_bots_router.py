@@ -366,8 +366,12 @@ def test_routes_hand_the_request_to_the_installed_admin(
 
 @pytest.mark.parametrize(
     "body",
-    [INSTALL_BODY, {**INSTALL_BODY, "app_token": "xapp-1"}],
-    ids=["without_app_token", "with_app_token"],
+    [
+        INSTALL_BODY,
+        {**INSTALL_BODY, "app_token": "xapp-1"},
+        {**INSTALL_BODY, "app_token": "xoxe.xapp-1", "app_refresh_token": "xoxe-1"},
+    ],
+    ids=["without_app_token", "with_app_token", "with_rotating_app_token"],
 )
 def test_install_hands_the_parsed_provider_request_to_the_admin(
     client: TestClient, admin: AsyncMock, body: dict[str, str]
@@ -388,8 +392,14 @@ def test_install_hands_the_parsed_provider_request_to_the_admin(
 
 @pytest.mark.parametrize(
     "app_token",
-    ["", "xapp-", "xoxe.xapp-1", "xoxb-bot-token"],
-    ids=["blank", "bare_prefix", "rotating", "bot_token"],
+    ["", "xapp-", "xoxe.xapp-", "xoxe.xoxb-1", "xoxb-bot-token"],
+    ids=[
+        "blank",
+        "bare_prefix",
+        "bare_rotating_prefix",
+        "rotating_bot_token",
+        "bot_token",
+    ],
 )
 def test_install_refuses_a_token_that_is_not_an_app_token(
     client: TestClient, admin: AsyncMock, app_token: str
@@ -400,6 +410,39 @@ def test_install_refuses_a_token_that_is_not_an_app_token(
 
     assert response.status_code == 422
     assert [error["loc"][-1] for error in response.json()["detail"]] == ["app_token"]
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        {"app_token": "xoxe.xapp-1"},
+        {"app_token": "xapp-1", "app_refresh_token": "xoxe-1"},
+        {"app_refresh_token": "xoxe-1"},
+    ],
+    ids=["rotating_without_refresh", "refresh_with_non_rotating", "refresh_alone"],
+)
+def test_install_takes_a_refresh_token_with_a_rotating_app_token_only(
+    client: TestClient, admin: AsyncMock, tokens: dict[str, str]
+) -> None:
+    response = client.post(
+        "/agent/channel-bots/install", json={**INSTALL_BODY, **tokens}
+    )
+
+    assert response.status_code == 422
+    assert "refresh token" in response.json()["detail"][0]["msg"]
+    assert admin.mock_calls == []
+
+
+def test_install_refuses_a_refresh_token_that_is_not_one(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    body = {**INSTALL_BODY, "app_token": "xoxe.xapp-1", "app_refresh_token": "xoxb-1"}
+
+    response = client.post("/agent/channel-bots/install", json=body)
+
+    assert response.status_code == 422
+    assert [e["loc"][-1] for e in response.json()["detail"]] == ["app_refresh_token"]
     assert admin.mock_calls == []
 
 

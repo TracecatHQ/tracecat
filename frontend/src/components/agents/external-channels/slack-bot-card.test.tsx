@@ -397,6 +397,49 @@ describe("SlackBotCard over Socket Mode", () => {
     })
   })
 
+  it("requires and sends the refresh token of a rotating app-level token", async () => {
+    serveBots([reservedSlackBot(noEndpoint, socket)])
+    api.installBot.mockResolvedValue({
+      bot: reservedSlackBot(noEndpoint, socket),
+      authorization_url: AUTHORIZE_URL,
+    })
+    renderPanel()
+    await openDialog("Connect")
+    await fillInstallFields("xoxe.xapp-1")
+    const connect = screen.getByRole("button", { name: "Connect to Slack" })
+    expect(connect).toBeDisabled()
+    await userEvent.type(
+      screen.getByLabelText("App-level refresh token"),
+      "xoxe-1"
+    )
+    await submit("Connect to Slack")
+
+    expect(api.installBot).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      requestBody: expect.objectContaining({
+        app_token: "xoxe.xapp-1",
+        app_refresh_token: "xoxe-1",
+      }),
+    })
+  })
+
+  it("clears the refresh token when the app-level token changes", async () => {
+    serveBots([reservedSlackBot(noEndpoint, socket)])
+    renderPanel()
+    await openDialog("Connect")
+    await fillInstallFields("xoxe.xapp-1")
+    await userEvent.type(
+      screen.getByLabelText("App-level refresh token"),
+      "xoxe-1"
+    )
+    await userEvent.type(screen.getByLabelText("App-level token"), "2")
+
+    expect(screen.getByLabelText("App-level refresh token")).toHaveValue("")
+    expect(
+      screen.getByRole("button", { name: "Connect to Slack" })
+    ).toBeDisabled()
+  })
+
   it("asks an installed bot for the token only when reconnecting", async () => {
     serveBots([slackBot(noEndpoint, socket)])
     renderPanel()
