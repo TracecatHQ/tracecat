@@ -10,7 +10,6 @@ import {
   MousePointerClickIcon,
   PackageIcon,
   ShieldCheckIcon,
-  SlackIcon,
   UsersIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -43,7 +42,7 @@ export function AdminSidebar({
     await logout()
   }
 
-  const navPlatform = [
+  const navPlatformBeforeAgent = [
     {
       title: "Organizations",
       url: "/admin/organizations",
@@ -62,18 +61,9 @@ export function AdminSidebar({
       icon: LayersIcon,
       isActive: pathname?.includes("/admin/tiers"),
     },
-    {
-      title: "Agent",
-      url: "/admin/agent",
-      icon: MousePointerClickIcon,
-      isActive: pathname?.includes("/admin/agent"),
-    },
-    {
-      title: "Slack",
-      url: "/admin/slack",
-      icon: SlackIcon,
-      isActive: pathname?.includes("/admin/slack"),
-    },
+  ]
+
+  const navPlatformAfterAgent = [
     {
       title: "Managed Workspaces",
       url: "/admin/managed-package",
@@ -106,6 +96,19 @@ export function AdminSidebar({
     },
   ]
 
+  const navAgent = [
+    {
+      title: "Models",
+      url: "/admin/agent",
+      isActive: pathname === "/admin/agent",
+    },
+    {
+      title: "Slack",
+      url: "/admin/agent/slack",
+      isActive: pathname?.includes("/admin/agent/slack"),
+    },
+  ]
+
   const navRegistry = [
     {
       title: "Repositories",
@@ -124,6 +127,19 @@ export function AdminSidebar({
     },
   ]
 
+  function renderNavItem(item: (typeof navPlatformAfterAgent)[number]) {
+    return (
+      <SidebarMenuItem key={item.title}>
+        <SidebarMenuButton asChild isActive={item.isActive}>
+          <Link href={item.url}>
+            <item.icon />
+            <span>{item.title}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    )
+  }
+
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarContent>
@@ -131,16 +147,29 @@ export function AdminSidebar({
           <SidebarGroupLabel>Platform</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navPlatform.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navPlatformBeforeAgent.map(renderNavItem)}
+              <SidebarMenuItem>
+                <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
+                  <MousePointerClickIcon className="size-4 shrink-0" />
+                  <span className="font-medium">Agent</span>
+                </div>
+                <SidebarMenuSub>
+                  {navAgent.map((subItem) => (
+                    <SidebarMenuSubItem key={subItem.title}>
+                      <SidebarMenuSubButton
+                        asChild
+                        isActive={subItem.isActive}
+                        className="text-[13px]"
+                      >
+                        <Link href={subItem.url}>
+                          <span>{subItem.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              </SidebarMenuItem>
+              {navPlatformAfterAgent.map(renderNavItem)}
               <SidebarMenuItem>
                 <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
                   <BookOpenIcon className="size-4 shrink-0" />
