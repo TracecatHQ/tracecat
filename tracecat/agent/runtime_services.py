@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import uvicorn
 
 from tracecat.agent.otel_delivery import (
     DeliveryLimits,
@@ -27,6 +31,18 @@ _otel_delivery_pool: OtelDeliveryPool | None = None
 _OTEL_DRAIN_SECONDS = 25.0
 
 
+class _EmbeddedUvicornServer(uvicorn.Server):
+    """Uvicorn server that leaves process signals to the host worker.
+
+    The worker drains running agent turns on SIGTERM and stops this server
+    afterwards; uvicorn's own handler would close the socket mid-drain.
+    """
+
+    @contextlib.contextmanager
+    def capture_signals(self) -> Generator[None]:
+        yield
+
+
 async def _wait_for_socket(
     socket_path: Path,
     *,
@@ -45,8 +61,6 @@ async def start_mcp_server() -> None:
     """Start the trusted MCP HTTP server on Unix socket."""
     global _mcp_server_task
 
-    import uvicorn
-
     from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
     from tracecat.agent.mcp.trusted_server import app
 
@@ -62,7 +76,7 @@ async def start_mcp_server() -> None:
         uds=str(socket_path),
         log_level="warning",
     )
-    server = uvicorn.Server(uvicorn_config)
+    server = _EmbeddedUvicornServer(uvicorn_config)
     _mcp_server_task = asyncio.create_task(server.serve())
 
     if not await _wait_for_socket(socket_path):
