@@ -1,12 +1,29 @@
 "use client"
 
-import { Hash, Plus, Trash2 } from "lucide-react"
+import { ChevronsUpDown, Hash, Lock, Plus, Trash2 } from "lucide-react"
 import { type FormEvent, type ReactNode, useId, useState } from "react"
-import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
+import type {
+  AgentChannelBotRead,
+  AgentPresetReadMinimal,
+  ChannelBotChannel,
+} from "@/client"
 import { CHANNEL_BOT_PROVIDER_NAMES } from "@/components/agents/external-channels/channel-bot-utils"
+import { CopyButton } from "@/components/copy-button"
 import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -16,7 +33,9 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import {
+  isChannelListingNotSupported,
   useAddChannelBotRoute,
+  useChannelBotChannels,
   useChannelBotRoutes,
   useChannelBotsBusy,
   useDeleteChannelBotRoute,
@@ -25,6 +44,9 @@ import {
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { getApiErrorDetail } from "@/lib/errors"
+import { cn } from "@/lib/utils"
+
+const INVITE_COMMAND = "/invite @Tracecat"
 
 /** Picks one of the workspace's agents. */
 export function AgentSelect({
@@ -56,6 +78,93 @@ export function AgentSelect({
   )
 }
 
+/** A lock on a private channel, else a hash. */
+function ChannelIcon({ channel }: { channel?: ChannelBotChannel }) {
+  return channel?.is_private ? (
+    <Lock
+      role="img"
+      aria-label="Private channel"
+      className="size-3.5 shrink-0 text-muted-foreground"
+    />
+  ) : (
+    <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+  )
+}
+
+/** Picks one of the provider tenant's channels by name. */
+function ChannelPicker({
+  id,
+  channels,
+  value,
+  isLoading,
+  disabled,
+  onChange,
+}: {
+  id: string
+  channels: ChannelBotChannel[]
+  value: string
+  isLoading: boolean
+  disabled: boolean
+  onChange: (channelId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = channels.find((c) => c.id === value)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled || isLoading}
+          className="h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal shadow-none"
+        >
+          <ChannelIcon channel={selected} />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {selected?.name ??
+              (isLoading ? "Loading channels…" : "Pick a channel")}
+          </span>
+          <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[--radix-popover-trigger-width] min-w-64 p-0"
+      >
+        <Command>
+          <CommandInput placeholder="Search channels" className="h-8 text-xs" />
+          <CommandList className="max-h-64">
+            <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
+              No channels found
+            </CommandEmpty>
+            {channels.map((c) => (
+              <CommandItem
+                key={c.id}
+                value={`${c.name} ${c.id}`}
+                onSelect={() => {
+                  onChange(c.id)
+                  setOpen(false)
+                }}
+                className="gap-2 text-xs"
+              >
+                <ChannelIcon channel={c} />
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                {!c.is_member && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {c.is_private ? "needs invite" : "joins on add"}
+                  </span>
+                )}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /**
  * A platform install's default agent, and the channels whose new threads go
  * to another agent. Existing threads keep the agent they started with.
@@ -82,6 +191,10 @@ export function PlatformChannelRoutes({
     workspaceId,
     install.provider
   )
+  const { channels, channelsIsLoading, channelsError } = useChannelBotChannels(
+    workspaceId,
+    install.id
+  )
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(
@@ -100,6 +213,16 @@ export function PlatformChannelRoutes({
     install.provider === "slack" ? channel.trim().toUpperCase() : channel.trim()
   // A hint over the loaded pages; the API refuses a channel that already has a route.
   const taken = routes?.some((r) => r.provider_channel_id === newChannel)
+  const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
+  const unrouted = (channels ?? []).filter(
+    (c) => !routes?.some((r) => r.provider_channel_id === c.id)
+  )
+  // Any listing failure falls back to typing the ID.
+  const listingNote = channelsError
+    ? isChannelListingNotSupported(channelsError)
+      ? `${providerName} channels can't be listed here.`
+      : "Could not load channels."
+    : null
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
@@ -153,42 +276,60 @@ export function PlatformChannelRoutes({
   } else if (routes && routes.length > 0) {
     routeList = (
       <ul className="space-y-2" aria-label="Channels">
-        {routes.map((r) => (
-          <li key={r.provider_channel_id} className="flex items-center gap-2">
-            <Hash
-              className="size-3.5 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-            <span className="min-w-0 flex-1 truncate font-mono text-xs">
-              {r.provider_channel_id}
-            </span>
-            <AgentSelect
-              label={`Agent for ${r.provider_channel_id}`}
-              value={r.agent_preset_id}
-              agents={agents}
-              disabled={disabled}
-              onChange={(agentId) =>
-                changeRoute(r.provider_channel_id, agentId)
-              }
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-8"
-              aria-label={`Remove ${r.provider_channel_id}`}
-              disabled={disabled}
-              onClick={() =>
-                deleteRoute({
-                  botId: install.id,
-                  providerChannelId: r.provider_channel_id,
-                })
-              }
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </li>
-        ))}
+        {routes.map((r) => {
+          const known = channelsById.get(r.provider_channel_id)
+          const label = known ? `#${known.name}` : r.provider_channel_id
+          return (
+            <li key={r.provider_channel_id} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <ChannelIcon channel={known} />
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-xs",
+                    !known && "font-mono"
+                  )}
+                >
+                  {known?.name ?? r.provider_channel_id}
+                </span>
+                <AgentSelect
+                  label={`Agent for ${label}`}
+                  value={r.agent_preset_id}
+                  agents={agents}
+                  disabled={disabled}
+                  onChange={(agentId) =>
+                    changeRoute(r.provider_channel_id, agentId)
+                  }
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  aria-label={`Remove ${label}`}
+                  disabled={disabled}
+                  onClick={() =>
+                    deleteRoute({
+                      botId: install.id,
+                      providerChannelId: r.provider_channel_id,
+                    })
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+              {known?.is_private && !known.is_member && (
+                <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
+                  {`Invite @Tracecat in #${known.name} to finish`}
+                  <CopyButton
+                    value={INVITE_COMMAND}
+                    toastMessage="Invite command copied"
+                    tooltipMessage={`Copy ${INVITE_COMMAND}`}
+                  />
+                </p>
+              )}
+            </li>
+          )
+        })}
         {hasMoreRoutes ? (
           <li>
             <Button
@@ -243,16 +384,27 @@ export function PlatformChannelRoutes({
         <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">
-              Channel ID
+              {listingNote ? "Channel ID" : "Channel"}
             </Label>
-            <Input
-              id={channelInputId}
-              value={channel}
-              onChange={(e) => setChannel(e.target.value)}
-              placeholder="C0123456789"
-              className="h-8 font-mono text-xs"
-              disabled={disabled}
-            />
+            {listingNote ? (
+              <Input
+                id={channelInputId}
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                placeholder="C0123456789"
+                className="h-8 font-mono text-xs"
+                disabled={disabled}
+              />
+            ) : (
+              <ChannelPicker
+                id={channelInputId}
+                channels={unrouted}
+                value={channel}
+                isLoading={channelsIsLoading}
+                disabled={disabled}
+                onChange={setChannel}
+              />
+            )}
           </div>
           <AgentSelect
             label="Agent for the new route"
@@ -272,7 +424,9 @@ export function PlatformChannelRoutes({
           </Button>
         </form>
         <p className="text-xs text-muted-foreground">
-          {`Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`}
+          {listingNote
+            ? `${listingNote} Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`
+            : "Threads already started keep their agent."}
         </p>
       </div>
     </div>

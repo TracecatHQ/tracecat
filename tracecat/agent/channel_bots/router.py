@@ -14,7 +14,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from tracecat import config
-from tracecat.agent.channel_bots.provider import ChannelBotAdmin, get_channel_bot_admin
+from tracecat.agent.channel_bots.provider import (
+    ChannelBotAdmin,
+    ChannelListingNotSupported,
+    get_channel_bot_admin,
+)
 from tracecat.agent.channel_bots.schemas import (
     CHANNEL_BOTS_PREFIX,
     OAUTH_CALLBACK_ROUTE,
@@ -24,6 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
@@ -81,6 +86,9 @@ async def _call[T](call: Awaitable[T]) -> T:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except TracecatConflictError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ChannelListingNotSupported as exc:
+        # The UI falls back to a typed channel ID on this status.
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
     except PaginationError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=exc.detail or str(exc)
@@ -249,6 +257,26 @@ async def add_bot_route(
 ) -> AgentChannelRouteRead:
     """Route a channel that has no route yet; 409 when it has one."""
     return await _call(admin.add_route(session, role, bot_id, params))
+
+
+@router.get(
+    "/{bot_id}/channels",
+    response_model=list[ChannelBotChannel],
+    responses={
+        status.HTTP_501_NOT_IMPLEMENTED: {
+            "description": "The bot's provider cannot list its channels"
+        }
+    },
+)
+@require_scope("agent:read")
+async def list_bot_channels(
+    *,
+    bot_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> list[ChannelBotChannel]:
+    return await _call(admin.list_channels(session, role, bot_id=bot_id))
 
 
 @router.put("/{bot_id}/routes", response_model=AgentChannelRouteRead)

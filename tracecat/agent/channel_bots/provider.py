@@ -15,6 +15,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
@@ -26,7 +27,12 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.api.extensions import load_api_extensions
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatException
 from tracecat.pagination import CursorPaginatedResponse, PageParams
+
+
+class ChannelListingNotSupported(TracecatException):
+    """The bot's provider cannot list its channels; the API answers 501."""
 
 
 class ChannelBotAdmin(Protocol):
@@ -115,6 +121,14 @@ class ChannelBotAdmin(Protocol):
         params: AgentChannelRouteSet,
     ) -> AgentChannelRouteRead:
         """Raise `TracecatConflictError` when the channel already has a route."""
+        ...
+
+    async def list_channels(
+        self, session: AsyncSession, role: Role, *, bot_id: uuid.UUID
+    ) -> list[ChannelBotChannel]:
+        """Raise `TracecatValidationError` unless the bot is installed and running,
+        `ChannelListingNotSupported` when its provider cannot list channels.
+        """
         ...
 
     async def set_route(

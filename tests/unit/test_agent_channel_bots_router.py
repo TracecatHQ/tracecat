@@ -19,12 +19,14 @@ from tests._route_utils import iter_effective_api_routes
 from tracecat import config
 from tracecat.agent.channel_bots import provider as provider_module
 from tracecat.agent.channel_bots import router as router_module
+from tracecat.agent.channel_bots.provider import ChannelListingNotSupported
 from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotRead,
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
@@ -292,6 +294,7 @@ WORKSPACE_ROUTES = [
         id="install_platform",
     ),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
+    pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
     pytest.param(
         "POST", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="add_route"
     ),
@@ -313,6 +316,7 @@ ADMIN_METHODS = (
     "install_platform",
     "list_routes",
     "add_route",
+    "list_channels",
     "set_route",
     "delete_route",
 )
@@ -705,6 +709,42 @@ def test_adding_a_route_for_a_routed_channel_is_a_conflict(
 
     assert response.status_code == 409
     assert response.json() == {"detail": "C1 already has a route"}
+
+
+def test_channels_come_from_the_installed_admin(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    bot_id = uuid.uuid4()
+    channels = [
+        ChannelBotChannel(id="C1", name="alerts", is_private=False, is_member=True),
+        ChannelBotChannel(id="G1", name="soc", is_private=True, is_member=False),
+    ]
+    admin.list_channels.return_value = channels
+
+    response = client.get(f"/agent/channel-bots/{bot_id}/channels")
+
+    assert response.status_code == 200
+    assert response.json() == [c.model_dump(mode="json") for c in channels]
+    admin.list_channels.assert_awaited_once_with(SESSION, ROLE, bot_id=bot_id)
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        pytest.param(TracecatNotFoundError("gone"), 404, id="unknown_bot"),
+        pytest.param(TracecatValidationError("paused"), 400, id="refused_state"),
+        pytest.param(ChannelListingNotSupported("no list"), 501, id="not_supported"),
+    ],
+)
+def test_channel_listing_errors_map_to_http_errors(
+    client: TestClient, admin: AsyncMock, error: Exception, status_code: int
+) -> None:
+    admin.list_channels.side_effect = error
+
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/channels")
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
 
 
 def test_a_bad_cursor_keeps_its_error_code(

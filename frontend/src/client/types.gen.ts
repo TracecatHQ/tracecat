@@ -3547,6 +3547,16 @@ export type CatalogMappingSelection = {
  */
 export type ChannelBotAppOwner = "workspace" | "platform"
 
+/**
+ * A channel in the bot's provider tenant, which a route can name.
+ */
+export type ChannelBotChannel = {
+  id: string
+  name: string
+  is_private: boolean
+  is_member: boolean
+}
+
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
 
 export type ChannelBotDetails = SlackBotDetails
@@ -16580,6 +16590,13 @@ export type AgentChannelBotsSetBotRouteData = {
 
 export type AgentChannelBotsSetBotRouteResponse = AgentChannelRouteRead
 
+export type AgentChannelBotsListBotChannelsData = {
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotChannelsResponse = Array<ChannelBotChannel>
+
 export type AgentChannelBotsDeleteBotRouteData = {
   botId: string
   providerChannelId: string
@@ -23533,6 +23550,25 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels": {
+    get: {
+      req: AgentChannelBotsListBotChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChannelBotChannel>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
       }
     }
   }

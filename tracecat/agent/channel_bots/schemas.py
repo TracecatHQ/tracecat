@@ -244,6 +244,15 @@ class AgentChannelRouteSet(BaseModel):
     agent_preset_id: uuid.UUID
 
 
+class ChannelBotChannel(BaseModel):
+    """A channel in the bot's provider tenant, which a route can name."""
+
+    id: str
+    name: str
+    is_private: bool
+    is_member: bool
+
+
 class AgentChannelRouteRead(BaseModel):
     bot_id: uuid.UUID
     provider_channel_id: str

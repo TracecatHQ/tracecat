@@ -169,6 +169,8 @@ import type {
   AgentChannelBotsInstallBotResponse,
   AgentChannelBotsInstallPlatformBotData,
   AgentChannelBotsInstallPlatformBotResponse,
+  AgentChannelBotsListBotChannelsData,
+  AgentChannelBotsListBotChannelsResponse,
   AgentChannelBotsListBotRoutesData,
   AgentChannelBotsListBotRoutesResponse,
   AgentChannelBotsListBotsData,
@@ -6999,6 +7001,31 @@ export const agentChannelBotsSetBotRoute = (
     mediaType: "application/json",
     errors: {
       422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Bot Channels
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @returns ChannelBotChannel Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBotChannels = (
+  data: AgentChannelBotsListBotChannelsData
+): CancelablePromise<AgentChannelBotsListBotChannelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+      501: "The bot's provider cannot list its channels",
     },
   })
 }

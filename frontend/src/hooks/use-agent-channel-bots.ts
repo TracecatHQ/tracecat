@@ -11,11 +11,13 @@ import {
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
+  agentChannelBotsListBotChannels,
   agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
+  type ChannelBotChannel,
   type ChannelBotInstall,
   type ChannelBotInstallResult,
   type ChannelBotPlatformApp,
@@ -241,6 +243,33 @@ export function useChannelRoutesToAgent(
     meta: { suppressErrorToast: true },
   })
   return { routed: routed === true }
+}
+
+/** Whether the API refused to list channels because the provider cannot. */
+export function isChannelListingNotSupported(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    error.status === 501
+  )
+}
+
+/** The channels a route can name, from the bot's provider tenant. */
+export function useChannelBotChannels(workspaceId: string, botId: string) {
+  const {
+    data: channels,
+    isLoading: channelsIsLoading,
+    error: channelsError,
+  } = useQuery<Array<ChannelBotChannel>, TracecatApiError>({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "channels"],
+    queryFn: async () =>
+      await agentChannelBotsListBotChannels({ workspaceId, botId }),
+    retry: (failureCount, error) =>
+      !isChannelListingNotSupported(error) && retryHandler(failureCount, error),
+    meta: { suppressErrorToast: true },
+  })
+  return { channels, channelsIsLoading, channelsError }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */

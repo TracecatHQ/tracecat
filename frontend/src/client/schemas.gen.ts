@@ -13089,6 +13089,32 @@ export const $ChannelBotAppOwner = {
   description: "Who owns a bot's provider app.",
 } as const
 
+export const $ChannelBotChannel = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    is_private: {
+      type: "boolean",
+      title: "Is Private",
+    },
+    is_member: {
+      type: "boolean",
+      title: "Is Member",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "is_private", "is_member"],
+  title: "ChannelBotChannel",
+  description:
+    "A channel in the bot's provider tenant, which a route can name.",
+} as const
+
 export const $ChannelBotCredentialsUpdate = {
   oneOf: [
     {
