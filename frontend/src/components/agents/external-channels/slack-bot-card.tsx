@@ -37,7 +37,6 @@ import {
   SlackManualSetup,
 } from "@/components/agents/external-channels/slack-setup-fields"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CopyField } from "@/components/copy-field"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -88,11 +87,11 @@ export function SlackBotCard({
       opening={dialog.opening}
     >
       {state === "active" ? (
-        <CopyField
-          label="Invite command"
-          value={`/invite @${preset.name}`}
-          help={`Run this in any channel, then mention @${preset.name} there.`}
-        />
+        // The bot's Slack name is chosen at setup and not stored, so name no handle here.
+        <p className="text-xs text-muted-foreground">
+          Run <code>/invite</code> with the bot&apos;s name in any channel, then
+          mention the bot there.
+        </p>
       ) : null}
       {updateNeeded ? (
         <ChannelBotNotice title="Update needed">
@@ -275,7 +274,11 @@ function SlackBotDialog({
       onClose={onClose}
       busy={busy}
       title={TITLE}
-      description="The bot gets its own name and icon, and answers only for this agent. Needs permission to create apps in your Slack workspace."
+      description={
+        mode === "install"
+          ? "The bot gets its own name and icon, and answers only for this agent. Needs permission to create apps in your Slack workspace."
+          : "The bot gets its own name and icon, and answers only for this agent."
+      }
       details={
         <>
           {mode === "install" ? (
@@ -420,7 +423,7 @@ function SlackAppCreateStep({
   if (created) {
     return (
       <div className="space-y-4">
-        <SetupDoneLine>App created in Slack</SetupDoneLine>
+        <SetupDoneLine>Slack app ready</SetupDoneLine>
         <SlackBotManualSetup
           bot={bot}
           details={details}

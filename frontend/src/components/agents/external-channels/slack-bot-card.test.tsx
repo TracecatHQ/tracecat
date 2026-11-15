@@ -402,7 +402,7 @@ describe("Creating the custom Slack app", () => {
     expect(manifest.oauth_config.redirect_urls).toEqual([SLACK_REDIRECT])
 
     await userEvent.click(link)
-    expect(screen.getByText("App created in Slack")).toBeInTheDocument()
+    expect(screen.getByText("Slack app ready")).toBeInTheDocument()
     expect(screen.getByLabelText("Client ID")).toHaveAccessibleDescription(
       "App Credentials → Client ID"
     )
@@ -436,12 +436,10 @@ describe("Creating the custom Slack app", () => {
     expect(screen.getByLabelText("Request URL")).toBeVisible()
   })
 
-  it("shows the invite command once the bot is active", async () => {
+  it("says how to invite the bot once it is active", async () => {
     serveBots([slackBot()])
     renderPanel()
-    expect(await screen.findByLabelText("Invite command")).toHaveValue(
-      "/invite @Triage"
-    )
+    expect(await screen.findByText(/with the bot's name/)).toBeInTheDocument()
   })
 })
 
