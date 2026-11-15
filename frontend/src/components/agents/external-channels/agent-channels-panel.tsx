@@ -7,7 +7,6 @@ import type {
   ChannelBotProvider,
 } from "@/client"
 import {
-  CHANNEL_BOT_STATES,
   channelBotState,
   pickChannelBot,
 } from "@/components/agents/external-channels/channel-bot-utils"
@@ -138,11 +137,7 @@ function PlatformSlackNote({
   )
   const install = installs ? pickChannelBot(installs) : null
   const state = channelBotState(install, install?.provider_app_id != null)
-  if (
-    !slackPlatformAvailable ||
-    !install ||
-    !CHANNEL_BOT_STATES[state].installed
-  ) {
+  if (!slackPlatformAvailable || !install || state !== "active") {
     return null
   }
   return (

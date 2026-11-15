@@ -216,6 +216,9 @@ describe("Tracecat for Slack on the Channels tab", () => {
     renderPanel()
     await screen.findByRole("group", { name: "Custom Slack app" })
     await waitFor(() => expect(api.listBots).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     expect(screen.queryByText(/Answers in Slack via/)).toBeNull()
     expect(api.listRoutes).not.toHaveBeenCalled()
   })
