@@ -423,6 +423,23 @@ describe("SlackBotCard over Socket Mode", () => {
     })
   })
 
+  it("clears the refresh token when the app-level token changes", async () => {
+    serveBots([reservedSlackBot(noEndpoint, socket)])
+    renderPanel()
+    await openDialog("Connect")
+    await fillInstallFields("xoxe.xapp-1")
+    await userEvent.type(
+      screen.getByLabelText("App-level refresh token"),
+      "xoxe-1"
+    )
+    await userEvent.type(screen.getByLabelText("App-level token"), "2")
+
+    expect(screen.getByLabelText("App-level refresh token")).toHaveValue("")
+    expect(
+      screen.getByRole("button", { name: "Connect to Slack" })
+    ).toBeDisabled()
+  })
+
   it("asks an installed bot for the token only when reconnecting", async () => {
     serveBots([slackBot(noEndpoint, socket)])
     renderPanel()

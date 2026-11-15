@@ -347,7 +347,11 @@ function SlackBotDialog({
             label="App-level token"
             secret
             value={appToken}
-            onChange={setAppToken}
+            onChange={(value) => {
+              // A refresh token belongs to the token it was shown with.
+              setAppToken(value)
+              setAppRefreshToken("")
+            }}
             disabled={busy}
             placeholder="xapp-..."
             help="Generate one with the connections:write scope under Basic Information in your Slack app."
