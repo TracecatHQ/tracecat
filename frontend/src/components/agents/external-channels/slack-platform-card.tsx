@@ -71,7 +71,11 @@ export function SlackPlatformCard({
     install && agents.some((agent) => agent.id === install.agent_preset_id)
       ? install.agent_preset_id
       : ""
-  const defaultAgentId = chosenAgentId ?? previousAgentId
+  // A chosen agent deleted since counts as no choice.
+  const chosenAgent = agents.some((agent) => agent.id === chosenAgentId)
+    ? chosenAgentId
+    : null
+  const defaultAgentId = chosenAgent ?? previousAgentId
 
   function addToSlack(): void {
     installPlatformBot(
