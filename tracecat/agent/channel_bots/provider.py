@@ -30,8 +30,9 @@ from tracecat.pagination import CursorPaginatedResponse, PageParams
 
 
 class ChannelBotAdmin(Protocol):
-    """Workspace-scoped by `role` except `complete_oauth`. Raise `TracecatNotFoundError`
-    for an unknown bot or preset, `TracecatValidationError` for a refused request.
+    """Workspace-scoped by `role` except `complete_oauth` and the deployment-wide
+    `platform_app_setup`. Raise `TracecatNotFoundError` for an unknown bot or preset,
+    `TracecatValidationError` for a refused request.
     """
 
     async def list_bots(
