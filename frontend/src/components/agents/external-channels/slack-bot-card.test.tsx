@@ -61,7 +61,7 @@ async function fillInstallFields(appToken?: string): Promise<void> {
   await userEvent.type(screen.getByLabelText("Client secret"), "cs")
   await userEvent.type(screen.getByLabelText("Signing secret"), "ss")
   if (appToken) {
-    await userEvent.type(screen.getByLabelText("App-level token"), appToken)
+    await userEvent.type(screen.getByLabelText("Access token"), appToken)
   }
 }
 
@@ -100,7 +100,7 @@ describe("SlackBotCard", () => {
       "autocomplete",
       "new-password"
     )
-    expect(screen.queryByLabelText("App-level token")).toBeNull()
+    expect(screen.queryByLabelText("Access token")).toBeNull()
   })
 
   it("installs an HTTP bot with the exact body and goes to Slack", async () => {
@@ -462,7 +462,7 @@ describe("SlackBotCard over Socket Mode", () => {
     await fillInstallFields()
     const connect = screen.getByRole("button", { name: "Connect to Slack" })
     expect(connect).toBeDisabled()
-    await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xapp-1")
     expect(connect).toBeEnabled()
   })
 
@@ -503,10 +503,7 @@ describe("SlackBotCard over Socket Mode", () => {
     await fillInstallFields("xoxe.xapp-1")
     const connect = screen.getByRole("button", { name: "Connect to Slack" })
     expect(connect).toBeDisabled()
-    await userEvent.type(
-      screen.getByLabelText("App-level refresh token"),
-      "xoxe-1"
-    )
+    await userEvent.type(screen.getByLabelText("Refresh token"), "xoxe-1")
     await submit("Connect to Slack")
 
     expect(api.installBot).toHaveBeenCalledWith({
@@ -518,21 +515,26 @@ describe("SlackBotCard over Socket Mode", () => {
     })
   })
 
-  it("clears the refresh token when the app-level token changes", async () => {
+  it("asks for both rotating tokens up front, in either order", async () => {
     serveBots([reservedSlackBot(noEndpoint, socket)])
+    api.installBot.mockResolvedValue({
+      bot: reservedSlackBot(noEndpoint, socket),
+      authorization_url: AUTHORIZE_URL,
+    })
     renderPanel()
     await openDialog("Connect")
-    await fillInstallFields("xoxe.xapp-1")
-    await userEvent.type(
-      screen.getByLabelText("App-level refresh token"),
-      "xoxe-1"
-    )
-    await userEvent.type(screen.getByLabelText("App-level token"), "2")
+    await fillInstallFields()
+    await userEvent.type(screen.getByLabelText("Refresh token"), "xoxe-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xoxe.xapp-1")
+    await submit("Connect to Slack")
 
-    expect(screen.getByLabelText("App-level refresh token")).toHaveValue("")
-    expect(
-      screen.getByRole("button", { name: "Connect to Slack" })
-    ).toBeDisabled()
+    expect(api.installBot).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      requestBody: expect.objectContaining({
+        app_token: "xoxe.xapp-1",
+        app_refresh_token: "xoxe-1",
+      }),
+    })
   })
 
   it("asks an installed bot for the token only when reconnecting", async () => {
@@ -540,10 +542,10 @@ describe("SlackBotCard over Socket Mode", () => {
     renderPanel()
     await openDialog("Manage")
 
-    expect(screen.queryByLabelText("App-level token")).toBeNull()
+    expect(screen.queryByLabelText("Access token")).toBeNull()
     expect(screen.getByText(/replaces the app-level token/)).toBeInTheDocument()
     await submit("Reconnect")
-    expect(screen.getByLabelText("App-level token")).toBeInTheDocument()
+    expect(screen.getByLabelText("Access token")).toBeInTheDocument()
   })
 })
 
@@ -558,7 +560,7 @@ describe("Reconnecting a bot that needs it", () => {
 
   it("asks an HTTP bot for no app-level token", async () => {
     await startReconnect("http")
-    expect(screen.queryByLabelText("App-level token")).toBeNull()
+    expect(screen.queryByLabelText("Access token")).toBeNull()
     expect(
       screen.getByRole("button", { name: "Reconnect to Slack" })
     ).toBeEnabled()
@@ -568,7 +570,7 @@ describe("Reconnecting a bot that needs it", () => {
     await startReconnect("socket")
     const reconnect = screen.getByRole("button", { name: "Reconnect to Slack" })
     expect(reconnect).toBeDisabled()
-    await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xapp-1")
     expect(reconnect).toBeEnabled()
   })
 })

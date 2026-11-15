@@ -599,7 +599,10 @@ function SlackAppCredentials({
           refreshToken={appRefreshToken}
           onRefreshTokenChange={setAppRefreshToken}
           disabled={saving}
-          appTokenPlaceholder={placeholder(slackApp.app_token_set, "xapp-...")}
+          appTokenPlaceholder={placeholder(
+            slackApp.app_token_set,
+            "xoxe.xapp-..."
+          )}
         />
       ) : null}
       <div className="flex flex-wrap gap-2">

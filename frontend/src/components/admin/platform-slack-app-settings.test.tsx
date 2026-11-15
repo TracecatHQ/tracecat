@@ -312,7 +312,7 @@ describe("PlatformSlackAppSettings", () => {
     expect(screen.queryByLabelText("Request URL")).not.toBeInTheDocument()
     expect(screen.getByText(/Generate Token and Scopes/)).toBeInTheDocument()
     expect(save).toBeDisabled()
-    await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xapp-1")
     expect(save).toBeEnabled()
   })
 
@@ -329,18 +329,10 @@ describe("PlatformSlackAppSettings", () => {
       await screen.findByRole("button", { name: "Replace credentials" })
     )
     const save = screen.getByRole("button", { name: "Save" })
-    expect(
-      screen.queryByLabelText("App-level refresh token")
-    ).not.toBeInTheDocument()
-    await userEvent.type(
-      screen.getByLabelText("App-level token"),
-      "xoxe.xapp-1"
-    )
+    expect(screen.getByLabelText("Refresh token")).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("Access token"), "xoxe.xapp-1")
     expect(save).toBeDisabled()
-    await userEvent.type(
-      screen.getByLabelText("App-level refresh token"),
-      "xoxe-1"
-    )
+    await userEvent.type(screen.getByLabelText("Refresh token"), "xoxe-1")
     await userEvent.click(save)
 
     await waitFor(() =>

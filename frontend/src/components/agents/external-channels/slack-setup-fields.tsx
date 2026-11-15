@@ -135,7 +135,7 @@ export function SlackAppTokenFields({
   refreshToken,
   onRefreshTokenChange,
   disabled,
-  appTokenPlaceholder = "xapp-...",
+  appTokenPlaceholder = "xoxe.xapp-...",
   refreshTokenHelp,
 }: {
   idPrefix: string
@@ -147,44 +147,35 @@ export function SlackAppTokenFields({
   appTokenPlaceholder?: string
   refreshTokenHelp?: string
 }) {
-  // Rotating app-level tokens come with a refresh token that Slack shows once.
-  const rotating = appToken.trim().startsWith("xoxe.")
   return (
     <div className="space-y-3">
       <div className="space-y-1">
         <p className="text-sm font-medium">App-level token for Socket Mode</p>
         <p className="text-xs text-muted-foreground">
           Basic Information → App-Level Tokens → Generate Token and Scopes. Add
-          the <code>connections:write</code> scope, then copy the token and the
-          refresh token Slack shows beside it. Slack shows the refresh token
-          once.
+          the <code>connections:write</code> scope, then copy both tokens Slack
+          shows. Slack shows them once.
         </p>
       </div>
       <CredentialField
         id={`${idPrefix}-app-token`}
-        label="App-level token"
+        label="Access token"
         secret
         value={appToken}
-        onChange={(value) => {
-          // A refresh token belongs to the token it was shown with.
-          onAppTokenChange(value)
-          onRefreshTokenChange("")
-        }}
+        onChange={onAppTokenChange}
         disabled={disabled}
         placeholder={appTokenPlaceholder}
       />
-      {rotating ? (
-        <CredentialField
-          id={`${idPrefix}-app-refresh-token`}
-          label="App-level refresh token"
-          secret
-          value={refreshToken}
-          onChange={onRefreshTokenChange}
-          disabled={disabled}
-          placeholder="xoxe-..."
-          help={refreshTokenHelp}
-        />
-      ) : null}
+      <CredentialField
+        id={`${idPrefix}-app-refresh-token`}
+        label="Refresh token"
+        secret
+        value={refreshToken}
+        onChange={onRefreshTokenChange}
+        disabled={disabled}
+        placeholder="xoxe-..."
+        help={refreshTokenHelp}
+      />
     </div>
   )
 }
