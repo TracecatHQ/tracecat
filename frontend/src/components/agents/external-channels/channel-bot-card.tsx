@@ -206,7 +206,7 @@ export function ChannelBotDialog({
         <DialogBody>
           <div className="space-y-4">
             {details}
-            {details ? <Separator /> : null}
+            {details && children ? <Separator /> : null}
             <form
               id={formId}
               className="space-y-4"

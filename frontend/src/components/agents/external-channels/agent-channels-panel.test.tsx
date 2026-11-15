@@ -103,6 +103,9 @@ describe("ChannelBotsPanel", () => {
     serveBots([reservedSlackBot()])
     const { client } = renderPanel()
     await openProvider("Custom Slack app", "Connect")
+    await userEvent.click(
+      screen.getByRole("button", { name: "I already have the app" })
+    )
     await userEvent.type(screen.getByLabelText("Client ID"), "123.456")
 
     api.listBots.mockRejectedValue(apiError(400, { detail: "Flaky" }))

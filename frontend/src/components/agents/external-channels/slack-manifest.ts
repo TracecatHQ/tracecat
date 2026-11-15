@@ -92,3 +92,22 @@ export function buildSlackPlatformManifest({
     channelAccess: true,
   })
 }
+
+const SLACK_APPS_URL = "https://api.slack.com/apps"
+
+/** Slack's create-app page with `manifest` filled in. */
+export function slackCreateAppUrl(manifest: Record<string, unknown>): string {
+  const json = encodeURIComponent(JSON.stringify(manifest))
+  return `${SLACK_APPS_URL}?new_app=1&manifest_json=${json}`
+}
+
+/** A Slack app's settings page, or the app list before its ID is known. */
+export function slackAppSettingsUrl(
+  appId: string | null,
+  page: "general" | "distribute" = "general"
+): string {
+  const id = appId?.trim()
+  return id
+    ? `${SLACK_APPS_URL}/${encodeURIComponent(id)}/${page}`
+    : SLACK_APPS_URL
+}

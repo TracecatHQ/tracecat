@@ -128,7 +128,7 @@ export function PlatformChannelRoutes({
         <div className="min-w-0">
           <p className="text-xs font-medium">Default agent</p>
           <p className="text-xs text-muted-foreground">
-            Answers new threads in channels without a route.
+            Answers DMs and any channel not listed below.
           </p>
         </div>
         <AgentSelect
@@ -140,9 +140,9 @@ export function PlatformChannelRoutes({
         />
       </div>
       <div className="space-y-2">
-        <p className="text-xs font-medium">Channel routes</p>
+        <p className="text-xs font-medium">Channels</p>
         {routes && routes.length > 0 ? (
-          <ul className="space-y-2" aria-label="Channel routes">
+          <ul className="space-y-2" aria-label="Channels">
             {routes.map((r) => (
               <li
                 key={r.provider_channel_id}

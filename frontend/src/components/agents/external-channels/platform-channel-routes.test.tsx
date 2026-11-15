@@ -41,7 +41,7 @@ function servePlatform(routes: AgentChannelRouteRead[] = []): void {
 async function editor(): Promise<HTMLElement> {
   renderPanel()
   const card = await screen.findByRole("group", { name: "Tracecat for Slack" })
-  await within(card).findByText("Channel routes")
+  await within(card).findByText("Channels")
   return card
 }
 

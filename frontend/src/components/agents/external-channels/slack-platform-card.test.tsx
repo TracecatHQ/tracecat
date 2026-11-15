@@ -6,9 +6,11 @@ import {
   platformSlackBot,
   serveBots,
   serveEntitlements,
+  slackBot,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
 import { renderPanel } from "@/components/agents/external-channels/channel-bot-test-render"
 import { goToChannelBotAuthorization } from "@/components/agents/external-channels/channel-bot-utils"
+import { toast } from "@/components/ui/use-toast"
 
 jest.mock("@/client")
 jest.mock("@/components/ui/use-toast", () => ({
@@ -41,6 +43,10 @@ beforeEach(() => {
   jest.clearAllMocks()
   serveEntitlements()
   serveBots([])
+})
+
+afterEach(() => {
+  window.history.replaceState({}, "", "/")
 })
 
 describe("SlackPlatformCard", () => {
@@ -140,16 +146,54 @@ describe("SlackPlatformCard", () => {
     })
   })
 
-  it("leaves the custom app card unconnected beside the install", async () => {
+  it("offers the custom app as a link once the platform app exists", async () => {
     servePlatform()
     renderPanel()
     const row = await platformRow()
     expect(within(row).getByText("Active")).toBeInTheDocument()
+    expect(within(row).getByText("Connected to Slack")).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "Custom Slack app" })).toBeNull()
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Use your own Slack app instead" })
+    )
     const custom = await screen.findByRole("group", {
       name: "Custom Slack app",
     })
     expect(
       within(custom).getByRole("button", { name: "Connect" })
     ).toBeInTheDocument()
+  })
+
+  it("keeps showing a custom app the agent already has", async () => {
+    servePlatform([platformSlackBot(), slackBot()])
+    renderPanel()
+    await platformRow()
+    expect(
+      await screen.findByRole("group", { name: "Custom Slack app" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Use your own Slack app instead" })
+    ).toBeNull()
+  })
+
+  it("explains a Slack workspace another Tracecat workspace holds", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      `/?channel_bot_install=error&channel_bot_message=${encodeURIComponent(
+        "Tracecat is already installed in this Slack workspace. Disconnect that install, or ask a Slack admin to remove the app in Slack"
+      )}`
+    )
+    servePlatform([])
+    renderPanel()
+    const row = await platformRow()
+    expect(
+      within(row).getByText(
+        "This Slack workspace is already connected to another Tracecat workspace"
+      )
+    ).toBeInTheDocument()
+    expect(toast).not.toHaveBeenCalled()
+    expect(window.location.search).toBe("")
   })
 })

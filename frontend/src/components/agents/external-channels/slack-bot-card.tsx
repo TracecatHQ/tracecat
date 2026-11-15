@@ -16,10 +16,7 @@ import {
   ChannelBotLifecycleActions,
   useChannelBotDialog,
 } from "@/components/agents/external-channels/channel-bot-card"
-import {
-  CredentialField,
-  EndpointField,
-} from "@/components/agents/external-channels/channel-bot-fields"
+import { CredentialField } from "@/components/agents/external-channels/channel-bot-fields"
 import {
   CHANNEL_BOT_STATES,
   type ChannelBotDetailsOf,
@@ -31,6 +28,13 @@ import {
   httpsUrlOrNull,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
+import {
+  CreateInSlackButton,
+  SetupDoneLine,
+  SLACK_CREDENTIAL_HINTS,
+  SlackAppTokenFields,
+  SlackManualSetup,
+} from "@/components/agents/external-channels/slack-setup-fields"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CopyField } from "@/components/copy-field"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -41,7 +45,6 @@ import {
   useInstallAgentChannelBot,
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
-import { copyToClipboard } from "@/lib/utils"
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"
 const TITLE = "Custom Slack app"
@@ -78,16 +81,19 @@ export function SlackBotCard({
     <ChannelBotCard
       providerId="slack"
       title={TITLE}
-      description={
-        <>
-          Handle <code>app_mention</code> events and respond in-thread.
-        </>
-      }
+      description="The bot gets its own name and icon, and answers only for this agent."
       state={state}
       reconnectHint="Connect to Slack again to restore this bot."
       onManage={dialog.openDialog}
       opening={dialog.opening}
     >
+      {state === "active" ? (
+        <CopyField
+          label="Invite command"
+          value={`/invite @${preset.name}`}
+          help={`Run this in any channel, then mention @${preset.name} there.`}
+        />
+      ) : null}
       {updateNeeded ? (
         <Alert>
           <AlertTitle>Update needed</AlertTitle>
@@ -161,6 +167,8 @@ function SlackBotDialog({
   const busy = useChannelBotsBusy(workspaceId)
 
   const [reconnecting, setReconnecting] = useState(state === "needs_reconnect")
+  const [botName, setBotName] = useState(preset.name)
+  const [appCreated, setAppCreated] = useState(false)
   const [clientId, setClientId] = useState(details.client_id ?? "")
   const [clientSecret, setClientSecret] = useState("")
   const [signingSecret, setSigningSecret] = useState("")
@@ -172,6 +180,8 @@ function SlackBotDialog({
   const socket = details.transport === "socket"
   // Rotating app-level tokens come with a refresh token that Slack shows once.
   const rotatingAppToken = appToken.trim().startsWith("xoxe.")
+  // A first install creates the app before it asks for credentials.
+  const showCredentials = mode !== "install" || appCreated
 
   function handleInstall(): void {
     const body: SlackBotInstall = {
@@ -269,14 +279,27 @@ function SlackBotDialog({
       onClose={onClose}
       busy={busy}
       title={TITLE}
-      description="Connect a Slack app you own to this agent."
+      description="The bot gets its own name and icon, and answers only for this agent. Needs permission to create apps in your Slack workspace."
       details={
         <>
-          <SlackBotDetailsSection
-            bot={bot}
-            details={details}
-            appName={preset.name}
-          />
+          {mode === "install" ? (
+            <SlackAppCreateStep
+              bot={bot}
+              details={details}
+              botName={botName}
+              onBotNameChange={setBotName}
+              created={appCreated}
+              onCreated={() => setAppCreated(true)}
+              disabled={busy}
+            />
+          ) : (
+            <SlackBotManualSetup
+              bot={bot}
+              details={details}
+              appName={botName}
+              summary="Slack settings for this app"
+            />
+          )}
           {status.installed ? (
             <ChannelBotLifecycleActions
               workspaceId={workspaceId}
@@ -306,142 +329,185 @@ function SlackBotDialog({
         ) : null
       }
     >
-      <CredentialField
-        id="slack-cid"
-        label="Client ID"
-        value={clientId}
-        onChange={setClientId}
-        disabled={busy}
-        placeholder="1234567890.1234567890"
-      />
-      <CredentialField
-        id="slack-cs"
-        label="Client secret"
-        secret
-        value={clientSecret}
-        onChange={setClientSecret}
-        disabled={busy}
-        placeholder={
-          mode === "edit" && details.has_client_secret
-            ? "Stored; enter a new one to replace it"
-            : "Slack app client secret"
-        }
-      />
-      <CredentialField
-        id="slack-ss"
-        label="Signing secret"
-        secret
-        value={signingSecret}
-        onChange={setSigningSecret}
-        disabled={busy}
-        placeholder={
-          mode === "edit" && details.has_signing_secret
-            ? "Stored; enter a new one to replace it"
-            : "Slack signing secret"
-        }
-      />
-      {socket && mode !== "edit" ? (
+      {showCredentials ? (
         <>
+          <div className="flex flex-wrap items-start gap-3">
+            <p className="min-w-48 flex-1 text-xs text-muted-foreground">
+              Paste the app&apos;s credentials. In the Slack app, open Basic
+              Information → App Credentials.
+            </p>
+            <Button type="button" size="sm" variant="outline" asChild>
+              <a href={SLACK_APPS_URL} target="_blank" rel="noreferrer">
+                Open Slack apps
+                <ExternalLink className="ml-2 size-4" />
+              </a>
+            </Button>
+          </div>
           <CredentialField
-            id="slack-at"
-            label="App-level token"
-            secret
-            value={appToken}
-            onChange={(value) => {
-              // A refresh token belongs to the token it was shown with.
-              setAppToken(value)
-              setAppRefreshToken("")
-            }}
+            id="slack-cid"
+            label="Client ID"
+            value={clientId}
+            onChange={setClientId}
             disabled={busy}
-            placeholder="xapp-..."
-            help="Generate one with the connections:write scope under Basic Information in your Slack app."
+            placeholder="1234567890.1234567890"
+            help={SLACK_CREDENTIAL_HINTS.clientId}
           />
-          {rotatingAppToken ? (
-            <CredentialField
-              id="slack-art"
-              label="App-level refresh token"
-              secret
-              value={appRefreshToken}
-              onChange={setAppRefreshToken}
+          <CredentialField
+            id="slack-cs"
+            label="Client secret"
+            secret
+            value={clientSecret}
+            onChange={setClientSecret}
+            disabled={busy}
+            placeholder={
+              mode === "edit" && details.has_client_secret
+                ? "Stored; enter a new one to replace it"
+                : "Click Show, then copy"
+            }
+            help={SLACK_CREDENTIAL_HINTS.clientSecret}
+          />
+          <CredentialField
+            id="slack-ss"
+            label="Signing secret"
+            secret
+            value={signingSecret}
+            onChange={setSigningSecret}
+            disabled={busy}
+            placeholder={
+              mode === "edit" && details.has_signing_secret
+                ? "Stored; enter a new one to replace it"
+                : "Click Show, then copy"
+            }
+            help={SLACK_CREDENTIAL_HINTS.signingSecret}
+          />
+          {socket && mode !== "edit" ? (
+            <SlackAppTokenFields
+              idPrefix="slack-bot"
+              appToken={appToken}
+              onAppTokenChange={setAppToken}
+              refreshToken={appRefreshToken}
+              onRefreshTokenChange={setAppRefreshToken}
               disabled={busy}
-              placeholder="xoxe-..."
-              help="Slack shows it once, beside the token. Tracecat rotates both, so generate a new token for each connect."
+              refreshTokenHelp="Tracecat rotates both, so generate a new token for each connect."
             />
           ) : null}
+          {socket && mode === "edit" ? (
+            <p className="text-xs text-muted-foreground">
+              Reconnecting replaces the app-level token.
+            </p>
+          ) : null}
         </>
-      ) : null}
-      {socket && mode === "edit" ? (
-        <p className="text-xs text-muted-foreground">
-          Reconnecting replaces the app-level token.
-        </p>
       ) : null}
     </ChannelBotDialog>
   )
 }
 
-/** Where the Slack app sends events, its redirect URL and its manifest. */
-function SlackBotDetailsSection({
+/** Bot name, then Slack's create-app page with the manifest filled in. */
+function SlackAppCreateStep({
+  bot,
+  details,
+  botName,
+  onBotNameChange,
+  created,
+  onCreated,
+  disabled,
+}: {
+  bot: AgentChannelBotRead
+  details: ChannelBotDetailsOf<"slack">
+  botName: string
+  onBotNameChange: (value: string) => void
+  created: boolean
+  onCreated: () => void
+  disabled: boolean
+}) {
+  const manifest = slackBotManifest(bot, details, botName.trim())
+  if (created) {
+    return (
+      <div className="space-y-4">
+        <SetupDoneLine>App created in Slack</SetupDoneLine>
+        <SlackBotManualSetup
+          bot={bot}
+          details={details}
+          appName={botName.trim()}
+          summary="Create the app by hand instead"
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-4">
+      <CredentialField
+        id="slack-bot-name"
+        label="Bot name"
+        value={botName}
+        onChange={onBotNameChange}
+        disabled={disabled}
+        placeholder="Name the bot"
+        help="Shown on every reply in Slack."
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <CreateInSlackButton
+          manifest={manifest ?? {}}
+          disabled={disabled || !manifest}
+          onOpen={onCreated}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="link"
+          className="h-auto px-0 text-xs text-muted-foreground"
+          onClick={onCreated}
+          disabled={disabled}
+        >
+          I already have the app
+        </Button>
+      </div>
+      <SlackBotManualSetup
+        bot={bot}
+        details={details}
+        appName={botName.trim()}
+        summary="Create the app by hand instead"
+      />
+    </div>
+  )
+}
+
+/** The bot's manifest, or null without a name or an HTTP endpoint to send events to. */
+function slackBotManifest(
+  bot: AgentChannelBotRead,
+  details: ChannelBotDetailsOf<"slack">,
+  appName: string
+): Record<string, unknown> | null {
+  const socket = details.transport === "socket"
+  if (!appName || (!socket && !bot.endpoint_url)) {
+    return null
+  }
+  return buildSlackManifest({
+    endpointUrl: socket ? null : bot.endpoint_url,
+    oauthRedirectUrl: details.oauth_redirect_url,
+    appName,
+  })
+}
+
+/** The request and redirect URLs and the manifest, collapsed. */
+function SlackBotManualSetup({
   bot,
   details,
   appName,
+  summary,
 }: {
   bot: AgentChannelBotRead
   details: ChannelBotDetailsOf<"slack">
   appName: string
+  summary: string
 }) {
   const socket = details.transport === "socket"
-  const endpointUrl = socket ? null : bot.endpoint_url
-
-  function handleCopyManifest(): void {
-    const manifest = buildSlackManifest({
-      endpointUrl,
-      oauthRedirectUrl: details.oauth_redirect_url,
-      appName,
-    })
-    void copyToClipboard({
-      value: JSON.stringify(manifest, null, 2),
-      message: "Slack manifest copied",
-    })
-  }
-
   return (
-    <>
-      {endpointUrl ? (
-        <EndpointField
-          label="Endpoint URL"
-          value={endpointUrl}
-          help="Paste into Event Subscriptions and Interactivity in your Slack app."
-          provider="slack"
-        />
-      ) : null}
-      {socket ? (
-        <p className="text-xs text-muted-foreground">
-          This deployment receives Slack events over Socket Mode, so the app
-          needs no request URL.
-        </p>
-      ) : null}
-      <CopyField
-        label="OAuth redirect URL"
-        value={details.oauth_redirect_url}
-        help="Add under OAuth & Permissions in your Slack app."
-      />
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={handleCopyManifest}
-          disabled={!socket && !endpointUrl}
-        >
-          Copy app manifest
-        </Button>
-        <Button type="button" size="sm" variant="outline" asChild>
-          <a href={SLACK_APPS_URL} target="_blank" rel="noreferrer">
-            <ExternalLink className="mr-2 size-4" />
-            Open Slack apps
-          </a>
-        </Button>
-      </div>
-    </>
+    <SlackManualSetup
+      summary={summary}
+      requestUrl={socket ? null : bot.endpoint_url}
+      oauthRedirectUrl={details.oauth_redirect_url}
+      manifest={slackBotManifest(bot, details, appName || TITLE)}
+    />
   )
 }

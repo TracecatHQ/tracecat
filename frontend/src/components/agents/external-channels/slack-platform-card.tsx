@@ -13,6 +13,7 @@ import {
 import { PlatformChannelRoutes } from "@/components/agents/external-channels/platform-channel-routes"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon } from "@/components/icons"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
@@ -31,9 +32,12 @@ import {
 export function SlackPlatformCard({
   workspaceId,
   preset,
+  workspaceClaimed = false,
 }: {
   workspaceId: string
   preset: AgentPresetRead
+  /** The last Add to Slack hit a Slack workspace another Tracecat workspace holds. */
+  workspaceClaimed?: boolean
 }) {
   const { platformApps } = useChannelBotPlatformApps(workspaceId)
   const available = platformApps?.some((app) => app.provider === "slack")
@@ -86,8 +90,11 @@ export function SlackPlatformCard({
     )
   }
 
-  let description = "Add Tracecat to your Slack workspace in one click."
+  let title = "Slack"
+  let description =
+    "Mention @Tracecat in a channel and this agent answers in the thread. Replies, approvals and the session stay in sync with Tracecat."
   if (installed) {
+    title = "Connected to Slack"
     description = isDefault
       ? "This agent answers new Slack threads in this workspace."
       : "Installed for this workspace; another agent answers new threads."
@@ -104,7 +111,7 @@ export function SlackPlatformCard({
           <ProviderIcon providerId="slack" className="size-7 p-0.5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Tracecat for Slack</p>
+          <p className="text-sm font-medium">{title}</p>
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
         {label ? <Badge variant="secondary">{label}</Badge> : null}
@@ -133,6 +140,21 @@ export function SlackPlatformCard({
           </Button>
         ) : null}
       </div>
+      {workspaceClaimed && !installed ? (
+        <div className="border-t px-4 py-3">
+          <Alert variant="destructive">
+            <AlertTitle>
+              This Slack workspace is already connected to another Tracecat
+              workspace
+            </AlertTitle>
+            <AlertDescription>
+              A Slack workspace can belong to one Tracecat workspace. Ask that
+              workspace&apos;s admin to disconnect it, or pick another Slack
+              workspace.
+            </AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
       {install && installed && canUpdateAgent ? (
         <div className="border-t px-4 py-3">
           <ChannelBotLifecycleActions

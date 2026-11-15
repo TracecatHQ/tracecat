@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   type AgentChannelBotCreate,
   type AgentChannelBotRead,
@@ -45,11 +45,20 @@ import {
 const CHANNEL_BOTS_QUERY_KEY = "agent-channel-bots"
 const INSTALL_MESSAGE_LIMIT = 200
 
+/** What an OAuth return needs the Channels tab to show beside the cards. */
+export type ChannelBotInstallFailure = "slack_workspace_claimed"
+
+// The platform install's refusal when another Tracecat workspace holds the Slack workspace.
+const SLACK_WORKSPACE_CLAIMED =
+  /^Tracecat is already installed in this Slack workspace\b/
+
 /**
- * Toasts the result of an OAuth install the browser just returned from. The
- * parameters are untrusted, so titles are fixed and the message is capped.
+ * Toasts the result of an OAuth install the browser just returned from, except
+ * a failure the tab explains inline. The parameters are untrusted, so titles are
+ * fixed and the message is capped.
  */
-export function useChannelBotInstallResult(): void {
+export function useChannelBotInstallResult(): ChannelBotInstallFailure | null {
+  const [failure, setFailure] = useState<ChannelBotInstallFailure | null>(null)
   useEffect(() => {
     const url = new URL(window.location.href)
     const result = url.searchParams.get(CHANNEL_BOT_INSTALL_PARAM)
@@ -65,12 +74,17 @@ export function useChannelBotInstallResult(): void {
     const message = (url.searchParams.get(CHANNEL_BOT_MESSAGE_PARAM) ?? "")
       .trim()
       .slice(0, INSTALL_MESSAGE_LIMIT)
+    if (SLACK_WORKSPACE_CLAIMED.test(message)) {
+      setFailure("slack_workspace_claimed")
+      return
+    }
     toast({
       title: "Could not connect the Slack bot",
       description: message || "Please try again.",
       variant: "destructive",
     })
   }, [])
+  return failure
 }
 
 /**
@@ -109,7 +123,7 @@ export function useAgentChannelBots(
 /** The providers whose app this deployment registers, installable in one click. */
 export function useChannelBotPlatformApps(workspaceId: string) {
   const { hasEntitlement } = useEntitlements()
-  const { data: platformApps } = useQuery<
+  const { data: platformApps, isLoading: platformAppsIsLoading } = useQuery<
     Array<ChannelBotPlatformApp>,
     TracecatApiError
   >({
@@ -120,7 +134,7 @@ export function useChannelBotPlatformApps(workspaceId: string) {
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { platformApps }
+  return { platformApps, platformAppsIsLoading }
 }
 
 /** The workspace's installs of the platform app for `provider`, any agent. */

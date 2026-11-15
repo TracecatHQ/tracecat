@@ -1,21 +1,28 @@
 "use client"
 
+import { useState } from "react"
 import type {
   AgentChannelBotRead,
   AgentPresetRead,
   ChannelBotProvider,
 } from "@/client"
-import { pickChannelBot } from "@/components/agents/external-channels/channel-bot-utils"
+import {
+  channelBotDetails,
+  channelBotState,
+  pickChannelBot,
+} from "@/components/agents/external-channels/channel-bot-utils"
 import { SlackBotCard } from "@/components/agents/external-channels/slack-bot-card"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { SlackPlatformCard } from "@/components/agents/external-channels/slack-platform-card"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   useAgentChannelBots,
   useChannelBotInstallResult,
+  useChannelBotPlatformApps,
 } from "@/hooks/use-agent-channel-bots"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { getApiErrorDetail, isEntitlementRequiredError } from "@/lib/errors"
@@ -46,7 +53,10 @@ export function AgentChannelsPanel({
   return <ChannelBotsPanel workspaceId={workspaceId} preset={preset} />
 }
 
-/** One card per provider, on the channel bot API. */
+/**
+ * Add to Slack first; a custom Slack app only when the deployment has no
+ * platform app, the agent already has one, or the user asks for it.
+ */
 function ChannelBotsPanel({
   workspaceId,
   preset,
@@ -54,13 +64,16 @@ function ChannelBotsPanel({
   workspaceId: string
   preset: AgentPresetRead
 }) {
-  useChannelBotInstallResult()
+  const installFailure = useChannelBotInstallResult()
   const { bots, botsIsLoading, botsError } = useAgentChannelBots(
     workspaceId,
     preset.id
   )
+  const { platformApps, platformAppsIsLoading } =
+    useChannelBotPlatformApps(workspaceId)
+  const [useCustomApp, setUseCustomApp] = useState(false)
 
-  if (botsIsLoading) {
+  if (botsIsLoading || platformAppsIsLoading) {
     return <CenteredSpinner />
   }
   // A failed refresh keeps the loaded bots, and with them any open dialog.
@@ -95,15 +108,43 @@ function ChannelBotsPanel({
     )
   }
 
+  const customBot = botFor("slack")
+  const customState = channelBotState(
+    customBot,
+    channelBotDetails(customBot, "slack")?.has_bot_token === true
+  )
+  const platformAvailable =
+    platformApps?.some((app) => app.provider === "slack") === true
+  const showCustomApp =
+    !platformAvailable || customState !== "not_connected" || useCustomApp
+
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-4 px-4 pt-4 pb-16">
-        <SlackPlatformCard workspaceId={workspaceId} preset={preset} />
-        <SlackBotCard
+        <SlackPlatformCard
           workspaceId={workspaceId}
           preset={preset}
-          bot={botFor("slack")}
+          workspaceClaimed={installFailure === "slack_workspace_claimed"}
         />
+        {showCustomApp ? (
+          <SlackBotCard
+            workspaceId={workspaceId}
+            preset={preset}
+            bot={customBot}
+          />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Want the bot to have its own name and icon?{" "}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-xs text-muted-foreground underline"
+              onClick={() => setUseCustomApp(true)}
+            >
+              Use your own Slack app instead
+            </Button>
+          </p>
+        )}
       </div>
     </ScrollArea>
   )

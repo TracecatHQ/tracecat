@@ -71,30 +71,65 @@ beforeEach(() => {
 })
 
 describe("PlatformSlackAppSettings", () => {
-  it("shows the URLs to paste into Slack and copies the manifest", async () => {
+  it("opens Slack with the platform manifest filled in", async () => {
     api.get.mockResolvedValue(slackApp())
     renderSettings()
 
-    expect(await screen.findByLabelText("Request URL")).toHaveValue(REQUEST_URL)
-    expect(screen.queryByLabelText("App-level token")).not.toBeInTheDocument()
+    const link = await screen.findByRole("link", { name: "Create in Slack" })
+    expect(link).toHaveAttribute("target", "_blank")
+    const url = new URL(link.getAttribute("href") ?? "")
+    expect(url.origin + url.pathname).toBe("https://api.slack.com/apps")
+    expect(url.searchParams.get("new_app")).toBe("1")
+    const manifest = JSON.parse(url.searchParams.get("manifest_json") ?? "")
+    expect(manifest.settings.event_subscriptions.request_url).toBe(REQUEST_URL)
+    expect(manifest.settings.interactivity.request_url).toBe(REQUEST_URL)
+    expect(manifest.settings.token_rotation_enabled).toBe(true)
+    expect(manifest.settings.socket_mode_enabled).toBe(false)
+    expect(manifest.display_information.name).toBe("Tracecat")
+    // Slack reads the manifest from the query string; keep it well under URL limits.
+    expect(link.getAttribute("href")?.length).toBeLessThan(4000)
+    expect(screen.queryByLabelText("App ID")).not.toBeInTheDocument()
+  })
+
+  it("fills in Socket Mode and app-level token rotation over Socket Mode", async () => {
+    api.get.mockResolvedValue(
+      slackApp({
+        setup: { ...slackApp().setup, transport: "socket", request_url: null },
+      })
+    )
+    renderSettings()
+
+    const link = await screen.findByRole("link", { name: "Create in Slack" })
+    const url = new URL(link.getAttribute("href") ?? "")
+    const manifest = JSON.parse(url.searchParams.get("manifest_json") ?? "")
+    expect(manifest.settings.socket_mode_enabled).toBe(true)
+    expect(manifest.settings.app_level_token_rotation_enabled).toBe(true)
+    expect(manifest.settings.token_rotation_enabled).toBe(true)
+    expect(manifest.settings.event_subscriptions.request_url).toBeUndefined()
+  })
+
+  it("keeps the URLs and manifest in a collapsed manual section", async () => {
+    api.get.mockResolvedValue(slackApp())
+    renderSettings()
+
+    const summary = await screen.findByText("Create the app by hand instead")
+    const details = summary.closest("details")
+    expect(details).not.toHaveAttribute("open")
+    expect(screen.getByLabelText("Request URL")).not.toBeVisible()
+    await userEvent.click(summary)
+    expect(details).toHaveAttribute("open")
+    expect(screen.getByLabelText("Request URL")).toHaveValue(REQUEST_URL)
     await userEvent.click(
       screen.getByRole("button", { name: "Copy app manifest" })
     )
 
     const copied = jest.mocked(copyToClipboard).mock.calls[0][0].value ?? ""
     const manifest = JSON.parse(copied)
-    expect(manifest.settings.event_subscriptions.request_url).toBe(REQUEST_URL)
     expect(manifest.oauth_config.redirect_urls).toEqual([
       "https://api.example.com/agent/channel-bots/slack/oauth/callback",
     ])
-    expect(manifest.display_information.name).toBe("Tracecat")
-    expect(manifest.settings.token_rotation_enabled).toBe(true)
     expect(manifest.oauth_config.scopes.bot).toEqual(
       expect.arrayContaining(["channels:read", "groups:read", "channels:join"])
-    )
-    expect(screen.getByRole("link", { name: "Download logo" })).toHaveAttribute(
-      "href",
-      "/icon.png"
     )
   })
 
@@ -103,7 +138,14 @@ describe("PlatformSlackAppSettings", () => {
     api.save.mockResolvedValue(SAVED)
     renderSettings()
 
-    const save = await screen.findByRole("button", { name: "Save" })
+    await userEvent.click(
+      await screen.findByRole("link", { name: "Create in Slack" })
+    )
+    expect(screen.getByText("App created in Slack")).toBeInTheDocument()
+    const save = screen.getByRole("button", { name: "Save" })
+    expect(screen.getByLabelText("Client ID")).toHaveAccessibleDescription(
+      "App Credentials → Client ID"
+    )
     await userEvent.type(screen.getByLabelText("App ID"), "A0SYNTHETIC")
     await userEvent.type(screen.getByLabelText("Client ID"), "111.222")
     await userEvent.type(screen.getByLabelText("Client secret"), "client")
@@ -125,12 +167,62 @@ describe("PlatformSlackAppSettings", () => {
     )
   })
 
+  it("summarizes a registered app with links into its Slack settings", async () => {
+    api.get.mockResolvedValue(SAVED)
+    renderSettings()
+
+    const summary = await screen.findByRole("region", {
+      name: "Tracecat for Slack",
+    })
+    expect(
+      within(summary).getByRole("link", { name: "A0SYNTHETIC" })
+    ).toHaveAttribute("href", "https://api.slack.com/apps/A0SYNTHETIC/general")
+    expect(within(summary).getByText("HTTP")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: /Open Manage Distribution/ })
+    ).toHaveAttribute(
+      "href",
+      "https://api.slack.com/apps/A0SYNTHETIC/distribute"
+    )
+    expect(screen.getByRole("link", { name: "Download logo" })).toHaveAttribute(
+      "href",
+      "/icon.png"
+    )
+    expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument()
+  })
+
+  it("collapses the Slack-only steps once both are ticked off", async () => {
+    api.get.mockResolvedValue(SAVED)
+    renderSettings()
+
+    const icon = await screen.findByRole("group", {
+      name: "Upload the Tracecat icon",
+    })
+    await userEvent.click(
+      within(icon).getByRole("button", { name: "Mark done" })
+    )
+    const distribution = screen.getByRole("group", {
+      name: "Turn on public distribution",
+    })
+    await userEvent.click(
+      within(distribution).getByRole("button", { name: "Mark done" })
+    )
+
+    expect(screen.getByText("Public distribution on")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("group", { name: "Turn on public distribution" })
+    ).toBeNull()
+  })
+
   it("keeps saved secrets that are left blank", async () => {
     api.get.mockResolvedValue(SAVED)
     api.save.mockResolvedValue(SAVED)
     renderSettings()
 
-    const clientId = await screen.findByLabelText("Client ID")
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Replace credentials" })
+    )
+    const clientId = screen.getByLabelText("Client ID")
     expect(screen.getByLabelText("Client secret")).toHaveAttribute(
       "placeholder",
       "Saved; leave blank to keep"
@@ -162,8 +254,12 @@ describe("PlatformSlackAppSettings", () => {
     )
     renderSettings()
 
-    const save = await screen.findByRole("button", { name: "Save" })
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Replace credentials" })
+    )
+    const save = screen.getByRole("button", { name: "Save" })
     expect(screen.queryByLabelText("Request URL")).not.toBeInTheDocument()
+    expect(screen.getByText(/Generate Token and Scopes/)).toBeInTheDocument()
     expect(save).toBeDisabled()
     await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
     expect(save).toBeEnabled()
@@ -178,7 +274,10 @@ describe("PlatformSlackAppSettings", () => {
     api.save.mockResolvedValue(socket)
     renderSettings()
 
-    const save = await screen.findByRole("button", { name: "Save" })
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Replace credentials" })
+    )
+    const save = screen.getByRole("button", { name: "Save" })
     expect(
       screen.queryByLabelText("App-level refresh token")
     ).not.toBeInTheDocument()
