@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import sys
+import os
+import signal
+import tempfile
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,16 +60,65 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
     async def fake_serve() -> None:
         return None
 
-    fake_uvicorn = SimpleNamespace(
-        Config=lambda *args, **kwargs: object(),
-        Server=lambda config: SimpleNamespace(serve=fake_serve),
+    monkeypatch.setattr(
+        runtime_services.uvicorn, "Config", lambda *args, **kwargs: object()
     )
-    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+    monkeypatch.setattr(
+        runtime_services,
+        "_EmbeddedUvicornServer",
+        lambda config: SimpleNamespace(serve=fake_serve),
+    )
 
     with pytest.raises(RuntimeError, match="socket was not created"):
         await runtime_services.start_mcp_server()
 
     stop_mcp_server.assert_awaited_once()
+
+
+async def _ok_asgi_app(scope, receive, send) -> None:
+    if scope["type"] == "lifespan":
+        while (await receive())["type"] != "lifespan.shutdown":
+            await send({"type": "lifespan.startup.complete"})
+        await send({"type": "lifespan.shutdown.complete"})
+        return
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"ok"})
+
+
+@pytest.mark.anyio
+async def test_mcp_server_keeps_serving_through_worker_sigterm_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIGTERM starts the worker drain; the MCP socket stays up until stopped."""
+    # AF_UNIX paths are capped at 108 bytes, too short for pytest's tmp_path.
+    socket_path = Path(tempfile.mkdtemp(prefix="mcp-")) / "mcp.sock"
+    monkeypatch.setattr(
+        "tracecat.agent.common.config.TRUSTED_MCP_SOCKET_PATH", socket_path
+    )
+    monkeypatch.setattr("tracecat.agent.mcp.trusted_server.app", _ok_asgi_app)
+
+    async def get_status() -> int:
+        transport = httpx.AsyncHTTPTransport(uds=str(socket_path))
+        async with httpx.AsyncClient(transport=transport) as client:
+            return (await client.get("http://mcp/")).status_code
+
+    loop = asyncio.get_running_loop()
+    drain_requested = asyncio.Event()
+    loop.add_signal_handler(signal.SIGTERM, drain_requested.set)
+    try:
+        await runtime_services.start_mcp_server()
+        try:
+            assert await get_status() == 200
+
+            os.kill(os.getpid(), signal.SIGTERM)
+            await asyncio.wait_for(drain_requested.wait(), timeout=5)
+            await asyncio.sleep(0.2)
+
+            assert await get_status() == 200
+        finally:
+            await runtime_services.stop_mcp_server()
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
 
 
 @pytest.mark.anyio
