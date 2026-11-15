@@ -288,6 +288,12 @@ variable "ee_multi_tenant" {
   default     = false
 }
 
+variable "slack_ingress_mode" {
+  type        = string
+  description = "Slack event delivery mode for the API (Enterprise). Leave as the default unless the enterprise docs say otherwise."
+  default     = "http"
+}
+
 variable "result_externalization_enabled" {
   type        = bool
   description = "Enable externalization of large workflow payloads to blob storage"
