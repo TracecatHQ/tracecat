@@ -1589,7 +1589,7 @@ export const $AgentChannelBotRead = {
       ],
       title: "Endpoint Url",
       description:
-        "Inbound event URL; None for a provider that delivers events over a socket.",
+        "Inbound event URL; None when the bot's events arrive over a socket.",
     },
     created_at: {
       type: "string",
@@ -13099,6 +13099,14 @@ export const $ChannelBotStatus = {
   type: "string",
   enum: ["active", "paused", "disconnected", "needs_reconnect"],
   title: "ChannelBotStatus",
+} as const
+
+export const $ChannelBotTransport = {
+  type: "string",
+  enum: ["http", "socket"],
+  title: "ChannelBotTransport",
+  description:
+    "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
 } as const
 
 export const $ChannelType = {
@@ -36470,6 +36478,9 @@ export const $SlackBotDetails = {
       const: "slack",
       title: "Provider",
     },
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
     provider_enterprise_id: {
       anyOf: [
         {
@@ -36547,6 +36558,7 @@ export const $SlackBotDetails = {
   type: "object",
   required: [
     "provider",
+    "transport",
     "provider_enterprise_id",
     "provider_bot_user_id",
     "granted_scopes",
@@ -36603,6 +36615,20 @@ export const $SlackBotInstall = {
       type: "string",
       minLength: 1,
       title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise. Rotating `xoxe.xapp-` tokens expire in 12 hours and are not supported.",
     },
     return_url: {
       type: "string",

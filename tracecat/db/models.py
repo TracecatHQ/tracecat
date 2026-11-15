@@ -4718,6 +4718,12 @@ class AgentChannelBot(TimestampMixin, Base):
             name="status",
         ),
         CheckConstraint("transport IN ('http', 'socket')", name="transport"),
+        # A bot never targets another workspace's preset.
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
@@ -4727,12 +4733,7 @@ class AgentChannelBot(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    agent_preset_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("agent_preset.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    agent_preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
     provider: Mapped[Literal["slack"]] = mapped_column(String, nullable=False)
     status: Mapped[Literal["active", "paused", "disconnected", "needs_reconnect"]] = (
         mapped_column(String, nullable=False, server_default="active")
@@ -4926,6 +4927,8 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
             postgresql_where=text("deleted_at IS NULL"),
         ),
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
+        # Target of the channel bot's composite key.
+        UniqueConstraint("id", "workspace_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

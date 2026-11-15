@@ -1854,7 +1854,12 @@ async def test_backend_missing_execution_keeps_reconnect_terminal():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "code", [RPCStatusCode.UNAVAILABLE, RPCStatusCode.DEADLINE_EXCEEDED]
+    "code",
+    [
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+    ],
 )
 async def test_control_lookup_outage_is_uncertain_not_finished(code):
     handle = Mock(describe=AsyncMock(side_effect=RPCError("down", code, b"")))

@@ -1569,6 +1569,8 @@ class TestCreateSessionActivity:
     ):
         run_id = uuid.uuid4()
         session_service.get_session.return_value = _agent_session()
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
         push = AsyncMock(return_value=[None])
         with (
             patch(

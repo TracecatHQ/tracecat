@@ -18,7 +18,7 @@ class ChannelBotProvider(StrEnum):
 
 
 class ChannelBotTransport(StrEnum):
-    """How a bot's events arrive: Slack posts them, or a Socket Mode socket reads them."""
+    """How a bot's events arrive: posted to our endpoint, or read from a provider socket."""
 
     HTTP = "http"
     SOCKET = "socket"
@@ -88,6 +88,7 @@ class SlackBotDetails(BaseModel):
     """Secrets are reported only as present or not."""
 
     provider: Literal[ChannelBotProvider.SLACK]
+    transport: ChannelBotTransport
     provider_enterprise_id: str | None
     provider_bot_user_id: str | None
     granted_scopes: list[str]
@@ -115,7 +116,7 @@ class AgentChannelBotRead(BaseModel):
     provider_tenant_id: str | None
     provider_app_id: str | None
     endpoint_url: str | None = Field(
-        description="Inbound event URL; None for a provider that delivers events over a socket."
+        description="Inbound event URL; None when the bot's events arrive over a socket."
     )
     created_at: datetime
     updated_at: datetime
@@ -145,6 +146,15 @@ class SlackBotInstall(ChannelBotInstallBase):
     client_id: str = Field(..., min_length=1)
     client_secret: str = Field(..., min_length=1)
     signing_secret: str = Field(..., min_length=1)
+    app_token: str | None = Field(
+        default=None,
+        pattern=r"^xapp-.+",
+        description=(
+            "App-level token (`xapp-`) with connections:write. Required when the deployment"
+            " receives Slack events over Socket Mode; rejected otherwise. Rotating"
+            " `xoxe.xapp-` tokens expire in 12 hours and are not supported."
+        ),
+    )
     return_url: str = Field(..., min_length=1)
 
 
