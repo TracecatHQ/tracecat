@@ -120,19 +120,23 @@ function ChannelBotsPanel({
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 px-4 pt-4 pb-16">
-        <SlackPlatformCard
-          workspaceId={workspaceId}
-          preset={preset}
-          workspaceClaimed={installFailure === "slack_workspace_claimed"}
-        />
-        {showCustomApp ? (
-          <SlackBotCard
+      <div className="flex flex-col gap-3 px-4 pt-4 pb-16">
+        {/* One card; its rows render nothing until they have data. */}
+        <div className="divide-y rounded-md border empty:hidden">
+          <SlackPlatformCard
             workspaceId={workspaceId}
             preset={preset}
-            bot={customBot}
+            workspaceClaimed={installFailure === "slack_workspace_claimed"}
           />
-        ) : (
+          {showCustomApp ? (
+            <SlackBotCard
+              workspaceId={workspaceId}
+              preset={preset}
+              bot={customBot}
+            />
+          ) : null}
+        </div>
+        {showCustomApp ? null : (
           <p className="text-xs text-muted-foreground">
             Want the bot to have its own name and icon?{" "}
             <Button

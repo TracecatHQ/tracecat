@@ -14,6 +14,7 @@ import {
   ChannelBotCard,
   ChannelBotDialog,
   ChannelBotLifecycleActions,
+  ChannelBotNotice,
   useChannelBotDialog,
 } from "@/components/agents/external-channels/channel-bot-card"
 import { CredentialField } from "@/components/agents/external-channels/channel-bot-fields"
@@ -37,7 +38,6 @@ import {
 } from "@/components/agents/external-channels/slack-setup-fields"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CopyField } from "@/components/copy-field"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -95,23 +95,19 @@ export function SlackBotCard({
         />
       ) : null}
       {updateNeeded ? (
-        <Alert>
-          <AlertTitle>Update needed</AlertTitle>
-          <AlertDescription>
-            {canUpdateAgent ? (
-              <>
-                Update the Slack app from the latest manifest, then connect
-                again
-                {missingScopes.length > 0
-                  ? ` to grant: ${missingScopes.join(", ")}`
-                  : ""}
-                .
-              </>
-            ) : (
-              ASK_AN_AGENT_EDITOR
-            )}
-          </AlertDescription>
-        </Alert>
+        <ChannelBotNotice title="Update needed">
+          {canUpdateAgent ? (
+            <>
+              Update the Slack app from the latest manifest, then connect again
+              {missingScopes.length > 0
+                ? ` to grant: ${missingScopes.join(", ")}`
+                : ""}
+              .
+            </>
+          ) : (
+            ASK_AN_AGENT_EDITOR
+          )}
+        </ChannelBotNotice>
       ) : null}
       {dialog.open && bot && details ? (
         <SlackBotDialog

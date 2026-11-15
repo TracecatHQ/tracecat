@@ -103,7 +103,7 @@ export function AdminSidebar({
       isActive: pathname === "/admin/agent",
     },
     {
-      title: "Slack",
+      title: "Slack App",
       url: "/admin/agent/slack",
       isActive: pathname?.includes("/admin/agent/slack"),
     },

@@ -1,6 +1,6 @@
 "use client"
 
-import { CheckIcon, ExternalLink } from "lucide-react"
+import { CheckIcon, Copy, ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
 import {
   CredentialField,
@@ -119,6 +119,7 @@ export function SlackManualSetup({
           onClick={handleCopyManifest}
           disabled={!manifest}
         >
+          <Copy className="mr-2 size-4" />
           Copy app manifest
         </Button>
       </div>
@@ -149,9 +150,9 @@ export function SlackAppTokenFields({
   // Rotating app-level tokens come with a refresh token that Slack shows once.
   const rotating = appToken.trim().startsWith("xoxe.")
   return (
-    <div className="space-y-3 rounded-md border p-3">
+    <div className="space-y-3">
       <div className="space-y-1">
-        <p className="text-xs font-medium">App-level token for Socket Mode</p>
+        <p className="text-sm font-medium">App-level token for Socket Mode</p>
         <p className="text-xs text-muted-foreground">
           Basic Information → App-Level Tokens → Generate Token and Scopes. Add
           the <code>connections:write</code> scope, then copy the token and the

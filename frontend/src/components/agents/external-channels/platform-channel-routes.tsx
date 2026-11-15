@@ -1,6 +1,6 @@
 "use client"
 
-import { Trash2 } from "lucide-react"
+import { Hash, Plus, Trash2 } from "lucide-react"
 import { type FormEvent, useId, useState } from "react"
 import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
 import { CHANNEL_BOT_PROVIDER_NAMES } from "@/components/agents/external-channels/channel-bot-utils"
@@ -123,9 +123,9 @@ export function PlatformChannelRoutes({
   }
 
   return (
-    <div className="space-y-4 border-t px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="min-w-48 flex-1">
           <p className="text-xs font-medium">Default agent</p>
           <p className="text-xs text-muted-foreground">
             Answers DMs and any channel not listed below.
@@ -148,6 +148,10 @@ export function PlatformChannelRoutes({
                 key={r.provider_channel_id}
                 className="flex items-center gap-2"
               >
+                <Hash
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
                 <span className="min-w-0 flex-1 truncate font-mono text-xs">
                   {r.provider_channel_id}
                 </span>
@@ -182,8 +186,8 @@ export function PlatformChannelRoutes({
             Every channel uses the default agent.
           </p>
         )}
-        <form className="flex items-end gap-2" onSubmit={addRoute}>
-          <div className="min-w-0 flex-1 space-y-1">
+        <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
+          <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">
               Channel ID
             </Label>
@@ -209,6 +213,7 @@ export function PlatformChannelRoutes({
             variant="outline"
             disabled={disabled || !canAdd}
           >
+            <Plus className="mr-2 size-4" />
             Add
           </Button>
         </form>

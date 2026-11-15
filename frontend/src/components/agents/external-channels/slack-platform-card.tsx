@@ -2,7 +2,11 @@
 
 import { Loader2 } from "lucide-react"
 import type { AgentPresetRead } from "@/client"
-import { ChannelBotLifecycleActions } from "@/components/agents/external-channels/channel-bot-card"
+import {
+  ChannelBotHeader,
+  ChannelBotLifecycleActions,
+  ChannelBotNotice,
+} from "@/components/agents/external-channels/channel-bot-card"
 import {
   CHANNEL_BOT_STATES,
   channelBotReturnUrl,
@@ -12,9 +16,6 @@ import {
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { PlatformChannelRoutes } from "@/components/agents/external-channels/platform-channel-routes"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { ProviderIcon } from "@/components/icons"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -58,7 +59,7 @@ export function SlackPlatformCard({
   const install = pickChannelBot(installs)
   // Only a finished install records the Slack app.
   const state = channelBotState(install, install?.provider_app_id != null)
-  const { label, installed } = CHANNEL_BOT_STATES[state]
+  const { installed } = CHANNEL_BOT_STATES[state]
   const isDefault = install?.agent_preset_id === preset.id
 
   function addToSlack(): void {
@@ -101,20 +102,13 @@ export function SlackPlatformCard({
   }
 
   return (
-    <div
-      className="rounded border"
-      role="group"
-      aria-label="Tracecat for Slack"
-    >
-      <div className="flex items-center gap-4 p-4">
-        <div className="flex size-10 items-center justify-center rounded border bg-muted/30">
-          <ProviderIcon providerId="slack" className="size-7 p-0.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{title}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-        {label ? <Badge variant="secondary">{label}</Badge> : null}
+    <div role="group" aria-label="Tracecat for Slack">
+      <ChannelBotHeader
+        providerId="slack"
+        title={title}
+        description={description}
+        state={state}
+      >
         {installed && !isDefault ? (
           <Button
             type="button"
@@ -139,38 +133,32 @@ export function SlackPlatformCard({
             {installed ? "Reconnect" : "Add to Slack"}
           </Button>
         ) : null}
-      </div>
+      </ChannelBotHeader>
       {workspaceClaimed && !installed ? (
-        <div className="border-t px-4 py-3">
-          <Alert variant="destructive">
-            <AlertTitle>
-              This Slack workspace is already connected to another Tracecat
-              workspace
-            </AlertTitle>
-            <AlertDescription>
-              A Slack workspace can belong to one Tracecat workspace. Ask that
-              workspace&apos;s admin to disconnect it, or pick another Slack
-              workspace.
-            </AlertDescription>
-          </Alert>
-        </div>
-      ) : null}
-      {install && installed && canUpdateAgent ? (
-        <div className="border-t px-4 py-3">
-          <ChannelBotLifecycleActions
-            workspaceId={workspaceId}
-            bot={install}
-            state={state}
-            disconnectDescription="Tracecat stops answering in this Slack workspace until you add it again, and another Tracecat workspace can then add it there."
-          />
+        <div className="px-4 pb-4">
+          <ChannelBotNotice title="This Slack workspace is already connected to another Tracecat workspace">
+            A Slack workspace can belong to one Tracecat workspace. Ask that
+            workspace&apos;s admin to disconnect it, or pick another Slack
+            workspace.
+          </ChannelBotNotice>
         </div>
       ) : null}
       {install && installed ? (
-        <PlatformChannelRoutes
-          workspaceId={workspaceId}
-          install={install}
-          canUpdate={canUpdateAgent}
-        />
+        <div className="space-y-6 border-t p-4">
+          <PlatformChannelRoutes
+            workspaceId={workspaceId}
+            install={install}
+            canUpdate={canUpdateAgent}
+          />
+          {canUpdateAgent ? (
+            <ChannelBotLifecycleActions
+              workspaceId={workspaceId}
+              bot={install}
+              state={state}
+              disconnectDescription="Tracecat stops answering in this Slack workspace until you add it again, and another Tracecat workspace can then add it there."
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   )

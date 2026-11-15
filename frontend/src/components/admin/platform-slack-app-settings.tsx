@@ -1,9 +1,19 @@
 "use client"
 
-import { Download, ExternalLink } from "lucide-react"
+import {
+  CircleCheck,
+  CircleDashed,
+  Download,
+  ExternalLink,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react"
 import { type FormEvent, type ReactNode, useState } from "react"
 import type { SlackPlatformAppRead } from "@/client"
-import { CredentialField } from "@/components/agents/external-channels/channel-bot-fields"
+import {
+  CredentialField,
+  StatusLabel,
+} from "@/components/agents/external-channels/channel-bot-fields"
 import {
   buildSlackPlatformManifest,
   slackAppSettingsUrl,
@@ -15,6 +25,7 @@ import {
   SlackAppTokenFields,
   SlackManualSetup,
 } from "@/components/agents/external-channels/slack-setup-fields"
+import { ProviderIcon } from "@/components/icons"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,15 +91,23 @@ export function PlatformSlackAppSettings() {
     />
   )
   const removeError = getApiErrorDetail(removeSlackAppError)
+  const removeErrorLine = removeError ? (
+    <p className="text-sm text-destructive">{removeError}</p>
+  ) : null
+  const settingsFooter = (
+    <div className="px-4 py-3">{manual("Slack settings for this app")}</div>
+  )
 
   if (!registered) {
     return (
-      <div className="space-y-6">
-        <section className="space-y-4 rounded-md border p-4">
+      <SlackAppCard
+        status={<StatusLabel icon={CircleDashed}>Not registered</StatusLabel>}
+      >
+        <div className="space-y-4 p-4">
           <div className="space-y-1">
-            <h3 className="text-sm font-medium">
+            <h4 className="text-sm font-medium">
               Create the Tracecat app in Slack
-            </h3>
+            </h4>
             <p className="text-xs text-muted-foreground">
               Slack opens with the name, permissions,{" "}
               {slackApp.setup.transport === "socket"
@@ -116,56 +135,97 @@ export function PlatformSlackAppSettings() {
             )}
           </div>
           {manual("Create the app by hand instead")}
-        </section>
+        </div>
         {created ? (
-          <>
+          <div className="space-y-4 p-4">
             <SetupDoneLine>App created in Slack</SetupDoneLine>
             <SlackAppCredentials
               slackApp={slackApp}
               onSave={saveSlackApp}
               saving={saveSlackAppIsPending}
             />
-          </>
+          </div>
         ) : null}
-      </div>
+      </SlackAppCard>
     )
   }
 
   if (editing || slackApp.unreadable) {
     return (
-      <div className="space-y-6">
-        <SlackAppCredentials
-          slackApp={slackApp}
-          onSave={saveSlackApp}
-          saving={saveSlackAppIsPending}
-          onSaved={() => setEditing(false)}
-          onCancel={slackApp.unreadable ? undefined : () => setEditing(false)}
-          extraActions={removeAction}
-        />
-        {removeError ? (
-          <p className="text-sm text-destructive">{removeError}</p>
-        ) : null}
-        {manual("Slack settings for this app")}
-      </div>
+      <SlackAppCard
+        status={
+          slackApp.unreadable ? (
+            <StatusLabel icon={TriangleAlert} destructive>
+              Needs credentials
+            </StatusLabel>
+          ) : (
+            <StatusLabel icon={CircleCheck}>Registered</StatusLabel>
+          )
+        }
+      >
+        <div className="space-y-4 p-4">
+          <SlackAppCredentials
+            slackApp={slackApp}
+            onSave={saveSlackApp}
+            saving={saveSlackAppIsPending}
+            onSaved={() => setEditing(false)}
+            onCancel={slackApp.unreadable ? undefined : () => setEditing(false)}
+            extraActions={removeAction}
+          />
+          {removeErrorLine}
+        </div>
+        {settingsFooter}
+      </SlackAppCard>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
+    <SlackAppCard
+      status={<StatusLabel icon={CircleCheck}>Registered</StatusLabel>}
+    >
+      <div className="space-y-2 p-4">
         <SetupDoneLine>App created in Slack</SetupDoneLine>
         <SetupDoneLine>Credentials saved</SetupDoneLine>
+        <FinishInSlack appId={slackApp.app_id} />
       </div>
-      <FinishInSlack appId={slackApp.app_id} />
       <SlackAppSummary
         slackApp={slackApp}
         onReplace={() => setEditing(true)}
         removeAction={removeAction}
-        removeError={removeError}
       >
-        {manual("Slack settings for this app")}
+        {removeErrorLine}
       </SlackAppSummary>
-    </div>
+      {settingsFooter}
+    </SlackAppCard>
+  )
+}
+
+/** The page's one surface: the app's identity and status, then its sections. */
+function SlackAppCard({
+  status,
+  children,
+}: {
+  status: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section
+      className="divide-y rounded-md border"
+      aria-label="Tracecat for Slack"
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
+        <ProviderIcon providerId="slack" className="size-10 p-2" />
+        <div className="min-w-48 flex-1 space-y-0.5">
+          <h3 className="text-sm font-semibold">Tracecat for Slack</h3>
+          <p className="text-xs text-muted-foreground">
+            Organizations with Agent Channels see Add to Slack on their
+            agents&apos; Channels tab.
+          </p>
+        </div>
+        {status}
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -176,20 +236,19 @@ function FinishInSlack({ appId }: { appId: string | null }) {
 
   if (iconDone && distributionDone) {
     return (
-      <div className="space-y-2">
+      <>
         <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
         <SetupDoneLine>Public distribution on</SetupDoneLine>
-      </div>
+      </>
     )
   }
   return (
-    <section className="space-y-3 rounded-md border p-4">
+    <div className="space-y-4 pt-4">
       <div className="space-y-1">
-        <h3 className="text-sm font-medium">
-          Two things only Slack&apos;s settings can do
-        </h3>
+        <h4 className="text-sm font-medium">Finish in Slack</h4>
         <p className="text-xs text-muted-foreground">
-          Tracecat can&apos;t check these, so tick each one when it&apos;s done.
+          Tracecat can&apos;t check these two settings, so mark each one done
+          once it&apos;s set.
         </p>
       </div>
       <TickOff
@@ -239,7 +298,7 @@ function FinishInSlack({ appId }: { appId: string | null }) {
         Manage Distribution → Activate Public Distribution. Without it, only
         your own Slack workspace can install the app.
       </TickOff>
-    </section>
+    </div>
   )
 }
 
@@ -256,14 +315,22 @@ function TickOff({
   actions?: ReactNode
   children: ReactNode
 }) {
+  const StateIcon = done ? CircleCheck : CircleDashed
   return (
     <div
-      className="space-y-2 rounded-md border px-3 py-2"
+      className="flex flex-wrap items-start gap-x-3 gap-y-2"
       role="group"
       aria-label={title}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-40 flex-1 text-xs font-medium">{title}</p>
+      <StateIcon
+        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
+      <div className="min-w-48 flex-1 space-y-0.5">
+        <p className="text-sm">{title}</p>
+        <p className="text-xs text-muted-foreground">{children}</p>
+      </div>
+      <div className="ml-7 flex flex-wrap items-center gap-2">
         {actions}
         <Button
           type="button"
@@ -275,7 +342,6 @@ function TickOff({
           {done ? "Done" : "Mark done"}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">{children}</p>
     </div>
   )
 }
@@ -285,28 +351,17 @@ function SlackAppSummary({
   slackApp,
   onReplace,
   removeAction,
-  removeError,
   children,
 }: {
   slackApp: SlackPlatformAppRead
   onReplace: () => void
   removeAction: ReactNode
-  removeError: string | null
+  /** The remove error, under the actions. */
   children: ReactNode
 }) {
   const socket = slackApp.setup.transport === "socket"
   return (
-    <section
-      className="space-y-4 rounded-md border p-4"
-      aria-label="Tracecat for Slack"
-    >
-      <div className="space-y-1">
-        <h3 className="text-sm font-medium">Tracecat for Slack</h3>
-        <p className="text-xs text-muted-foreground">
-          Organizations with Agent Channels see Add to Slack on their
-          agents&apos; Channels tab.
-        </p>
-      </div>
+    <div className="space-y-4 p-4">
       <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
         <dt className="text-muted-foreground">App ID</dt>
         <dd>
@@ -314,9 +369,13 @@ function SlackAppSummary({
             href={slackAppSettingsUrl(slackApp.app_id, "general")}
             target="_blank"
             rel="noreferrer"
-            className="font-mono underline-offset-4 hover:underline"
+            className="inline-flex items-center gap-1 font-mono underline-offset-4 hover:underline"
           >
             {slackApp.app_id}
+            <ExternalLink
+              className="size-3 text-muted-foreground"
+              aria-hidden
+            />
           </a>
         </dd>
         <dt className="text-muted-foreground">Slack events</dt>
@@ -330,11 +389,8 @@ function SlackAppSummary({
         </Button>
         {removeAction}
       </div>
-      {removeError ? (
-        <p className="text-sm text-destructive">{removeError}</p>
-      ) : null}
       {children}
-    </section>
+    </div>
   )
 }
 
@@ -349,6 +405,7 @@ function RemoveSlackApp({
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button type="button" size="sm" variant="outline" disabled={removing}>
+          <Trash2 className="mr-2 size-4" />
           Remove
         </Button>
       </AlertDialogTrigger>
@@ -437,12 +494,12 @@ function SlackAppCredentials({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-md border p-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-48 flex-1 space-y-1">
-          <h3 className="text-sm font-medium">
+          <h4 className="text-sm font-medium">
             Paste the app&apos;s credentials
-          </h3>
+          </h4>
           <p className="text-xs text-muted-foreground">
             In the Slack app, open Basic Information. Everything below is on
             that page.
@@ -460,7 +517,8 @@ function SlackAppCredentials({
         </Button>
       </div>
       {slackApp.unreadable ? (
-        <p className="text-sm text-destructive">
+        <p className="flex items-start gap-2 text-sm text-destructive">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           The saved Slack app no longer decrypts. Enter its credentials and save
           it again.
         </p>

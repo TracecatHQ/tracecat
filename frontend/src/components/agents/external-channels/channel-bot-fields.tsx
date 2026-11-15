@@ -1,5 +1,7 @@
 "use client"
 
+import type { LucideIcon } from "lucide-react"
+import type { ReactNode } from "react"
 import type { ChannelBotProvider } from "@/client"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
@@ -8,6 +10,30 @@ import {
 import { CopyField } from "@/components/copy-field"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
+
+/** A setup state as an icon and a short label; red only when it needs action. */
+export function StatusLabel({
+  icon: Icon,
+  destructive = false,
+  children,
+}: {
+  icon: LucideIcon
+  destructive?: boolean
+  children: ReactNode
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 text-xs",
+        destructive ? "text-destructive" : "text-muted-foreground"
+      )}
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {children}
+    </span>
+  )
+}
 
 /** The URL a provider sends events to, warning when it cannot reach it. */
 export function EndpointField({
