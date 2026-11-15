@@ -14,12 +14,32 @@ describe("buildSlackManifest", () => {
       interactivity: { is_enabled: true },
       org_deploy_enabled: false,
       socket_mode_enabled: true,
-      token_rotation_enabled: false,
+      token_rotation_enabled: true,
+      app_level_token_rotation_enabled: true,
       event_subscriptions: { bot_events: ["app_mention", "message.im"] },
     })
     expect(manifest.oauth_config).toEqual(
       expect.objectContaining({ redirect_urls: [REDIRECT] })
     )
+  })
+
+  it("rotates the bot token of an HTTP app, which has no app-level token", () => {
+    const endpointUrl = "https://api.example.com/agent/channel-events/slack/abc"
+    const manifest = buildSlackManifest({
+      endpointUrl,
+      oauthRedirectUrl: REDIRECT,
+      appName: "Triage",
+    })
+    expect(manifest.settings).toEqual({
+      interactivity: { is_enabled: true, request_url: endpointUrl },
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      token_rotation_enabled: true,
+      event_subscriptions: {
+        request_url: endpointUrl,
+        bot_events: ["app_mention", "message.im"],
+      },
+    })
   })
 
   it("copies the legacy panel's manifest byte for byte", () => {

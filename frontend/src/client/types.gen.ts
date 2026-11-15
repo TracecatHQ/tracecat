@@ -11145,9 +11145,13 @@ export type SlackBotInstall = {
   client_secret: string
   signing_secret: string
   /**
-   * App-level token (`xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise. Rotating `xoxe.xapp-` tokens expire in 12 hours and are not supported.
+   * App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.
    */
   app_token?: string | null
+  /**
+   * The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.
+   */
+  app_refresh_token?: string | null
   return_url: string
 }
 
