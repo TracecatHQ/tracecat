@@ -176,7 +176,7 @@ export function CreateCustomProviderDialog({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent size="lg" className="max-w-lg">
+      <DialogContent size="xl" className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add custom OAuth provider</DialogTitle>
           <DialogDescription>

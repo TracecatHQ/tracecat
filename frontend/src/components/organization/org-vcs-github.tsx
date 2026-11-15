@@ -325,7 +325,7 @@ function GitHubConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" className="sm:max-w-lg">
+      <DialogContent size="xl" className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {hasStoredCredentials ? "Update GitHub App" : "Connect GitHub App"}

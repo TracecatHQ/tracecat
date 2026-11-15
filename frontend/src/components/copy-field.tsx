@@ -2,7 +2,6 @@
 
 import { useId } from "react"
 import { CopyButton } from "@/components/copy-button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 /** A read-only value to paste into the provider, with a copy control. */
@@ -27,15 +26,28 @@ export function CopyField({
       .join(" ") || undefined
   return (
     <div className="space-y-2">
-      <Label htmlFor={id} className="text-xs">
-        {label}
-      </Label>
-      <div className="flex items-center gap-2">
-        <Input id={id} readOnly value={value} aria-describedby={describedBy} />
+      <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Label
+            htmlFor={id}
+            className="text-xs font-normal text-muted-foreground"
+          >
+            {label}
+          </Label>
+          <input
+            id={id}
+            readOnly
+            value={value}
+            aria-describedby={describedBy}
+            className="w-full truncate bg-transparent font-mono text-sm outline-none"
+          />
+        </div>
         <CopyButton
           value={value}
           toastMessage={`${label} copied`}
           tooltipMessage={`Copy ${label.toLowerCase()}`}
+          className="size-7 shrink-0"
+          iconClassName="size-3.5"
         />
       </div>
       {warning ? (

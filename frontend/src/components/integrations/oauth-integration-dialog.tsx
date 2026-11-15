@@ -118,7 +118,7 @@ export function OAuthIntegrationDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent size="lg" className="sm:max-w-2xl">
+      <DialogContent size="xl" className="sm:max-w-3xl">
         <DialogHeader>
           <div className="flex items-start gap-4">
             <ProviderIcon providerId={providerId} className="size-10" />
