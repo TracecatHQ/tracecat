@@ -209,3 +209,26 @@ async def test_without_the_preview_entitlement_no_session_names_a_channel(
     entitled.assert_awaited_with(
         session, svc_role.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
     )
+
+
+async def test_without_agent_read_no_session_names_a_channel(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    thread_queries: list[str],
+    entitled: AsyncMock,
+) -> None:
+    assert svc_role.workspace_id is not None
+    _, linked, _, _ = await _linked_sessions(session, svc_role.workspace_id)
+    monkeypatch.setattr(
+        channel_threads, "get_channel_bot_admin", lambda: FakeChannelBotAdmin()
+    )
+    inbox_only = svc_role.model_copy(update={"scopes": frozenset({"inbox:read"})})
+    thread_queries.clear()
+
+    items = _by_id(
+        (await AgentRunsInboxProvider(session, inbox_only).list_items(limit=20)).items
+    )
+
+    assert items[linked.id].channel_thread is None
+    assert thread_queries == []

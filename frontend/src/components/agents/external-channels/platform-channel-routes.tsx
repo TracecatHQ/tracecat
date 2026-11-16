@@ -240,11 +240,10 @@ export function PlatformChannelRoutes({
 
   const newChannel = conventions.normalizeId(channel)
   // A hint over the loaded pages; the API refuses a channel that already has a route.
-  const taken = routes?.some((r) => r.provider_channel_id === newChannel)
+  const routedIds = new Set((routes ?? []).map((r) => r.provider_channel_id))
+  const taken = routedIds.has(newChannel)
   const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
-  const unrouted = (channels ?? []).filter(
-    (c) => !routes?.some((r) => r.provider_channel_id === c.id)
-  )
+  const unrouted = (channels ?? []).filter((c) => !routedIds.has(c.id))
   const note = listingNote(providerName, channels, channelsError)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
@@ -397,6 +396,7 @@ export function PlatformChannelRoutes({
                 id={channelInputId}
                 conventions={conventions}
                 channels={unrouted}
+                routedIds={routedIds}
                 value={channel}
                 isLoading={channelsIsLoading}
                 disabled={disabled}

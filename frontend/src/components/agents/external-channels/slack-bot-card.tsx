@@ -79,9 +79,13 @@ export function SlackBotCard({
   const updateNeeded =
     CHANNEL_BOT_STATES[state].installed &&
     (details?.update_needed === true || missingScopes.length > 0)
-  const { channels } = useChannelBotChannels(workspaceId, bot?.id ?? "", {
-    enabled: state === "active" && bot !== null,
-  })
+  const { channels, hasMoreChannels } = useChannelBotChannels(
+    workspaceId,
+    bot?.id ?? "",
+    {
+      enabled: state === "active" && bot !== null,
+    }
+  )
   const channelLabels = (state === "active" ? [...(channels ?? [])] : [])
     .sort(byChannelName)
     .map((channel) => channelLabel("slack", channel))
@@ -107,7 +111,9 @@ export function SlackBotCard({
       {channelLabels.length > 0 ? (
         <p className="truncate text-xs text-muted-foreground">
           In {channelLabels.slice(0, CHANNEL_SUMMARY_CAP).join(", ")}
-          {hiddenChannels > 0 ? ` +${hiddenChannels}` : ""}
+          {hiddenChannels > 0
+            ? ` +${hiddenChannels}${hasMoreChannels ? " more" : ""}`
+            : ""}
         </p>
       ) : null}
       {updateNeeded ? (

@@ -468,6 +468,25 @@ describe("Creating the custom Slack app", () => {
     })
   })
 
+  it("says more when the bot is in channels past the first page", async () => {
+    serveBots([slackBot()])
+    api.listChannels.mockResolvedValue(
+      channelPage(
+        ["triage", "alerts", "soc"].map((name, i) => ({
+          id: `C${i}`,
+          name,
+          is_private: false,
+          is_member: true,
+        })),
+        "next"
+      )
+    )
+    renderPanel()
+    expect(
+      await screen.findByText("In #alerts, #soc +1 more")
+    ).toBeInTheDocument()
+  })
+
   it("lists no channels for a paused bot", async () => {
     serveBots([slackBot({ status: "paused" })])
     renderPanel()

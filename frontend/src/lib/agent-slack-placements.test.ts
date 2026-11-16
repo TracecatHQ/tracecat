@@ -166,7 +166,7 @@ describe("slackPlacementsByPreset", () => {
       },
       routes: [],
     })
-    expect(summary(result)).toEqual({ triage: ["C1", "C2", "C3"] })
+    expect(summary(result)).toEqual({ triage: ["C1", "C3", "C2"] })
   })
 
   it("ignores an install's channels without an install", () => {

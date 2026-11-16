@@ -15,6 +15,7 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.db.models import AgentChannelBot, AgentSession, AgentSessionThread
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
@@ -26,7 +27,7 @@ async def channel_threads_by_session(
     sessions: Sequence[AgentSession],
 ) -> dict[uuid.UUID, InboxChannelThread]:
     """The linked thread's channel by session ID, in one query; empty without the
-    channel bots preview."""
+    channel bots preview or `agent:read`, which the channel bot API requires."""
     session_ids = [
         s.id for s in sessions if s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
     ]
@@ -34,6 +35,7 @@ async def channel_threads_by_session(
         not session_ids
         or role.workspace_id is None
         or role.organization_id is None
+        or not has_scope(role.scopes or frozenset(), "agent:read")
         or (admin := get_channel_bot_admin()) is None
         or not await is_org_entitled(
             session, role.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW

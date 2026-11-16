@@ -56,6 +56,7 @@ export function ChannelPicker({
   id,
   conventions,
   channels,
+  routedIds,
   value,
   isLoading,
   disabled,
@@ -65,6 +66,8 @@ export function ChannelPicker({
   id: string
   conventions: ChannelConventions
   channels: ChannelBotChannel[]
+  /** Channels that already have a route, which a typed ID cannot pick again. */
+  routedIds: ReadonlySet<string>
   value: string
   isLoading: boolean
   disabled: boolean
@@ -81,8 +84,10 @@ export function ChannelPicker({
   const selected = channels.find((c) => c.id === value)
   // Unlisted channels, such as Slack's private ones without the bot, are routed by ID.
   const typedId = conventions.normalizeId(search)
-  const offerTypedId =
+  const typedIdIsChannel =
     conventions.isChannelId(typedId) && !channels.some((c) => c.id === typedId)
+  const typedIdRouted = typedIdIsChannel && routedIds.has(typedId)
+  const offerTypedId = typedIdIsChannel && !typedIdRouted
 
   function pick(channelId: string): void {
     onChange(channelId)
@@ -140,6 +145,21 @@ export function ChannelPicker({
                 <Lock className="size-3.5 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">
                   Use channel ID <span className="font-mono">{typedId}</span>
+                </span>
+              </CommandItem>
+            )}
+            {typedIdRouted && (
+              <CommandItem
+                value={`routed ${typedId}`}
+                disabled
+                className="gap-2 text-xs"
+              >
+                <Lock className="size-3.5 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate font-mono">
+                  {typedId}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Already routed
                 </span>
               </CommandItem>
             )}

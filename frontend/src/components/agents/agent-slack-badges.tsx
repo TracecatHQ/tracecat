@@ -16,6 +16,11 @@ import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import { cn } from "@/lib/utils"
 
 const SLACK_BADGE_CAP = 2
+const REINSTALL_NOTE = "Reinstall to show channels"
+
+function needsReinstall(placement: SlackPlacement): boolean {
+  return placement.kind === "workspace_bot" && placement.needsReinstall
+}
 
 /** A Slack placement in words: `#name` or a private name. */
 export function slackPlacementLabel(placement: SlackPlacement): string {
@@ -89,14 +94,14 @@ function SlackPlacementBadge({ placement }: { placement: SlackPlacement }) {
       isPrivate={placement.kind === "channel" && placement.channel.is_private}
     />
   )
-  if (placement.kind !== "workspace_bot" || !placement.needsReinstall) {
+  if (!needsReinstall(placement)) {
     return badge
   }
   return (
     <Tooltip>
       <TooltipTrigger asChild>{badge}</TooltipTrigger>
       <TooltipContent>
-        <span className="opacity-70">Reinstall to show channels</span>
+        <span className="opacity-70">{REINSTALL_NOTE}</span>
       </TooltipContent>
     </Tooltip>
   )
@@ -139,6 +144,9 @@ export function AgentSlackBadges({
                 label: slackPlacementLabel(placement),
               }))}
             />
+            {overflow.some(needsReinstall) ? (
+              <p className="mt-1 opacity-70">{REINSTALL_NOTE}</p>
+            ) : null}
           </TooltipContent>
         </Tooltip>
       ) : null}

@@ -27,7 +27,8 @@ export type ChannelConventions = {
 const SLACK_CHANNELS: ChannelConventions = {
   // Events carry uppercase IDs and never match a lowercase one.
   normalizeId: (raw) => raw.trim().toUpperCase(),
-  isChannelId: (id) => /^[CG][A-Z0-9]{6,}$/.test(id),
+  // A digit keeps words such as GENERAL from passing as IDs.
+  isChannelId: (id) => /^[CG](?=[A-Z0-9]*\d)[A-Z0-9]{6,}$/.test(id),
   idPlaceholder: "C0123456789",
   publicPrefix: "#",
   inviteCommand: "/invite @Tracecat",

@@ -50,6 +50,7 @@ export function buildSlackManifest({
     },
     oauth_config: {
       scopes: {
+        // Scopes added after install make every workspace re-approve.
         bot: [
           "app_mentions:read",
           // Agent label, and `assistant.threads.setStatus`.

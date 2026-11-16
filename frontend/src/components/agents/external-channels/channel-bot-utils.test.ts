@@ -126,6 +126,7 @@ describe("channelConventions", () => {
     expect(slack.normalizeId("  c0123abcd ")).toBe("C0123ABCD")
     expect(slack.isChannelId("C0123ABCD")).toBe(true)
     expect(slack.isChannelId("D0123ABCD")).toBe(false)
+    expect(slack.isChannelId(slack.normalizeId("general"))).toBe(false)
   })
 
   it("only trims another provider's case-sensitive ID", () => {

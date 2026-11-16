@@ -68,7 +68,7 @@ export function slackPlacementsByPreset({
     byPreset.set(presetId, [...placements, placement])
   }
   function addChannels(presetId: string, channels: ChannelBotChannel[]): void {
-    for (const channel of [...channels].sort(byChannelName)) {
+    for (const channel of channels) {
       add(presetId, { kind: "channel", channel })
     }
   }
@@ -86,7 +86,7 @@ export function slackPlacementsByPreset({
     }
   }
   if (!install) {
-    return byPreset
+    return sortChannels(byPreset)
   }
 
   const listed = channelsByBot.get(install.id)
@@ -105,9 +105,25 @@ export function slackPlacementsByPreset({
     const channel = channelsById.get(route.provider_channel_id)
     return channel ? [{ presetId: route.agent_preset_id, channel }] : []
   })
-  routedChannels.sort((a, b) => byChannelName(a.channel, b.channel))
   for (const { presetId, channel } of routedChannels) {
     add(presetId, { kind: "channel", channel })
+  }
+  return sortChannels(byPreset)
+}
+
+/** Each agent's channels in name order; other placements keep their slots. */
+function sortChannels(
+  byPreset: Map<string, SlackPlacement[]>
+): Map<string, SlackPlacement[]> {
+  for (const [presetId, placements] of byPreset) {
+    const channels = placements
+      .flatMap((p) => (p.kind === "channel" ? [p] : []))
+      .sort((a, b) => byChannelName(a.channel, b.channel))
+    let next = 0
+    byPreset.set(
+      presetId,
+      placements.map((p) => (p.kind === "channel" ? channels[next++] : p))
+    )
   }
   return byPreset
 }

@@ -327,6 +327,9 @@ describe("PlatformChannelRoutes", () => {
     )
     await userEvent.type(search, "C1")
     expect(screen.queryByRole("option", { name: /Use channel ID/ })).toBeNull()
+    await userEvent.clear(search)
+    await userEvent.type(search, "general")
+    expect(screen.queryByRole("option", { name: /Use channel ID/ })).toBeNull()
 
     await userEvent.clear(search)
     await userEvent.type(search, "c0123abcd")
@@ -347,6 +350,28 @@ describe("PlatformChannelRoutes", () => {
         agent_preset_id: "preset-2",
       },
     })
+  })
+
+  it("refuses a typed ID that already has a route", async () => {
+    servePlatform([route("C0123ABCD", "preset-2")])
+    const card = await editor()
+    const list = await within(card).findByRole("list", { name: "Channels" })
+    await within(list).findByText("C0123ABCD")
+    await openPicker(card)
+    await userEvent.type(
+      screen.getByPlaceholderText("Search channels or paste a channel ID"),
+      "c0123abcd"
+    )
+
+    const row = screen.getByRole("option", {
+      name: /C0123ABCD.*Already routed/,
+    })
+    expect(row).toHaveAttribute("aria-disabled", "true")
+    expect(screen.queryByRole("option", { name: /Use channel ID/ })).toBeNull()
+    await userEvent.click(row)
+    expect(
+      within(card).getByRole("combobox", { name: "Channel" })
+    ).not.toHaveTextContent("C0123ABCD")
   })
 
   it("marks a routed private channel with a lock", async () => {
