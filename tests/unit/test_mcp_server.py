@@ -5912,6 +5912,7 @@ class _TableMoveFolderService:
         self.folders = {"/soc/": SimpleNamespace(id=uuid.uuid4(), path="/soc/")}
         self.moves: list[tuple[uuid.UUID, SimpleNamespace | None]] = []
         self.failing_ids: set[uuid.UUID] = set()
+        self.managed_ids: set[uuid.UUID] = set()
         self.session = SimpleNamespace(rollback=self._rollback)
         self.queries = 0
 
@@ -5925,6 +5926,9 @@ class _TableMoveFolderService:
 
     async def _rollback(self) -> None:
         return None
+
+    async def get_managed_table_ids(self, table_ids: Any) -> set[uuid.UUID]:
+        return self.managed_ids & set(table_ids)
 
     async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
         return self.folders.get(path)
@@ -5979,6 +5983,32 @@ async def test_move_tables_dry_run_reports_invalid_and_missing_ids(
     ]
     assert service.queries == 1
     assert service.moves == []
+
+
+@pytest.mark.anyio
+async def test_move_tables_dry_run_reports_managed_tables_as_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table_id = uuid.uuid4()
+    managed_id = uuid.uuid4()
+    service = _TableMoveFolderService(
+        uuid.uuid4(), {table_id: "iocs", managed_id: "synced"}
+    )
+    service.managed_ids.add(managed_id)
+    _patch_table_move_service(monkeypatch, service)
+
+    result = _payload(
+        await _tool(mcp_server.move_tables)(
+            workspace_id=str(service.workspace_id),
+            table_ids=[str(managed_id), str(table_id)],
+            dry_run=True,
+        )
+    )
+
+    assert result["movable_tables"] == [{"table_id": str(table_id), "name": "iocs"}]
+    assert result["errors"] == [
+        {"table_id": str(managed_id), "error": mcp_server.LOCKED_MESSAGE}
+    ]
 
 
 @pytest.mark.anyio

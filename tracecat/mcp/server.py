@@ -9445,17 +9445,17 @@ async def move_tables(
                 {table_uuid for _, table_uuid in requested_uuids}
             )
 
+            managed_ids = await folder_svc.get_managed_table_ids(table_names.keys())
             validated: list[TableMoveItem] = []
             for raw_table_id, table_uuid in requested_uuids:
-                if (name := table_names.get(table_uuid)) is not None:
-                    validated.append(TableMoveItem(table_id=table_uuid, name=name))
+                if (name := table_names.get(table_uuid)) is None:
+                    error = f"Table {raw_table_id} not found"
+                elif table_uuid in managed_ids:
+                    error = LOCKED_MESSAGE
                 else:
-                    errors.append(
-                        TableMoveError(
-                            table_id=raw_table_id,
-                            error=f"Table {raw_table_id} not found",
-                        )
-                    )
+                    validated.append(TableMoveItem(table_id=table_uuid, name=name))
+                    continue
+                errors.append(TableMoveError(table_id=raw_table_id, error=error))
 
             if dry_run:
                 return TableMoveResponse(

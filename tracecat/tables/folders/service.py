@@ -17,9 +17,11 @@ from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Table, TableFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.managed_resources.guard import (
+    bypass_active,
     ensure_none_managed,
     ensure_unmanaged,
     hold_for_customer_write,
+    managed_local_ids,
 )
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -351,6 +353,20 @@ class TableFolderService(BaseWorkspaceService):
             )
         )
         return dict(result.tuples().all())
+
+    @require_scope("table:read")
+    async def get_managed_table_ids(
+        self, table_ids: Collection[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given tables are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.TABLE,
+            local_ids=table_ids,
+        )
 
     @require_scope("table:update")
     async def move_table(
