@@ -1,6 +1,7 @@
 "use client"
 
 import { Lock } from "lucide-react"
+import { channelLabel } from "@/components/agents/external-channels/channel-bot-utils"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import { SlackIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
@@ -22,9 +23,7 @@ export function slackPlacementLabel(placement: SlackPlacement): string {
       return "All other channels"
     case "channel":
       if (!placement.channel) return placement.channelId
-      return placement.channel.is_private
-        ? placement.channel.name
-        : `#${placement.channel.name}`
+      return channelLabel("slack", placement.channel)
   }
 }
 

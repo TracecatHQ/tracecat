@@ -7,7 +7,13 @@ import type {
   AgentPresetReadMinimal,
   ChannelBotChannel,
 } from "@/client"
-import { CHANNEL_BOT_PROVIDER_NAMES } from "@/components/agents/external-channels/channel-bot-utils"
+import {
+  CHANNEL_BOT_PROVIDER_NAMES,
+  type ChannelConventions,
+  channelConventions,
+  channelLabel,
+  channelName,
+} from "@/components/agents/external-channels/channel-bot-utils"
 import { CopyButton } from "@/components/copy-button"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,8 +52,6 @@ import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
-const INVITE_COMMAND = "/invite @Tracecat"
-
 /** Picks one of the workspace's agents. */
 export function AgentSelect({
   label,
@@ -78,22 +82,46 @@ export function AgentSelect({
   )
 }
 
-/** A lock on a private channel, else a hash. */
-function ChannelIcon({ channel }: { channel?: ChannelBotChannel }) {
-  return channel?.is_private ? (
-    <Lock
-      role="img"
-      aria-label="Private channel"
-      className="size-3.5 shrink-0 text-muted-foreground"
-    />
-  ) : (
+/** A lock on a private channel, else the provider's public prefix. */
+function ChannelIcon({
+  channel,
+  conventions,
+}: {
+  channel?: ChannelBotChannel
+  conventions: ChannelConventions
+}) {
+  if (channel?.is_private) {
+    return (
+      <Lock
+        role="img"
+        aria-label="Private channel"
+        className="size-3.5 shrink-0 text-muted-foreground"
+      />
+    )
+  }
+  return conventions.publicPrefix === "#" ? (
     <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+  ) : (
+    <span className="size-3.5 shrink-0" aria-hidden />
   )
+}
+
+/** Why the bot is not in a listed channel yet, or null when it is. */
+function notMemberNote(
+  channel: ChannelBotChannel,
+  conventions: ChannelConventions
+): string | null {
+  if (channel.is_member) return null
+  if (!conventions.inviteCommand) return "Tracecat not added"
+  return channel.is_private || !conventions.joinsOnAdd
+    ? "needs invite"
+    : "joins on add"
 }
 
 /** Picks one of the provider tenant's channels by name. */
 function ChannelPicker({
   id,
+  conventions,
   channels,
   value,
   isLoading,
@@ -102,6 +130,7 @@ function ChannelPicker({
   more,
 }: {
   id: string
+  conventions: ChannelConventions
   channels: ChannelBotChannel[]
   value: string
   isLoading: boolean
@@ -117,11 +146,10 @@ function ChannelPicker({
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const selected = channels.find((c) => c.id === value)
-  // Slack lists only private channels the bot is in, so others are routed by ID.
-  const typedId = search.trim().toUpperCase()
+  // Unlisted channels, such as Slack's private ones without the bot, are routed by ID.
+  const typedId = conventions.normalizeId(search)
   const offerTypedId =
-    /^[CG][A-Z0-9]{6,}$/.test(typedId) &&
-    !channels.some((c) => c.id === typedId)
+    conventions.isChannelId(typedId) && !channels.some((c) => c.id === typedId)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -134,14 +162,14 @@ function ChannelPicker({
           disabled={disabled || isLoading}
           className="h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal shadow-none"
         >
-          <ChannelIcon channel={selected} />
+          <ChannelIcon channel={selected} conventions={conventions} />
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-left",
               !selected && value && "font-mono"
             )}
           >
-            {selected?.name ||
+            {(selected && channelName(selected)) ||
               value ||
               (isLoading ? "Loading channels…" : "Pick a channel")}
           </span>
@@ -179,25 +207,30 @@ function ChannelPicker({
                 </span>
               </CommandItem>
             )}
-            {channels.map((c) => (
-              <CommandItem
-                key={c.id}
-                value={`${c.name} ${c.id}`}
-                onSelect={() => {
-                  onChange(c.id)
-                  setOpen(false)
-                }}
-                className="gap-2 text-xs"
-              >
-                <ChannelIcon channel={c} />
-                <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                {!c.is_member && (
-                  <span className="text-[11px] text-muted-foreground">
-                    {c.is_private ? "needs invite" : "joins on add"}
+            {channels.map((c) => {
+              const note = notMemberNote(c, conventions)
+              return (
+                <CommandItem
+                  key={c.id}
+                  value={`${channelName(c)} ${c.id}`}
+                  onSelect={() => {
+                    onChange(c.id)
+                    setOpen(false)
+                  }}
+                  className="gap-2 text-xs"
+                >
+                  <ChannelIcon channel={c} conventions={conventions} />
+                  <span className="min-w-0 flex-1 truncate">
+                    {channelName(c)}
                   </span>
-                )}
-              </CommandItem>
-            ))}
+                  {note && (
+                    <span className="text-[11px] text-muted-foreground">
+                      {note}
+                    </span>
+                  )}
+                </CommandItem>
+              )
+            })}
             {more.hasMore && (
               // Search covers loaded pages only, so this stays while searching.
               <CommandItem
@@ -267,10 +300,10 @@ export function PlatformChannelRoutes({
   const channelInputId = useId()
   const agents = presets ?? []
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[install.provider]
+  const conventions = channelConventions(install.provider)
+  const { inviteCommand } = conventions
 
-  // Slack channel IDs are uppercase; events never match a lowercase one.
-  const newChannel =
-    install.provider === "slack" ? channel.trim().toUpperCase() : channel.trim()
+  const newChannel = conventions.normalizeId(channel)
   // A hint over the loaded pages; the API refuses a channel that already has a route.
   const taken = routes?.some((r) => r.provider_channel_id === newChannel)
   const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
@@ -339,18 +372,21 @@ export function PlatformChannelRoutes({
       <ul className="space-y-2" aria-label="Channels">
         {routes.map((r) => {
           const known = channelsById.get(r.provider_channel_id)
-          const label = known ? `#${known.name}` : r.provider_channel_id
+          const label = known
+            ? channelLabel(install.provider, known)
+            : r.provider_channel_id
+          const where = known ? label : "this channel"
           return (
             <li key={r.provider_channel_id} className="space-y-1">
               <div className="flex items-center gap-2">
-                <ChannelIcon channel={known} />
+                <ChannelIcon channel={known} conventions={conventions} />
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate text-xs",
                     !known && "font-mono"
                   )}
                 >
-                  {known?.name ?? r.provider_channel_id}
+                  {known ? channelName(known) : r.provider_channel_id}
                 </span>
                 <AgentSelect
                   label={`Agent for ${label}`}
@@ -379,17 +415,21 @@ export function PlatformChannelRoutes({
                 </Button>
               </div>
               {/* Unlisted once every page is loaded means private without the bot. */}
-              {((known?.is_private && !known.is_member) ||
-                (!known && channels && !hasMoreChannels && !channelsError)) && (
+              {(known
+                ? !known.is_member &&
+                  (known.is_private || !conventions.joinsOnAdd)
+                : channels && !hasMoreChannels && !channelsError) && (
                 <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
-                  {known
-                    ? `Invite @Tracecat in #${known.name} to finish`
-                    : "Invite @Tracecat in this channel to finish"}
-                  <CopyButton
-                    value={INVITE_COMMAND}
-                    toastMessage="Invite command copied"
-                    tooltipMessage={`Copy ${INVITE_COMMAND}`}
-                  />
+                  {inviteCommand
+                    ? `Invite @Tracecat in ${where} to finish`
+                    : `Add Tracecat to ${where} in ${providerName} to finish`}
+                  {inviteCommand && (
+                    <CopyButton
+                      value={inviteCommand}
+                      toastMessage="Invite command copied"
+                      tooltipMessage={`Copy ${inviteCommand}`}
+                    />
+                  )}
                 </p>
               )}
             </li>
@@ -456,13 +496,14 @@ export function PlatformChannelRoutes({
                 id={channelInputId}
                 value={channel}
                 onChange={(e) => setChannel(e.target.value)}
-                placeholder="C0123456789"
+                placeholder={conventions.idPlaceholder}
                 className="h-8 font-mono text-xs"
                 disabled={disabled}
               />
             ) : (
               <ChannelPicker
                 id={channelInputId}
+                conventions={conventions}
                 channels={unrouted}
                 value={channel}
                 isLoading={channelsIsLoading}

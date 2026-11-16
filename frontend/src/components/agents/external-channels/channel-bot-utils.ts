@@ -1,5 +1,6 @@
 import type {
   AgentChannelBotRead,
+  ChannelBotChannel,
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
@@ -7,6 +8,65 @@ import type {
 /** Each provider's name as toasts and warnings show it. */
 export const CHANNEL_BOT_PROVIDER_NAMES: Record<ChannelBotProvider, string> = {
   slack: "Slack",
+}
+
+/** How a provider writes channel IDs and names, and how its bot gets into a channel. */
+export type ChannelConventions = {
+  /** The ID events carry for what an admin typed or pasted. */
+  normalizeId: (raw: string) => string
+  /** Whether a normalized ID can be one of the provider's channel IDs. */
+  isChannelId: (id: string) => boolean
+  idPlaceholder: string
+  /** Shown before a public channel's name. */
+  publicPrefix: string
+  /** The command a member runs to bring the bot into a channel; null without one. */
+  inviteCommand: string | null
+  /** Whether adding a route brings the bot into a public channel itself. */
+  joinsOnAdd: boolean
+}
+
+const SLACK_CHANNELS: ChannelConventions = {
+  // Events carry uppercase IDs and never match a lowercase one.
+  normalizeId: (raw) => raw.trim().toUpperCase(),
+  isChannelId: (id) => /^[CG][A-Z0-9]{6,}$/.test(id),
+  idPlaceholder: "C0123456789",
+  publicPrefix: "#",
+  inviteCommand: "/invite @Tracecat",
+  joinsOnAdd: true,
+}
+
+// Opaque, case-sensitive IDs such as Teams' `19:…@thread.tacv2`.
+const OPAQUE_CHANNELS: ChannelConventions = {
+  normalizeId: (raw) => raw.trim(),
+  isChannelId: (id) => /^\S+$/.test(id),
+  idPlaceholder: "Channel ID",
+  publicPrefix: "",
+  inviteCommand: null,
+  joinsOnAdd: false,
+}
+
+export function channelConventions(
+  provider: ChannelBotProvider
+): ChannelConventions {
+  return provider === "slack" ? SLACK_CHANNELS : OPAQUE_CHANNELS
+}
+
+/** A channel's name beside its icon, after its team when the tenant spans several. */
+export function channelName(channel: ChannelBotChannel): string {
+  return channel.team_name
+    ? `${channel.team_name} › ${channel.name}`
+    : channel.name
+}
+
+/** A channel in words, without an icon: `Team › #name` on Slack. */
+export function channelLabel(
+  provider: ChannelBotProvider,
+  channel: ChannelBotChannel
+): string {
+  const prefix = channel.is_private
+    ? ""
+    : channelConventions(provider).publicPrefix
+  return channelName({ ...channel, name: `${prefix}${channel.name}` })
 }
 
 /** What a provider card shows for its bot. */

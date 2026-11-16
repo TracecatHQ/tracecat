@@ -249,7 +249,7 @@ describe("PlatformChannelRoutes", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Add" }))
 
     expect(
-      await within(card).findByText("Invite @Tracecat in #soc to finish")
+      await within(card).findByText("Invite @Tracecat in soc to finish")
     ).toBeInTheDocument()
     expect(
       within(card).getByRole("button", { name: "Copy /invite @Tracecat" })
@@ -274,6 +274,23 @@ describe("PlatformChannelRoutes", () => {
     expect(
       within(card).getByText("Invite @Tracecat in this channel to finish")
     ).toBeInTheDocument()
+  })
+
+  it("names each channel after its team when the tenant spans several", async () => {
+    const grid: ChannelBotChannel[] = [
+      { ...CHANNELS[0], team_id: "T1", team_name: "SecOps" },
+      { ...CHANNELS[2], team_id: "T2", team_name: "IT" },
+    ]
+    servePlatform([route("C1", "preset-2")], grid)
+    const card = await editor()
+
+    const list = await within(card).findByRole("list", { name: "Channels" })
+    expect(await within(list).findByText("SecOps › alerts")).toBeInTheDocument()
+    expect(
+      within(card).getByRole("button", { name: "Remove SecOps › #alerts" })
+    ).toBeInTheDocument()
+    await openPicker(card)
+    expect(screen.getByRole("option", { name: /IT › soc/ })).toBeInTheDocument()
   })
 
   it("routes a pasted channel ID the list does not have", async () => {

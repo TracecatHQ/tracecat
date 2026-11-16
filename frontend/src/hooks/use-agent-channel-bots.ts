@@ -31,6 +31,7 @@ import {
   CHANNEL_BOT_MESSAGE_PARAM,
   CHANNEL_BOT_PROVIDER_NAMES,
   channelBotReturnUrl,
+  channelName,
   platformInstallState,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { toast } from "@/components/ui/use-toast"
@@ -403,7 +404,8 @@ function channelSortKey(
   channelId: string,
   channelsById: Map<string, ChannelBotChannel>
 ): string {
-  return channelsById.get(channelId)?.name ?? channelId
+  const channel = channelsById.get(channelId)
+  return channel ? channelName(channel) : channelId
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */
