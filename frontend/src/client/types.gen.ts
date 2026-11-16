@@ -16616,6 +16616,14 @@ export type AgentChannelBotsSetBotRouteData = {
 
 export type AgentChannelBotsSetBotRouteResponse = AgentChannelRouteRead
 
+export type AgentChannelBotsDeleteBotRouteData = {
+  botId: string
+  providerChannelId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsDeleteBotRouteResponse = void
+
 export type AgentChannelBotsListBotChannelsData = {
   botId: string
   cursor?: string | null
@@ -16625,14 +16633,6 @@ export type AgentChannelBotsListBotChannelsData = {
 
 export type AgentChannelBotsListBotChannelsResponse =
   CursorPaginatedResponse_ChannelBotChannel_
-
-export type AgentChannelBotsDeleteBotRouteData = {
-  botId: string
-  providerChannelId: string
-  workspaceId: string
-}
-
-export type AgentChannelBotsDeleteBotRouteResponse = void
 
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
@@ -23581,6 +23581,19 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
+    delete: {
+      req: AgentChannelBotsDeleteBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels": {
     get: {
@@ -23598,21 +23611,6 @@ export type $OpenApiTs = {
          * The bot's provider cannot list its channels
          */
         501: unknown
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes/{provider_channel_id}": {
-    delete: {
-      req: AgentChannelBotsDeleteBotRouteData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
       }
     }
   }

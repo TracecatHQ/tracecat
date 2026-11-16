@@ -10,7 +10,7 @@ from collections.abc import Awaitable
 from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from tracecat import config
@@ -302,15 +302,15 @@ async def set_bot_route(
     return await _call(admin.set_route(session, role, bot_id, params))
 
 
-@router.delete(
-    "/{bot_id}/routes/{provider_channel_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
+# The channel ID is a query parameter: a path segment cannot carry `/`, `?` or `#`.
+@router.delete("/{bot_id}/routes", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:update")
 async def delete_bot_route(
     *,
     bot_id: uuid.UUID,
-    provider_channel_id: Annotated[str, Path(min_length=1, max_length=255)],
+    provider_channel_id: Annotated[
+        str, Query(min_length=1, max_length=255, pattern=r"^\S+$")
+    ],
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,

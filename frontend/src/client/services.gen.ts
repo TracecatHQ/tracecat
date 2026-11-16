@@ -7006,6 +7006,34 @@ export const agentChannelBotsSetBotRoute = (
 }
 
 /**
+ * Delete Bot Route
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.providerChannelId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsDeleteBotRoute = (
+  data: AgentChannelBotsDeleteBotRouteData
+): CancelablePromise<AgentChannelBotsDeleteBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      provider_channel_id: data.providerChannelId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Bot Channels
  * @param data The data for the request.
  * @param data.botId
@@ -7032,32 +7060,6 @@ export const agentChannelBotsListBotChannels = (
     errors: {
       422: "Validation Error",
       501: "The bot's provider cannot list its channels",
-    },
-  })
-}
-
-/**
- * Delete Bot Route
- * @param data The data for the request.
- * @param data.botId
- * @param data.providerChannelId
- * @param data.workspaceId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const agentChannelBotsDeleteBotRoute = (
-  data: AgentChannelBotsDeleteBotRouteData
-): CancelablePromise<AgentChannelBotsDeleteBotRouteResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes/{provider_channel_id}",
-    path: {
-      bot_id: data.botId,
-      provider_channel_id: data.providerChannelId,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
     },
   })
 }

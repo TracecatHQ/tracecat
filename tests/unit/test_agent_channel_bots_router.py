@@ -302,7 +302,11 @@ WORKSPACE_ROUTES = [
         "PUT", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="set_route"
     ),
     pytest.param(
-        "DELETE", f"/{uuid.uuid4()}/routes/C1", None, "agent:update", id="delete_route"
+        "DELETE",
+        f"/{uuid.uuid4()}/routes?provider_channel_id=C1",
+        None,
+        "agent:update",
+        id="delete_route",
     ),
 ]
 ADMIN_METHODS = (
@@ -545,7 +549,9 @@ def test_platform_routes_hand_the_request_to_the_admin(
     listed = client.get(f"/agent/channel-bots/{bot_id}/routes")
     added = client.post(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
     put = client.put(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
-    deleted = client.delete(f"/agent/channel-bots/{bot_id}/routes/C1")
+    deleted = client.delete(
+        f"/agent/channel-bots/{bot_id}/routes", params={"provider_channel_id": "C1"}
+    )
 
     assert apps.json() == [{"provider": "slack"}]
     assert install.json() == installed.model_dump(mode="json")
@@ -602,6 +608,39 @@ def test_a_route_needs_a_channel_id(
     response = client.put(
         f"/agent/channel-bots/{uuid.uuid4()}/routes",
         json={**ROUTE_BODY, "provider_channel_id": channel},
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [
+        "19:LpxShHZZh9utjNcEmUS5aOEP9ASw85OUn05NcWYAhX81@thread.tacv2",
+        "a/b?c#d%2F",
+    ],
+)
+def test_route_delete_carries_any_channel_id_verbatim(
+    client: TestClient, admin: AsyncMock, channel: str
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.delete_route.return_value = None
+
+    response = client.delete(
+        f"/agent/channel-bots/{bot_id}/routes", params={"provider_channel_id": channel}
+    )
+
+    assert response.status_code == 204
+    admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, channel)
+
+
+@pytest.mark.parametrize("params", [{}, {"provider_channel_id": " C1"}])
+def test_route_delete_needs_a_channel_id(
+    client: TestClient, admin: AsyncMock, params: dict[str, str]
+) -> None:
+    response = client.delete(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params=params
     )
 
     assert response.status_code == 422
