@@ -7,7 +7,7 @@ Create Date: 2026-11-14 23:46:58.000000
 Adds ``agent_channel_bot.app_owner`` (existing rows stay ``customer``) and
 ``agent_channel_route`` with workspace RLS. Additive, but the previous app reads platform
 installs as custom-app bots: disconnect them before rolling the app back. Downgrading
-turns any left into custom-app bots without credentials.
+refuses while any platform install row remains.
 """
 
 from collections.abc import Sequence
@@ -99,6 +99,23 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '10s'")
+    # The previous schema has no owner column, so these rows would turn into custom-app bots.
+    platform_installs = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT COUNT(*) FROM agent_channel_bot WHERE app_owner = 'platform'"
+            )
+        )
+        .scalar_one()
+    )
+    if platform_installs:
+        raise RuntimeError(
+            f"Downgrade refused: {platform_installs} Tracecat for Slack install row(s)"
+            " remain. Disconnect each install from its workspace's Channels page, then"
+            " delete the agent_channel_bot rows with app_owner = 'platform' and rerun"
+            " the downgrade."
+        )
     op.execute(disable_workspace_table_rls("agent_channel_route"))
     op.drop_index(
         op.f("ix_agent_channel_route_workspace_id"), table_name="agent_channel_route"

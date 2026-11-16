@@ -53,14 +53,18 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
-def _alembic(db_url: str, *args: str) -> None:
-    result = subprocess.run(
+def _run_alembic(db_url: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         env={**os.environ, "TRACECAT__DB_URI": db_url},
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _alembic(db_url: str, *args: str) -> None:
+    result = _run_alembic(db_url, *args)
     assert result.returncode == 0, (
         f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
     )
@@ -500,9 +504,20 @@ def test_rls_isolates_bots_links_and_routes_by_workspace(
             conn.execute(text(f'DROP ROLE "{role}"'))
 
 
+def _drop_platform_installs(engine: Engine) -> None:
+    """What an operator does before downgrading past platform installs."""
+    with Session(engine) as db, db.begin():
+        db.execute(
+            delete(AgentChannelBot).where(
+                AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM
+            )
+        )
+
+
 def test_bots_from_before_platform_installs_are_customer_owned(
     db_url: str, engine: Engine
 ) -> None:
+    _drop_platform_installs(engine)
     _alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
     ws, _ = _workspace(engine)
     with Session(engine) as db, db.begin():
@@ -590,3 +605,35 @@ def test_routes_stay_in_their_bots_workspace(db_url: str, engine: Engine) -> Non
     with Session(engine) as db, db.begin():
         db.execute(delete(AgentChannelBot).where(AgentChannelBot.id == bot.id))
     assert _routes(engine, ws) == set()
+
+
+def test_downgrade_refuses_while_a_platform_install_remains(
+    db_url: str, engine: Engine
+) -> None:
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
+    ws, _ = _workspace(engine)
+    with Session(engine) as db, db.begin():
+        preset_id = _preset(db, ws)
+        # Disconnecting keeps the row, so even a disconnected install refuses.
+        db.add(
+            _bot(
+                ws,
+                preset_id,
+                app_owner="platform",
+                status="disconnected",
+                provider_tenant_id=None,
+                provider_app_id=None,
+            )
+        )
+
+    refused = _run_alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
+
+    assert refused.returncode != 0
+    assert "Downgrade refused:" in refused.stderr
+    assert "app_owner = 'platform'" in refused.stderr
+    with Session(engine) as db:
+        version = db.scalar(text("SELECT version_num FROM alembic_version"))
+    assert version == ROUTE_REVISION
+    _drop_platform_installs(engine)
+    _alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
