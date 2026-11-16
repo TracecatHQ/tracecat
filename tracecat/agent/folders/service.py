@@ -557,13 +557,17 @@ class AgentFolderService(BaseWorkspaceService):
 
     def _directory_folders_statement(self, path: str) -> sa.Select[tuple[AgentFolder]]:
         path_depth = path.count("/") + 1
-        return select(AgentFolder).where(
-            AgentFolder.workspace_id == self.workspace_id,
-            AgentFolder.path.startswith(path, autoescape=True),
-            AgentFolder.path != path,
-            func.length(AgentFolder.path)
-            - func.length(func.replace(AgentFolder.path, "/", ""))
-            == path_depth,
+        return (
+            select(AgentFolder)
+            .where(
+                AgentFolder.workspace_id == self.workspace_id,
+                AgentFolder.path.startswith(path, autoescape=True),
+                AgentFolder.path != path,
+                func.length(AgentFolder.path)
+                - func.length(func.replace(AgentFolder.path, "/", ""))
+                == path_depth,
+            )
+            .order_by(AgentFolder.path)
         )
 
     async def _build_directory_items(

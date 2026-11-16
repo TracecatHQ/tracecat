@@ -534,13 +534,17 @@ class SkillFolderService(BaseWorkspaceService):
 
     def _directory_folders_statement(self, path: str) -> sa.Select[tuple[SkillFolder]]:
         path_depth = path.count("/") + 1
-        return select(SkillFolder).where(
-            SkillFolder.workspace_id == self.workspace_id,
-            SkillFolder.path.startswith(path, autoescape=True),
-            SkillFolder.path != path,
-            func.length(SkillFolder.path)
-            - func.length(func.replace(SkillFolder.path, "/", ""))
-            == path_depth,
+        return (
+            select(SkillFolder)
+            .where(
+                SkillFolder.workspace_id == self.workspace_id,
+                SkillFolder.path.startswith(path, autoescape=True),
+                SkillFolder.path != path,
+                func.length(SkillFolder.path)
+                - func.length(func.replace(SkillFolder.path, "/", ""))
+                == path_depth,
+            )
+            .order_by(SkillFolder.path)
         )
 
     async def _build_directory_items(

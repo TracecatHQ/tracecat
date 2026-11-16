@@ -611,13 +611,17 @@ class TableFolderService(BaseWorkspaceService):
 
     def _directory_folders_statement(self, path: str) -> sa.Select[tuple[TableFolder]]:
         path_depth = path.count("/") + 1
-        return select(TableFolder).where(
-            TableFolder.workspace_id == self.workspace_id,
-            TableFolder.path.startswith(path, autoescape=True),
-            TableFolder.path != path,
-            func.length(TableFolder.path)
-            - func.length(func.replace(TableFolder.path, "/", ""))
-            == path_depth,
+        return (
+            select(TableFolder)
+            .where(
+                TableFolder.workspace_id == self.workspace_id,
+                TableFolder.path.startswith(path, autoescape=True),
+                TableFolder.path != path,
+                func.length(TableFolder.path)
+                - func.length(func.replace(TableFolder.path, "/", ""))
+                == path_depth,
+            )
+            .order_by(TableFolder.path)
         )
 
     async def _build_directory_items(
