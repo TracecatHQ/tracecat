@@ -70,6 +70,7 @@ import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
+import { CaseViewHeaderSlot } from "@/components/cases/case-view-header-slot"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -981,6 +982,7 @@ function CasesActions() {
         closureRequirementsHref={closureRequirementsHref}
         durationsHref={durationsHref}
       />
+      {view === CasesViewMode.Cases && <CaseViewHeaderSlot />}
       {syncActions}
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />

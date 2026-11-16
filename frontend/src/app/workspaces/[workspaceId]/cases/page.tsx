@@ -8,6 +8,7 @@ import type {
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
+import { CaseViewHeaderPortal } from "@/components/cases/case-view-header-slot"
 import {
   CaseViewChips,
   CaseViewSwitcher,
@@ -262,6 +263,9 @@ function CasesPageBody({
 
   return (
     <div className="size-full overflow-hidden">
+      <CaseViewHeaderPortal>
+        <CaseViewSwitcher workspaceId={workspaceId} controls={viewControls} />
+      </CaseViewHeaderPortal>
       <CasesLayout
         cases={cases}
         isLoading={isLoading}
@@ -314,9 +318,6 @@ function CasesPageBody({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}
-        viewControls={
-          <CaseViewSwitcher workspaceId={workspaceId} controls={viewControls} />
-        }
         viewChips={<CaseViewChips controls={viewControls} />}
       />
     </div>

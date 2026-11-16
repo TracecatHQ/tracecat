@@ -111,8 +111,6 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
-  /** Saved view switcher and actions, shown before the search box. */
-  viewControls?: ReactNode
   /** Read-only view conditions, shown with the filters. */
   viewChips?: ReactNode
 }
@@ -164,7 +162,6 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
-  viewControls,
   viewChips,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
@@ -480,7 +477,6 @@ export function CasesLayout({
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
-    viewControls,
     viewChips,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
