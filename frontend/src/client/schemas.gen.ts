@@ -13107,6 +13107,28 @@ export const $ChannelBotChannel = {
       type: "boolean",
       title: "Is Member",
     },
+    team_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Id",
+    },
+    team_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Name",
+    },
   },
   type: "object",
   required: ["id", "name", "is_private", "is_member"],

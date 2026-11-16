@@ -718,6 +718,14 @@ def test_channels_come_from_the_installed_admin(
     channels = [
         ChannelBotChannel(id="C1", name="alerts", is_private=False, is_member=True),
         ChannelBotChannel(id="G1", name="soc", is_private=True, is_member=False),
+        ChannelBotChannel(
+            id="19:a@thread.tacv2",
+            name="General",
+            is_private=False,
+            is_member=True,
+            team_id="19:a@thread.tacv2",
+            team_name="SecOps",
+        ),
     ]
     admin.list_channels.return_value = CursorPaginatedResponse(
         items=channels, next_cursor="dGVhbTpD", has_more=True

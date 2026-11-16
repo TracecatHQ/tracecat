@@ -3555,6 +3555,8 @@ export type ChannelBotChannel = {
   name: string
   is_private: boolean
   is_member: boolean
+  team_id?: string | null
+  team_name?: string | null
 }
 
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate

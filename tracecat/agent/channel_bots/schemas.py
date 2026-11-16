@@ -251,6 +251,10 @@ class ChannelBotChannel(BaseModel):
     name: str
     is_private: bool
     is_member: bool
+    # The team the channel belongs to, where the tenant spans several: a Teams team or
+    # a Slack Enterprise Grid workspace.
+    team_id: str | None = None
+    team_name: str | None = None
 
 
 class AgentChannelRouteRead(BaseModel):
