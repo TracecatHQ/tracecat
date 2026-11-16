@@ -584,12 +584,10 @@ class CaseViewsService(BaseWorkspaceService):
                 for ref in sorted(dropdown_refs - existing_refs)
             )
             # Keep the refs apart, so a blank option value is never re-parsed.
-            stale.extend(
-                CaseViewStaleRef(kind="dropdown", value=entry)
-                for ref, name in sorted(dropdown_options)
-                if ref in existing_refs
-                and (entry := format_dropdown_entry(ref, name)) not in existing_entries
-            )
+            for ref, name in sorted(dropdown_options):
+                entry = format_dropdown_entry(ref, name)
+                if ref in existing_refs and entry not in existing_entries:
+                    stale.append(CaseViewStaleRef(kind="dropdown", value=entry))
         return stale
 
     async def _existing_dropdowns(

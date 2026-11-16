@@ -4342,7 +4342,21 @@ async def test_pin_and_unpin_case_view(monkeypatch: pytest.MonkeyPatch) -> None:
 
     pin_view.assert_awaited_once_with(_TOOL_VIEW.id, position=0)
     unpin_view.assert_awaited_once_with(_TOOL_VIEW.id)
-    assert _TOOL_VIEW.id in message
+    assert _TOOL_VIEW.id in message.message
+
+
+@pytest.mark.anyio
+async def test_pin_case_view_rejects_a_negative_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pin_view = AsyncMock(return_value=_TOOL_VIEW)
+    workspace_id = _case_view_tool_env(monkeypatch, SimpleNamespace(pin_view=pin_view))
+
+    with pytest.raises(ToolError, match="greater than or equal to 0"):
+        await _tool(mcp_server.pin_case_view)(
+            workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=-1
+        )
+    pin_view.assert_not_awaited()
 
 
 @pytest.mark.anyio

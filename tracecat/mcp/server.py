@@ -136,6 +136,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseViewVisibility,
 )
 from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
@@ -161,7 +162,7 @@ from tracecat.cases.schemas import (
     CaseTaskUpdate,
     CaseUpdate,
 )
-from tracecat.cases.search_schemas import CaseSearchRequest
+from tracecat.cases.search_schemas import CaseSearchOrder, CaseSearchRequest
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
@@ -173,7 +174,9 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.views.schemas import (
     CaseViewCreate,
     CaseViewListRead,
+    CaseViewPinUpdate,
     CaseViewRead,
+    CaseViewSort,
     CaseViewUpdate,
 )
 from tracecat.cases.views.service import CaseViewsService
@@ -7259,6 +7262,28 @@ async def search_cases(
         raise ToolError(f"Failed to search cases: {e}") from None
 
 
+def _case_view_tool_error(exc: Exception, action: str) -> ToolError:
+    """Turn a case view error into the message an agent sees."""
+    match exc:
+        case ToolError():
+            return exc
+        case ScopeDeniedError():
+            return ToolError(
+                f"Missing required scope: {', '.join(exc.required_scopes)}"
+            )
+        case (
+            TracecatNotFoundError()
+            | TracecatAuthorizationError()
+            | TracecatValidationError()
+            | ValueError()
+        ):
+            # Pydantic's ValidationError is a ValueError: a bad view or query.
+            return ToolError(str(exc))
+    logger.error(f"Failed to {action}", error=str(exc))
+    # Keep internal details in the log, not in the agent-facing message.
+    return ToolError(f"Failed to {action}")
+
+
 @mcp.tool()
 async def list_case_views(
     workspace_id: uuid.UUID,
@@ -7299,38 +7324,8 @@ async def list_case_views(
             saved = await svc.list_views(page_params, pinned_only=pinned)
             builtins = svc.list_builtins() if include_builtins and not pinned else []
             return CaseViewListRead(builtins=builtins, saved=saved)
-    except ScopeDeniedError as e:
-        raise ToolError(
-            f"Missing required scope: {', '.join(e.required_scopes)}"
-        ) from e
-    except (TracecatValidationError, ValueError) as e:
-        raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to list case views", error=str(e))
-        # Keep internal details in the log, not in the agent-facing message.
-        raise ToolError("Failed to list case views") from None
-
-
-def _case_view_tool_error(exc: Exception, action: str) -> ToolError:
-    """Turn a case view error into the message an agent sees."""
-    match exc:
-        case ToolError():
-            return exc
-        case ScopeDeniedError():
-            return ToolError(
-                f"Missing required scope: {', '.join(exc.required_scopes)}"
-            )
-        case (
-            TracecatNotFoundError()
-            | TracecatAuthorizationError()
-            | TracecatValidationError()
-            | ValueError()
-        ):
-            # Pydantic's ValidationError is a ValueError: a bad view or query.
-            return ToolError(str(exc))
-    logger.error(f"Failed to {action}", error=str(exc))
-    # Keep internal details in the log, not in the agent-facing message.
-    return ToolError(f"Failed to {action}")
+        raise _case_view_tool_error(e, "list case views") from e
 
 
 @mcp.tool()
@@ -7338,9 +7333,9 @@ async def create_case_view(
     workspace_id: uuid.UUID,
     name: str,
     query: dict[str, Any] | None = None,
-    visibility: Literal["personal", "workspace"] = "personal",
-    order_by: str | None = None,
-    sort: Literal["asc", "desc"] | None = None,
+    visibility: CaseViewVisibility = CaseViewVisibility.PERSONAL,
+    order_by: CaseSearchOrder | None = None,
+    sort: CaseViewSort | None = None,
     columns: list[str] | None = None,
 ) -> CaseViewRead:
     """Save a case search as a named view, to run with search_cases(view_id=...).
@@ -7426,14 +7421,15 @@ async def pin_case_view(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         check_scopes(role, "case:read")
+        pin = CaseViewPinUpdate.model_validate({"position": position})
         async with CaseViewsService.with_session(role=role) as svc:
-            return await svc.pin_view(view_id, position=position)
+            return await svc.pin_view(view_id, position=pin.position)
     except Exception as e:
         raise _case_view_tool_error(e, "pin case view") from e
 
 
 @mcp.tool()
-async def unpin_case_view(workspace_id: uuid.UUID, view_id: str) -> str:
+async def unpin_case_view(workspace_id: uuid.UUID, view_id: str) -> MCPMessageResponse:
     """Remove a saved case view from your own sidebar.
 
     Args:
@@ -7445,7 +7441,7 @@ async def unpin_case_view(workspace_id: uuid.UUID, view_id: str) -> str:
         check_scopes(role, "case:read")
         async with CaseViewsService.with_session(role=role) as svc:
             await svc.unpin_view(view_id)
-        return f"Unpinned case view {view_id}"
+        return MCPMessageResponse(message=f"Unpinned case view {view_id}")
     except Exception as e:
         raise _case_view_tool_error(e, "unpin case view") from e
 

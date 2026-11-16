@@ -159,7 +159,7 @@ Notes:
 ## Case view tools
 
 - `list_case_views(workspace_id, limit=..., cursor=None, pinned=False, include_builtins=True)` lists the built-in views separately from a page of saved views
-- `search_cases(workspace_id, view_id=...)` runs a saved or built-in view; a `filters` tree narrows it further
+- `search_cases(workspace_id, view_id=...)` runs a saved or built-in view. The view supplies the matching criteria: a `filters` tree narrows it further, and any other matching argument (such as `status` or `tags`) is rejected. Paging and result options still apply, and `order_by`/`sort` override the view's saved order
 - `create_case_view(workspace_id, name, query=None, visibility="personal", order_by=None, sort=None, columns=None)` saves a case search as a view
 - `update_case_view(workspace_id, view_id, changes)` renames, re-queries, shares, or unshares a view you can edit
 - `pin_case_view(workspace_id, view_id, position=None)` and `unpin_case_view(workspace_id, view_id)` change your own sidebar
