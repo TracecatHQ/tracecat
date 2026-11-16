@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -336,6 +336,21 @@ class TableFolderService(BaseWorkspaceService):
             has_more=has_more,
             has_previous=has_previous,
         )
+
+    @require_scope("table:read")
+    async def get_table_names(
+        self, table_ids: Collection[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Return names of the given tables that exist in this workspace."""
+        if not table_ids:
+            return {}
+        result = await self.session.execute(
+            select(Table.id, Table.name).where(
+                Table.workspace_id == self.workspace_id,
+                Table.id.in_(table_ids),
+            )
+        )
+        return dict(result.tuples().all())
 
     @require_scope("table:update")
     async def move_table(

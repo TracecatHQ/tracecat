@@ -5912,16 +5912,16 @@ class _TableMoveFolderService:
         self.folders = {"/soc/": SimpleNamespace(id=uuid.uuid4(), path="/soc/")}
         self.moves: list[tuple[uuid.UUID, SimpleNamespace | None]] = []
         self.failing_ids: set[uuid.UUID] = set()
-        self.session = SimpleNamespace(execute=self._execute, rollback=self._rollback)
+        self.session = SimpleNamespace(rollback=self._rollback)
         self.queries = 0
 
-    async def _execute(self, _statement: Any) -> SimpleNamespace:
+    async def get_table_names(self, table_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
         self.queries += 1
-        rows = [
-            SimpleNamespace(id=table_id, name=name)
+        return {
+            table_id: name
             for table_id, name in self.tables.items()
-        ]
-        return SimpleNamespace(all=lambda: rows)
+            if table_id in table_ids
+        }
 
     async def _rollback(self) -> None:
         return None

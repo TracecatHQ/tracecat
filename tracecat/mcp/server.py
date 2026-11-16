@@ -9441,15 +9441,9 @@ async def move_tables(
                         )
                     )
 
-            table_names: dict[uuid.UUID, str] = {}
-            if requested_uuids:
-                result = await folder_svc.session.execute(
-                    select(Table.id, Table.name).where(
-                        Table.workspace_id == folder_svc.workspace_id,
-                        Table.id.in_({table_uuid for _, table_uuid in requested_uuids}),
-                    )
-                )
-                table_names = {row.id: row.name for row in result.all()}
+            table_names = await folder_svc.get_table_names(
+                {table_uuid for _, table_uuid in requested_uuids}
+            )
 
             validated: list[TableMoveItem] = []
             for raw_table_id, table_uuid in requested_uuids:

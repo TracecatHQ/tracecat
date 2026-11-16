@@ -51,6 +51,9 @@ async def test_folder_reads_require_table_read_scope() -> None:
     with pytest.raises(ScopeDeniedError) as exc_info:
         await service.get_directory_items("/")
     assert exc_info.value.missing_scopes == ["table:read"]
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        await service.get_table_names({uuid4()})
+    assert exc_info.value.missing_scopes == ["table:read"]
 
 
 @pytest.mark.anyio
