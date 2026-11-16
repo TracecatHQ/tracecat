@@ -5905,6 +5905,59 @@ async def test_list_table_tree_paginates_and_traverses(
         )
 
 
+@pytest.mark.anyio
+async def test_folder_tools_map_service_errors_to_clean_tool_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+
+    class _WorkflowFolderService:
+        async def get_directory_items(self, path: str, **_kwargs: Any) -> list[Any]:
+            raise TracecatNotFoundError(f"Folder {path} not found")
+
+    class _AgentFolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace:
+            return SimpleNamespace(id=uuid.uuid4(), path=path)
+
+        async def rename_folder(self, _folder_id: uuid.UUID, _name: str) -> None:
+            raise ScopeDeniedError(
+                required_scopes=["agent:update"], missing_scopes=["agent:update"]
+            )
+
+    class _TableFolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace:
+            return SimpleNamespace(id=uuid.uuid4(), path=path)
+
+        async def delete_folder(self, folder_id: uuid.UUID, **_kwargs: Any) -> None:
+            raise ManagedResourceLockedError("table", folder_id)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    for service_cls, fake in (
+        (mcp_server.WorkflowFolderService, _WorkflowFolderService()),
+        (mcp_server.AgentFolderService, _AgentFolderService()),
+        (mcp_server.TableFolderService, _TableFolderService()),
+    ):
+        monkeypatch.setattr(
+            service_cls, "with_session", lambda role, fake=fake: _AsyncContext(fake)
+        )
+
+    with pytest.raises(ToolError, match=r"^Folder /missing/ not found$"):
+        await _tool(mcp_server.list_workflow_tree)(
+            workspace_id=str(workspace_id), path="/missing"
+        )
+    with pytest.raises(ToolError, match=r"^Missing required scope: agent:update$"):
+        await _tool(mcp_server.rename_agent_folder)(
+            workspace_id=str(workspace_id), path="/soc/", new_name="ops"
+        )
+    with pytest.raises(ToolError, match=rf"^{re.escape(mcp_server.LOCKED_MESSAGE)}$"):
+        await _tool(mcp_server.delete_table_folder)(
+            workspace_id=str(workspace_id), path="/soc/"
+        )
+
+
 class _TableMoveFolderService:
     def __init__(self, workspace_id: uuid.UUID, tables: dict[uuid.UUID, str]) -> None:
         self.workspace_id = workspace_id

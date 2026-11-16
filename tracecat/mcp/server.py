@@ -4837,7 +4837,15 @@ async def list_workflow_tree(
         )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list workflow tree", error=str(e))
@@ -4906,7 +4914,15 @@ async def create_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create workflow folder", error=str(e))
@@ -4947,7 +4963,15 @@ async def rename_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename workflow folder", error=str(e))
@@ -5001,7 +5025,15 @@ async def move_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move workflow folder", error=str(e))
@@ -5044,7 +5076,15 @@ async def delete_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete workflow folder", error=str(e))
@@ -5159,7 +5199,15 @@ async def move_workflows(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move workflows", error=str(e))
@@ -9188,7 +9236,15 @@ async def list_table_tree(
         )
     except ToolError:
         raise
-    except (ValueError, TracecatNotFoundError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list table tree", error=str(e))
@@ -9257,7 +9313,15 @@ async def create_table_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create table folder", error=str(e))
@@ -9298,7 +9362,15 @@ async def rename_table_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename table folder", error=str(e))
@@ -9352,7 +9424,15 @@ async def move_table_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move table folder", error=str(e))
@@ -9395,7 +9475,15 @@ async def delete_table_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete table folder", error=str(e))
@@ -9507,7 +9595,15 @@ async def move_tables(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move tables", error=str(e))
@@ -10700,7 +10796,15 @@ async def list_agent_tree(
         )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list agent tree", error=str(e))
@@ -10769,7 +10873,15 @@ async def create_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create agent folder", error=str(e))
@@ -10810,7 +10922,15 @@ async def rename_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename agent folder", error=str(e))
@@ -10864,7 +10984,15 @@ async def move_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move agent folder", error=str(e))
@@ -10907,7 +11035,15 @@ async def delete_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete agent folder", error=str(e))
@@ -11021,7 +11157,15 @@ async def move_agent_presets(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move agent presets", error=str(e))
@@ -11107,7 +11251,15 @@ async def list_skill_tree(
         )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list skill tree", error=str(e))
@@ -11176,7 +11328,15 @@ async def create_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create skill folder", error=str(e))
@@ -11217,7 +11377,15 @@ async def rename_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename skill folder", error=str(e))
@@ -11271,7 +11439,15 @@ async def move_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move skill folder", error=str(e))
@@ -11314,7 +11490,15 @@ async def delete_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete skill folder", error=str(e))
@@ -11427,7 +11611,15 @@ async def move_skills(
                 )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move skills", error=str(e))
