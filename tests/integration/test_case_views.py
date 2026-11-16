@@ -40,6 +40,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import PageParams
+from tracecat.service import BaseOrgService
 from tracecat.tiers.enums import Entitlement
 
 pytestmark = [pytest.mark.anyio, pytest.mark.integration, pytest.mark.usefixtures("db")]
@@ -267,10 +268,11 @@ async def test_views_need_case_addons(
 ) -> None:
     view_id = await _create(session, actors.owner)
 
-    async def has_entitlement(self: CaseViewsService, entitlement: Entitlement) -> bool:
+    async def has_entitlement(self: BaseOrgService, entitlement: Entitlement) -> bool:
         return entitlement != Entitlement.CASE_ADDONS
 
-    monkeypatch.setattr(CaseViewsService, "has_entitlement", has_entitlement)
+    # Patch the base class, so the cases service lacks the entitlement too.
+    monkeypatch.setattr(BaseOrgService, "has_entitlement", has_entitlement)
     views = _views(session, actors.owner)
 
     with pytest.raises(EntitlementRequired):
@@ -280,8 +282,11 @@ async def test_views_need_case_addons(
     with pytest.raises(EntitlementRequired):
         await _run_view(session, actors.owner, view_id)
     # A search that names no view still runs on every tier.
-    request = CaseSearchRequest.model_validate({"tags": ["phishing"]})
-    assert await views.apply_to_query(request) == request
+    request = CaseSearchRequest.model_validate(
+        {"tags": ["phishing"], "status": ["new", "in_progress"]}
+    )
+    page = await CasesService(session, actors.owner).query_cases(request)
+    assert {case.id for case in page.items} == {seeded.phishing_open}
 
 
 async def test_builtin_views_are_read_only_and_run(

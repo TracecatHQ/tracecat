@@ -42,7 +42,11 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CasesPage() {
   const workspaceId = useWorkspaceId()
-  const { hasEntitlement, hasEntitlementData } = useEntitlements()
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { members } = useWorkspaceMembers(workspaceId)
@@ -120,7 +124,9 @@ export default function CasesPage() {
   // A ?view= link waits for its view before mounting the list, so the list
   // starts from the view's filters and never shows another search first.
   // Until entitlements load, it is not yet known whether the link applies.
-  if (hasViewParam && !hasEntitlementData) {
+  // If they fail to load, views count as unavailable and the page falls back
+  // to the user's own list rather than waiting forever.
+  if (hasViewParam && entitlementsLoading) {
     return <CenteredSpinner />
   }
   if (activeView.viewId !== null && !activeView.mapped) {
