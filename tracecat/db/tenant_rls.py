@@ -239,10 +239,13 @@ PARENT_SCOPED_TABLES = frozenset(PARENT_SCOPED_TABLE_CONDITIONS)
 GLOBAL_TABLES: dict[str, str] = {
     "alembic_version": "Migration bookkeeping; holds no tenant data.",
     "user": "Users can belong to several organizations.",
-    "access_token": "Login sessions belong to a user, not an organization.",
-    "oauth_account": "Login identities belong to a user, not an organization.",
-    "mfa_recovery_code": "MFA factors belong to a user, not an organization.",
-    "webauthn_credential": "MFA factors belong to a user, not an organization.",
+    # The next four hold credentials (session tokens, IdP tokens, MFA
+    # factors). They are user-scoped, not org-scoped; isolating them needs a
+    # user-keyed policy (app.current_user_id), not a tenant one.
+    "access_token": "Login session tokens belong to a user, not an organization.",
+    "oauth_account": "IdP tokens for a user's login identity, not an organization.",
+    "mfa_recovery_code": "Hashed MFA recovery codes belong to a user.",
+    "webauthn_credential": "MFA credentials belong to a user, not an organization.",
     "saml_request_data": "Read before login, when no tenant is known yet.",
     "organization": "The tenant root; resolved before a tenant is known.",
     "tier": "Platform-wide plan definitions shared by every organization.",

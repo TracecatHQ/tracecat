@@ -7,7 +7,9 @@ Create Date: 2026-11-16 12:00:00.000000
 Link and child tables such as ``case_tag_link`` and ``table_column`` hold
 tenant data but carry no ``workspace_id`` or ``organization_id``. Their
 policies admit a row only when every parent it references belongs to the
-current workspace (or organization for ``role_scope`` and ``ownership``).
+current workspace (or organization for ``role_scope``). ``ownership`` has no
+foreign key, so its policy only requires ``owner_id`` to be the current
+organization.
 Policy-only: no columns, no data changes, and the previous app version runs
 unchanged. Downgrade drops the policies and disables RLS again.
 """
