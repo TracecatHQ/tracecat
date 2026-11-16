@@ -31,6 +31,14 @@ _DEFAULT_EXTENSION_DIRECTORY = "/usr/local/lib/duckdb/extensions"
 # of a few hundred bytes each.
 _ADDRESS_SPACE_PER_THREAD = 512 * 1024 * 1024
 
+# DuckDB 2.0 starts an async I/O pool (``async_threads``, 32 by default) at
+# connect, alongside the worker pool. Under the sandbox's RLIMIT_NPROC (64 tasks
+# by default) that leaves no room for the threads httpfs starts, so thread
+# creation fails with "Resource temporarily unavailable". Size the pool from the
+# task cap instead.
+_TASKS_PER_ASYNC_THREAD = 16
+_DEFAULT_ASYNC_THREADS = 32
+
 _M_ARENA_MAX = -8
 _MAX_MALLOC_ARENAS = 2
 
@@ -106,12 +114,24 @@ def _thread_limit() -> int | None:
     return min(by_address_space, os.cpu_count() or 1)
 
 
+def _async_thread_limit() -> int | None:
+    """Async I/O thread count that fits the process task cap, or None when uncapped."""
+    if resource is None:
+        return None
+    soft_limit, _ = resource.getrlimit(resource.RLIMIT_NPROC)
+    if soft_limit == resource.RLIM_INFINITY:
+        return None
+    by_task_cap = max(1, soft_limit // _TASKS_PER_ASYNC_THREAD)
+    return min(by_task_cap, _DEFAULT_ASYNC_THREADS)
+
+
 def _connect() -> duckdb.DuckDBPyConnection:
     """Open an in-process DuckDB connection.
 
     Loads extensions from the preinstalled directory (see ``_extension_directory``)
     instead of autoinstalling over the network when that directory is available.
-    Caps the thread pool to the address-space limit (see ``_thread_limit``).
+    Caps the thread pool to the address-space limit (see ``_thread_limit``) and
+    the async I/O pool to the task limit (see ``_async_thread_limit``).
     """
     _cap_malloc_arenas()
     config: dict[str, str | bool | int | float | list[str]] = {}
@@ -119,6 +139,8 @@ def _connect() -> duckdb.DuckDBPyConnection:
         config["extension_directories"] = [extension_directory]
     if (threads := _thread_limit()) is not None:
         config["threads"] = threads
+    if (async_threads := _async_thread_limit()) is not None:
+        config["async_threads"] = async_threads
     return duckdb.connect(config=config)
 
 
