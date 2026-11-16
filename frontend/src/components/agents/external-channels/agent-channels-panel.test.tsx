@@ -7,6 +7,7 @@ import {
   PRESET,
   platformSlackBot,
   reservedSlackBot,
+  routePage,
   serveBots,
   serveEntitlements,
   slackBot,
@@ -150,7 +151,7 @@ function servePlatform(
 ): void {
   serveBots(installs)
   api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
-  api.listRoutes.mockResolvedValue(routes)
+  api.listRoutes.mockResolvedValue(routePage(routes))
 }
 
 describe("Tracecat for Slack on the Channels tab", () => {

@@ -1,7 +1,9 @@
 import {
   type AgentChannelBotRead,
+  type AgentChannelRouteRead,
   type AgentPresetRead,
   type AgentPresetReadMinimal,
+  agentChannelBotsAddBotRoute,
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
@@ -31,6 +33,7 @@ export const api = {
   listPlatformApps: jest.mocked(agentChannelBotsListPlatformApps),
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
   listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
+  addRoute: jest.mocked(agentChannelBotsAddBotRoute),
   setRoute: jest.mocked(agentChannelBotsSetBotRoute),
   deleteRoute: jest.mocked(agentChannelBotsDeleteBotRoute),
   listPresets: jest.mocked(agentPresetsListAgentPresets),
@@ -129,8 +132,16 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
       )
   )
   api.listPlatformApps.mockResolvedValue([])
-  api.listRoutes.mockResolvedValue([])
+  api.listRoutes.mockResolvedValue(routePage([]))
   api.listPresets.mockResolvedValue(AGENTS)
+}
+
+/** One page of an install's routes; `nextCursor` means more follow. */
+export function routePage(
+  items: AgentChannelRouteRead[],
+  nextCursor: string | null = null
+) {
+  return { items, next_cursor: nextCursor, has_more: nextCursor !== null }
 }
 
 /** An install of the platform app for Slack, by default for `PRESET`. */

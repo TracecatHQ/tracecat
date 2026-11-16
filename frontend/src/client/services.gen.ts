@@ -157,6 +157,8 @@ import type {
   AdminUpdateTargetResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
+  AgentChannelBotsAddBotRouteData,
+  AgentChannelBotsAddBotRouteResponse,
   AgentChannelBotsCreateBotData,
   AgentChannelBotsCreateBotResponse,
   AgentChannelBotsDeleteBotRouteData,
@@ -6919,7 +6921,9 @@ export const agentChannelBotsInstallPlatformBot = (
  * @param data The data for the request.
  * @param data.botId
  * @param data.workspaceId
- * @returns AgentChannelRouteRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelRouteRead_ Successful Response
  * @throws ApiError
  */
 export const agentChannelBotsListBotRoutes = (
@@ -6932,6 +6936,38 @@ export const agentChannelBotsListBotRoutes = (
       bot_id: data.botId,
       workspace_id: data.workspaceId,
     },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Bot Route
+ * Route a channel that has no route yet; 409 when it has one.
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelRouteRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsAddBotRoute = (
+  data: AgentChannelBotsAddBotRouteData
+): CancelablePromise<AgentChannelBotsAddBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

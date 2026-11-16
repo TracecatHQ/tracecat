@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import {
+  useAddChannelBotRoute,
   useChannelBotRoutes,
   useChannelBotsBusy,
   useDeleteChannelBotRoute,
@@ -69,9 +70,17 @@ export function PlatformChannelRoutes({
   canUpdate: boolean
 }) {
   const { presets } = useAgentPresets(workspaceId)
-  const { routes, routesIsLoading, routesError } = useChannelBotRoutes(
+  const {
+    routes,
+    routesIsLoading,
+    routesError,
+    hasMoreRoutes,
+    loadingMoreRoutes,
+    loadMoreRoutes,
+  } = useChannelBotRoutes(workspaceId, install.id)
+  const { addRoute: sendAddRoute } = useAddChannelBotRoute(
     workspaceId,
-    install.id
+    install.provider
   )
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
@@ -80,8 +89,6 @@ export function PlatformChannelRoutes({
     install.provider
   )
   const disabled = useChannelBotsBusy(workspaceId) || !canUpdate
-  // An unloaded list hides the routes an add would overwrite.
-  const routesDisabled = disabled || !routes
   const [channel, setChannel] = useState("")
   const [agentPresetId, setAgentPresetId] = useState("")
   const channelInputId = useId()
@@ -91,35 +98,40 @@ export function PlatformChannelRoutes({
   // Slack channel IDs are uppercase; events never match a lowercase one.
   const newChannel =
     install.provider === "slack" ? channel.trim().toUpperCase() : channel.trim()
+  // A hint over the loaded pages; the API refuses a channel that already has a route.
   const taken = routes?.some((r) => r.provider_channel_id === newChannel)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
 
-  function route(
-    providerChannelId: string,
-    agentId: string,
-    onSuccess?: () => void
-  ): void {
-    setRoute(
-      {
-        botId: install.id,
-        requestBody: {
-          provider_channel_id: providerChannelId,
-          agent_preset_id: agentId,
-        },
+  function changeRoute(providerChannelId: string, agentId: string): void {
+    setRoute({
+      botId: install.id,
+      requestBody: {
+        provider_channel_id: providerChannelId,
+        agent_preset_id: agentId,
       },
-      { onSuccess }
-    )
+    })
   }
 
   function addRoute(event: FormEvent): void {
     event.preventDefault()
     if (canAdd) {
-      route(newChannel, agentPresetId, () => {
-        setChannel("")
-        setAgentPresetId("")
-      })
+      sendAddRoute(
+        {
+          botId: install.id,
+          requestBody: {
+            provider_channel_id: newChannel,
+            agent_preset_id: agentPresetId,
+          },
+        },
+        {
+          onSuccess: () => {
+            setChannel("")
+            setAgentPresetId("")
+          },
+        }
+      )
     }
   }
 
@@ -161,7 +173,9 @@ export function PlatformChannelRoutes({
               value={r.agent_preset_id}
               agents={agents}
               disabled={disabled}
-              onChange={(agentId) => route(r.provider_channel_id, agentId)}
+              onChange={(agentId) =>
+                changeRoute(r.provider_channel_id, agentId)
+              }
             />
             <Button
               type="button"
@@ -181,6 +195,20 @@ export function PlatformChannelRoutes({
             </Button>
           </li>
         ))}
+        {hasMoreRoutes ? (
+          <li>
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              className="h-auto px-0 text-xs"
+              disabled={loadingMoreRoutes}
+              onClick={loadMoreRoutes}
+            >
+              {loadingMoreRoutes ? "Loading..." : "Show more"}
+            </Button>
+          </li>
+        ) : null}
       </ul>
     )
   } else {
@@ -222,21 +250,21 @@ export function PlatformChannelRoutes({
               onChange={(e) => setChannel(e.target.value)}
               placeholder="C0123456789"
               className="h-8 font-mono text-xs"
-              disabled={routesDisabled}
+              disabled={disabled}
             />
           </div>
           <AgentSelect
             label="Agent for the new route"
             value={agentPresetId}
             agents={agents}
-            disabled={routesDisabled}
+            disabled={disabled}
             onChange={setAgentPresetId}
           />
           <Button
             type="submit"
             size="sm"
             variant="outline"
-            disabled={routesDisabled || !canAdd}
+            disabled={disabled || !canAdd}
           >
             <Plus className="mr-2 size-4" />
             Add

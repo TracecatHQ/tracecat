@@ -37,6 +37,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     EntitlementRequired,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -78,6 +79,8 @@ async def _call[T](call: Awaitable[T]) -> T:
         return await call
     except TracecatNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TracecatConflictError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except PaginationError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=exc.detail or str(exc)
@@ -201,7 +204,9 @@ async def install_platform_bot(
     return await _call(admin.install_platform(session, role, params))
 
 
-@router.get("/{bot_id}/routes", response_model=list[AgentChannelRouteRead])
+@router.get(
+    "/{bot_id}/routes", response_model=CursorPaginatedResponse[AgentChannelRouteRead]
+)
 @require_scope("agent:read")
 async def list_bot_routes(
     *,
@@ -209,8 +214,36 @@ async def list_bot_routes(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
-) -> list[AgentChannelRouteRead]:
-    return await _call(admin.list_routes(session, role, bot_id))
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[AgentChannelRouteRead]:
+    return await _call(
+        admin.list_routes(
+            session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
+        )
+    )
+
+
+@router.post(
+    "/{bot_id}/routes",
+    response_model=AgentChannelRouteRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_scope("agent:update")
+async def add_bot_route(
+    *,
+    bot_id: uuid.UUID,
+    params: AgentChannelRouteSet,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> AgentChannelRouteRead:
+    """Route a channel that has no route yet; 409 when it has one."""
+    return await _call(admin.add_route(session, role, bot_id, params))
 
 
 @router.put("/{bot_id}/routes", response_model=AgentChannelRouteRead)

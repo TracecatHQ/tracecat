@@ -5,6 +5,7 @@ import {
   type AgentChannelBotUpdate,
   type AgentChannelRouteRead,
   type AgentChannelRouteSet,
+  agentChannelBotsAddBotRoute,
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/errors"
 import {
   type MutateOptions,
+  useInfiniteQuery,
   useIsMutating,
   useMutation,
   useQuery,
@@ -180,20 +182,36 @@ export function usePlatformChannelBots(
   return { installs, installsError }
 }
 
-/** Which agent answers new threads in each channel of a platform install. */
+/**
+ * Which agent answers new threads in each channel of a platform install, a page
+ * at a time in channel ID order.
+ */
 export function useChannelBotRoutes(workspaceId: string, botId: string) {
-  const {
-    data: routes,
-    isLoading: routesIsLoading,
-    error: routesError,
-  } = useQuery<Array<AgentChannelRouteRead>, TracecatApiError>({
+  const query = useInfiniteQuery({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes"],
-    queryFn: async () =>
-      await agentChannelBotsListBotRoutes({ workspaceId, botId }),
+    queryFn: async ({ pageParam }) =>
+      await agentChannelBotsListBotRoutes({
+        workspaceId,
+        botId,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { routes, routesIsLoading, routesError }
+  const routes: AgentChannelRouteRead[] | undefined = query.data?.pages.flatMap(
+    (page) => page.items
+  )
+  return {
+    routes,
+    routesIsLoading: query.isLoading,
+    routesError: query.error as TracecatApiError | null,
+    hasMoreRoutes: query.hasNextPage,
+    loadingMoreRoutes: query.isFetchingNextPage,
+    loadMoreRoutes: () => void query.fetchNextPage(),
+  }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */
@@ -207,7 +225,8 @@ function useChannelBotMutation<TData, TVariables>(
   workspaceId: string,
   provider: ChannelBotProvider,
   mutationFn: (variables: TVariables) => Promise<TData>,
-  verb: string
+  verb: string,
+  conflict?: string
 ) {
   const queryClient = useQueryClient()
   const {
@@ -227,7 +246,10 @@ function useChannelBotMutation<TData, TVariables>(
     onError: (error) => {
       toast({
         title: `Could not ${verb} the ${CHANNEL_BOT_PROVIDER_NAMES[provider]} bot`,
-        description: getApiErrorDetail(error) ?? "Please try again.",
+        description:
+          (error.status === 409 ? conflict : undefined) ??
+          getApiErrorDetail(error) ??
+          "Please try again.",
         variant: "destructive",
       })
     },
@@ -336,7 +358,29 @@ export function useDisconnectAgentChannelBot(
   return { disconnectBot }
 }
 
-/** Routes a channel's new threads to an agent, adding or replacing its route. */
+/** Routes a channel that has no route yet; the API refuses one that has. */
+export function useAddChannelBotRoute(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: addRoute } = useChannelBotMutation(
+    workspaceId,
+    provider,
+    async ({
+      botId,
+      requestBody,
+    }: {
+      botId: string
+      requestBody: AgentChannelRouteSet
+    }) =>
+      await agentChannelBotsAddBotRoute({ workspaceId, botId, requestBody }),
+    "route a channel for",
+    "This channel is already routed. Change its agent in the list instead."
+  )
+  return { addRoute }
+}
+
+/** Changes the agent a routed channel's new threads go to. */
 export function useSetChannelBotRoute(
   workspaceId: string,
   provider: ChannelBotProvider

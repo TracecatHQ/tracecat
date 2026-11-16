@@ -92,8 +92,28 @@ class ChannelBotAdmin(Protocol):
     ) -> ChannelBotInstallResult: ...
 
     async def list_routes(
-        self, session: AsyncSession, role: Role, bot_id: uuid.UUID
-    ) -> list[AgentChannelRouteRead]: ...
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[AgentChannelRouteRead]:
+        """A page of the install's routes, ordered by `provider_channel_id` ascending.
+
+        Raise ``PaginationError`` for a malformed or foreign cursor.
+        """
+        ...
+
+    async def add_route(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        params: AgentChannelRouteSet,
+    ) -> AgentChannelRouteRead:
+        """Raise `TracecatConflictError` when the channel already has a route."""
+        ...
 
     async def set_route(
         self,

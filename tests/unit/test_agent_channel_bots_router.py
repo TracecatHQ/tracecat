@@ -53,6 +53,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -292,6 +293,9 @@ WORKSPACE_ROUTES = [
     ),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
     pytest.param(
+        "POST", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="add_route"
+    ),
+    pytest.param(
         "PUT", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="set_route"
     ),
     pytest.param(
@@ -308,6 +312,7 @@ ADMIN_METHODS = (
     "list_platform_apps",
     "install_platform",
     "list_routes",
+    "add_route",
     "set_route",
     "delete_route",
 )
@@ -524,7 +529,8 @@ def test_platform_routes_hand_the_request_to_the_admin(
         created_at=now,
         updated_at=now,
     )
-    admin.list_routes.return_value = [route]
+    admin.list_routes.return_value = CursorPaginatedResponse(items=[route])
+    admin.add_route.return_value = route
     admin.set_route.return_value = route
     admin.delete_route.return_value = None
 
@@ -533,19 +539,27 @@ def test_platform_routes_hand_the_request_to_the_admin(
         "/agent/channel-bots/platform-apps/install", json=PLATFORM_INSTALL_BODY
     )
     listed = client.get(f"/agent/channel-bots/{bot_id}/routes")
+    added = client.post(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
     put = client.put(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
     deleted = client.delete(f"/agent/channel-bots/{bot_id}/routes/C1")
 
     assert apps.json() == [{"provider": "slack"}]
     assert install.json() == installed.model_dump(mode="json")
-    assert listed.json() == [route.model_dump(mode="json")]
+    assert listed.json()["items"] == [route.model_dump(mode="json")]
+    assert added.status_code == 201
+    assert added.json() == route.model_dump(mode="json")
     assert put.json() == route.model_dump(mode="json")
     assert deleted.status_code == 204
     admin.list_platform_apps.assert_awaited_once_with(SESSION, ROLE)
     admin.install_platform.assert_awaited_once_with(
         SESSION, ROLE, ChannelBotPlatformInstall.model_validate(PLATFORM_INSTALL_BODY)
     )
-    admin.list_routes.assert_awaited_once_with(SESSION, ROLE, bot_id)
+    admin.list_routes.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, page=PageParams(limit=20, cursor=None)
+    )
+    admin.add_route.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
+    )
     admin.set_route.assert_awaited_once_with(
         SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
     )
@@ -620,6 +634,66 @@ def test_admin_errors_map_to_http_errors(
 
     assert response.status_code == status_code
     assert response.json() == {"detail": str(error)}
+
+
+def test_routes_list_hands_the_page_to_the_admin(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.list_routes.return_value = CursorPaginatedResponse(
+        items=[], next_cursor="next", has_more=True
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/routes", params={"limit": 2, "cursor": "c"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["next_cursor"] == "next"
+    assert response.json()["has_more"] is True
+    admin.list_routes.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, page=PageParams(limit=2, cursor="c")
+    )
+
+
+@pytest.mark.parametrize("limit", [0, 201])
+def test_routes_list_refuses_a_limit_out_of_bounds(
+    client: TestClient, admin: AsyncMock, limit: int
+) -> None:
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params={"limit": limit}
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+def test_routes_list_keeps_a_bad_cursors_error_code(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.list_routes.side_effect = PaginationError(
+        "stale", code=PaginationErrorCode.CURSOR_MISMATCH
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params={"cursor": "x"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": {"code": "cursor_mismatch"}}
+
+
+def test_adding_a_route_for_a_routed_channel_is_a_conflict(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.add_route.side_effect = TracecatConflictError("C1 already has a route")
+
+    response = client.post(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", json=ROUTE_BODY
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "C1 already has a route"}
 
 
 def test_a_bad_cursor_keeps_its_error_code(

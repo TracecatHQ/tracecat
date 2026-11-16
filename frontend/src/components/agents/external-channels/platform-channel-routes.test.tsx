@@ -6,15 +6,21 @@ import {
   apiError,
   PRESET,
   platformSlackBot,
+  routePage,
   serveBots,
   serveEntitlements,
   WORKSPACE_ID,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
 import { renderChannelsPage } from "@/components/agents/external-channels/channel-bot-test-render"
+import { toast } from "@/components/ui/use-toast"
 
 const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 
 jest.mock("@/client")
+jest.mock("@/components/ui/use-toast", () => ({
+  ...jest.requireActual("@/components/ui/use-toast"),
+  toast: jest.fn(),
+}))
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
 }))
@@ -34,7 +40,7 @@ function route(channel: string, agentPresetId: string): AgentChannelRouteRead {
 function servePlatform(routes: AgentChannelRouteRead[] = []): void {
   serveBots([platformSlackBot()])
   api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
-  api.listRoutes.mockResolvedValue(routes)
+  api.listRoutes.mockResolvedValue(routePage(routes))
 }
 
 /** Renders the Channels page and waits for the install's route editor. */
@@ -65,6 +71,7 @@ beforeEach(() => {
   mockUseScopeCheck.mockImplementation(() => true)
   serveEntitlements()
   servePlatform()
+  api.addRoute.mockResolvedValue(route("C9", "preset-2"))
   api.setRoute.mockResolvedValue(route("C1", PRESET.id))
   api.deleteRoute.mockResolvedValue(undefined)
   api.updateBot.mockResolvedValue(platformSlackBot())
@@ -81,11 +88,12 @@ describe("PlatformChannelRoutes", () => {
     await choose(card, "Agent for the new route", "Phishing")
     await userEvent.click(within(card).getByRole("button", { name: "Add" }))
 
-    expect(api.setRoute).toHaveBeenCalledWith({
+    expect(api.addRoute).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
       botId: INSTALL_ID,
       requestBody: { provider_channel_id: "C9", agent_preset_id: "preset-2" },
     })
+    expect(api.setRoute).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(within(card).getByLabelText("Channel ID")).toHaveValue("")
     )
@@ -131,15 +139,68 @@ describe("PlatformChannelRoutes", () => {
     expect(within(card).getByLabelText("Channel ID")).toHaveValue("C9")
   })
 
-  it("blocks adding a route until the channels load", async () => {
+  it("shows why the channels failed to load and still adds one", async () => {
     api.listRoutes.mockRejectedValue(apiError(400, { detail: "Flaky" }))
     renderChannelsPage()
     const card = await screen.findByRole("group", {
       name: "Tracecat for Slack",
     })
     expect(await within(card).findByText("Flaky")).toBeInTheDocument()
-    expect(within(card).getByLabelText("Channel ID")).toBeDisabled()
-    expect(within(card).getByRole("button", { name: "Add" })).toBeDisabled()
+    expect(within(card).getByLabelText("Channel ID")).toBeEnabled()
+  })
+
+  it("says a channel is already routed when the API refuses it", async () => {
+    api.addRoute.mockRejectedValue(apiError(409, { detail: "C9 has a route" }))
+    const card = await editor()
+
+    await userEvent.type(within(card).getByLabelText("Channel ID"), "C9")
+    await choose(card, "Agent for the new route", "Phishing")
+    await userEvent.click(within(card).getByRole("button", { name: "Add" }))
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description:
+            "This channel is already routed. Change its agent in the list instead.",
+        })
+      )
+    )
+    expect(within(card).getByLabelText("Channel ID")).toHaveValue("C9")
+  })
+
+  it("shows more channels a page at a time, still editable meanwhile", async () => {
+    let finish: (page: ReturnType<typeof routePage>) => void = () => undefined
+    api.listRoutes
+      .mockResolvedValueOnce(routePage([route("C1", "preset-2")], "next"))
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve
+        }) as never
+      )
+    const card = await editor()
+    await within(card).findByText("C1")
+
+    await userEvent.click(
+      within(card).getByRole("button", { name: "Show more" })
+    )
+
+    expect(
+      await within(card).findByRole("button", { name: "Loading..." })
+    ).toBeDisabled()
+    expect(within(card).getByLabelText("Channel ID")).toBeEnabled()
+    expect(
+      within(card).getByRole("combobox", { name: "Default agent" })
+    ).toBeEnabled()
+    expect(api.listRoutes).toHaveBeenLastCalledWith({
+      workspaceId: WORKSPACE_ID,
+      botId: INSTALL_ID,
+      cursor: "next",
+    })
+
+    finish(routePage([route("C2", PRESET.id)]))
+    expect(await within(card).findByText("C2")).toBeInTheDocument()
+    expect(within(card).getByText("C1")).toBeInTheDocument()
+    expect(within(card).queryByRole("button", { name: "Show more" })).toBeNull()
   })
 
   it("is read-only without agent:update", async () => {
