@@ -2811,7 +2811,8 @@ class CaseView(WorkspaceModel):
         UUID,
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
-        doc="The user who created the view. Null once that user is deleted.",
+        doc="The user who created the view. Deleting the user deletes their "
+        "personal views and sets this to null on their shared ones.",
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     visibility: Mapped[CaseViewVisibility] = mapped_column(

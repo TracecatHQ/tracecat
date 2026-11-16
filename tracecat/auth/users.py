@@ -52,6 +52,7 @@ from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.cases.views.ownership import delete_personal_case_views
 from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import (
     SupportsExecute,
@@ -702,6 +703,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # The user delete cascades to refresh tokens and memberships; lock
         # first so a concurrent MCP token rotation cannot deadlock with it.
         await lock_mcp_refresh_token_users(self._user_db.session, [user.id])
+        await delete_personal_case_views(self._user_db.session, user.id)
 
     async def saml_callback(
         self,
