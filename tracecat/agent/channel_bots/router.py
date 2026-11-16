@@ -10,7 +10,7 @@ from collections.abc import Awaitable
 from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from tracecat import config
@@ -21,16 +21,23 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotCreate,
     AgentChannelBotRead,
     AgentChannelBotUpdate,
+    AgentChannelRouteRead,
+    AgentChannelRouteSet,
+    ChannelBotAppOwner,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
+    ChannelBotPlatformApp,
+    ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
+from tracecat.auth.credentials import OptionalUserDep
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
     EntitlementRequired,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -72,6 +79,8 @@ async def _call[T](call: Awaitable[T]) -> T:
         return await call
     except TracecatNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TracecatConflictError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except PaginationError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=exc.detail or str(exc)
@@ -89,6 +98,7 @@ async def list_bots(
     admin: Admin,
     agent_preset_id: uuid.UUID | None = Query(default=None),
     provider: ChannelBotProvider | None = Query(default=None),
+    app_owner: ChannelBotAppOwner | None = Query(default=None),
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -102,6 +112,7 @@ async def list_bots(
             role,
             agent_preset_id=agent_preset_id,
             provider=provider,
+            app_owner=app_owner,
             page=PageParams(limit=limit, cursor=cursor),
         )
     )
@@ -170,6 +181,105 @@ async def install_bot(
     return await _call(admin.install(session, role, params))
 
 
+@router.get("/platform-apps", response_model=list[ChannelBotPlatformApp])
+@require_scope("agent:read")
+async def list_platform_apps(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> list[ChannelBotPlatformApp]:
+    return await _call(admin.list_platform_apps(session, role))
+
+
+@router.post("/platform-apps/install", response_model=ChannelBotInstallResult)
+@require_scope("agent:update")
+async def install_platform_bot(
+    *,
+    params: ChannelBotPlatformInstall,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> ChannelBotInstallResult:
+    return await _call(admin.install_platform(session, role, params))
+
+
+@router.get(
+    "/{bot_id}/routes", response_model=CursorPaginatedResponse[AgentChannelRouteRead]
+)
+@require_scope("agent:read")
+async def list_bot_routes(
+    *,
+    bot_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+    agent_preset_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[AgentChannelRouteRead]:
+    return await _call(
+        admin.list_routes(
+            session,
+            role,
+            bot_id,
+            agent_preset_id=agent_preset_id,
+            page=PageParams(limit=limit, cursor=cursor),
+        )
+    )
+
+
+@router.post(
+    "/{bot_id}/routes",
+    response_model=AgentChannelRouteRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_scope("agent:update")
+async def add_bot_route(
+    *,
+    bot_id: uuid.UUID,
+    params: AgentChannelRouteSet,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> AgentChannelRouteRead:
+    """Route a channel that has no route yet; 409 when it has one."""
+    return await _call(admin.add_route(session, role, bot_id, params))
+
+
+@router.put("/{bot_id}/routes", response_model=AgentChannelRouteRead)
+@require_scope("agent:update")
+async def set_bot_route(
+    *,
+    bot_id: uuid.UUID,
+    params: AgentChannelRouteSet,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> AgentChannelRouteRead:
+    return await _call(admin.set_route(session, role, bot_id, params))
+
+
+@router.delete(
+    "/{bot_id}/routes/{provider_channel_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@require_scope("agent:update")
+async def delete_bot_route(
+    *,
+    bot_id: uuid.UUID,
+    provider_channel_id: Annotated[str, Path(min_length=1, max_length=255)],
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> None:
+    await _call(admin.delete_route(session, role, bot_id, provider_channel_id))
+
+
 _WEB_SCHEMES = {"http", "https"}
 
 
@@ -221,6 +331,7 @@ async def handle_bot_oauth_callback(
     *,
     provider: ChannelBotProvider,
     callback: Annotated[ChannelBotOAuthCallback, Query()],
+    user: OptionalUserDep,
 ) -> Response:
     if (admin := get_channel_bot_admin()) is None:
         return _redirect(
@@ -229,7 +340,10 @@ async def handle_bot_oauth_callback(
             message="Channel bots require Tracecat Enterprise",
         )
     try:
-        result = await admin.complete_oauth(provider, callback)
+        # The browser's own session, so an install can be bound to whoever started it.
+        result = await admin.complete_oauth(
+            provider, callback, user_id=None if user is None else user.id
+        )
     except Exception as exc:
         # The error can carry the OAuth code or provider response.
         logger.error(

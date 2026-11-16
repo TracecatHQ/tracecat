@@ -1,11 +1,15 @@
-import { act, screen, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import type { AgentChannelRouteRead } from "@/client"
 import {
   api,
   apiError,
+  PRESET,
+  platformSlackBot,
   reservedSlackBot,
   serveBots,
   serveEntitlements,
+  serveRoutes,
   slackBot,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
 import {
@@ -103,6 +107,9 @@ describe("ChannelBotsPanel", () => {
     serveBots([reservedSlackBot()])
     const { client } = renderPanel()
     await openProvider("Custom Slack app", "Connect")
+    await userEvent.click(
+      screen.getByRole("button", { name: "I already have the app" })
+    )
     await userEvent.type(screen.getByLabelText("Client ID"), "123.456")
 
     api.listBots.mockRejectedValue(apiError(400, { detail: "Flaky" }))
@@ -125,5 +132,101 @@ describe("ChannelBotsPanel", () => {
     const row = await screen.findByRole("group", { name: "Custom Slack app" })
     expect(within(row).getByText("Not installed")).toBeInTheDocument()
     expect(within(row).getByRole("button", { name: "Connect" })).toBeEnabled()
+  })
+})
+
+function route(agentPresetId: string): AgentChannelRouteRead {
+  return {
+    bot_id: "platform-1",
+    provider_channel_id: "C1",
+    agent_preset_id: agentPresetId,
+    created_at: "2026-11-15T00:00:00Z",
+    updated_at: "2026-11-15T00:00:00Z",
+  }
+}
+
+function servePlatform(
+  installs = [platformSlackBot()],
+  routes: AgentChannelRouteRead[] = []
+): void {
+  serveBots(installs)
+  api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
+  serveRoutes(routes)
+}
+
+describe("Tracecat for Slack on the Channels tab", () => {
+  it("shows the custom app with no platform card or switch link", async () => {
+    servePlatform([platformSlackBot({ agent_preset_id: "preset-2" })])
+    renderPanel()
+    const custom = await screen.findByRole("group", {
+      name: "Custom Slack app",
+    })
+    expect(
+      within(custom).getByRole("button", { name: "Connect" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("group", { name: "Tracecat for Slack" })
+    ).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Use your own Slack app instead" })
+    ).toBeNull()
+  })
+
+  it("links to the Channels page when this agent is the default", async () => {
+    servePlatform()
+    renderPanel()
+    const link = await screen.findByRole("link", { name: "Tracecat for Slack" })
+    expect(link).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/agents/channels"
+    )
+    expect(link.closest("p")).toHaveTextContent(
+      "Answers in Slack via Tracecat for Slack."
+    )
+  })
+
+  it("links to the Channels page when a channel routes to this agent", async () => {
+    servePlatform(
+      [platformSlackBot({ agent_preset_id: "preset-2" })],
+      [route(PRESET.id)]
+    )
+    renderPanel()
+    expect(
+      await screen.findByRole("link", { name: "Tracecat for Slack" })
+    ).toBeInTheDocument()
+    expect(api.listRoutes).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "platform-1",
+      agentPresetId: PRESET.id,
+      limit: 1,
+    })
+  })
+
+  it("says nothing when another agent answers every channel", async () => {
+    servePlatform(
+      [platformSlackBot({ agent_preset_id: "preset-2" })],
+      [route("preset-2")]
+    )
+    renderPanel()
+    await screen.findByRole("group", { name: "Custom Slack app" })
+    await waitFor(() => expect(api.listRoutes).toHaveBeenCalled())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.queryByText(/Answers in Slack via/)).toBeNull()
+  })
+
+  it("says nothing when the install is disconnected", async () => {
+    servePlatform([
+      platformSlackBot({ status: "disconnected", provider_app_id: null }),
+    ])
+    renderPanel()
+    await screen.findByRole("group", { name: "Custom Slack app" })
+    await waitFor(() => expect(api.listBots).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.queryByText(/Answers in Slack via/)).toBeNull()
+    expect(api.listRoutes).not.toHaveBeenCalled()
   })
 })

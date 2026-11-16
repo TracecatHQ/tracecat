@@ -24,6 +24,15 @@ class ChannelBotTransport(StrEnum):
     SOCKET = "socket"
 
 
+class ChannelBotAppOwner(StrEnum):
+    """Who owns a bot's provider app."""
+
+    # The workspace's own app, answering as one agent.
+    WORKSPACE = "workspace"
+    # The deployment's app: one install per provider tenant, routed per channel.
+    PLATFORM = "platform"
+
+
 def oauth_callback_path(provider: ChannelBotProvider) -> str:
     """The public path a provider sends the browser back to after OAuth consent."""
     return OAUTH_CALLBACK_ROUTE.format(provider=provider.value)
@@ -110,8 +119,11 @@ type ChannelBotDetails = Annotated[SlackBotDetails, Field(discriminator="provide
 class AgentChannelBotRead(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
-    agent_preset_id: uuid.UUID
+    agent_preset_id: uuid.UUID = Field(
+        description="The agent that answers; a platform install's default agent."
+    )
     provider: ChannelBotProvider
+    app_owner: ChannelBotAppOwner
     status: ChannelBotStatus
     provider_tenant_id: str | None
     provider_app_id: str | None
@@ -140,7 +152,7 @@ class ChannelBotInstallBase(BaseModel):
 
 
 class SlackBotInstall(ChannelBotInstallBase):
-    """Install a customer-owned Slack app over OAuth."""
+    """Install a workspace-owned Slack app over OAuth."""
 
     provider: Literal[ChannelBotProvider.SLACK]
     client_id: str = Field(..., min_length=1)
@@ -167,19 +179,77 @@ class SlackBotInstall(ChannelBotInstallBase):
 
     @model_validator(mode="after")
     def _refresh_token_matches_app_token(self) -> Self:
-        rotating = self.app_token is not None and self.app_token.startswith("xoxe.")
-        if rotating and self.app_refresh_token is None:
-            raise ValueError(
-                "A rotating `xoxe.xapp-` app-level token needs its refresh token"
-            )
-        if not rotating and self.app_refresh_token is not None:
-            raise ValueError(
-                "Only a rotating `xoxe.xapp-` app-level token takes a refresh token"
-            )
+        check_slack_app_refresh_token(self.app_token, self.app_refresh_token)
         return self
 
 
+def check_slack_app_refresh_token(
+    app_token: str | None, app_refresh_token: str | None
+) -> None:
+    """A rotating `xoxe.xapp-` app-level token comes with its refresh token, and only one does."""
+    rotating = app_token is not None and app_token.startswith("xoxe.")
+    if rotating and app_refresh_token is None:
+        raise ValueError(
+            "A rotating `xoxe.xapp-` app-level token needs its refresh token"
+        )
+    if not rotating and app_refresh_token is not None:
+        raise ValueError(
+            "Only a rotating `xoxe.xapp-` app-level token takes a refresh token"
+        )
+
+
 type ChannelBotInstall = Annotated[SlackBotInstall, Field(discriminator="provider")]
+
+
+class ChannelBotPlatformApp(BaseModel):
+    """A provider app the deployment owns, which a workspace installs in one step."""
+
+    provider: ChannelBotProvider
+
+
+class ChannelBotPlatformAppSetup(BaseModel):
+    """What a platform admin pastes into the deployment's own provider app."""
+
+    transport: ChannelBotTransport
+    oauth_redirect_url: str
+    # Events and interactions share it; None over Socket Mode.
+    request_url: str | None
+
+
+class ChannelBotPlatformInstall(BaseModel):
+    """Install the platform app, which the deployment registers, over OAuth; or reconnect."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: ChannelBotProvider
+    bot_id: uuid.UUID | None = Field(
+        default=None,
+        description="Platform install to reconnect. If omitted, creates one.",
+    )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="The install's default agent. Required without bot_id; with it, replaces it.",
+    )
+    return_url: str = Field(..., min_length=1)
+
+
+class AgentChannelRouteSet(BaseModel):
+    """Answer new threads in one channel with another agent than the default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_channel_id: str = Field(
+        ..., min_length=1, max_length=255, pattern=r"^\S+$"
+    )
+    agent_preset_id: uuid.UUID
+
+
+class AgentChannelRouteRead(BaseModel):
+    bot_id: uuid.UUID
+    provider_channel_id: str
+    agent_preset_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
 
 
 class ChannelBotInstallResult(BaseModel):

@@ -1,4 +1,4 @@
-"""Tests for the agent channel bot and thread link tables migration."""
+"""Tests for the agent channel bot, thread link, and channel route migrations."""
 
 from __future__ import annotations
 
@@ -19,12 +19,14 @@ from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.channel_bots.schemas import (
+    ChannelBotAppOwner,
     ChannelBotProvider,
     ChannelBotStatus,
     ChannelBotTransport,
 )
 from tracecat.db.models import (
     AgentChannelBot,
+    AgentChannelRoute,
     AgentPreset,
     AgentSession,
     AgentSessionThread,
@@ -34,10 +36,14 @@ from tracecat.db.models import (
 )
 
 MIGRATION_REVISION = "e20249352688"
-# Composite preset key; the models match the schema from here.
+# Composite preset key.
 PRESET_KEY_REVISION = "43d161879873"
+# Token refresh due date; the parent of the route revision.
+TOKEN_REFRESH_REVISION = "183d302a8d08"
+# Platform installs and channel routes; the models match the schema from here.
+ROUTE_REVISION = "11e685c62cfd"
 PREVIOUS_REVISION = "ec392d96f2b0"
-TABLES = {"agent_channel_bot", "agent_session_thread"}
+TABLES = {"agent_channel_bot", "agent_session_thread", "agent_channel_route"}
 _POSTGRESQL_ENUM_DIFFS = frozenset({"create_enum", "drop_enum", "change_enum_variants"})
 
 
@@ -47,14 +53,18 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
-def _alembic(db_url: str, *args: str) -> None:
-    result = subprocess.run(
+def _run_alembic(db_url: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         env={**os.environ, "TRACECAT__DB_URI": db_url},
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _alembic(db_url: str, *args: str) -> None:
+    result = _run_alembic(db_url, *args)
     assert result.returncode == 0, (
         f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
     )
@@ -167,7 +177,8 @@ def _rls_tables(engine: Engine) -> set[str]:
                 "SELECT c.relname FROM pg_class c JOIN pg_policies p"
                 " ON p.tablename = c.relname AND p.policyname = 'rls_policy_' || c.relname"
                 " WHERE c.relrowsecurity"
-                " AND c.relname IN ('agent_channel_bot', 'agent_session_thread')"
+                " AND c.relname IN"
+                " ('agent_channel_bot', 'agent_session_thread', 'agent_channel_route')"
                 # Both predicates scope to the workspace, not just a policy by that name.
                 " AND p.cmd = 'ALL'"
                 " AND p.qual LIKE '%workspace_id = %app.current_workspace_id%'"
@@ -182,7 +193,8 @@ def _channel_tables(engine: Engine) -> set[str]:
         rows = conn.execute(
             text(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-                " AND tablename IN ('agent_channel_bot', 'agent_session_thread')"
+                " AND tablename IN"
+                " ('agent_channel_bot', 'agent_session_thread', 'agent_channel_route')"
             )
         )
         return set(rows.scalars())
@@ -194,12 +206,18 @@ def test_upgrade_matches_the_models_and_downgrades(db_url: str, engine: Engine) 
     _alembic(db_url, "upgrade", MIGRATION_REVISION)
     assert _model_drift(engine)
     _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    assert _model_drift(engine)
+    _alembic(db_url, "upgrade", TOKEN_REFRESH_REVISION)
+    assert _model_drift(engine)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     assert _model_drift(engine) == []
     assert _rls_tables(engine) == TABLES
 
+    _alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
+    assert _channel_tables(engine) == TABLES - {"agent_channel_route"}
     _alembic(db_url, "downgrade", PREVIOUS_REVISION)
     assert _channel_tables(engine) == set()
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     assert _channel_tables(engine) == TABLES
 
 
@@ -256,7 +274,7 @@ def _violated(exc: pytest.ExceptionInfo[IntegrityError]) -> str | None:
 def test_links_stay_in_their_bots_and_sessions_workspace(
     db_url: str, engine: Engine
 ) -> None:
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, other_ws = _workspace(engine)
     with Session(engine, expire_on_commit=False) as db, db.begin():
         preset_id = _preset(db, ws)
@@ -301,7 +319,7 @@ def test_links_stay_in_their_bots_and_sessions_workspace(
 
 
 def test_a_link_can_be_inserted_before_its_session(db_url: str, engine: Engine) -> None:
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, _ = _workspace(engine)
     with Session(engine, expire_on_commit=False) as db, db.begin():
         preset_id = _preset(db, ws)
@@ -316,7 +334,7 @@ def test_a_link_can_be_inserted_before_its_session(db_url: str, engine: Engine) 
 
 
 def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, _ = _workspace(engine)
     with Session(engine) as db, db.begin():
         preset_id = _preset(db, ws)
@@ -327,13 +345,16 @@ def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
                 provider=provider.value,
                 status=status.value,
                 transport=transport.value,
+                app_owner=owner.value,
             )
             for provider in ChannelBotProvider
             for status in ChannelBotStatus
             for transport in ChannelBotTransport
+            for owner in ChannelBotAppOwner
         )
     for bogus, constraint in (
         ({"provider": "teams"}, "ck_agent_channel_bot_provider"),
+        ({"app_owner": "partner"}, "ck_agent_channel_bot_app_owner"),
         ({"status": "deleted"}, "ck_agent_channel_bot_status"),
         ({"transport": "webhook"}, "ck_agent_channel_bot_transport"),
     ):
@@ -347,7 +368,7 @@ def test_bot_checks_match_the_api_enums(db_url: str, engine: Engine) -> None:
 
 
 def test_one_bot_per_installed_app(db_url: str, engine: Engine) -> None:
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, _ = _workspace(engine)
     app = {"provider_tenant_id": "T1", "provider_app_id": "A1"}
     with Session(engine) as db, db.begin():
@@ -365,7 +386,7 @@ def test_one_bot_per_installed_app(db_url: str, engine: Engine) -> None:
 def test_a_bot_never_targets_another_workspaces_preset(
     db_url: str, engine: Engine
 ) -> None:
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, other_ws = _workspace(engine)
     with Session(engine) as db, db.begin():
         foreign_preset_id = _preset(db, other_ws)
@@ -381,9 +402,11 @@ def test_a_bot_never_targets_another_workspaces_preset(
     )
 
 
-def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -> None:
+def test_rls_isolates_bots_links_and_routes_by_workspace(
+    db_url: str, engine: Engine
+) -> None:
     """A non-owner role sees and writes only its current workspace's rows."""
-    _alembic(db_url, "upgrade", PRESET_KEY_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
     ws, other_ws = _workspace(engine)
     with Session(engine, expire_on_commit=False) as db, db.begin():
         preset_id, other_preset_id = _preset(db, ws), _preset(db, other_ws)
@@ -398,6 +421,8 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
             [
                 _link(bot.id, session.id, ws),
                 _link(other_bot.id, other_session.id, other_ws),
+                _route(bot.id, ws, preset_id),
+                _route(other_bot.id, other_ws, other_preset_id),
             ]
         )
     role = f"channel_rls_{uuid.uuid4().hex[:8]}"
@@ -407,8 +432,8 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
             conn.execute(text(f'GRANT USAGE ON SCHEMA public TO "{role}"'))
             conn.execute(
                 text(
-                    "GRANT SELECT, INSERT ON agent_channel_bot, agent_session_thread"
-                    f' TO "{role}"'
+                    "GRANT SELECT, INSERT ON agent_channel_bot, agent_session_thread,"
+                    f' agent_channel_route TO "{role}"'
                 )
             )
 
@@ -419,7 +444,7 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
                 {"ws": str(ws)},
             )
 
-            def visible() -> tuple[set[uuid.UUID], set[uuid.UUID]]:
+            def visible() -> tuple[set[uuid.UUID], set[uuid.UUID], set[uuid.UUID]]:
                 # Other tests share this database; count only this test's rows.
                 mine = (ws, other_ws)
                 bots = conn.execute(
@@ -432,9 +457,14 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
                         AgentSessionThread.workspace_id.in_(mine)
                     )
                 ).scalars()
-                return set(bots), set(links)
+                routes = conn.execute(
+                    select(AgentChannelRoute.bot_id).where(
+                        AgentChannelRoute.workspace_id.in_(mine)
+                    )
+                ).scalars()
+                return set(bots), set(links), set(routes)
 
-            assert visible() == ({bot.id}, {session.id})
+            assert visible() == ({bot.id}, {session.id}, {bot.id})
             with (
                 pytest.raises(ProgrammingError, match="row-level security"),
                 conn.begin_nested(),
@@ -449,9 +479,161 @@ def test_rls_isolates_bots_and_links_by_workspace(db_url: str, engine: Engine) -
                     )
                 )
 
+            with (
+                pytest.raises(ProgrammingError, match="row-level security"),
+                conn.begin_nested(),
+            ):
+                conn.execute(
+                    insert(AgentChannelRoute).values(
+                        bot_id=other_bot.id,
+                        workspace_id=other_ws,
+                        provider_channel_id="C2",
+                        agent_preset_id=other_preset_id,
+                    )
+                )
+
             conn.execute(text("SELECT set_config('app.rls_bypass', 'on', true)"))
-            assert visible() == ({bot.id, other_bot.id}, {session.id, other_session.id})
+            assert visible() == (
+                {bot.id, other_bot.id},
+                {session.id, other_session.id},
+                {bot.id, other_bot.id},
+            )
     finally:
         with engine.begin() as conn:
             conn.execute(text(f'DROP OWNED BY "{role}"'))
             conn.execute(text(f'DROP ROLE "{role}"'))
+
+
+def _drop_platform_installs(engine: Engine) -> None:
+    """What an operator does before downgrading past platform installs."""
+    with Session(engine) as db, db.begin():
+        db.execute(
+            delete(AgentChannelBot).where(
+                AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM
+            )
+        )
+
+
+def test_bots_from_before_platform_installs_are_workspace_owned(
+    db_url: str, engine: Engine
+) -> None:
+    _drop_platform_installs(engine)
+    _alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
+    ws, _ = _workspace(engine)
+    with Session(engine) as db, db.begin():
+        preset_id = _preset(db, ws)
+        bot_id = uuid.uuid4()
+        db.execute(
+            text(
+                "INSERT INTO agent_channel_bot (id, workspace_id, agent_preset_id,"
+                " provider, manifest_version, encrypted_credentials)"
+                " VALUES (:id, :ws, :preset, 'slack', 1, 'sealed')"
+            ),
+            {"id": bot_id, "ws": ws, "preset": preset_id},
+        )
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
+    with Session(engine) as db:
+        owner = db.scalar(
+            select(AgentChannelBot.app_owner).where(AgentChannelBot.id == bot_id)
+        )
+    assert owner == ChannelBotAppOwner.WORKSPACE
+
+
+def _route(
+    bot_id: uuid.UUID, ws: uuid.UUID, preset_id: uuid.UUID, channel: str = "C1"
+) -> AgentChannelRoute:
+    return AgentChannelRoute(
+        bot_id=bot_id,
+        workspace_id=ws,
+        provider_channel_id=channel,
+        agent_preset_id=preset_id,
+    )
+
+
+def _routes(engine: Engine, ws: uuid.UUID) -> set[tuple[str, uuid.UUID]]:
+    with Session(engine) as db:
+        rows = db.execute(
+            select(
+                AgentChannelRoute.provider_channel_id,
+                AgentChannelRoute.agent_preset_id,
+            ).where(AgentChannelRoute.workspace_id == ws)
+        )
+        return set(rows.tuples())
+
+
+def test_routes_stay_in_their_bots_workspace(db_url: str, engine: Engine) -> None:
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
+    ws, other_ws = _workspace(engine)
+    with Session(engine, expire_on_commit=False) as db, db.begin():
+        preset_id, routed_id = _preset(db, ws), _preset(db, ws)
+        foreign_preset_id = _preset(db, other_ws)
+        bot = _bot(ws, preset_id, app_owner="platform")
+        db.add(bot)
+    with Session(engine) as db, db.begin():
+        db.add(_route(bot.id, ws, routed_id))
+    rejected = [
+        # One agent per channel of a bot.
+        (_route(bot.id, ws, preset_id), "pk_agent_channel_route"),
+        # A route names its bot's workspace, so RLS on the route means the bot's tenant.
+        (
+            _route(bot.id, other_ws, foreign_preset_id, "C2"),
+            "fk_agent_channel_route_bot_id_workspace_id_agent_channel_bot",
+        ),
+        # A route never targets another workspace's agent.
+        (
+            _route(bot.id, ws, foreign_preset_id, "C3"),
+            # The convention's name passes 63 bytes, so it is truncated with a hash.
+            "fk_agent_channel_route_agent_preset_id_workspace_id_age_555a",
+        ),
+    ]
+    for row, constraint in rejected:
+        with (
+            pytest.raises(IntegrityError) as exc,
+            Session(engine) as db,
+            db.begin(),
+        ):
+            db.add(row)
+        assert _violated(exc) == constraint
+    assert _routes(engine, ws) == {("C1", routed_id)}
+
+    # Deleting the routed agent drops its routes; the channel falls back to the default.
+    with Session(engine) as db, db.begin():
+        db.execute(delete(AgentPreset).where(AgentPreset.id == routed_id))
+    assert _routes(engine, ws) == set()
+    with Session(engine) as db, db.begin():
+        db.add(_route(bot.id, ws, preset_id))
+    with Session(engine) as db, db.begin():
+        db.execute(delete(AgentChannelBot).where(AgentChannelBot.id == bot.id))
+    assert _routes(engine, ws) == set()
+
+
+def test_downgrade_refuses_while_a_platform_install_remains(
+    db_url: str, engine: Engine
+) -> None:
+    _alembic(db_url, "upgrade", ROUTE_REVISION)
+    ws, _ = _workspace(engine)
+    with Session(engine) as db, db.begin():
+        preset_id = _preset(db, ws)
+        # Disconnecting keeps the row, so even a disconnected install refuses.
+        db.add(
+            _bot(
+                ws,
+                preset_id,
+                app_owner="platform",
+                status="disconnected",
+                provider_tenant_id=None,
+                provider_app_id=None,
+            )
+        )
+
+    refused = _run_alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
+
+    assert refused.returncode != 0
+    assert "Downgrade refused:" in refused.stderr
+    assert "app_owner = 'platform'" in refused.stderr
+    with Session(engine) as db:
+        version = db.scalar(text("SELECT version_num FROM alembic_version"))
+    assert version == ROUTE_REVISION
+    _drop_platform_installs(engine)
+    _alembic(db_url, "downgrade", TOKEN_REFRESH_REVISION)
+    _alembic(db_url, "upgrade", ROUTE_REVISION)

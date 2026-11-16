@@ -1,6 +1,6 @@
 "use client"
 
-import { MousePointerClickIcon, TagIcon } from "lucide-react"
+import { HashIcon, MousePointerClickIcon, TagIcon } from "lucide-react"
 import Link from "next/link"
 import {
   Tooltip,
@@ -13,13 +13,15 @@ import { cn } from "@/lib/utils"
 export enum AgentsCatalogViewMode {
   Agents = "agents",
   Tags = "tags",
+  Channels = "channels",
 }
 
 interface AgentsCatalogViewToggleProps {
   view: AgentsCatalogViewMode
   className?: string
   agentsHref: string
-  tagsHref: string
+  tagsHref?: string
+  channelsHref?: string
 }
 
 export function AgentsCatalogViewToggle({
@@ -27,6 +29,7 @@ export function AgentsCatalogViewToggle({
   className,
   agentsHref,
   tagsHref,
+  channelsHref,
 }: AgentsCatalogViewToggleProps) {
   const toggleItems = [
     {
@@ -43,7 +46,16 @@ export function AgentsCatalogViewToggle({
       href: tagsHref,
       ariaLabel: "Agent tags view",
     },
-  ] as const
+    {
+      mode: AgentsCatalogViewMode.Channels,
+      icon: HashIcon,
+      tooltip: "Channels",
+      href: channelsHref,
+      ariaLabel: "Channels view",
+    },
+  ].filter(
+    (item): item is typeof item & { href: string } => item.href !== undefined
+  )
 
   return (
     <div

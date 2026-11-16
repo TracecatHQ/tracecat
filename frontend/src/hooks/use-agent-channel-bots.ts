@@ -1,18 +1,29 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   type AgentChannelBotCreate,
   type AgentChannelBotRead,
   type AgentChannelBotUpdate,
+  type AgentChannelRouteRead,
+  type AgentChannelRouteSet,
+  agentChannelBotsAddBotRoute,
   agentChannelBotsCreateBot,
+  agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
+  agentChannelBotsInstallPlatformBot,
+  agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
+  agentChannelBotsListPlatformApps,
+  agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   type ChannelBotInstall,
   type ChannelBotInstallResult,
+  type ChannelBotPlatformApp,
+  type ChannelBotPlatformInstall,
   type ChannelBotProvider,
 } from "@/client"
 import {
+  CHANNEL_BOT_ERROR_PARAM,
   CHANNEL_BOT_INSTALL_PARAM,
   CHANNEL_BOT_MESSAGE_PARAM,
   CHANNEL_BOT_PROVIDER_NAMES,
@@ -27,6 +38,7 @@ import {
 } from "@/lib/errors"
 import {
   type MutateOptions,
+  useInfiniteQuery,
   useIsMutating,
   useMutation,
   useQuery,
@@ -36,11 +48,16 @@ import {
 const CHANNEL_BOTS_QUERY_KEY = "agent-channel-bots"
 const INSTALL_MESSAGE_LIMIT = 200
 
+/** What an OAuth return needs the Channels tab to show beside the cards. */
+export type ChannelBotInstallFailure = "slack_workspace_claimed"
+
 /**
- * Toasts the result of an OAuth install the browser just returned from. The
- * parameters are untrusted, so titles are fixed and the message is capped.
+ * Toasts the result of an OAuth install the browser just returned from, except
+ * a failure the tab explains inline. The parameters are untrusted, so titles are
+ * fixed and the message is capped.
  */
-export function useChannelBotInstallResult(): void {
+export function useChannelBotInstallResult(): ChannelBotInstallFailure | null {
+  const [failure, setFailure] = useState<ChannelBotInstallFailure | null>(null)
   useEffect(() => {
     const url = new URL(window.location.href)
     const result = url.searchParams.get(CHANNEL_BOT_INSTALL_PARAM)
@@ -56,16 +73,22 @@ export function useChannelBotInstallResult(): void {
     const message = (url.searchParams.get(CHANNEL_BOT_MESSAGE_PARAM) ?? "")
       .trim()
       .slice(0, INSTALL_MESSAGE_LIMIT)
+    // Only a platform install sets this code, so the claimed workspace is Slack's.
+    if (url.searchParams.get(CHANNEL_BOT_ERROR_PARAM) === "workspace_claimed") {
+      setFailure("slack_workspace_claimed")
+      return
+    }
     toast({
       title: "Could not connect the Slack bot",
       description: message || "Please try again.",
       variant: "destructive",
     })
   }, [])
+  return failure
 }
 
 /**
- * Lists an agent preset's channel bots, every provider in one call. Never
+ * Lists an agent preset's custom-app bots, every provider in one call. Never
  * requests without the preview entitlement, which the API requires.
  */
 export function useAgentChannelBots(
@@ -84,6 +107,7 @@ export function useAgentChannelBots(
       const page = await agentChannelBotsListBots({
         workspaceId,
         agentPresetId,
+        appOwner: "workspace",
         limit: 100,
       })
       return page.items
@@ -94,6 +118,129 @@ export function useAgentChannelBots(
   })
 
   return { bots, botsIsLoading, botsError }
+}
+
+/** The providers whose app this deployment registers, installable in one click. */
+export function useChannelBotPlatformApps(workspaceId: string) {
+  const { hasEntitlement } = useEntitlements()
+  const {
+    data: platformApps,
+    isLoading: platformAppsIsLoading,
+    error: platformAppsError,
+  } = useQuery<Array<ChannelBotPlatformApp>, TracecatApiError>({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform-apps"],
+    queryFn: async () =>
+      await agentChannelBotsListPlatformApps({ workspaceId }),
+    enabled: hasEntitlement("agent_channels_preview"),
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { platformApps, platformAppsIsLoading, platformAppsError }
+}
+
+/**
+ * Whether the workspace can manage Tracecat for Slack: the preview entitlement
+ * and a Slack app the deployment registers.
+ */
+export function useSlackPlatformAppAvailable(workspaceId: string) {
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const { platformApps, platformAppsIsLoading, platformAppsError } =
+    useChannelBotPlatformApps(workspaceId)
+  return {
+    slackPlatformAvailable:
+      hasEntitlement("agent_channels_preview") &&
+      platformApps?.some((app) => app.provider === "slack") === true,
+    slackPlatformIsLoading: entitlementsLoading || platformAppsIsLoading,
+    slackPlatformError: platformAppsError,
+  }
+}
+
+/** The workspace's installs of the platform app for `provider`, any agent. */
+export function usePlatformChannelBots(
+  workspaceId: string,
+  provider: ChannelBotProvider,
+  enabled: boolean
+) {
+  const { data: installs, error: installsError } = useQuery<
+    Array<AgentChannelBotRead>,
+    TracecatApiError
+  >({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform", provider],
+    queryFn: async () => {
+      const page = await agentChannelBotsListBots({
+        workspaceId,
+        provider,
+        appOwner: "platform",
+        limit: 100,
+      })
+      return page.items
+    },
+    enabled,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { installs, installsError }
+}
+
+/**
+ * Which agent answers new threads in each channel of a platform install, a page
+ * at a time in channel ID order.
+ */
+export function useChannelBotRoutes(workspaceId: string, botId: string) {
+  const query = useInfiniteQuery({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes"],
+    queryFn: async ({ pageParam }) =>
+      await agentChannelBotsListBotRoutes({
+        workspaceId,
+        botId,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  const routes: AgentChannelRouteRead[] | undefined = query.data?.pages.flatMap(
+    (page) => page.items
+  )
+  return {
+    routes,
+    routesIsLoading: query.isLoading,
+    routesError: query.error as TracecatApiError | null,
+    hasMoreRoutes: query.hasNextPage,
+    loadingMoreRoutes: query.isFetchingNextPage,
+    loadMoreRoutes: () => void query.fetchNextPage(),
+  }
+}
+
+/** Whether any channel of a platform install routes to the agent, asked of the server. */
+export function useChannelRoutesToAgent(
+  workspaceId: string,
+  botId: string,
+  agentPresetId: string
+) {
+  const { data: routed } = useQuery<boolean, TracecatApiError>({
+    queryKey: [
+      CHANNEL_BOTS_QUERY_KEY,
+      workspaceId,
+      botId,
+      "routes",
+      agentPresetId,
+    ],
+    queryFn: async () => {
+      const page = await agentChannelBotsListBotRoutes({
+        workspaceId,
+        botId,
+        agentPresetId,
+        limit: 1,
+      })
+      return page.items.length > 0
+    },
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { routed: routed === true }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */
@@ -107,7 +254,8 @@ function useChannelBotMutation<TData, TVariables>(
   workspaceId: string,
   provider: ChannelBotProvider,
   mutationFn: (variables: TVariables) => Promise<TData>,
-  verb: string
+  verb: string,
+  conflict?: string
 ) {
   const queryClient = useQueryClient()
   const {
@@ -127,7 +275,10 @@ function useChannelBotMutation<TData, TVariables>(
     onError: (error) => {
       toast({
         title: `Could not ${verb} the ${CHANNEL_BOT_PROVIDER_NAMES[provider]} bot`,
-        description: getApiErrorDetail(error) ?? "Please try again.",
+        description:
+          (error.status === 409 ? conflict : undefined) ??
+          getApiErrorDetail(error) ??
+          "Please try again.",
         variant: "destructive",
       })
     },
@@ -183,6 +334,22 @@ export function useInstallAgentChannelBot(
   return { installBot, installBotIsPending }
 }
 
+/** Installs the platform app, or reconnects an install of it. */
+export function useInstallPlatformChannelBot(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: installPlatformBot, isPending: installPlatformBotIsPending } =
+    useChannelBotMutation<ChannelBotInstallResult, ChannelBotPlatformInstall>(
+      workspaceId,
+      provider,
+      async (requestBody) =>
+        await agentChannelBotsInstallPlatformBot({ workspaceId, requestBody }),
+      "connect"
+    )
+  return { installPlatformBot, installPlatformBotIsPending }
+}
+
 /** Pauses, resumes or replaces the credentials of a bot. */
 export function useUpdateAgentChannelBot(
   workspaceId: string,
@@ -218,4 +385,72 @@ export function useDisconnectAgentChannelBot(
     "disconnect"
   )
   return { disconnectBot }
+}
+
+/** Routes a channel that has no route yet; the API refuses one that has. */
+export function useAddChannelBotRoute(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: addRoute } = useChannelBotMutation(
+    workspaceId,
+    provider,
+    async ({
+      botId,
+      requestBody,
+    }: {
+      botId: string
+      requestBody: AgentChannelRouteSet
+    }) =>
+      await agentChannelBotsAddBotRoute({ workspaceId, botId, requestBody }),
+    "route a channel for",
+    "This channel is already routed. Change its agent in the list instead."
+  )
+  return { addRoute }
+}
+
+/** Changes the agent a routed channel's new threads go to. */
+export function useSetChannelBotRoute(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: setRoute } = useChannelBotMutation(
+    workspaceId,
+    provider,
+    async ({
+      botId,
+      requestBody,
+    }: {
+      botId: string
+      requestBody: AgentChannelRouteSet
+    }) =>
+      await agentChannelBotsSetBotRoute({ workspaceId, botId, requestBody }),
+    "route a channel for"
+  )
+  return { setRoute }
+}
+
+/** Sends a channel's new threads back to the install's default agent. */
+export function useDeleteChannelBotRoute(
+  workspaceId: string,
+  provider: ChannelBotProvider
+) {
+  const { mutate: deleteRoute } = useChannelBotMutation(
+    workspaceId,
+    provider,
+    async ({
+      botId,
+      providerChannelId,
+    }: {
+      botId: string
+      providerChannelId: string
+    }) =>
+      await agentChannelBotsDeleteBotRoute({
+        workspaceId,
+        botId,
+        providerChannelId,
+      }),
+    "remove a channel route from"
+  )
+  return { deleteRoute }
 }

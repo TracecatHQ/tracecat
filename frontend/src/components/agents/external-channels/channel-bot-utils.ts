@@ -74,12 +74,15 @@ export function channelBotDetails<P extends ChannelBotProvider>(
 /** Query parameters the OAuth callback adds to the return URL. */
 export const CHANNEL_BOT_INSTALL_PARAM = "channel_bot_install"
 export const CHANNEL_BOT_MESSAGE_PARAM = "channel_bot_message"
+/** A stable code naming why an install failed, beside the readable message. */
+export const CHANNEL_BOT_ERROR_PARAM = "channel_bot_error"
 
 /** The current page, without a previous install's result parameters. */
 export function channelBotReturnUrl(): string {
   const url = new URL(window.location.href)
   url.searchParams.delete(CHANNEL_BOT_INSTALL_PARAM)
   url.searchParams.delete(CHANNEL_BOT_MESSAGE_PARAM)
+  url.searchParams.delete(CHANNEL_BOT_ERROR_PARAM)
   return url.toString()
 }
 
@@ -115,6 +118,17 @@ export function pickChannelBot(
     latestUpdated(bots.filter((bot) => bot.status === "disconnected")) ??
     latestUpdated(bots)
   )
+}
+
+/** The workspace's platform install and its state; only a finished install records the app. */
+export function platformInstallState(
+  installs: Array<AgentChannelBotRead> | undefined
+): { install: AgentChannelBotRead | null; state: ChannelBotState } {
+  const install = installs ? pickChannelBot(installs) : null
+  return {
+    install,
+    state: channelBotState(install, install?.provider_app_id != null),
+  }
 }
 
 /** `value` when it parses as an https URL, else null. */

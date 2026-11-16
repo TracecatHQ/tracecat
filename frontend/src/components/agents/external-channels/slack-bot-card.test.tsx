@@ -47,12 +47,21 @@ async function openDialog(action: "Connect" | "Manage"): Promise<void> {
   await openProvider("Custom Slack app", action)
 }
 
+// A first install asks for credentials once the app exists in Slack.
+async function skipCreateStep(): Promise<void> {
+  const skip = screen.queryByRole("button", { name: "I already have the app" })
+  if (skip) {
+    await userEvent.click(skip)
+  }
+}
+
 async function fillInstallFields(appToken?: string): Promise<void> {
+  await skipCreateStep()
   await userEvent.type(screen.getByLabelText("Client ID"), "123.456")
   await userEvent.type(screen.getByLabelText("Client secret"), "cs")
   await userEvent.type(screen.getByLabelText("Signing secret"), "ss")
   if (appToken) {
-    await userEvent.type(screen.getByLabelText("App-level token"), appToken)
+    await userEvent.type(screen.getByLabelText("Access token"), appToken)
   }
 }
 
@@ -73,7 +82,7 @@ describe("SlackBotCard", () => {
       workspaceId: "workspace-1",
       requestBody: { agent_preset_id: "preset-1", provider: "slack" },
     })
-    expect(await screen.findByLabelText("Endpoint URL")).toHaveValue(
+    expect(await screen.findByLabelText("Request URL")).toHaveValue(
       SLACK_ENDPOINT
     )
     expect(screen.getByLabelText("OAuth redirect URL")).toHaveValue(
@@ -86,11 +95,12 @@ describe("SlackBotCard", () => {
     serveBots([reservedSlackBot()])
     renderPanel()
     await openDialog("Connect")
+    await skipCreateStep()
     expect(screen.getByLabelText("Client secret")).toHaveAttribute(
       "autocomplete",
       "new-password"
     )
-    expect(screen.queryByLabelText("App-level token")).toBeNull()
+    expect(screen.queryByLabelText("Access token")).toBeNull()
   })
 
   it("installs an HTTP bot with the exact body and goes to Slack", async () => {
@@ -180,7 +190,7 @@ describe("SlackBotCard", () => {
     })
     renderPanel()
     await openDialog("Connect")
-    expect(screen.getByLabelText("Endpoint URL")).toHaveValue(SLACK_ENDPOINT)
+    expect(screen.getByLabelText("Request URL")).toHaveValue(SLACK_ENDPOINT)
     await fillInstallFields()
     await submit("Connect to Slack")
 
@@ -320,7 +330,7 @@ describe("SlackBotCard", () => {
     serveBots([slackBot({ endpoint_url: url })])
     renderPanel()
     await openDialog("Manage")
-    expect(screen.getByLabelText("Endpoint URL")).toHaveAccessibleDescription(
+    expect(screen.getByLabelText("Request URL")).toHaveAccessibleDescription(
       /Slack can't reach this address/
     )
   })
@@ -330,7 +340,7 @@ describe("SlackBotCard", () => {
     renderPanel()
     await openDialog("Manage")
     expect(
-      screen.getByLabelText("Endpoint URL")
+      screen.getByLabelText("Request URL")
     ).not.toHaveAccessibleDescription(/reach/)
   })
 
@@ -350,6 +360,92 @@ describe("SlackBotCard", () => {
   })
 })
 
+// The manifest fields these tests read.
+type SlackManifestFields = {
+  display_information: { name: string }
+  oauth_config: { redirect_urls: string[] }
+  settings: {
+    socket_mode_enabled: boolean
+    token_rotation_enabled: boolean
+    app_level_token_rotation_enabled?: boolean
+    interactivity: { request_url?: string }
+    event_subscriptions: { request_url?: string }
+  }
+}
+
+describe("Creating the custom Slack app", () => {
+  function manifestOf(link: HTMLElement): SlackManifestFields {
+    const url = new URL(link.getAttribute("href") ?? "")
+    expect(url.origin + url.pathname).toBe("https://api.slack.com/apps")
+    expect(url.searchParams.get("new_app")).toBe("1")
+    return JSON.parse(url.searchParams.get("manifest_json") ?? "")
+  }
+
+  it("names the bot, then opens Slack with its manifest filled in", async () => {
+    serveBots([reservedSlackBot()])
+    renderPanel()
+    await openDialog("Connect")
+
+    expect(screen.queryByLabelText("Client ID")).toBeNull()
+    const name = screen.getByLabelText("Bot name")
+    expect(name).toHaveValue("Triage")
+    await userEvent.clear(name)
+    await userEvent.type(name, "SOC bot")
+    const link = screen.getByRole("link", { name: "Create in Slack" })
+    const manifest = manifestOf(link)
+    expect(manifest.display_information.name).toBe("SOC bot")
+    expect(manifest.settings.event_subscriptions.request_url).toBe(
+      SLACK_ENDPOINT
+    )
+    expect(manifest.settings.interactivity.request_url).toBe(SLACK_ENDPOINT)
+    expect(manifest.settings.token_rotation_enabled).toBe(true)
+    expect(manifest.oauth_config.redirect_urls).toEqual([SLACK_REDIRECT])
+
+    await userEvent.click(link)
+    expect(screen.getByText("Slack app ready")).toBeInTheDocument()
+    expect(screen.getByLabelText("Client ID")).toHaveAccessibleDescription(
+      "App Credentials → Client ID"
+    )
+  })
+
+  it("fills in Socket Mode for a Socket Mode bot", async () => {
+    serveBots([
+      reservedSlackBot({ endpoint_url: null }, { transport: "socket" }),
+    ])
+    renderPanel()
+    await openDialog("Connect")
+
+    const manifest = manifestOf(
+      screen.getByRole("link", { name: "Create in Slack" })
+    )
+    expect(manifest.settings.socket_mode_enabled).toBe(true)
+    expect(manifest.settings.app_level_token_rotation_enabled).toBe(true)
+    expect(manifest.settings.event_subscriptions.request_url).toBeUndefined()
+  })
+
+  it("keeps the request and redirect URLs in a collapsed manual section", async () => {
+    serveBots([reservedSlackBot()])
+    renderPanel()
+    await openDialog("Connect")
+
+    const summary = screen.getByText("Create the app by hand instead")
+    expect(summary.closest("details")).not.toHaveAttribute("open")
+    expect(screen.getByLabelText("Request URL")).not.toBeVisible()
+    expect(screen.getByLabelText("OAuth redirect URL")).not.toBeVisible()
+    await userEvent.click(summary)
+    expect(screen.getByLabelText("Request URL")).toBeVisible()
+  })
+
+  it("says how to invite the bot once it is active", async () => {
+    serveBots([slackBot()])
+    renderPanel()
+    expect(await screen.findByText(/with the bot's name/)).toBeInTheDocument()
+    expect(
+      screen.getByText("/invite", { selector: "code" })
+    ).toBeInTheDocument()
+  })
+})
+
 describe("SlackBotCard over Socket Mode", () => {
   // A Socket Mode bot has no endpoint URL, reserved or installed.
   const noEndpoint = { endpoint_url: null }
@@ -360,14 +456,14 @@ describe("SlackBotCard over Socket Mode", () => {
     renderPanel()
     await openDialog("Connect")
 
-    expect(screen.queryByLabelText("Endpoint URL")).toBeNull()
+    expect(screen.queryByLabelText("Request URL")).toBeNull()
     expect(
       screen.getByText(/receives Slack events over Socket Mode/)
     ).toBeInTheDocument()
     await fillInstallFields()
     const connect = screen.getByRole("button", { name: "Connect to Slack" })
     expect(connect).toBeDisabled()
-    await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xapp-1")
     expect(connect).toBeEnabled()
   })
 
@@ -408,10 +504,7 @@ describe("SlackBotCard over Socket Mode", () => {
     await fillInstallFields("xoxe.xapp-1")
     const connect = screen.getByRole("button", { name: "Connect to Slack" })
     expect(connect).toBeDisabled()
-    await userEvent.type(
-      screen.getByLabelText("App-level refresh token"),
-      "xoxe-1"
-    )
+    await userEvent.type(screen.getByLabelText("Refresh token"), "xoxe-1")
     await submit("Connect to Slack")
 
     expect(api.installBot).toHaveBeenCalledWith({
@@ -423,21 +516,26 @@ describe("SlackBotCard over Socket Mode", () => {
     })
   })
 
-  it("clears the refresh token when the app-level token changes", async () => {
+  it("asks for both rotating tokens up front, in either order", async () => {
     serveBots([reservedSlackBot(noEndpoint, socket)])
+    api.installBot.mockResolvedValue({
+      bot: reservedSlackBot(noEndpoint, socket),
+      authorization_url: AUTHORIZE_URL,
+    })
     renderPanel()
     await openDialog("Connect")
-    await fillInstallFields("xoxe.xapp-1")
-    await userEvent.type(
-      screen.getByLabelText("App-level refresh token"),
-      "xoxe-1"
-    )
-    await userEvent.type(screen.getByLabelText("App-level token"), "2")
+    await fillInstallFields()
+    await userEvent.type(screen.getByLabelText("Refresh token"), "xoxe-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xoxe.xapp-1")
+    await submit("Connect to Slack")
 
-    expect(screen.getByLabelText("App-level refresh token")).toHaveValue("")
-    expect(
-      screen.getByRole("button", { name: "Connect to Slack" })
-    ).toBeDisabled()
+    expect(api.installBot).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      requestBody: expect.objectContaining({
+        app_token: "xoxe.xapp-1",
+        app_refresh_token: "xoxe-1",
+      }),
+    })
   })
 
   it("asks an installed bot for the token only when reconnecting", async () => {
@@ -445,10 +543,10 @@ describe("SlackBotCard over Socket Mode", () => {
     renderPanel()
     await openDialog("Manage")
 
-    expect(screen.queryByLabelText("App-level token")).toBeNull()
+    expect(screen.queryByLabelText("Access token")).toBeNull()
     expect(screen.getByText(/replaces the app-level token/)).toBeInTheDocument()
     await submit("Reconnect")
-    expect(screen.getByLabelText("App-level token")).toBeInTheDocument()
+    expect(screen.getByLabelText("Access token")).toBeInTheDocument()
   })
 })
 
@@ -463,7 +561,7 @@ describe("Reconnecting a bot that needs it", () => {
 
   it("asks an HTTP bot for no app-level token", async () => {
     await startReconnect("http")
-    expect(screen.queryByLabelText("App-level token")).toBeNull()
+    expect(screen.queryByLabelText("Access token")).toBeNull()
     expect(
       screen.getByRole("button", { name: "Reconnect to Slack" })
     ).toBeEnabled()
@@ -473,7 +571,7 @@ describe("Reconnecting a bot that needs it", () => {
     await startReconnect("socket")
     const reconnect = screen.getByRole("button", { name: "Reconnect to Slack" })
     expect(reconnect).toBeDisabled()
-    await userEvent.type(screen.getByLabelText("App-level token"), "xapp-1")
+    await userEvent.type(screen.getByLabelText("Access token"), "xapp-1")
     expect(reconnect).toBeEnabled()
   })
 })

@@ -1549,9 +1549,14 @@ export const $AgentChannelBotRead = {
       type: "string",
       format: "uuid",
       title: "Agent Preset Id",
+      description:
+        "The agent that answers; a platform install's default agent.",
     },
     provider: {
       $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    app_owner: {
+      $ref: "#/components/schemas/ChannelBotAppOwner",
     },
     status: {
       $ref: "#/components/schemas/ChannelBotStatus",
@@ -1611,6 +1616,7 @@ export const $AgentChannelBotRead = {
     "workspace_id",
     "agent_preset_id",
     "provider",
+    "app_owner",
     "status",
     "provider_tenant_id",
     "provider_app_id",
@@ -1663,6 +1669,67 @@ export const $AgentChannelBotUpdate = {
   additionalProperties: false,
   type: "object",
   title: "AgentChannelBotUpdate",
+} as const
+
+export const $AgentChannelRouteRead = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "bot_id",
+    "provider_channel_id",
+    "agent_preset_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentChannelRouteRead",
+} as const
+
+export const $AgentChannelRouteSet = {
+  properties: {
+    provider_channel_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^\\S+$",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider_channel_id", "agent_preset_id"],
+  title: "AgentChannelRouteSet",
+  description:
+    "Answer new threads in one channel with another agent than the default.",
 } as const
 
 export const $AgentChannelTokenCreate = {
@@ -13015,6 +13082,13 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelBotAppOwner = {
+  type: "string",
+  enum: ["workspace", "platform"],
+  title: "ChannelBotAppOwner",
+  description: "Who owns a bot's provider app.",
+} as const
+
 export const $ChannelBotCredentialsUpdate = {
   oneOf: [
     {
@@ -13079,6 +13153,93 @@ export const $ChannelBotInstallResult = {
   type: "object",
   required: ["bot", "authorization_url"],
   title: "ChannelBotInstallResult",
+} as const
+
+export const $ChannelBotPlatformApp = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "ChannelBotPlatformApp",
+  description:
+    "A provider app the deployment owns, which a workspace installs in one step.",
+} as const
+
+export const $ChannelBotPlatformAppSetup = {
+  properties: {
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+    request_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Url",
+    },
+  },
+  type: "object",
+  required: ["transport", "oauth_redirect_url", "request_url"],
+  title: "ChannelBotPlatformAppSetup",
+  description:
+    "What a platform admin pastes into the deployment's own provider app.",
+} as const
+
+export const $ChannelBotPlatformInstall = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description: "Platform install to reconnect. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "The install's default agent. Required without bot_id; with it, replaces it.",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider", "return_url"],
+  title: "ChannelBotPlatformInstall",
+  description:
+    "Install the platform app, which the deployment registers, over OAuth; or reconnect.",
 } as const
 
 export const $ChannelBotProvider = {
@@ -14511,6 +14672,69 @@ export const $CursorPaginatedResponse_AgentChannelBotRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentChannelBotRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelRouteRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelRouteRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelRouteRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {
@@ -36674,7 +36898,7 @@ export const $SlackBotInstall = {
     "return_url",
   ],
   title: "SlackBotInstall",
-  description: "Install a customer-owned Slack app over OAuth.",
+  description: "Install a workspace-owned Slack app over OAuth.",
 } as const
 
 export const $SlackChannelTokenConfig = {
@@ -36796,6 +37020,180 @@ export const $SlackOAuthStartResponse = {
   required: ["authorization_url", "token"],
   title: "SlackOAuthStartResponse",
   description: "Response schema for Slack OAuth start.",
+} as const
+
+export const $SlackPlatformAppRead = {
+  properties: {
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret_set: {
+      type: "boolean",
+      title: "Client Secret Set",
+    },
+    signing_secret_set: {
+      type: "boolean",
+      title: "Signing Secret Set",
+    },
+    app_token_set: {
+      type: "boolean",
+      title: "App Token Set",
+    },
+    icon_uploaded: {
+      type: "boolean",
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      type: "boolean",
+      title: "Distribution Enabled",
+    },
+    unreadable: {
+      type: "boolean",
+      title: "Unreadable",
+    },
+    setup: {
+      $ref: "#/components/schemas/ChannelBotPlatformAppSetup",
+    },
+  },
+  type: "object",
+  required: [
+    "app_id",
+    "client_id",
+    "client_secret_set",
+    "signing_secret_set",
+    "app_token_set",
+    "icon_uploaded",
+    "distribution_enabled",
+    "unreadable",
+    "setup",
+  ],
+  title: "SlackPlatformAppRead",
+  description:
+    "The registration without its secrets, and what to paste into Slack.",
+} as const
+
+export const $SlackPlatformAppSetupStepsUpdate = {
+  properties: {
+    icon_uploaded: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Distribution Enabled",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "SlackPlatformAppSetupStepsUpdate",
+  description:
+    "Mark the Slack-only setup steps done or not done; an omitted step keeps its value.",
+} as const
+
+export const $SlackPlatformAppUpdate = {
+  properties: {
+    app_id: {
+      type: "string",
+      minLength: 1,
+      title: "App Id",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^(xoxe\\.)?xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.",
+    },
+    app_refresh_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xoxe-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Refresh Token",
+      description:
+        "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["app_id", "client_id"],
+  title: "SlackPlatformAppUpdate",
+  description: `Register or change the app. An omitted secret keeps its stored value while the
+app ID stays the same.`,
 } as const
 
 export const $SourceDocumentUIPart = {

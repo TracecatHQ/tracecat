@@ -12,10 +12,16 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotCreate,
     AgentChannelBotRead,
     AgentChannelBotUpdate,
+    AgentChannelRouteRead,
+    AgentChannelRouteSet,
+    ChannelBotAppOwner,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
+    ChannelBotPlatformApp,
+    ChannelBotPlatformAppSetup,
+    ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
 from tracecat.api.extensions import load_api_extensions
@@ -24,8 +30,9 @@ from tracecat.pagination import CursorPaginatedResponse, PageParams
 
 
 class ChannelBotAdmin(Protocol):
-    """Workspace-scoped by `role` except `complete_oauth`. Raise `TracecatNotFoundError`
-    for an unknown bot or preset, `TracecatValidationError` for a refused request.
+    """Workspace-scoped by `role` except `complete_oauth` and the deployment-wide
+    `platform_app_setup`. Raise `TracecatNotFoundError` for an unknown bot or preset,
+    `TracecatValidationError` for a refused request.
     """
 
     async def list_bots(
@@ -35,6 +42,7 @@ class ChannelBotAdmin(Protocol):
         *,
         agent_preset_id: uuid.UUID | None,
         provider: ChannelBotProvider | None,
+        app_owner: ChannelBotAppOwner | None,
         page: PageParams,
     ) -> CursorPaginatedResponse[AgentChannelBotRead]:
         """Return a page with ``has_more`` and ``has_previous`` set from its cursors.
@@ -67,10 +75,73 @@ class ChannelBotAdmin(Protocol):
         self, session: AsyncSession, role: Role, params: ChannelBotInstall
     ) -> ChannelBotInstallResult: ...
 
+    async def list_platform_apps(
+        self, session: AsyncSession, role: Role
+    ) -> list[ChannelBotPlatformApp]:
+        """The deployment's own provider apps; empty when it registers none."""
+        ...
+
+    def platform_app_setup(
+        self, provider: ChannelBotProvider
+    ) -> ChannelBotPlatformAppSetup:
+        """How the deployment's own app for `provider` reaches it."""
+        ...
+
+    async def install_platform(
+        self, session: AsyncSession, role: Role, params: ChannelBotPlatformInstall
+    ) -> ChannelBotInstallResult: ...
+
+    async def list_routes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        agent_preset_id: uuid.UUID | None,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[AgentChannelRouteRead]:
+        """A page of the install's routes, only those to `agent_preset_id` when given,
+        ordered by `provider_channel_id` ascending.
+
+        Raise ``PaginationError`` for a malformed or foreign cursor.
+        """
+        ...
+
+    async def add_route(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        params: AgentChannelRouteSet,
+    ) -> AgentChannelRouteRead:
+        """Raise `TracecatConflictError` when the channel already has a route."""
+        ...
+
+    async def set_route(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        params: AgentChannelRouteSet,
+    ) -> AgentChannelRouteRead: ...
+
+    async def delete_route(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        provider_channel_id: str,
+    ) -> None: ...
+
     async def complete_oauth(
-        self, provider: ChannelBotProvider, callback: ChannelBotOAuthCallback
+        self,
+        provider: ChannelBotProvider,
+        callback: ChannelBotOAuthCallback,
+        *,
+        user_id: uuid.UUID | None,
     ) -> ChannelBotOAuthResult:
         """Public: the state carries the workspace and must be issued for `provider`.
+        `user_id` is the browser's signed-in user, if any.
 
         Return a failed result for a bad request instead of raising.
         """

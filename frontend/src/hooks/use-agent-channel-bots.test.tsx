@@ -56,6 +56,7 @@ describe("useAgentChannelBots", () => {
     expect(api.listBots).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       agentPresetId: "preset-1",
+      appOwner: "workspace",
       limit: 100,
     })
   })

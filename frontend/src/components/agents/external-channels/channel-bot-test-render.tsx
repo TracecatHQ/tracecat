@@ -7,6 +7,7 @@ import {
   PRESET,
   WORKSPACE_ID,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
+import { WorkspaceChannelsView } from "@/components/agents/external-channels/workspace-channels-view"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -20,9 +21,9 @@ function ChannelsTab({ preset }: { preset: AgentPresetRead | null }) {
   ) : null
 }
 
-/** Renders the Channels tab with a fresh cache. */
-export function renderPanel(
-  preset: AgentPresetRead | null = PRESET
+/** Renders `ui` with a fresh cache. */
+export function renderWithClient(
+  ui: ReactNode
 ): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -34,8 +35,22 @@ export function renderPanel(
       </QueryClientProvider>
     )
   }
-  const view = render(<ChannelsTab preset={preset} />, { wrapper: Wrapper })
+  const view = render(<>{ui}</>, { wrapper: Wrapper })
   return { ...view, client }
+}
+
+/** Renders the Channels tab with a fresh cache. */
+export function renderPanel(
+  preset: AgentPresetRead | null = PRESET
+): ReturnType<typeof render> & { client: QueryClient } {
+  return renderWithClient(<ChannelsTab preset={preset} />)
+}
+
+/** Renders the workspace's Channels page with a fresh cache. */
+export function renderChannelsPage(): ReturnType<typeof render> & {
+  client: QueryClient
+} {
+  return renderWithClient(<WorkspaceChannelsView workspaceId={WORKSPACE_ID} />)
 }
 
 /** A provider row's title, which is also its accessible name. */
