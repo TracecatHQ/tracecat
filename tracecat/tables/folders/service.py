@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -17,9 +17,11 @@ from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Table, TableFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.managed_resources.guard import (
+    bypass_active,
     ensure_none_managed,
     ensure_unmanaged,
     hold_for_customer_write,
+    managed_local_ids,
 )
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -337,6 +339,35 @@ class TableFolderService(BaseWorkspaceService):
             has_previous=has_previous,
         )
 
+    @require_scope("table:read")
+    async def get_table_names(
+        self, table_ids: Collection[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Return names of the given tables that exist in this workspace."""
+        if not table_ids:
+            return {}
+        result = await self.session.execute(
+            select(Table.id, Table.name).where(
+                Table.workspace_id == self.workspace_id,
+                Table.id.in_(table_ids),
+            )
+        )
+        return dict(result.tuples().all())
+
+    @require_scope("table:read")
+    async def get_managed_table_ids(
+        self, table_ids: Collection[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given tables are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.TABLE,
+            local_ids=table_ids,
+        )
+
     @require_scope("table:update")
     async def move_table(
         self, table_id: uuid.UUID, folder: TableFolder | None = None
@@ -580,13 +611,17 @@ class TableFolderService(BaseWorkspaceService):
 
     def _directory_folders_statement(self, path: str) -> sa.Select[tuple[TableFolder]]:
         path_depth = path.count("/") + 1
-        return select(TableFolder).where(
-            TableFolder.workspace_id == self.workspace_id,
-            TableFolder.path.startswith(path, autoescape=True),
-            TableFolder.path != path,
-            func.length(TableFolder.path)
-            - func.length(func.replace(TableFolder.path, "/", ""))
-            == path_depth,
+        return (
+            select(TableFolder)
+            .where(
+                TableFolder.workspace_id == self.workspace_id,
+                TableFolder.path.startswith(path, autoescape=True),
+                TableFolder.path != path,
+                func.length(TableFolder.path)
+                - func.length(func.replace(TableFolder.path, "/", ""))
+                == path_depth,
+            )
+            .order_by(TableFolder.path)
         )
 
     async def _build_directory_items(

@@ -20,6 +20,11 @@ own embedded collection truncation behavior below.
 - `edit_workflow(workspace_id, workflow_id, base_revision, patch_ops, validate_only=False)`
 - `list_workflows(workspace_id, status=None, limit=50, search=None, cursor=None)`
 - `list_workflow_tree(workspace_id, path="/", depth=1, include_workflows=True, limit=20, cursor=None)`
+- `create_workflow_folder(workspace_id, path, parents=False)`
+- `rename_workflow_folder(workspace_id, path, new_name)`
+- `move_workflow_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_workflow_folder(workspace_id, path, recursive=False)`
+- `move_workflows(workspace_id, workflow_ids, destination_path="/", dry_run=False)`
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
@@ -206,6 +211,12 @@ Notes:
 - `create_table(workspace_id, name, columns_json=None)`
 - `get_table(workspace_id, table_id)`
 - `update_table(workspace_id, table_id, name=None)`
+- `list_table_tree(workspace_id, path="/", depth=1, include_tables=True, limit=20, cursor=None)`
+- `create_table_folder(workspace_id, path, parents=False)`
+- `rename_table_folder(workspace_id, path, new_name)`
+- `move_table_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_table_folder(workspace_id, path, recursive=False)`
+- `move_tables(workspace_id, table_ids, destination_path="/", dry_run=False)`
 - `create_column(workspace_id, table_id, column)`
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
 - `insert_rows(workspace_id, table_id, rows_json, upsert=False)`
@@ -256,6 +267,12 @@ Notes:
 - `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, clear_output_type=False, actions=None, namespaces=None, tool_approvals=None, tool_tunnels=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None, subagents=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
+- `list_agent_tree(workspace_id, path="/", depth=1, include_presets=True, limit=20, cursor=None)`
+- `create_agent_folder(workspace_id, path, parents=False)`
+- `rename_agent_folder(workspace_id, path, new_name)`
+- `move_agent_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_agent_folder(workspace_id, path, recursive=False)`
+- `move_agent_presets(workspace_id, preset_slugs, destination_path="/", dry_run=False)`
 - `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`
 
 `list_integrations` and `get_agent_preset_authoring_context` keep object
