@@ -3324,7 +3324,7 @@ class TestAgentPresetService:
             ("platform", "disconnected", None, False),
             # A disconnected install no longer answers, whatever it kept.
             ("platform", "disconnected", "T1", False),
-            ("customer", "active", "T1", False),
+            ("workspace", "active", "T1", False),
         ],
     )
     async def test_delete_preset_refuses_a_platform_installs_default_agent(
