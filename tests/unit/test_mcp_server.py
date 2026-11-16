@@ -5913,6 +5913,7 @@ class _TableMoveFolderService:
         self.moves: list[tuple[uuid.UUID, SimpleNamespace | None]] = []
         self.failing_ids: set[uuid.UUID] = set()
         self.managed_ids: set[uuid.UUID] = set()
+        self.expired: set[int] = set()
         self.session = SimpleNamespace(rollback=self._rollback)
         self.queries = 0
 
@@ -5925,7 +5926,11 @@ class _TableMoveFolderService:
         }
 
     async def _rollback(self) -> None:
-        return None
+        self.expired.update(id(folder) for folder in self.folders.values())
+        self.folders = {
+            path: SimpleNamespace(id=folder.id, path=folder.path)
+            for path, folder in self.folders.items()
+        }
 
     async def get_managed_table_ids(self, table_ids: Any) -> set[uuid.UUID]:
         return self.managed_ids & set(table_ids)
@@ -5936,6 +5941,8 @@ class _TableMoveFolderService:
     async def move_table(
         self, table_id: uuid.UUID, folder: SimpleNamespace | None
     ) -> None:
+        if folder is not None and id(folder) in self.expired:
+            raise RuntimeError("expired folder accessed after rollback")
         if table_id in self.failing_ids:
             raise TracecatValidationError("Table is managed")
         self.moves.append((table_id, folder))
@@ -6037,6 +6044,31 @@ async def test_move_tables_moves_to_root_and_continues_after_failure(
         {"table_id": str(failing_id), "error": "Table is managed"}
     ]
     assert service.moves == [(moved_id, None)]
+
+
+@pytest.mark.anyio
+async def test_move_tables_reloads_destination_after_failed_move(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    moved_id = uuid.uuid4()
+    failing_id = uuid.uuid4()
+    service = _TableMoveFolderService(
+        uuid.uuid4(), {moved_id: "assets", failing_id: "broken"}
+    )
+    service.failing_ids.add(failing_id)
+    _patch_table_move_service(monkeypatch, service)
+
+    result = _payload(
+        await _tool(mcp_server.move_tables)(
+            workspace_id=str(service.workspace_id),
+            table_ids=[str(failing_id), str(moved_id)],
+            destination_path="/soc/",
+        )
+    )
+
+    assert result["moved_tables"] == [{"table_id": str(moved_id), "name": "assets"}]
+    assert [error["table_id"] for error in result["errors"]] == [str(failing_id)]
+    assert service.moves == [(moved_id, service.folders["/soc/"])]
 
 
 @pytest.mark.anyio

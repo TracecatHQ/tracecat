@@ -5134,6 +5134,15 @@ async def move_workflows(
                     moved.append(workflow_info)
                 except Exception as e:
                     await folder_svc.session.rollback()
+                    if folder is not None:
+                        # Rollback expires the destination; reload it for later moves.
+                        folder = await folder_svc.get_folder_by_path(
+                            normalized_destination
+                        )
+                        if folder is None:
+                            raise ToolError(
+                                f"Folder {normalized_destination} not found"
+                            ) from None
                     errors.append(
                         WorkflowMoveError(
                             workflow_id=workflow_info.workflow_id,
@@ -9473,6 +9482,15 @@ async def move_tables(
                     moved.append(table_info)
                 except Exception as e:
                     await folder_svc.session.rollback()
+                    if folder is not None:
+                        # Rollback expires the destination; reload it for later moves.
+                        folder = await folder_svc.get_folder_by_path(
+                            normalized_destination
+                        )
+                        if folder is None:
+                            raise ToolError(
+                                f"Folder {normalized_destination} not found"
+                            ) from None
                     errors.append(
                         TableMoveError(
                             table_id=str(table_info.table_id),
@@ -10978,6 +10996,15 @@ async def move_agent_presets(
                     moved.append(preset_info)
                 except Exception as e:
                     await folder_svc.session.rollback()
+                    if folder is not None:
+                        # Rollback expires the destination; reload it for later moves.
+                        folder = await folder_svc.get_folder_by_path(
+                            normalized_destination
+                        )
+                        if folder is None:
+                            raise ToolError(
+                                f"Folder {normalized_destination} not found"
+                            ) from None
                     errors.append(
                         AgentPresetMoveError(
                             preset_slug=preset_info.preset_slug,
@@ -11376,6 +11403,15 @@ async def move_skills(
                         moved.append(skill_info)
                     except Exception as e:
                         await folder_svc.session.rollback()
+                        if folder is not None:
+                            # Rollback expires the destination; reload it for later moves.
+                            folder = await folder_svc.get_folder_by_path(
+                                normalized_destination
+                            )
+                            if folder is None:
+                                raise ToolError(
+                                    f"Folder {normalized_destination} not found"
+                                ) from None
                         errors.append(
                             SkillMoveError(
                                 skill_slug=skill_info.skill_slug,
