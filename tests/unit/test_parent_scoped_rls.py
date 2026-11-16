@@ -360,6 +360,31 @@ class TestParentScopedIsolation:
                 async with session.begin_nested():
                     await session.execute(text(statement), params(tenant_a, tenant_b))
 
+    async def test_dropdown_value_cannot_use_another_dropdowns_option(
+        self, session: AsyncSession, tenant_a: Tenant, enforced_db_role: str
+    ) -> None:
+        other = CaseDropdownDefinition(
+            workspace_id=tenant_a.workspace_id, name="Other", ref="other"
+        )
+        session.add(other)
+        await session.flush()
+        other_option = CaseDropdownOption(definition_id=other.id, label="X", ref="x")
+        session.add(other_option)
+        await session.flush()
+
+        async with _as_tenant(session, enforced_db_role, tenant_a):
+            with pytest.raises(
+                ProgrammingError, match="violates row-level security policy"
+            ):
+                async with session.begin_nested():
+                    await session.execute(
+                        text(
+                            "UPDATE case_dropdown_value SET option_id = :option "
+                            "WHERE case_id = :case"
+                        ),
+                        {"option": other_option.id, "case": tenant_a.case_id},
+                    )
+
 
 @pytest.mark.anyio
 class TestFlowsUnderEnforcedRls:

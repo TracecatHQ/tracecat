@@ -192,8 +192,9 @@ def _parent_in_workspace(table: str, column: str, parent: str) -> str:
 
 # Tables with no tenant column of their own. Each row belongs to the tenant
 # of the parent rows it references, so every policy requires all of them to
-# be in the current workspace (or organization). ownership has no foreign
-# keys: its owner_id is the owning organization.
+# be in the current workspace (or organization). A dropdown value's option
+# must belong to the value's own definition. ownership has no foreign keys:
+# its owner_id is the owning organization.
 PARENT_SCOPED_TABLE_CONDITIONS: dict[str, str] = {
     "case_attachment": f"""{_parent_in_workspace("case_attachment", "case_id", "case")}
                 AND {_parent_in_workspace("case_attachment", "file_id", "file")}""",
@@ -207,10 +208,8 @@ PARENT_SCOPED_TABLE_CONDITIONS: dict[str, str] = {
                     OR EXISTS (
                         SELECT 1
                         FROM case_dropdown_option AS parent
-                        JOIN case_dropdown_definition AS definition
-                          ON definition.id = parent.definition_id
                         WHERE parent.id = case_dropdown_value.option_id
-                          AND definition.workspace_id = {_CURRENT_WORKSPACE_ID}
+                          AND parent.definition_id = case_dropdown_value.definition_id
                     )
                 )""",
     "case_tag_link": f"""{_parent_in_workspace("case_tag_link", "case_id", "case")}
