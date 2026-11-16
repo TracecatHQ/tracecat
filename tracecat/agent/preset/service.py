@@ -20,7 +20,7 @@ from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.channel_bots.platform_app import installed_platform_bot
+from tracecat.agent.channel_bots.platform_app import is_live_platform_install
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -1075,7 +1075,7 @@ class AgentPresetService(BaseWorkspaceService):
             .where(
                 AgentChannelBot.workspace_id == self.workspace_id,
                 AgentChannelBot.agent_preset_id == preset_id,
-                installed_platform_bot(),
+                is_live_platform_install(),
             )
             .limit(1)
         )

@@ -15,7 +15,7 @@ from tracecat.agent.channel_bots.platform_app import (
     SlackPlatformApp,
     UnreadableSlackPlatformApp,
     delete_slack_platform_app,
-    installed_platform_bot,
+    is_live_platform_install,
     read_slack_platform_app,
     write_slack_platform_app,
 )
@@ -145,7 +145,7 @@ class SlackPlatformAppService(BasePlatformService):
             .select_from(AgentChannelBot)
             .where(
                 AgentChannelBot.provider == ChannelBotProvider.SLACK,
-                installed_platform_bot(),
+                is_live_platform_install(),
             )
         )
         if except_app_id is not None:

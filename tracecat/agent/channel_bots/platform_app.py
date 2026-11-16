@@ -47,7 +47,7 @@ class SlackPlatformApp(BaseModel):
     distribution_enabled: bool = False
 
 
-def installed_platform_bot() -> ColumnElement[bool]:
+def is_live_platform_install() -> ColumnElement[bool]:
     """A platform app install that holds a provider tenant and is not disconnected."""
     return and_(
         AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM,
