@@ -833,21 +833,29 @@ class WorkflowFolderService(BaseWorkspaceService):
         # For root path, get workflows with no folder_id
         if path == "/":
             # Get root-level folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                func.length(WorkflowFolder.path)
-                - func.length(func.replace(WorkflowFolder.path, "/", ""))
-                == 2,  # folders with exactly two slashes
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    func.length(WorkflowFolder.path)
+                    - func.length(func.replace(WorkflowFolder.path, "/", ""))
+                    == 2,  # folders with exactly two slashes
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()
         else:
             # Get direct child folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path.startswith(path, autoescape=True),
-                WorkflowFolder.path != path,
-                ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    WorkflowFolder.path.startswith(path, autoescape=True),
+                    WorkflowFolder.path != path,
+                    ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()
