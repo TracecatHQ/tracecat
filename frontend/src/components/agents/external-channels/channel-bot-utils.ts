@@ -55,6 +55,14 @@ export function channelName(channel: ChannelBotChannel): string {
     : channel.name
 }
 
+/** Orders channels by their name, after their team when the tenant spans several. */
+export function byChannelName(
+  a: ChannelBotChannel,
+  b: ChannelBotChannel
+): number {
+  return channelName(a).localeCompare(channelName(b))
+}
+
 /** Whether the API refused to list channels because the provider cannot. */
 export function isChannelListingNotSupported(error: unknown): boolean {
   return getErrorStatus(error) === 501

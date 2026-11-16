@@ -327,6 +327,13 @@ export function useChannelBotChannels(
   }
 }
 
+/** Whether channel bot reads may run: the API needs the preview and `agent:read`. */
+export function useChannelBotReadsAllowed(): boolean {
+  const { hasEntitlement } = useEntitlements()
+  const canReadAgents = useScopeCheck("agent:read") === true
+  return hasEntitlement("agent_channels_preview") && canReadAgents
+}
+
 /**
  * The channel a session's linked thread is in, when its bot's cached first page
  * of channels names it. Never requests without the preview entitlement and
@@ -336,9 +343,7 @@ export function useChannelThreadChannel(
   workspaceId: string,
   channelThread: InboxChannelThread
 ): ChannelBotChannel | undefined {
-  const { hasEntitlement } = useEntitlements()
-  const canReadAgents = useScopeCheck("agent:read") === true
-  const enabled = hasEntitlement("agent_channels_preview") && canReadAgents
+  const enabled = useChannelBotReadsAllowed()
   const botId = channelThread.bot_id
   const { channels } = useChannelBotChannels(workspaceId, botId, { enabled })
   // A skipped query still returns data cached before the gate closed.
@@ -399,9 +404,7 @@ function combineBotChannels(
 export function useAgentSlackPlacements(
   workspaceId: string
 ): Map<string, SlackPlacement[]> {
-  const { hasEntitlement } = useEntitlements()
-  const canReadAgents = useScopeCheck("agent:read") === true
-  const enabled = hasEntitlement("agent_channels_preview") && canReadAgents
+  const enabled = useChannelBotReadsAllowed()
   const { slackPlatformAvailable } = useSlackPlatformAppAvailable(workspaceId, {
     enabled,
   })

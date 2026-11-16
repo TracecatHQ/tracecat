@@ -4,7 +4,7 @@ import type {
   ChannelBotChannel,
 } from "@/client"
 import {
-  channelName,
+  byChannelName,
   isChannelListingNeedsReinstall,
 } from "@/components/agents/external-channels/channel-bot-utils"
 
@@ -27,14 +27,6 @@ export type SlackPlacement =
 export type BotChannels = {
   channels: ChannelBotChannel[] | undefined
   error: Error | null
-}
-
-/** Orders channels by their name, after their team when the tenant spans several. */
-export function byChannelName(
-  a: ChannelBotChannel,
-  b: ChannelBotChannel
-): number {
-  return channelName(a).localeCompare(channelName(b))
 }
 
 /**

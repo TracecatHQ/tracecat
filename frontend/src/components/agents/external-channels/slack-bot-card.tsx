@@ -19,6 +19,7 @@ import {
 } from "@/components/agents/external-channels/channel-bot-card"
 import { CredentialField } from "@/components/agents/external-channels/channel-bot-fields"
 import {
+  byChannelName,
   CHANNEL_BOT_STATES,
   type ChannelBotDetailsOf,
   type ChannelBotState,
@@ -46,7 +47,6 @@ import {
   useInstallAgentChannelBot,
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
-import { byChannelName } from "@/lib/agent-slack-placements"
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"
 const CHANNEL_SUMMARY_CAP = 2
