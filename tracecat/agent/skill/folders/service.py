@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -22,6 +22,12 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Skill, SkillFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_none_managed,
+    ensure_unmanaged,
+    managed_local_ids,
+)
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -30,6 +36,7 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagRead
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class SkillFolderErrorCode(StrEnum):
@@ -300,12 +307,32 @@ class SkillFolderService(BaseWorkspaceService):
             has_previous=has_previous,
         )
 
+    @require_scope("agent:read")
+    async def get_managed_skill_ids(
+        self, skill_ids: Collection[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given skills are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.SKILL,
+            local_ids=skill_ids,
+        )
+
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def move_skill(
         self, skill_id: uuid.UUID, folder: SkillFolder | None = None
     ) -> Skill:
         """Move a skill to a different folder."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.SKILL,
+            local_id=skill_id,
+        )
         statement = select(Skill).where(
             Skill.workspace_id == self.workspace_id,
             Skill.id == skill_id,
@@ -464,6 +491,21 @@ class SkillFolderService(BaseWorkspaceService):
             folder_ids = select(SkillFolder.id).where(
                 SkillFolder.workspace_id == self.workspace_id,
                 SkillFolder.path.startswith(folder.path, autoescape=True),
+            )
+            # Moving the subtree's skills to the root edits each one, so a
+            # managed skill anywhere in it blocks the delete.
+            await ensure_none_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.SKILL,
+                local_ids=list(
+                    await self.session.scalars(
+                        select(Skill.id).where(
+                            Skill.workspace_id == self.workspace_id,
+                            Skill.folder_id.in_(folder_ids),
+                        )
+                    )
+                ),
             )
             await self.session.execute(
                 sa.update(Skill)

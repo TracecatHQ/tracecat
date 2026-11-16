@@ -11588,6 +11588,18 @@ async def move_skills(
                             ),
                         )
                     )
+                managed_ids = await folder_svc.get_managed_skill_ids(
+                    {skill_id for skill_id, _ in validated}
+                )
+                if managed_ids:
+                    errors.extend(
+                        SkillMoveError(skill_slug=item.skill_slug, error=LOCKED_MESSAGE)
+                        for skill_id, item in validated
+                        if skill_id in managed_ids
+                    )
+                    validated = [
+                        entry for entry in validated if entry[0] not in managed_ids
+                    ]
                 if dry_run:
                     return SkillMoveResponse(
                         destination_path=normalized_destination,

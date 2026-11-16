@@ -6465,6 +6465,7 @@ async def test_move_skills_dry_run_resolves_slugs(
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     skill_id = uuid.uuid4()
+    locked_skill_id = uuid.uuid4()
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -6473,10 +6474,15 @@ async def test_move_skills_dry_run_resolves_slugs(
         async def get_folder_by_path(self, _path: str) -> SimpleNamespace:
             return SimpleNamespace(id=uuid.uuid4(), path="/soc/")
 
+        async def get_managed_skill_ids(self, skill_ids: Any) -> set[uuid.UUID]:
+            return {locked_skill_id} & set(skill_ids)
+
     class _SkillService:
         async def get_skill_by_identifier(self, slug: str) -> SimpleNamespace | None:
             if slug == "missing":
                 return None
+            if slug == "locked":
+                return SimpleNamespace(id=locked_skill_id, slug=slug, name="Locked")
             return SimpleNamespace(id=skill_id, slug=slug, name="Triage")
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -6494,16 +6500,21 @@ async def test_move_skills_dry_run_resolves_slugs(
     result = _payload(
         await _tool(mcp_server.move_skills)(
             workspace_id=str(workspace_id),
-            skill_slugs=["triage", "missing", " "],
+            skill_slugs=["triage", "missing", " ", "locked"],
             destination_path="/soc/",
             dry_run=True,
         )
     )
 
-    assert result["requested_count"] == 3
+    assert result["requested_count"] == 4
     assert result["movable_count"] == 1
     assert result["movable_skills"][0]["skill_slug"] == "triage"
-    assert [error["skill_slug"] for error in result["errors"]] == ["missing", " "]
+    assert [error["skill_slug"] for error in result["errors"]] == [
+        "missing",
+        " ",
+        "locked",
+    ]
+    assert result["errors"][-1]["error"] == mcp_server.LOCKED_MESSAGE
 
 
 def test_destructive_case_tools_removed():
