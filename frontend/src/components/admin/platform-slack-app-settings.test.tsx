@@ -133,8 +133,9 @@ describe("PlatformSlackAppSettings", () => {
       "https://api.example.com/agent/channel-bots/slack/oauth/callback",
     ])
     expect(manifest.oauth_config.scopes.bot).toEqual(
-      expect.arrayContaining(["channels:read", "groups:read", "channels:join"])
+      expect.arrayContaining(["channels:read", "groups:read"])
     )
+    expect(manifest.oauth_config.scopes.bot).not.toContain("channels:join")
   })
 
   it("registers a new app only once every credential is filled in", async () => {

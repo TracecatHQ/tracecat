@@ -21,8 +21,6 @@ export type ChannelConventions = {
   publicPrefix: string
   /** The command a member runs to bring the bot into a channel; null without one. */
   inviteCommand: string | null
-  /** Whether adding a route brings the bot into a public channel itself. */
-  joinsOnAdd: boolean
 }
 
 const SLACK_CHANNELS: ChannelConventions = {
@@ -32,7 +30,6 @@ const SLACK_CHANNELS: ChannelConventions = {
   idPlaceholder: "C0123456789",
   publicPrefix: "#",
   inviteCommand: "/invite @Tracecat",
-  joinsOnAdd: true,
 }
 
 // Opaque, case-sensitive IDs such as Teams' `19:…@thread.tacv2`.
@@ -42,7 +39,6 @@ const OPAQUE_CHANNELS: ChannelConventions = {
   idPlaceholder: "Channel ID",
   publicPrefix: "",
   inviteCommand: null,
-  joinsOnAdd: false,
 }
 
 export function channelConventions(

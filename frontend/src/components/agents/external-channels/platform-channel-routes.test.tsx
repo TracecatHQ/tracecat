@@ -212,12 +212,12 @@ describe("PlatformChannelRoutes", () => {
 
     const soc = screen.getByRole("option", { name: /soc/ })
     expect(within(soc).getByLabelText("Private channel")).toBeInTheDocument()
-    expect(soc).toHaveTextContent("needs invite")
+    expect(soc).toHaveTextContent("Tracecat not in channel yet")
     const phishing = screen.getByRole("option", { name: /phishing-reports/ })
     expect(within(phishing).queryByLabelText("Private channel")).toBeNull()
-    expect(phishing).toHaveTextContent("joins on add")
+    expect(phishing).toHaveTextContent("Tracecat not in channel yet")
     const alerts = screen.getByRole("option", { name: /alerts/ })
-    expect(alerts).not.toHaveTextContent(/joins on add|needs invite/)
+    expect(alerts).not.toHaveTextContent("Tracecat not in channel yet")
   })
 
   it("leaves routed channels out of the list", async () => {
@@ -251,7 +251,9 @@ describe("PlatformChannelRoutes", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Add" }))
 
     expect(
-      await within(card).findByText("Invite @Tracecat in soc to finish")
+      await within(card).findByText(
+        "Tracecat isn't in soc yet. Invite @Tracecat to start answering there."
+      )
     ).toBeInTheDocument()
     expect(
       within(card).getByRole("button", { name: "Copy /invite @Tracecat" })
@@ -274,7 +276,9 @@ describe("PlatformChannelRoutes", () => {
     // Only the unlisted channel, likely private without the bot, needs an invite.
     expect(within(card).getAllByText(/Invite @Tracecat/)).toHaveLength(1)
     expect(
-      within(card).getByText("Invite @Tracecat in this channel to finish")
+      within(card).getByText(
+        "Tracecat isn't in this channel yet. Invite @Tracecat to start answering there."
+      )
     ).toBeInTheDocument()
   })
 

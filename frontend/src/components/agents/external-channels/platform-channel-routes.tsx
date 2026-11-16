@@ -106,16 +106,9 @@ function ChannelIcon({
   )
 }
 
-/** Why the bot is not in a listed channel yet, or null when it is. */
-function notMemberNote(
-  channel: ChannelBotChannel,
-  conventions: ChannelConventions
-): string | null {
-  if (channel.is_member) return null
-  if (!conventions.inviteCommand) return "Tracecat not added"
-  return channel.is_private || !conventions.joinsOnAdd
-    ? "needs invite"
-    : "joins on add"
+/** A note for a listed channel the bot is not in yet, or null when it is. */
+function notMemberNote(channel: ChannelBotChannel): string | null {
+  return channel.is_member ? null : "Tracecat not in channel yet"
 }
 
 /** Picks one of the provider tenant's channels by name. */
@@ -208,7 +201,7 @@ function ChannelPicker({
               </CommandItem>
             )}
             {channels.map((c) => {
-              const note = notMemberNote(c, conventions)
+              const note = notMemberNote(c)
               return (
                 <CommandItem
                   key={c.id}
@@ -416,13 +409,12 @@ export function PlatformChannelRoutes({
               </div>
               {/* Unlisted once every page is loaded means private without the bot. */}
               {(known
-                ? !known.is_member &&
-                  (known.is_private || !conventions.joinsOnAdd)
+                ? !known.is_member
                 : channels && !hasMoreChannels && !channelsError) && (
                 <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
                   {inviteCommand
-                    ? `Invite @Tracecat in ${where} to finish`
-                    : `Add Tracecat to ${where} in ${providerName} to finish`}
+                    ? `Tracecat isn't in ${where} yet. Invite @Tracecat to start answering there.`
+                    : `Tracecat isn't in ${where} yet. Add it in ${providerName} to start answering there.`}
                   {inviteCommand && (
                     <CopyButton
                       value={inviteCommand}

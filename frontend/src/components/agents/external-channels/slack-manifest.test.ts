@@ -124,7 +124,7 @@ describe("buildSlackManifest", () => {
     expect(manifest.oauth_config.scopes.bot).toContain("assistant:write")
   })
 
-  it("lets a custom app list the channels it is in, never join one", () => {
+  it("lets a custom app list the channels it is in", () => {
     const manifest = buildSlackManifest({
       endpointUrl: null,
       oauthRedirectUrl: REDIRECT,
@@ -156,7 +156,6 @@ describe("buildSlackPlatformManifest", () => {
       "app_mentions:read",
       "assistant:write",
       "channels:history",
-      "channels:join",
       "channels:read",
       "chat:write",
       "chat:write.customize",
