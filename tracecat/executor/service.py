@@ -1156,10 +1156,14 @@ async def invoke_once(
         # Apply secret masking at root level only. Large action results can make
         # this CPU-bound traversal expensive, so keep it off the activity event
         # loop where it could otherwise delay heartbeats for every activity on
-        # the worker.
+        # the worker. Keys are masked too, so a secret returned as a mapping
+        # key is not persisted verbatim.
         if mask_values:
             action_result = await asyncio.to_thread(
-                apply_masks_object, action_result, masks=mask_values
+                apply_masks_object,
+                action_result,
+                masks=mask_values,
+                mask_keys=True,
             )
         return action_result
     finally:
