@@ -114,6 +114,10 @@ production, so MCP coverage is part of the definition of done.
 - Update `tracecat/mcp/README.md`, regenerate `docs/snippets/mcp-tools.mdx`
   with `just gen-mcp-docs`, and cover the tools in
   `tests/unit/test_mcp_server.py`.
+- Do not add delete or other destructive MCP tools by default. Low-risk,
+  easily reversible removals (for example, removing a case tag) may be fine.
+  For anything potentially destructive, ask the user and get explicit
+  confirmation before adding the tool.
 - If a change genuinely has no MCP surface (UI-only polish, internal
   refactors), say so explicitly in the PR body instead of skipping silently.
 
