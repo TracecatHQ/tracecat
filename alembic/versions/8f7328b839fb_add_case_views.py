@@ -104,8 +104,13 @@ def upgrade() -> None:
         *_timestamps(),
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("view_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("view_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("builtin_view_id", sa.String(length=64), nullable=True),
         sa.Column("position", sa.Integer(), nullable=False),
+        sa.CheckConstraint(
+            "(view_id IS NULL) <> (builtin_view_id IS NULL)",
+            name=op.f("ck_case_view_pin_one_target"),
+        ),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["user.id"],
@@ -126,6 +131,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_case_view_pin")),
         sa.UniqueConstraint("user_id", "view_id", name="uq_case_view_pin_user_view"),
+        sa.UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "builtin_view_id",
+            name="uq_case_view_pin_user_builtin",
+        ),
     )
     op.create_index(
         "ix_case_view_pin_workspace_user",

@@ -136,9 +136,21 @@ class CaseViewsService(BaseWorkspaceService):
 
     # Reads
 
-    def list_builtins(self) -> list[CaseViewRead]:
-        """Return the views every workspace has, in display order."""
-        return [self._builtin_read(view_id) for view_id in BUILTIN_CASE_VIEW_IDS]
+    async def list_builtins(self, *, pinned_only: bool = False) -> list[CaseViewRead]:
+        """Return the views every workspace has, with the user's pins.
+
+        Args:
+            pinned_only: Only the built-ins the user pinned, in pin order.
+        """
+        positions = await self._builtin_pin_positions()
+        views = [
+            self._builtin_read(view_id, positions.get(view_id))
+            for view_id in BUILTIN_CASE_VIEW_IDS
+        ]
+        if not pinned_only:
+            return views
+        pinned = [view for view in views if view.pin_position is not None]
+        return sorted(pinned, key=lambda view: view.pin_position or 0)
 
     async def list_views(
         self, page: PageParams, *, pinned_only: bool = False
@@ -189,7 +201,8 @@ class CaseViewsService(BaseWorkspaceService):
         """
         parsed = parse_view_id(view_id)
         if not isinstance(parsed, uuid.UUID):
-            read = self._builtin_read(parsed)
+            positions = await self._builtin_pin_positions()
+            read = self._builtin_read(parsed, positions.get(parsed))
             return CaseViewDetail(
                 **dict(read), stale_refs=[], empty_rules=CaseViewEmptyRules()
             )
@@ -267,11 +280,12 @@ class CaseViewsService(BaseWorkspaceService):
     async def pin_view(
         self, view_id: str | uuid.UUID, *, position: int | None = None
     ) -> CaseViewRead:
-        """Show a saved view in the requesting user's sidebar."""
+        """Show a saved or built-in view in the requesting user's sidebar."""
         user_id = self._require_user()
-        view = await self._get_visible(
-            _saved_view_id(view_id, "Built-in views are always shown")
-        )
+        parsed = parse_view_id(view_id)
+        if not isinstance(parsed, uuid.UUID):
+            return await self._pin_builtin(user_id, parsed, position=position)
+        view = await self._get_visible(parsed)
         # An upsert, so two pin requests at once cannot both insert and hit
         # the unique (user_id, view_id) constraint. Without an explicit
         # position, an existing pin keeps its place.
@@ -298,14 +312,19 @@ class CaseViewsService(BaseWorkspaceService):
         return self._custom_read(view, await self._pin_position(view.id))
 
     async def unpin_view(self, view_id: str | uuid.UUID) -> None:
-        """Remove a view from the requesting user's sidebar."""
+        """Remove a saved or built-in view from the requesting user's sidebar."""
         user_id = self._require_user()
-        parsed = _saved_view_id(view_id, "Built-in views are always shown")
+        parsed = parse_view_id(view_id)
+        target = (
+            CaseViewPin.view_id == parsed
+            if isinstance(parsed, uuid.UUID)
+            else CaseViewPin.builtin_view_id == parsed
+        )
         await self.session.execute(
             sa.delete(CaseViewPin).where(
                 CaseViewPin.workspace_id == self.workspace_id,
                 CaseViewPin.user_id == user_id,
-                CaseViewPin.view_id == parsed,
+                target,
             )
         )
         await self.session.commit()
@@ -371,7 +390,9 @@ class CaseViewsService(BaseWorkspaceService):
 
     # Helpers
 
-    def _builtin_read(self, view_id: BuiltinCaseViewId) -> CaseViewRead:
+    def _builtin_read(
+        self, view_id: BuiltinCaseViewId, pin_position: int | None = None
+    ) -> CaseViewRead:
         builtin = BUILTIN_CASE_VIEWS[view_id]
         return CaseViewRead(
             id=builtin.id,
@@ -382,7 +403,58 @@ class CaseViewsService(BaseWorkspaceService):
             order_by=builtin.order_by,
             sort=builtin.sort,
             can_edit=False,
+            pinned=pin_position is not None,
+            pin_position=pin_position,
         )
+
+    async def _builtin_pin_positions(self) -> dict[BuiltinCaseViewId, int]:
+        """Return where the user pinned each built-in view, by built-in ID."""
+        if self._user_id is None:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(CaseViewPin.builtin_view_id, CaseViewPin.position).where(
+                    CaseViewPin.workspace_id == self.workspace_id,
+                    CaseViewPin.user_id == self._user_id,
+                    CaseViewPin.builtin_view_id.is_not(None),
+                )
+            )
+        ).tuples()
+        return {
+            cast(BuiltinCaseViewId, view_id): position
+            for view_id, position in rows
+            if view_id in BUILTIN_CASE_VIEW_IDS
+        }
+
+    async def _pin_builtin(
+        self,
+        user_id: uuid.UUID,
+        view_id: BuiltinCaseViewId,
+        *,
+        position: int | None,
+    ) -> CaseViewRead:
+        """Pin a built-in view, with the same upsert rules as saved views."""
+        statement = pg_insert(CaseViewPin).values(
+            workspace_id=self.workspace_id,
+            user_id=user_id,
+            builtin_view_id=view_id,
+            position=(
+                position if position is not None else await self._next_pin_position()
+            ),
+        )
+        conflict = ["workspace_id", "user_id", "builtin_view_id"]
+        statement = (
+            statement.on_conflict_do_update(
+                index_elements=conflict,
+                set_={"position": statement.excluded.position},
+            )
+            if position is not None
+            else statement.on_conflict_do_nothing(index_elements=conflict)
+        )
+        await self.session.execute(statement)
+        await self.session.commit()
+        positions = await self._builtin_pin_positions()
+        return self._builtin_read(view_id, positions.get(view_id))
 
     def _custom_read(self, view: CaseView, pin_position: int | None) -> CaseViewRead:
         return CaseViewRead(

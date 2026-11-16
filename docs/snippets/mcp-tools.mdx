@@ -280,7 +280,7 @@
 <ResponseField name="list_case_views" type="tool">
   List case views you can see, to run with search_cases(view_id=...).
 
-  Saved views are personal (only you) or shared with the workspace and come back one page at a time in ``saved``. The read-only built-in view, assigned_to_me, is defined by Tracecat and comes back separately in ``builtins``; built-ins cannot be pinned, so ``pinned`` leaves it empty.
+  Saved views are personal (only you) or shared with the workspace and come back one page at a time in ``saved``. The read-only built-in view, assigned_to_me, is defined by Tracecat and comes back separately in ``builtins``. With ``pinned``, both lists hold only the views you pinned.
 </ResponseField>
 
 <ResponseField name="create_case_view" type="tool">
@@ -292,11 +292,11 @@
 </ResponseField>
 
 <ResponseField name="pin_case_view" type="tool">
-  Pin a saved case view to your own sidebar.
+  Pin a case view to your own sidebar.
 </ResponseField>
 
 <ResponseField name="unpin_case_view" type="tool">
-  Remove a saved case view from your own sidebar.
+  Remove a case view from your own sidebar.
 </ResponseField>
 
 <ResponseField name="get_case" type="tool">

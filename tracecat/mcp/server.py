@@ -7297,13 +7297,14 @@ async def list_case_views(
     Saved views are personal (only you) or shared with the workspace and come
     back one page at a time in ``saved``. The read-only built-in view,
     assigned_to_me, is defined by Tracecat and comes back separately in
-    ``builtins``; built-ins cannot be pinned, so ``pinned`` leaves it empty.
+    ``builtins``. With ``pinned``, both lists hold only the views you pinned.
 
     Args:
         workspace_id: The workspace ID.
         limit: Maximum saved views per page.
         cursor: Cursor for the next page of saved views.
-        pinned: Only views you pinned to your sidebar, in pin order.
+        pinned: Only views you pinned to your sidebar, in pin order. Saved
+            and built-in pins share one order; compare ``pin_position``.
         include_builtins: Return the built-in views in ``builtins``.
 
     Returns ``builtins`` and a paginated ``saved`` list. Each view has its
@@ -7322,7 +7323,9 @@ async def list_case_views(
         )
         async with CaseViewsService.with_session(role=role) as svc:
             saved = await svc.list_views(page_params, pinned_only=pinned)
-            builtins = svc.list_builtins() if include_builtins and not pinned else []
+            builtins = (
+                await svc.list_builtins(pinned_only=pinned) if include_builtins else []
+            )
             return CaseViewListRead(builtins=builtins, saved=saved)
     except Exception as e:
         raise _case_view_tool_error(e, "list case views") from e
@@ -7408,11 +7411,12 @@ async def pin_case_view(
     view_id: str,
     position: int | None = None,
 ) -> CaseViewRead:
-    """Pin a saved case view to your own sidebar.
+    """Pin a case view to your own sidebar.
 
     Args:
         workspace_id: The workspace ID.
-        view_id: The saved view's ID. Built-in views are always shown.
+        view_id: A saved view's ID or a built-in view ID, such as
+            assigned_to_me.
         position: Where to place it among your pins, from 0. Omit to add it
             last.
 
@@ -7430,11 +7434,11 @@ async def pin_case_view(
 
 @mcp.tool()
 async def unpin_case_view(workspace_id: uuid.UUID, view_id: str) -> MCPMessageResponse:
-    """Remove a saved case view from your own sidebar.
+    """Remove a case view from your own sidebar.
 
     Args:
         workspace_id: The workspace ID.
-        view_id: The saved view's ID.
+        view_id: A saved view's ID or a built-in view ID.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)

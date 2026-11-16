@@ -49,7 +49,7 @@ async def list_builtin_case_views(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession
 ) -> list[CaseViewRead]:
     """List the views every workspace has, such as Assigned to me."""
-    return CaseViewsService(session, role).list_builtins()
+    return await CaseViewsService(session, role).list_builtins()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

@@ -4188,6 +4188,9 @@ async def test_list_case_views_returns_builtins_separately(
     list_views = AsyncMock(
         side_effect=lambda *_args, **_kwargs: CursorPaginatedResponse(items=[saved])
     )
+    list_builtins = AsyncMock(
+        side_effect=lambda *, pinned_only: [] if pinned_only else [builtin]
+    )
 
     async def resolve(_workspace_id):
         return workspace_id, role
@@ -4198,7 +4201,7 @@ async def test_list_case_views_returns_builtins_separately(
         "CaseViewsService",
         SimpleNamespace(
             with_session=lambda role: _AsyncContext(
-                SimpleNamespace(list_views=list_views, list_builtins=lambda: [builtin])
+                SimpleNamespace(list_views=list_views, list_builtins=list_builtins)
             )
         ),
     )
@@ -4218,6 +4221,11 @@ async def test_list_case_views_returns_builtins_separately(
     assert pinned.builtins == []
     assert [view.id for view in pinned.saved.items] == [saved.id]
     assert [call.kwargs for call in list_views.await_args_list] == [
+        {"pinned_only": False},
+        {"pinned_only": False},
+        {"pinned_only": True},
+    ]
+    assert [call.kwargs for call in list_builtins.await_args_list] == [
         {"pinned_only": False},
         {"pinned_only": False},
         {"pinned_only": True},

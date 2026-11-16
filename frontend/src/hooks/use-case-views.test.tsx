@@ -73,6 +73,36 @@ describe("useCaseViews", () => {
     ])
   })
 
+  it("orders pinned built-in and saved views together", async () => {
+    listBuiltins.mockResolvedValue([
+      view("assigned_to_me", {
+        kind: "builtin",
+        pinned: true,
+        pin_position: 1,
+      }),
+    ])
+    listViews.mockResolvedValueOnce({
+      items: [
+        view("a", { pinned: true, pin_position: 2 }),
+        view("b", { pinned: true, pin_position: 0 }),
+        view("c"),
+      ],
+      has_more: false,
+      next_cursor: null,
+    })
+
+    const { result } = renderHook(() => useCaseViews("workspace-1"), {
+      wrapper,
+    })
+
+    await waitFor(() => expect(result.current.pinned).toHaveLength(3))
+    expect(result.current.pinned.map((item) => item.id)).toEqual([
+      "b",
+      "assigned_to_me",
+      "a",
+    ])
+  })
+
   it("returns nothing and fetches nothing without case access", () => {
     const { result } = renderHook(() => useCaseViews("workspace-1", false), {
       wrapper,

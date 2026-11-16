@@ -33,7 +33,7 @@ export interface CaseViewLists {
   personal: CaseViewRead[]
   /** Views shared with the workspace. */
   shared: CaseViewRead[]
-  /** The user's pinned views, in pin order. */
+  /** The user's pinned views, built-in and saved, in pin order. */
   pinned: CaseViewRead[]
 }
 
@@ -50,7 +50,6 @@ export function useCaseViews(workspaceId: string, enabled = true) {
     queryKey: [...caseViewsKey(workspaceId), "builtins"],
     queryFn: () => caseViewsListBuiltinCaseViews({ workspaceId }),
     enabled: enabled && Boolean(workspaceId),
-    staleTime: Number.POSITIVE_INFINITY,
     retry: retryHandler,
   })
   const { data: saved, isLoading: savedLoading } = useQuery<
@@ -84,11 +83,13 @@ export function useCaseViews(workspaceId: string, enabled = true) {
   const lists = useMemo<CaseViewLists>(() => {
     // Hide anything cached once the user can no longer read cases.
     const items = enabled ? (saved ?? []) : []
+    const builtinItems = enabled ? (builtins ?? []) : []
     return {
-      builtins: enabled ? (builtins ?? []) : [],
+      builtins: builtinItems,
       personal: items.filter((view) => view.visibility === "personal"),
       shared: items.filter((view) => view.visibility === "workspace"),
-      pinned: items
+      // Built-in and saved pins share one order.
+      pinned: [...builtinItems, ...items]
         .filter((view) => view.pinned)
         .sort((a, b) => (a.pin_position ?? 0) - (b.pin_position ?? 0)),
     }

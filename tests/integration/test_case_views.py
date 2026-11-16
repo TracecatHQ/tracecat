@@ -263,13 +263,11 @@ async def test_builtin_views_are_read_only_and_run(
 ) -> None:
     views = _views(session, actors.owner)
 
-    assert [view.id for view in views.list_builtins()] == ["assigned_to_me"]
+    assert [view.id for view in await views.list_builtins()] == ["assigned_to_me"]
     with pytest.raises(TracecatValidationError):
         await views.update_view("assigned_to_me", CaseViewUpdate(name="Mine"))
     with pytest.raises(TracecatValidationError):
         await views.delete_view("assigned_to_me")
-    with pytest.raises(TracecatValidationError):
-        await views.pin_view("assigned_to_me")
     # Removed built-in IDs are not views.
     for removed in ("all", "unassigned", "created_by_me"):
         with pytest.raises(CaseViewNotFoundError):
@@ -305,6 +303,35 @@ async def test_pins_are_per_user_and_ordered(
     await owner_views.unpin_view(second)
     pinned = await owner_views.list_views(PageParams(), pinned_only=True)
     assert [view.id for view in pinned.items] == [first]
+
+
+async def test_builtin_views_pin_in_the_shared_order(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    saved = await _create(
+        session, actors.owner, visibility=CaseViewVisibility.WORKSPACE
+    )
+    owner_views = _views(session, actors.owner)
+
+    # Built-ins start unpinned, so the sidebar leaves them out.
+    assert [view.pinned for view in await owner_views.list_builtins()] == [False]
+
+    await owner_views.pin_view(saved)
+    pinned = await owner_views.pin_view("assigned_to_me")
+    again = await owner_views.pin_view("assigned_to_me")
+    assert (pinned.pinned, pinned.pin_position) == (True, 1)
+    assert again.pin_position == 1
+    assert [view.id for view in await owner_views.list_builtins(pinned_only=True)] == [
+        "assigned_to_me"
+    ]
+    assert (await owner_views.get_view("assigned_to_me")).pin_position == 1
+
+    # Pins belong to one user.
+    editor_builtins = await _views(session, actors.editor).list_builtins()
+    assert [view.pinned for view in editor_builtins] == [False]
+
+    await owner_views.unpin_view("assigned_to_me")
+    assert await owner_views.list_builtins(pinned_only=True) == []
 
 
 async def test_deleted_tag_is_reported_and_matches_nothing(

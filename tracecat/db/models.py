@@ -2832,11 +2832,26 @@ class CaseView(WorkspaceModel):
 
 
 class CaseViewPin(WorkspaceModel):
-    """One user's choice to show a saved case view in their sidebar."""
+    """One user's choice to show a case view in their sidebar.
+
+    A pin names either a saved view (``view_id``) or a built-in view
+    (``builtin_view_id``), never both.
+    """
 
     __tablename__ = "case_view_pin"
     __table_args__ = (
         UniqueConstraint("user_id", "view_id", name="uq_case_view_pin_user_view"),
+        # Built-in IDs repeat across workspaces, so the workspace is part of
+        # the key.
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "builtin_view_id",
+            name="uq_case_view_pin_user_builtin",
+        ),
+        CheckConstraint(
+            "(view_id IS NULL) <> (builtin_view_id IS NULL)", name="one_target"
+        ),
         Index("ix_case_view_pin_workspace_user", "workspace_id", "user_id"),
         # Deleting a view cascades to its pins; this keeps that lookup indexed.
         Index("ix_case_view_pin_view_id", "view_id"),
@@ -2845,9 +2860,10 @@ class CaseViewPin(WorkspaceModel):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
     )
-    view_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("case_view.id", ondelete="CASCADE"), nullable=False
+    view_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("case_view.id", ondelete="CASCADE"), nullable=True
     )
+    builtin_view_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 

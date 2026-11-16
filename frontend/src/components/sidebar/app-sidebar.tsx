@@ -226,14 +226,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const activeCaseViewId = pathname?.startsWith(`${basePath}/cases`)
     ? (searchParams?.get(VIEW_PARAM) ?? null)
     : null
+  // Only pinned views appear under Cases, built-in ones included.
   const caseViewItems = useMemo(
     () =>
-      [...caseViews.builtins, ...caseViews.pinned].map((view) => ({
+      caseViews.pinned.map((view) => ({
         title: view.name,
         url: `${basePath}/cases?${new URLSearchParams({ [VIEW_PARAM]: view.id })}`,
         isActive: activeCaseViewId === view.id,
       })),
-    [caseViews.builtins, caseViews.pinned, basePath, activeCaseViewId]
+    [caseViews.pinned, basePath, activeCaseViewId]
   )
   // The builder pages need one of these on top of `form:read`; a requester
   // who can only fill in forms has no use for the list.

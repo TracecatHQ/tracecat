@@ -56,7 +56,7 @@ def _client(
 ) -> Iterator[TestClient]:
     service = MagicMock()
     service.list_views = AsyncMock(return_value=CursorPaginatedResponse(items=[]))
-    service.list_builtins = MagicMock(return_value=[])
+    service.list_builtins = AsyncMock(return_value=[])
     for name in ("create_view", "update_view", "pin_view"):
         setattr(service, name, AsyncMock(return_value=READ))
     service.get_view = AsyncMock(return_value=DETAIL)

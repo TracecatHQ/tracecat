@@ -325,14 +325,18 @@ describe("AppSidebar", () => {
     )
   })
 
-  it("lists built-in and pinned case views and highlights the open one", () => {
+  it("lists only pinned case views and highlights the open one", () => {
     const pinnedId = "00000000-0000-4000-8000-000000000001"
     mockPathname = "/workspaces/workspace-1/cases"
     mockSearchParams = new URLSearchParams({ view: pinnedId })
     mockScopes = { "case:read": true }
     mockCaseViews = {
       builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
-      pinned: [{ id: pinnedId, name: "Open phishing" }],
+      // The hook's pinned list holds pinned built-ins too.
+      pinned: [
+        { id: "assigned_to_me", name: "Assigned to me" },
+        { id: pinnedId, name: "Open phishing" },
+      ],
     }
 
     render(<AppSidebar />)
@@ -370,5 +374,20 @@ describe("AppSidebar", () => {
     expect(
       screen.getByRole("link", { name: "Cases" }).closest("[data-active]")
     ).toHaveAttribute("data-active", "true")
+  })
+
+  it("leaves unpinned built-in views out of the sidebar", () => {
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockScopes = { "case:read": true }
+    mockCaseViews = {
+      builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
+      pinned: [],
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Assigned to me" })
+    ).not.toBeInTheDocument()
   })
 })

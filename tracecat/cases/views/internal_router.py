@@ -43,7 +43,7 @@ async def executor_list_builtin_case_views(
     *, role: ExecutorWorkspaceRole, session: AsyncDBSession
 ) -> list[CaseViewRead]:
     """List the built-in views."""
-    return CaseViewsService(session, role).list_builtins()
+    return await CaseViewsService(session, role).list_builtins()
 
 
 @router.get("/{view_id}")
