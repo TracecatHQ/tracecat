@@ -306,6 +306,7 @@ async def add_bot(
     app_owner: str,
     status: str,
     tenant: str | None,
+    app_id: str = FULL["app_id"],
 ) -> None:
     preset_id = uuid.uuid4()
     session.add(
@@ -327,6 +328,8 @@ async def add_bot(
             app_owner=app_owner,
             status=status,
             provider_tenant_id=tenant,
+            # Set with the tenant when an install finishes.
+            provider_app_id=app_id if tenant else None,
             granted_scopes=[],
             manifest_version=0,
             encrypted_credentials=b"sealed",
@@ -500,6 +503,38 @@ async def test_a_registration_that_no_longer_decrypts_reads_as_unreadable(
     assert await slack_platform_app() is not None
     assert saved.status_code == 200
     assert saved.json()["unreadable"] is False
+
+
+@pytest.mark.anyio
+async def test_an_unreadable_registration_is_replaced_only_by_its_installs_app(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    channel_bot_admin: ChannelBotAdmin,
+    audit_events: AsyncMock,
+) -> None:
+    await add_bot(
+        session, svc_workspace, app_owner="platform", status="active", tenant="T1"
+    )
+    session.add(
+        PlatformSetting(
+            key=SLACK_PLATFORM_APP_KEY,
+            value=b"not-a-ciphertext",
+            value_type="json",
+            is_encrypted=True,
+        )
+    )
+    await session.commit()
+
+    async with client(session) as http:
+        other = await http.put(
+            "/admin/slack-app",
+            json={**FULL, "app_id": "A0OTHER", "client_id": "333.444"},
+        )
+        same = await http.put("/admin/slack-app", json=FULL)
+
+    assert other.status_code == 409
+    assert same.status_code == 200
+    assert await read_slack_platform_app(session) == REGISTERED
 
 
 @pytest.mark.anyio

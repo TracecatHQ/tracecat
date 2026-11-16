@@ -15,14 +15,13 @@ from tracecat.agent.channel_bots.platform_app import (
     SlackPlatformApp,
     UnreadableSlackPlatformApp,
     delete_slack_platform_app,
+    installed_platform_bot,
     read_slack_platform_app,
     write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
-    ChannelBotAppOwner,
     ChannelBotPlatformAppSetup,
     ChannelBotProvider,
-    ChannelBotStatus,
     ChannelBotTransport,
 )
 from tracecat.audit.logger import audit_log
@@ -65,10 +64,12 @@ class SlackPlatformAppService(BasePlatformService):
             stored = await read_slack_platform_app(self.session, for_update=True)
         except UnreadableSlackPlatformApp:
             stored = None
+        # By the installs' own app ID, so an unreadable registration is guarded too.
+        await self._require_no_installs(
+            "replacing it with another Slack app", except_app_id=params.app_id
+        )
         # Another app's secrets never carry over.
         kept = stored if stored is not None and stored.app_id == params.app_id else None
-        if stored is not None and kept is None:
-            await self._require_no_installs("replacing it with another Slack app")
         client_secret = params.client_secret or (kept.client_secret if kept else "")
         signing_secret = params.signing_secret or (kept.signing_secret if kept else "")
         # A refresh token belongs to the app-level token it was issued with.
@@ -136,17 +137,22 @@ class SlackPlatformAppService(BasePlatformService):
         await delete_slack_platform_app(self.session)
         await self.session.commit()
 
-    async def _require_no_installs(self, action: str) -> None:
-        installs = await self.session.scalar(
+    async def _require_no_installs(
+        self, action: str, *, except_app_id: str | None = None
+    ) -> None:
+        statement = (
             select(func.count())
             .select_from(AgentChannelBot)
             .where(
                 AgentChannelBot.provider == ChannelBotProvider.SLACK,
-                AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM,
-                AgentChannelBot.provider_tenant_id.is_not(None),
-                AgentChannelBot.status != ChannelBotStatus.DISCONNECTED,
+                installed_platform_bot(),
             )
         )
+        if except_app_id is not None:
+            statement = statement.where(
+                AgentChannelBot.provider_app_id.is_distinct_from(except_app_id)
+            )
+        installs = await self.session.scalar(statement)
         if installs:
             raise SlackPlatformAppStillInstalled(
                 f"{installs} Slack workspace(s) still have the Tracecat Slack app"

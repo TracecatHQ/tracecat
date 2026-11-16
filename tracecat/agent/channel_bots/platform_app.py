@@ -11,13 +11,14 @@ from datetime import UTC, datetime
 from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import ColumnElement, and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.channel_bots.schemas import ChannelBotAppOwner, ChannelBotStatus
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import PlatformSetting
+from tracecat.db.models import AgentChannelBot, PlatformSetting
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 
@@ -44,6 +45,15 @@ class SlackPlatformApp(BaseModel):
     # Slack-only settings an admin marks done; a different app ID starts them over.
     icon_uploaded: bool = False
     distribution_enabled: bool = False
+
+
+def installed_platform_bot() -> ColumnElement[bool]:
+    """A platform app install that holds a provider tenant and is not disconnected."""
+    return and_(
+        AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM,
+        AgentChannelBot.provider_tenant_id.is_not(None),
+        AgentChannelBot.status != ChannelBotStatus.DISCONNECTED,
+    )
 
 
 class UnreadableSlackPlatformApp(Exception):

@@ -20,7 +20,7 @@ from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.channel_bots.schemas import ChannelBotAppOwner
+from tracecat.agent.channel_bots.platform_app import installed_platform_bot
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -1069,14 +1069,13 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def _require_no_platform_channel_install(self, preset_id: uuid.UUID) -> None:
         """A platform app install answers every unrouted channel with its default agent, so
-        losing it would silence the install. Only one that holds a tenant counts."""
+        losing it would silence the install. Only a live install counts."""
         install_id = await self.session.scalar(
             select(AgentChannelBot.id)
             .where(
                 AgentChannelBot.workspace_id == self.workspace_id,
                 AgentChannelBot.agent_preset_id == preset_id,
-                AgentChannelBot.app_owner == ChannelBotAppOwner.PLATFORM,
-                AgentChannelBot.provider_tenant_id.is_not(None),
+                installed_platform_bot(),
             )
             .limit(1)
         )
