@@ -183,7 +183,8 @@ def test_metadata_advertises_private_key_jwt_and_public_client_auth(
         "email",
         "offline_access",
     ]
-    assert set(payload["token_endpoint_auth_methods_supported"]) >= {
+    # Pin the exact set so a FastMCP upgrade that adds or drops a method fails CI.
+    assert set(payload["token_endpoint_auth_methods_supported"]) == {
         "none",
         "private_key_jwt",
         "client_secret_post",
@@ -2142,6 +2143,11 @@ async def test_private_key_jwt_cimd_client_exchanges_code_with_signed_assertion(
 async def test_private_key_jwt_cimd_client_rejects_replayed_assertion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A reused ``jti`` is rejected by the same server process.
+
+    FastMCP keeps the ``jti`` cache in process memory, so this does not cover
+    replay across MCP replicas. Codes stay single-use and PKCE-bound there.
+    """
     auth = _build_test_auth(monkeypatch)
     key = _generate_rsa_key()
     _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
