@@ -136,16 +136,17 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
   api.listPresets.mockResolvedValue(AGENTS)
 }
 
-/** Serves `routes` as one page, filtered by agent as the API filters them. */
+/** Serves `routes` as one page, filtered by install and agent as the API does. */
 export function serveRoutes(routes: AgentChannelRouteRead[]): void {
   api.listRoutes.mockImplementation(
-    ({ agentPresetId }) =>
+    ({ botId, agentPresetId }) =>
       new CancelablePromise((resolve) =>
         resolve(
           routePage(
             routes.filter(
               (r) =>
-                agentPresetId == null || r.agent_preset_id === agentPresetId
+                r.bot_id === botId &&
+                (agentPresetId == null || r.agent_preset_id === agentPresetId)
             )
           )
         )
