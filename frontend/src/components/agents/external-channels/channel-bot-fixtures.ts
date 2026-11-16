@@ -62,7 +62,7 @@ export function slackBot(
     workspace_id: WORKSPACE_ID,
     agent_preset_id: PRESET.id,
     provider: "slack",
-    app_owner: "customer",
+    app_owner: "workspace",
     status: "active",
     provider_tenant_id: "T1",
     provider_app_id: "A1",

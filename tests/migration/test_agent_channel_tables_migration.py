@@ -514,7 +514,7 @@ def _drop_platform_installs(engine: Engine) -> None:
         )
 
 
-def test_bots_from_before_platform_installs_are_customer_owned(
+def test_bots_from_before_platform_installs_are_workspace_owned(
     db_url: str, engine: Engine
 ) -> None:
     _drop_platform_installs(engine)
@@ -536,7 +536,7 @@ def test_bots_from_before_platform_installs_are_customer_owned(
         owner = db.scalar(
             select(AgentChannelBot.app_owner).where(AgentChannelBot.id == bot_id)
         )
-    assert owner == ChannelBotAppOwner.CUSTOMER
+    assert owner == ChannelBotAppOwner.WORKSPACE
 
 
 def _route(

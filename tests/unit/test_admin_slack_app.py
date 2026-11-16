@@ -348,7 +348,7 @@ async def add_bot(
         # The browser never came back from Slack: nothing is installed.
         ("platform", "needs_reconnect", None, False),
         ("platform", "disconnected", "T1", False),
-        ("customer", "active", "T1", False),
+        ("workspace", "active", "T1", False),
     ],
 )
 async def test_removing_the_app_is_refused_while_an_organization_has_it_installed(

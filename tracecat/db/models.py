@@ -4723,7 +4723,7 @@ class AgentChannelBot(TimestampMixin, Base):
             name="status",
         ),
         CheckConstraint("transport IN ('http', 'socket')", name="transport"),
-        CheckConstraint("app_owner IN ('customer', 'platform')", name="app_owner"),
+        CheckConstraint("app_owner IN ('workspace', 'platform')", name="app_owner"),
         Index(
             "ix_agent_channel_bot_token_refresh_due_at",
             "token_refresh_due_at",
@@ -4755,11 +4755,11 @@ class AgentChannelBot(TimestampMixin, Base):
         server_default="http",
         doc="How events arrive; set at install from the deployment's ingress mode",
     )
-    app_owner: Mapped[Literal["customer", "platform"]] = mapped_column(
+    app_owner: Mapped[Literal["workspace", "platform"]] = mapped_column(
         String,
         nullable=False,
-        server_default="customer",
-        doc="The customer's own app, or the deployment's app shared by every tenant",
+        server_default="workspace",
+        doc="The workspace's own app, or the deployment's app shared by every tenant",
     )
     provider_tenant_id: Mapped[str | None] = mapped_column(
         String,

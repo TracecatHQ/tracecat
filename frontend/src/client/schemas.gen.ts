@@ -13084,7 +13084,7 @@ export const $CatalogMappingSelection = {
 
 export const $ChannelBotAppOwner = {
   type: "string",
-  enum: ["customer", "platform"],
+  enum: ["workspace", "platform"],
   title: "ChannelBotAppOwner",
   description: "Who owns a bot's provider app.",
 } as const
@@ -36898,7 +36898,7 @@ export const $SlackBotInstall = {
     "return_url",
   ],
   title: "SlackBotInstall",
-  description: "Install a customer-owned Slack app over OAuth.",
+  description: "Install a workspace-owned Slack app over OAuth.",
 } as const
 
 export const $SlackChannelTokenConfig = {

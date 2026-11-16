@@ -4,7 +4,7 @@ Revision ID: 11e685c62cfd
 Revises: 183d302a8d08
 Create Date: 2026-11-14 23:46:58.000000
 
-Adds ``agent_channel_bot.app_owner`` (existing rows stay ``customer``) and
+Adds ``agent_channel_bot.app_owner`` (existing rows stay ``workspace``) and
 ``agent_channel_route`` with workspace RLS. Additive, but the previous app reads platform
 installs as custom-app bots: disconnect them before rolling the app back. Downgrading
 refuses while any platform install row remains.
@@ -33,12 +33,12 @@ def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '10s'")
     op.add_column(
         "agent_channel_bot",
-        sa.Column("app_owner", sa.String(), server_default="customer", nullable=False),
+        sa.Column("app_owner", sa.String(), server_default="workspace", nullable=False),
     )
     op.create_check_constraint(
         op.f("ck_agent_channel_bot_app_owner"),
         "agent_channel_bot",
-        "app_owner IN ('customer', 'platform')",
+        "app_owner IN ('workspace', 'platform')",
     )
     op.create_table(
         "agent_channel_route",

@@ -107,7 +107,7 @@ export function useAgentChannelBots(
       const page = await agentChannelBotsListBots({
         workspaceId,
         agentPresetId,
-        appOwner: "customer",
+        appOwner: "workspace",
         limit: 100,
       })
       return page.items

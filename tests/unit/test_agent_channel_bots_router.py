@@ -200,7 +200,7 @@ def bot_read() -> AgentChannelBotRead:
         workspace_id=uuid.uuid4(),
         agent_preset_id=uuid.uuid4(),
         provider=ChannelBotProvider.SLACK,
-        app_owner=ChannelBotAppOwner.CUSTOMER,
+        app_owner=ChannelBotAppOwner.WORKSPACE,
         status=ChannelBotStatus.ACTIVE,
         provider_tenant_id="T1",
         provider_app_id="A1",

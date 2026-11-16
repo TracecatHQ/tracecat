@@ -27,8 +27,8 @@ class ChannelBotTransport(StrEnum):
 class ChannelBotAppOwner(StrEnum):
     """Who owns a bot's provider app."""
 
-    # The customer's own app, answering as one agent.
-    CUSTOMER = "customer"
+    # The workspace's own app, answering as one agent.
+    WORKSPACE = "workspace"
     # The deployment's app: one install per provider tenant, routed per channel.
     PLATFORM = "platform"
 
@@ -152,7 +152,7 @@ class ChannelBotInstallBase(BaseModel):
 
 
 class SlackBotInstall(ChannelBotInstallBase):
-    """Install a customer-owned Slack app over OAuth."""
+    """Install a workspace-owned Slack app over OAuth."""
 
     provider: Literal[ChannelBotProvider.SLACK]
     client_id: str = Field(..., min_length=1)

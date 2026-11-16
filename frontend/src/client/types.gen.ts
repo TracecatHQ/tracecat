@@ -3545,7 +3545,7 @@ export type CatalogMappingSelection = {
 /**
  * Who owns a bot's provider app.
  */
-export type ChannelBotAppOwner = "customer" | "platform"
+export type ChannelBotAppOwner = "workspace" | "platform"
 
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
 
@@ -11213,7 +11213,7 @@ export type SlackBotDetails = {
 }
 
 /**
- * Install a customer-owned Slack app over OAuth.
+ * Install a workspace-owned Slack app over OAuth.
  */
 export type SlackBotInstall = {
   /**
