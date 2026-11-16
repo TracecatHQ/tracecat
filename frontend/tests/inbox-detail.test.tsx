@@ -91,6 +91,7 @@ function inboxSession(
     statusTone: "warning",
     pendingApprovalCount: 1,
     lastError: null,
+    channelThread: null,
     ...overrides,
   }
 }

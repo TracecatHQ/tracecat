@@ -3,6 +3,7 @@ import type {
   AgentSessionRead,
   ApprovalRead,
   ChatReadMinimal,
+  InboxChannelThread,
   UserSummary,
   WorkflowExecutionStatus,
 } from "@/client"
@@ -164,6 +165,8 @@ export interface InboxSessionItem {
    * message history, so the detail pane has nothing else to show on reopen.
    */
   lastError: string | null
+  /** The channel of the session's linked provider thread, if any. */
+  channelThread: InboxChannelThread | null
 }
 
 export function enrichAgentSession(

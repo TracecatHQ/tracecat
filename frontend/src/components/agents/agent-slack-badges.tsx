@@ -1,16 +1,19 @@
 "use client"
 
 import { Lock } from "lucide-react"
+import { forwardRef } from "react"
+import type { ChannelBotChannel } from "@/client"
 import { channelLabel } from "@/components/agents/external-channels/channel-bot-utils"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import { SlackIcon } from "@/components/icons"
-import { Badge } from "@/components/ui/badge"
+import { Badge, type BadgeProps } from "@/components/ui/badge"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { SlackPlacement } from "@/lib/agent-catalog-filters"
+import { cn } from "@/lib/utils"
 
 const SLACK_BADGE_CAP = 2
 
@@ -37,29 +40,54 @@ function slackPlacementKey(placement: SlackPlacement): string {
   }
 }
 
-function SlackPlacementText({ placement }: { placement: SlackPlacement }) {
-  const label = slackPlacementLabel(placement)
-  return (
-    <>
-      {placement.kind === "channel" && placement.channel.is_private ? (
+type SlackBadgeProps = BadgeProps & { label: string; isPrivate: boolean }
+
+const SlackBadge = forwardRef<HTMLDivElement, SlackBadgeProps>(
+  ({ label, isPrivate, className, ...props }, ref) => (
+    <Badge
+      ref={ref}
+      variant="secondary"
+      className={cn(
+        "h-5 max-w-[160px] gap-1 px-2 text-[10px] font-normal",
+        className
+      )}
+      {...props}
+    >
+      <SlackIcon className="size-3 shrink-0" aria-label="Slack" />
+      {isPrivate ? (
         <Lock className="size-3 shrink-0" aria-label="Private channel" />
       ) : null}
       <span title={label} className="truncate">
         {label}
       </span>
-    </>
+    </Badge>
+  )
+)
+SlackBadge.displayName = "SlackBadge"
+
+/** A Slack channel's badge: `#name`, or a lock and the name when private. */
+export function SlackChannelBadge({
+  channel,
+  className,
+}: {
+  channel: ChannelBotChannel
+  className?: string
+}) {
+  return (
+    <SlackBadge
+      label={channelLabel("slack", channel)}
+      isPrivate={channel.is_private}
+      className={className}
+    />
   )
 }
 
 function SlackPlacementBadge({ placement }: { placement: SlackPlacement }) {
   const badge = (
-    <Badge
-      variant="secondary"
-      className="h-5 max-w-[160px] gap-1 px-2 text-[10px] font-normal"
-    >
-      <SlackIcon className="size-3 shrink-0" aria-label="Slack" />
-      <SlackPlacementText placement={placement} />
-    </Badge>
+    <SlackBadge
+      label={slackPlacementLabel(placement)}
+      isPrivate={placement.kind === "channel" && placement.channel.is_private}
+    />
   )
   if (placement.kind !== "workspace_bot" || !placement.needsReinstall) {
     return badge

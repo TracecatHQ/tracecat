@@ -6,6 +6,7 @@ import uuid
 from functools import lru_cache
 from typing import Protocol, runtime_checkable
 
+from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channel_bots.schemas import (
@@ -177,6 +178,15 @@ class ChannelBotAdmin(Protocol):
         bot_id: uuid.UUID,
         provider_channel_id: str,
     ) -> None: ...
+
+    def thread_channel_id(
+        self, provider: ChannelBotProvider, provider_thread_id: dict[str, JsonValue]
+    ) -> str | None:
+        """The channel a linked thread is in, as `list_channels` names it. No I/O.
+
+        Return None for a thread `provider` cannot read, instead of raising.
+        """
+        ...
 
     async def complete_oauth(
         self,

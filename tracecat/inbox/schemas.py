@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.inbox.types import InboxItemStatus, InboxItemType
 
 
@@ -26,6 +27,14 @@ class UserSummary(BaseModel):
     email: str = Field(..., description="User email")
     first_name: str | None = Field(default=None, description="User first name")
     last_name: str | None = Field(default=None, description="User last name")
+
+
+class InboxChannelThread(BaseModel):
+    """The provider channel a session's linked thread is in."""
+
+    bot_id: uuid.UUID = Field(..., description="Channel bot the thread is linked on")
+    provider: ChannelBotProvider = Field(..., description="The bot's provider")
+    provider_channel_id: str = Field(..., description="The provider's channel ID")
 
 
 class InboxItemRead(BaseModel):
@@ -52,6 +61,10 @@ class InboxItemRead(BaseModel):
     )
     metadata: dict[str, Any] | None = Field(
         default=None, description="Type-specific metadata"
+    )
+    channel_thread: InboxChannelThread | None = Field(
+        default=None,
+        description="The channel of the session's linked provider thread, if any",
     )
 
 

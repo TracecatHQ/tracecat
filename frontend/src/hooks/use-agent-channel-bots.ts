@@ -26,6 +26,7 @@ import {
   type ChannelBotPlatformInstall,
   type ChannelBotProvider,
   type CursorPaginatedResponse_ChannelBotChannel_,
+  type InboxChannelThread,
 } from "@/client"
 import {
   CHANNEL_BOT_ERROR_PARAM,
@@ -324,6 +325,25 @@ export function useChannelBotChannels(
     channelsIsLoading: query.isLoading,
     channelsError: query.error as TracecatApiError | null,
   }
+}
+
+/**
+ * The channel a session's linked thread is in, when its bot's cached first page
+ * of channels names it. Never requests without the preview entitlement.
+ */
+export function useChannelThreadChannel(
+  workspaceId: string,
+  channelThread: InboxChannelThread
+): ChannelBotChannel | undefined {
+  const { hasEntitlement } = useEntitlements()
+  const enabled = hasEntitlement("agent_channels_preview")
+  const botId = channelThread.bot_id
+  const { channels } = useChannelBotChannels(workspaceId, botId, { enabled })
+  // A skipped query still returns data cached before the gate closed.
+  if (!enabled) return undefined
+  return channels?.find(
+    (channel) => channel.id === channelThread.provider_channel_id
+  )
 }
 
 /** The channels a route can name, from the bot's provider tenant, a page at a time. */

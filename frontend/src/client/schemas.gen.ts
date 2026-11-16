@@ -21934,6 +21934,30 @@ export const $IPAllowlistCheckResult = {
   title: "IPAllowlistCheckResult",
 } as const
 
+export const $InboxChannelThread = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+      description: "Channel bot the thread is linked on",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+      description: "The bot's provider",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+      description: "The provider's channel ID",
+    },
+  },
+  type: "object",
+  required: ["bot_id", "provider", "provider_channel_id"],
+  title: "InboxChannelThread",
+  description: "The provider channel a session's linked thread is in.",
+} as const
+
 export const $InboxGroup = {
   type: "string",
   enum: ["review_required", "running", "error", "completed"],
@@ -22033,6 +22057,18 @@ export const $InboxItemRead = {
       ],
       title: "Metadata",
       description: "Type-specific metadata",
+    },
+    channel_thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/InboxChannelThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The channel of the session's linked provider thread, if any",
     },
   },
   type: "object",

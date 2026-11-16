@@ -19,7 +19,8 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import { useMemo, useState } from "react"
-import type { InboxGroup } from "@/client"
+import type { InboxChannelThread, InboxGroup } from "@/client"
+import { SlackChannelBadge } from "@/components/agents/agent-slack-badges"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import UserAvatar from "@/components/user-avatar"
+import { useChannelThreadChannel } from "@/hooks/use-agent-channel-bots"
 import {
   INBOX_GROUP_ORDER,
   type InboxGroupState,
@@ -47,6 +49,7 @@ import {
 import type { InboxSessionItem } from "@/lib/agents"
 import { getDisplayName as getUserDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Only columns the API can order globally across pages are sortable. Title,
 // source, and created_by have no server-side keyset equivalent, so sorting them
@@ -256,6 +259,24 @@ function TimestampCell({ value, label }: { value: string; label: string }) {
   )
 }
 
+/** The Slack channel a session's thread is in; nothing until its name is known. */
+function ThreadChannelBadge({
+  channelThread,
+}: {
+  channelThread: InboxChannelThread
+}) {
+  const workspaceId = useWorkspaceId()
+  const channel = useChannelThreadChannel(workspaceId, channelThread)
+  if (channelThread.provider !== "slack" || !channel) return null
+  // Capped at half the title cell so the title keeps room at the grid's min width.
+  return (
+    <SlackChannelBadge
+      channel={channel}
+      className="max-w-[min(160px,50%)] shrink-0"
+    />
+  )
+}
+
 interface RunRowProps {
   session: InboxSessionItem
   isSelected: boolean
@@ -297,9 +318,12 @@ function RunRow({
         isSelected && "bg-muted hover:bg-muted"
       )}
     >
-      <span className="block truncate pl-10 text-xs">
-        {getDisplayName(session)}
-      </span>
+      <div className="flex min-w-0 items-center gap-2 pl-10">
+        <span className="truncate text-xs">{getDisplayName(session)}</span>
+        {session.channelThread ? (
+          <ThreadChannelBadge channelThread={session.channelThread} />
+        ) : null}
+      </div>
       <Badge
         variant="secondary"
         className="h-5 w-fit gap-1 px-1.5 py-0 text-[10px] font-normal"
