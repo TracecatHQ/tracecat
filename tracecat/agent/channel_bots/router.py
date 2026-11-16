@@ -261,7 +261,7 @@ async def add_bot_route(
 
 @router.get(
     "/{bot_id}/channels",
-    response_model=list[ChannelBotChannel],
+    response_model=CursorPaginatedResponse[ChannelBotChannel],
     responses={
         status.HTTP_501_NOT_IMPLEMENTED: {
             "description": "The bot's provider cannot list its channels"
@@ -275,8 +275,18 @@ async def list_bot_channels(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
-) -> list[ChannelBotChannel]:
-    return await _call(admin.list_channels(session, role, bot_id=bot_id))
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[ChannelBotChannel]:
+    return await _call(
+        admin.list_channels(
+            session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
+        )
+    )
 
 
 @router.put("/{bot_id}/routes", response_model=AgentChannelRouteRead)

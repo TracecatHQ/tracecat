@@ -255,21 +255,35 @@ export function isChannelListingNotSupported(error: unknown): boolean {
   )
 }
 
-/** The channels a route can name, from the bot's provider tenant. */
+/** The channels a route can name, from the bot's provider tenant, a page at a time. */
 export function useChannelBotChannels(workspaceId: string, botId: string) {
-  const {
-    data: channels,
-    isLoading: channelsIsLoading,
-    error: channelsError,
-  } = useQuery<Array<ChannelBotChannel>, TracecatApiError>({
+  const query = useInfiniteQuery({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "channels"],
-    queryFn: async () =>
-      await agentChannelBotsListBotChannels({ workspaceId, botId }),
+    queryFn: async ({ pageParam }) =>
+      await agentChannelBotsListBotChannels({
+        workspaceId,
+        botId,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
     retry: (failureCount, error) =>
-      !isChannelListingNotSupported(error) && retryHandler(failureCount, error),
+      !isChannelListingNotSupported(error) &&
+      retryHandler(failureCount, error as TracecatApiError),
     meta: { suppressErrorToast: true },
   })
-  return { channels, channelsIsLoading, channelsError }
+  const channels: ChannelBotChannel[] | undefined = query.data?.pages.flatMap(
+    (page) => page.items
+  )
+  return {
+    channels,
+    channelsIsLoading: query.isLoading,
+    channelsError: query.error as TracecatApiError | null,
+    hasMoreChannels: query.hasNextPage,
+    loadingMoreChannels: query.isFetchingNextPage,
+    loadMoreChannels: () => void query.fetchNextPage(),
+  }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */

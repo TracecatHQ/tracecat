@@ -719,13 +719,54 @@ def test_channels_come_from_the_installed_admin(
         ChannelBotChannel(id="C1", name="alerts", is_private=False, is_member=True),
         ChannelBotChannel(id="G1", name="soc", is_private=True, is_member=False),
     ]
-    admin.list_channels.return_value = channels
+    admin.list_channels.return_value = CursorPaginatedResponse(
+        items=channels, next_cursor="dGVhbTpD", has_more=True
+    )
 
-    response = client.get(f"/agent/channel-bots/{bot_id}/channels")
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/channels",
+        params={"limit": 2, "cursor": "dGVhbTpB"},
+    )
 
     assert response.status_code == 200
-    assert response.json() == [c.model_dump(mode="json") for c in channels]
-    admin.list_channels.assert_awaited_once_with(SESSION, ROLE, bot_id=bot_id)
+    assert response.json()["items"] == [c.model_dump(mode="json") for c in channels]
+    assert response.json()["next_cursor"] == "dGVhbTpD"
+    assert response.json()["has_more"] is True
+    admin.list_channels.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, page=PageParams(limit=2, cursor="dGVhbTpB")
+    )
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({"limit": 0}, id="limit_too_small"),
+        pytest.param({"limit": 201}, id="limit_too_large"),
+        pytest.param({"cursor": "x" * 8193}, id="cursor_too_long"),
+    ],
+)
+def test_channels_list_refuses_out_of_bounds_paging(
+    client: TestClient, admin: AsyncMock, params: dict[str, object]
+) -> None:
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/channels", params=params)
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+def test_channels_list_keeps_a_malformed_cursors_error_code(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.list_channels.side_effect = PaginationError(
+        "bad cursor", code=PaginationErrorCode.INVALID_CURSOR
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/channels", params={"cursor": "x"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": {"code": "invalid_cursor"}}
 
 
 @pytest.mark.parametrize(

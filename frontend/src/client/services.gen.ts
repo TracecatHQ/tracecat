@@ -7010,7 +7010,9 @@ export const agentChannelBotsSetBotRoute = (
  * @param data The data for the request.
  * @param data.botId
  * @param data.workspaceId
- * @returns ChannelBotChannel Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_ChannelBotChannel_ Successful Response
  * @throws ApiError
  */
 export const agentChannelBotsListBotChannels = (
@@ -7022,6 +7024,10 @@ export const agentChannelBotsListBotChannels = (
     path: {
       bot_id: data.botId,
       workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",

@@ -4380,6 +4380,30 @@ export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_ChannelBotChannel_ = {
+  items: Array<ChannelBotChannel>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_FormIntakeRead_ = {
   items: Array<FormIntakeRead>
   /**
@@ -16592,10 +16616,13 @@ export type AgentChannelBotsSetBotRouteResponse = AgentChannelRouteRead
 
 export type AgentChannelBotsListBotChannelsData = {
   botId: string
+  cursor?: string | null
+  limit?: number
   workspaceId: string
 }
 
-export type AgentChannelBotsListBotChannelsResponse = Array<ChannelBotChannel>
+export type AgentChannelBotsListBotChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
 
 export type AgentChannelBotsDeleteBotRouteData = {
   botId: string
@@ -23560,7 +23587,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<ChannelBotChannel>
+        200: CursorPaginatedResponse_ChannelBotChannel_
         /**
          * Validation Error
          */

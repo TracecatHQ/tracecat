@@ -15204,6 +15204,69 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_ChannelBotChannel_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ChannelBotChannel",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ChannelBotChannel]",
+} as const
+
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
   properties: {
     items: {

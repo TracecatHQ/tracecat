@@ -16,6 +16,7 @@ import {
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   agentPresetsListAgentPresets,
+  type ChannelBotChannel,
   type ChannelBotDetails,
   type OrganizationGetOrganizationEntitlementsResponse,
   type OrganizationGetOrganizationResponse,
@@ -135,7 +136,7 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
   )
   api.listPlatformApps.mockResolvedValue([])
   api.listRoutes.mockResolvedValue(routePage([]))
-  api.listChannels.mockResolvedValue([])
+  api.listChannels.mockResolvedValue(channelPage([]))
   api.listPresets.mockResolvedValue(AGENTS)
 }
 
@@ -160,6 +161,14 @@ export function serveRoutes(routes: AgentChannelRouteRead[]): void {
 /** One page of an install's routes; `nextCursor` means more follow. */
 export function routePage(
   items: AgentChannelRouteRead[],
+  nextCursor: string | null = null
+) {
+  return { items, next_cursor: nextCursor, has_more: nextCursor !== null }
+}
+
+/** One page of a provider tenant's channels; `nextCursor` means more follow. */
+export function channelPage(
+  items: ChannelBotChannel[],
   nextCursor: string | null = null
 ) {
   return { items, next_cursor: nextCursor, has_more: nextCursor !== null }

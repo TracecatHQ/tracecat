@@ -99,6 +99,7 @@ function ChannelPicker({
   isLoading,
   disabled,
   onChange,
+  more,
 }: {
   id: string
   channels: ChannelBotChannel[]
@@ -106,6 +107,12 @@ function ChannelPicker({
   isLoading: boolean
   disabled: boolean
   onChange: (channelId: string) => void
+  more: {
+    hasMore: boolean
+    loading: boolean
+    failed: boolean
+    load: () => void
+  }
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -191,6 +198,22 @@ function ChannelPicker({
                 )}
               </CommandItem>
             ))}
+            {more.hasMore && (
+              // Search covers loaded pages only, so this stays while searching.
+              <CommandItem
+                forceMount
+                value="load more channels"
+                disabled={more.loading}
+                onSelect={more.load}
+                className="text-xs text-muted-foreground"
+              >
+                {more.loading
+                  ? "Loading…"
+                  : more.failed
+                    ? "Could not load more channels. Try again"
+                    : "Load more channels"}
+              </CommandItem>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>
@@ -224,10 +247,14 @@ export function PlatformChannelRoutes({
     workspaceId,
     install.provider
   )
-  const { channels, channelsIsLoading, channelsError } = useChannelBotChannels(
-    workspaceId,
-    install.id
-  )
+  const {
+    channels,
+    channelsIsLoading,
+    channelsError,
+    hasMoreChannels,
+    loadingMoreChannels,
+    loadMoreChannels,
+  } = useChannelBotChannels(workspaceId, install.id)
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(
@@ -250,12 +277,13 @@ export function PlatformChannelRoutes({
   const unrouted = (channels ?? []).filter(
     (c) => !routes?.some((r) => r.provider_channel_id === c.id)
   )
-  // Any listing failure falls back to typing the ID.
-  const listingNote = channelsError
-    ? isChannelListingNotSupported(channelsError)
-      ? `${providerName} channels can't be listed here.`
-      : "Could not load channels."
-    : null
+  // A failed first page falls back to typing the ID; a failed later page keeps the picker.
+  const listingNote =
+    channelsError && !channels
+      ? isChannelListingNotSupported(channelsError)
+        ? `${providerName} channels can't be listed here.`
+        : "Could not load channels."
+      : null
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
@@ -350,8 +378,9 @@ export function PlatformChannelRoutes({
                   <Trash2 className="size-4" />
                 </Button>
               </div>
+              {/* Unlisted once every page is loaded means private without the bot. */}
               {((known?.is_private && !known.is_member) ||
-                (!known && channels && !channelsError)) && (
+                (!known && channels && !hasMoreChannels && !channelsError)) && (
                 <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
                   {known
                     ? `Invite @Tracecat in #${known.name} to finish`
@@ -439,6 +468,12 @@ export function PlatformChannelRoutes({
                 isLoading={channelsIsLoading}
                 disabled={disabled}
                 onChange={setChannel}
+                more={{
+                  hasMore: hasMoreChannels,
+                  loading: loadingMoreChannels,
+                  failed: !!channelsError,
+                  load: loadMoreChannels,
+                }}
               />
             )}
           </div>

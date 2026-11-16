@@ -5,6 +5,7 @@ import { CancelablePromise } from "@/client/core/CancelablePromise"
 import {
   api,
   apiError,
+  channelPage,
   PRESET,
   platformSlackBot,
   routePage,
@@ -51,7 +52,7 @@ function servePlatform(
   serveBots([platformSlackBot()])
   api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
   api.listRoutes.mockResolvedValue(routePage(routes))
-  api.listChannels.mockResolvedValue(channels)
+  api.listChannels.mockResolvedValue(channelPage(channels))
 }
 
 /** Renders the Channels page and waits for the install's route editor. */
@@ -110,6 +111,7 @@ describe("PlatformChannelRoutes", () => {
     expect(api.listChannels).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
       botId: INSTALL_ID,
+      cursor: null,
     })
     expect(api.addRoute).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
@@ -138,6 +140,68 @@ describe("PlatformChannelRoutes", () => {
     expect(
       screen.getByRole("option", { name: /phishing-reports/ })
     ).toBeInTheDocument()
+  })
+
+  it("loads more channels, even while searching the loaded ones", async () => {
+    const [alerts, phishing, soc] = CHANNELS
+    api.listChannels
+      .mockResolvedValueOnce(channelPage([alerts], "next"))
+      .mockResolvedValueOnce(channelPage([phishing, soc]))
+    const card = await editor()
+    await openPicker(card)
+
+    await userEvent.type(
+      screen.getByPlaceholderText("Search channels or paste a channel ID"),
+      "soc"
+    )
+    expect(screen.queryByRole("option", { name: /soc/ })).toBeNull()
+    await userEvent.click(
+      screen.getByRole("option", { name: "Load more channels" })
+    )
+
+    expect(
+      await screen.findByRole("option", { name: /soc/ })
+    ).toBeInTheDocument()
+    expect(api.listChannels).toHaveBeenLastCalledWith({
+      workspaceId: WORKSPACE_ID,
+      botId: INSTALL_ID,
+      cursor: "next",
+    })
+    expect(
+      screen.queryByRole("option", { name: "Load more channels" })
+    ).toBeNull()
+  })
+
+  it("keeps the picker when a later channel page fails", async () => {
+    api.listChannels
+      .mockResolvedValueOnce(channelPage([CHANNELS[0]], "next"))
+      .mockRejectedValueOnce(apiError(400, { detail: "Flaky" }))
+    const card = await editor()
+    await openPicker(card)
+
+    await userEvent.click(
+      screen.getByRole("option", { name: "Load more channels" })
+    )
+
+    expect(
+      await screen.findByRole("option", {
+        name: "Could not load more channels. Try again",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: /alerts/ })).toBeInTheDocument()
+    expect(
+      within(card).getByRole("combobox", { name: "Channel" })
+    ).toBeInTheDocument()
+  })
+
+  it("holds the invite hint for an unlisted channel until every page loads", async () => {
+    servePlatform([route("C9", PRESET.id)])
+    api.listChannels.mockResolvedValue(channelPage([CHANNELS[0]], "next"))
+    const card = await editor()
+
+    const list = await within(card).findByRole("list", { name: "Channels" })
+    expect(await within(list).findByText("C9")).toBeInTheDocument()
+    expect(within(card).queryByText(/Invite @Tracecat/)).toBeNull()
   })
 
   it("marks private channels and channels the bot is not in", async () => {

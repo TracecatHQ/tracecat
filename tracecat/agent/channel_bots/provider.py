@@ -124,10 +124,18 @@ class ChannelBotAdmin(Protocol):
         ...
 
     async def list_channels(
-        self, session: AsyncSession, role: Role, *, bot_id: uuid.UUID
-    ) -> list[ChannelBotChannel]:
-        """Raise `TracecatValidationError` unless the bot is installed and running,
-        `ChannelListingNotSupported` when its provider cannot list channels.
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[ChannelBotChannel]:
+        """A page of the provider tenant's channels, paged by the provider's own cursor.
+
+        Raise `TracecatValidationError` unless the bot is installed and running,
+        `ChannelListingNotSupported` when its provider cannot list channels, and
+        ``PaginationError`` for a malformed cursor.
         """
         ...
 
