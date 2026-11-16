@@ -25,6 +25,7 @@ from fastmcp.server.auth.oauth_proxy.models import (
     OAuthTransaction,
     ProxyDCRClient,
 )
+from fastmcp.server.auth.ssrf import SSRFFetchResponse
 from jwt.algorithms import RSAAlgorithm
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
@@ -1938,6 +1939,8 @@ _PRIVATE_KEY_JWT_JWKS_URI = "https://chatgpt-client.example.test/oauth/jwks.json
 _PRIVATE_KEY_JWT_REDIRECT_URI = "https://chatgpt-client.example.test/oauth/callback"
 _PUBLIC_CIMD_CLIENT_ID = "https://claude-client.example.test/oauth/client.json"
 _PUBLIC_CIMD_REDIRECT_URI = "https://claude-client.example.test/oauth/callback"
+_SPOOFED_CIMD_URL = "https://spoofed-client.example.test/oauth/client.json"
+_PRIVATE_JWKS_CIMD_URL = "https://private-jwks-client.example.test/oauth/client.json"
 _JWT_BEARER_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 _TEST_SIGNING_KID = "test-signing-key"
 _PKCE_VERIFIER = "synthetic-pkce-verifier-for-unit-tests-0123456789abcdef"
@@ -2025,47 +2028,64 @@ def _install_cimd_clients(
 ) -> list[str]:
     """Serve synthetic CIMD documents and a JWKS without network access.
 
-    Only the remote fetches are replaced. FastMCP's CIMD client resolution,
-    ``PrivateKeyJWTClientAuthenticator``, ``JWTVerifier`` and the token
-    handler run unchanged. Returns the list of fetched JWKS URLs.
+    Only DNS and the HTTP response bytes are replaced. FastMCP's CIMD fetcher
+    (``client_id`` match, ``jwks_uri`` SSRF check), CIMD client resolution,
+    ``PrivateKeyJWTClientAuthenticator``, ``JWTVerifier`` and the token handler
+    run unchanged. Returns the list of fetched JWKS URLs.
     """
-    documents = {
-        _PRIVATE_KEY_JWT_CLIENT_ID: CIMDDocument.model_validate(
-            {
-                "client_id": _PRIVATE_KEY_JWT_CLIENT_ID,
-                "client_name": "ChatGPT-shaped test client",
-                "redirect_uris": [_PRIVATE_KEY_JWT_REDIRECT_URI],
-                "token_endpoint_auth_method": "private_key_jwt",
-                "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
-                "token_endpoint_auth_signing_alg": "RS256",
-                "grant_types": ["authorization_code", "refresh_token"],
-                "response_types": ["code"],
-                "jwks_uri": _PRIVATE_KEY_JWT_JWKS_URI,
-            }
-        ),
-        _PUBLIC_CIMD_CLIENT_ID: CIMDDocument.model_validate(
-            {
-                "client_id": _PUBLIC_CIMD_CLIENT_ID,
-                "client_name": "Claude-shaped test client",
-                "redirect_uris": [_PUBLIC_CIMD_REDIRECT_URI],
-                "token_endpoint_auth_method": "none",
-                "grant_types": ["authorization_code", "refresh_token"],
-                "response_types": ["code"],
-            }
-        ),
+    private_key_jwt_document: dict[str, object] = {
+        "client_id": _PRIVATE_KEY_JWT_CLIENT_ID,
+        "client_name": "ChatGPT-shaped test client",
+        "redirect_uris": [_PRIVATE_KEY_JWT_REDIRECT_URI],
+        "token_endpoint_auth_method": "private_key_jwt",
+        "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
+        "token_endpoint_auth_signing_alg": "RS256",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "jwks_uri": _PRIVATE_KEY_JWT_JWKS_URI,
+    }
+    documents: dict[str, dict[str, object]] = {
+        _PRIVATE_KEY_JWT_CLIENT_ID: private_key_jwt_document,
+        _PUBLIC_CIMD_CLIENT_ID: {
+            "client_id": _PUBLIC_CIMD_CLIENT_ID,
+            "client_name": "Claude-shaped test client",
+            "redirect_uris": [_PUBLIC_CIMD_REDIRECT_URI],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+        },
+        # Hosted elsewhere but claims to be the ChatGPT-shaped client.
+        _SPOOFED_CIMD_URL: private_key_jwt_document,
+        # Points the JWKS fetch at a host that resolves to a private address.
+        _PRIVATE_JWKS_CIMD_URL: {
+            **private_key_jwt_document,
+            "client_id": _PRIVATE_JWKS_CIMD_URL,
+            "jwks_uri": "https://internal.example.test/jwks.json",
+        },
     }
     jwks_fetches: list[str] = []
 
-    async def _fetch_cimd(client_id_url: str) -> CIMDDocument:
-        return documents[client_id_url]
+    async def _resolve_hostname(hostname: str, port: int = 443) -> list[str]:
+        # Public address for synthetic client hosts; never dialled because the
+        # fetches below are stubbed.
+        return ["10.0.0.5"] if hostname.startswith("internal.") else ["1.1.1.1"]
+
+    async def _fetch_cimd_response(url: str, **_kwargs: object) -> SSRFFetchResponse:
+        return SSRFFetchResponse(
+            content=json.dumps(documents[url]).encode(),
+            status_code=200,
+            headers={"content-type": "application/json"},
+        )
 
     async def _fetch_jwks(url: str, **_kwargs: object) -> bytes:
         jwks_fetches.append(url)
         assert url == _PRIVATE_KEY_JWT_JWKS_URI
         return json.dumps(jwks).encode()
 
-    assert auth._cimd_manager is not None
-    monkeypatch.setattr(auth._cimd_manager._fetcher, "fetch", _fetch_cimd)
+    monkeypatch.setattr("fastmcp.server.auth.ssrf.resolve_hostname", _resolve_hostname)
+    monkeypatch.setattr(
+        "fastmcp.server.auth.cimd.ssrf_safe_fetch_response", _fetch_cimd_response
+    )
     monkeypatch.setattr(
         "fastmcp.server.auth.providers.jwt.ssrf_safe_fetch", _fetch_jwks
     )
@@ -2083,15 +2103,16 @@ async def _post_private_key_jwt_token_request(
     auth: mcp_auth.OIDCProxy,
     *,
     assertion: str | None,
+    client_id: str = _PRIVATE_KEY_JWT_CLIENT_ID,
 ) -> httpx.Response:
     code = await _seed_authorization_code(
         auth,
-        client_id=_PRIVATE_KEY_JWT_CLIENT_ID,
+        client_id=client_id,
         redirect_uri=_PRIVATE_KEY_JWT_REDIRECT_URI,
     )
     form = {
         "grant_type": "authorization_code",
-        "client_id": _PRIVATE_KEY_JWT_CLIENT_ID,
+        "client_id": client_id,
         "code": code,
         "redirect_uri": _PRIVATE_KEY_JWT_REDIRECT_URI,
         "code_verifier": _PKCE_VERIFIER,
@@ -2195,6 +2216,32 @@ async def test_private_key_jwt_cimd_client_rejects_invalid_client_auth(
 
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_client"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "client_id",
+    [
+        pytest.param(_SPOOFED_CIMD_URL, id="client-id-mismatch"),
+        pytest.param(_PRIVATE_JWKS_CIMD_URL, id="private-jwks-uri"),
+    ],
+)
+async def test_private_key_jwt_rejects_unverifiable_cimd_document(
+    monkeypatch: pytest.MonkeyPatch,
+    client_id: str,
+) -> None:
+    """A CIMD document that fails FastMCP's fetch checks never authenticates."""
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    jwks_fetches = _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+
+    response = await _post_private_key_jwt_token_request(
+        auth, assertion=_client_assertion(key), client_id=client_id
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+    assert jwks_fetches == []
 
 
 @pytest.mark.anyio
