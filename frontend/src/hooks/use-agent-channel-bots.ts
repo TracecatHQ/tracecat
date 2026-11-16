@@ -502,18 +502,17 @@ export function useAgentSlackPlacements(workspaceId: string): {
     } else if (listed?.error || routesError) {
       add(activeInstall.agent_preset_id, { kind: "default" })
     }
+    // A routed channel the bot is not in has no name to show, so it shows nothing.
     const channelsById = new Map((listed?.channels ?? []).map((c) => [c.id, c]))
-    const sortedRoutes = [...(installRoutes ?? [])].sort((a, b) =>
-      channelSortKey(a.provider_channel_id, channelsById).localeCompare(
-        channelSortKey(b.provider_channel_id, channelsById)
-      )
+    const routedChannels = (installRoutes ?? []).flatMap((route) => {
+      const channel = channelsById.get(route.provider_channel_id)
+      return channel ? [{ presetId: route.agent_preset_id, channel }] : []
+    })
+    routedChannels.sort((a, b) =>
+      channelName(a.channel).localeCompare(channelName(b.channel))
     )
-    for (const route of sortedRoutes) {
-      add(route.agent_preset_id, {
-        kind: "channel",
-        channelId: route.provider_channel_id,
-        channel: channelsById.get(route.provider_channel_id) ?? null,
-      })
+    for (const { presetId, channel } of routedChannels) {
+      add(presetId, { kind: "channel", channelId: channel.id, channel })
     }
     return byPreset
   }, [
@@ -536,14 +535,6 @@ export function useAgentSlackPlacements(workspaceId: string): {
       loadAllRoutes ||
       botChannels.isLoading,
   }
-}
-
-function channelSortKey(
-  channelId: string,
-  channelsById: Map<string, ChannelBotChannel>
-): string {
-  const channel = channelsById.get(channelId)
-  return channel ? channelName(channel) : channelId
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */

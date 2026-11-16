@@ -77,7 +77,6 @@ import {
   getMcpProviderIconId,
   getModelProviderIconId,
   ProviderIcon,
-  SlackIcon,
 } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { ListHeaderSearch } from "@/components/list-header-search"
@@ -141,6 +140,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAgentSlackPlacements } from "@/hooks/use-agent-channel-bots"
 import {
   type AgentDirectoryItem,
   useAgentDirectoryItems,
@@ -1921,7 +1921,6 @@ function AgentsCatalogHeader({
   mcpEmptyMessage,
   workflowOptions,
   workflowEmptyMessage,
-  slackOptions,
 }: {
   filters: AgentCatalogFilters
   onFiltersChange: (filters: AgentCatalogFilters) => void
@@ -1930,8 +1929,6 @@ function AgentsCatalogHeader({
   /** Null hides the filter, e.g. without workflow read access. */
   workflowOptions: FilterOption[] | null
   workflowEmptyMessage: string
-  /** Null hides the filter, e.g. when no agent answers in Slack. */
-  slackOptions: FilterOption[] | null
   searchQuery: string
   onSearchChange: (query: string) => void
   sortBy: AgentsSortValue
@@ -2054,20 +2051,6 @@ function AgentsCatalogHeader({
             emptyMessage={workflowEmptyMessage}
           />
         ) : null}
-        {slackOptions ? (
-          <FilterMultiSelect
-            placeholder="Slack channels"
-            icon={SlackIcon}
-            value={filters.slackChannels}
-            options={slackOptions}
-            onChange={(slackChannels) =>
-              onFiltersChange({ ...filters, slackChannels })
-            }
-            mode="include"
-            onModeChange={() => {}}
-            allowExclude={false}
-          />
-        ) : null}
         {defaultAgentId ? (
           <WorkspaceDefaultAgentBadge
             presetId={defaultAgentId}
@@ -2135,13 +2118,12 @@ export function AgentsDashboard() {
     (params: URLSearchParams) => router.replace(buildRoute(params)),
     [buildRoute, router]
   )
-  const {
-    filters,
-    setFilters,
-    canReadWorkflows,
-    slackPlacementsByPreset,
-    slackFilterIsLoading,
-  } = useAgentCatalogFilterState({ workspaceId, searchParams, replaceParams })
+  const { filters, setFilters, canReadWorkflows } = useAgentCatalogFilterState({
+    workspaceId,
+    searchParams,
+    replaceParams,
+  })
+  const { slackPlacementsByPreset } = useAgentSlackPlacements(workspaceId)
   // A folder only lists its own children, so an active filter searches the
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
@@ -2206,14 +2188,12 @@ export function AgentsDashboard() {
     workflowEmptyMessage,
     workflowFilterIsLoading,
     workflowFilterError,
-    slackOptions,
   } = useAgentCatalogFilterOptions({
     workspaceId,
     filters,
     canReadWorkflows,
     mcpBySlug,
     usedMcpSlugs,
-    slackPlacementsByPreset,
   })
 
   const { agentTags, agentTagsIsLoading } = useAgentTagCatalog(workspaceId, {
@@ -2356,13 +2336,8 @@ export function AgentsDashboard() {
   const matchesQuery = useCallback(
     (item: AgentDirectoryItem): boolean =>
       matchesSearch(item) &&
-      matchesAgentCatalogFilters(
-        item,
-        filters,
-        workflowsByPreset,
-        slackPlacementsByPreset
-      ),
-    [filters, matchesSearch, slackPlacementsByPreset, workflowsByPreset]
+      matchesAgentCatalogFilters(item, filters, workflowsByPreset),
+    [filters, matchesSearch, workflowsByPreset]
   )
 
   // Folder view items
@@ -2398,7 +2373,6 @@ export function AgentsDashboard() {
   const isLoading =
     entitlementsLoading ||
     workflowFilterIsLoading ||
-    slackFilterIsLoading ||
     (flatCatalog ? presetsIsLoading : directoryItemsIsLoading)
   const error =
     (flatCatalog ? presetsError : directoryItemsError) ?? workflowFilterError
@@ -2422,7 +2396,6 @@ export function AgentsDashboard() {
           mcpEmptyMessage={mcpEmptyMessage}
           workflowOptions={workflowOptions}
           workflowEmptyMessage={workflowEmptyMessage}
-          slackOptions={slackOptions}
         />
 
         <div className="min-h-0 flex-1 overflow-auto">

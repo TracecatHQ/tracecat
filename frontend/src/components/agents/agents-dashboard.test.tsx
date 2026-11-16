@@ -1047,29 +1047,33 @@ describe("AgentsDashboard entitlement split", () => {
     it("shows the channels each agent's bot is in", async () => {
       serveSlack()
       renderCatalog()
-      expect(await row("Phishing agent").findByText("C9")).toBeInTheDocument()
+      expect(
+        await row("Phishing agent").findByText("#phish-reports")
+      ).toBeInTheDocument()
 
       // The install's channels without a route.
       const triage = row("Triage agent")
       expect(triage.getByText("#general")).toBeInTheDocument()
       expect(triage.getByText("#random")).toBeInTheDocument()
       expect(triage.queryByText("All other channels")).not.toBeInTheDocument()
-      expect(triage.getByLabelText("Slack")).toBeInTheDocument()
+      expect(triage.getAllByLabelText("Slack")).toHaveLength(2)
 
       const enrich = row("Enrich agent")
       expect(enrich.getByText("secops")).toBeInTheDocument()
       expect(enrich.getByLabelText("Private channel")).toBeInTheDocument()
       expect(enrich.getByText("#soc-alerts")).toBeInTheDocument()
       expect(enrich.queryByText("#triage-x")).not.toBeInTheDocument()
-      expect(enrich.getAllByLabelText("Slack")).toHaveLength(1)
+      // Every badge carries the Slack icon; the overflow does not.
+      expect(enrich.getAllByLabelText("Slack")).toHaveLength(2)
       await userEvent.hover(enrich.getByText("+1"))
       expect(await screen.findByRole("tooltip")).toHaveTextContent("#triage-x")
 
-      // Its own app's channels, then a routed channel the install is not in.
+      // Its own app's channels; a routed channel the install is not in has no
+      // name, so it shows no badge.
       const phish = row("Phishing agent")
       expect(phish.getByText("#phish-reports")).toBeInTheDocument()
       expect(phish.queryByText("All channels")).not.toBeInTheDocument()
-      expect(phish.getByText("C9")).toHaveClass("font-mono")
+      expect(phish.queryByText("C9")).not.toBeInTheDocument()
       expect(api.listRoutes).toHaveBeenCalledWith(
         expect.objectContaining({ botId: "platform-1", cursor: "page-2" })
       )
@@ -1103,15 +1107,10 @@ describe("AgentsDashboard entitlement split", () => {
       expect(
         row("Phishing agent").getByText("All channels")
       ).toBeInTheDocument()
-      // Routed channels keep their badges, by ID without a name.
-      expect(row("Enrich agent").getByText("C1")).toBeInTheDocument()
-
-      await userEvent.click(
-        await screen.findByRole("button", { name: /Slack channels/ })
-      )
+      // Routed channels without a name show no badge.
       expect(
-        screen.getByRole("option", { name: "All other channels (default)" })
-      ).toBeInTheDocument()
+        row("Enrich agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
     })
 
     it("asks for a reinstall when a custom app cannot list its channels", async () => {
@@ -1129,15 +1128,12 @@ describe("AgentsDashboard entitlement split", () => {
       )
     })
 
-    it("fetches and shows nothing without the preview, ignoring a Slack URL filter", async () => {
+    it("fetches and shows nothing without the preview", async () => {
       serveSlack({ preview: false })
-      renderCatalog("slack=C1")
+      renderCatalog()
       expect(screen.getByText("Triage agent")).toBeInTheDocument()
       expect(screen.getByText("Plain agent")).toBeInTheDocument()
       expect(screen.queryByTestId("slack-badges")).not.toBeInTheDocument()
-      expect(
-        screen.queryByRole("button", { name: /Slack channels/ })
-      ).not.toBeInTheDocument()
       expect(api.listBots).not.toHaveBeenCalled()
       expect(api.listPlatformApps).not.toHaveBeenCalled()
       expect(api.listRoutes).not.toHaveBeenCalled()
@@ -1166,51 +1162,6 @@ describe("AgentsDashboard entitlement split", () => {
       expect(api.listChannels).toHaveBeenCalledWith(
         expect.objectContaining({ botId: "own-1" })
       )
-    })
-
-    it("lists Slack filter options and writes a choice to the URL", async () => {
-      serveSlack()
-      renderCatalog("view=list")
-      await userEvent.click(
-        await screen.findByRole("button", { name: /Slack channels/ })
-      )
-      const options = (await screen.findAllByRole("option")).map(
-        (option) => option.textContent
-      )
-      expect(options).toEqual([
-        "C9",
-        "#general",
-        "#phish-reports",
-        "#random",
-        "secops",
-        "#soc-alerts",
-        "#triage-x",
-        "Any Slack channel",
-      ])
-      await userEvent.click(screen.getByRole("option", { name: /soc-alerts/ }))
-      expect(mockReplace).toHaveBeenLastCalledWith(
-        "/workspaces/workspace-1/agents?view=list&slack=C1"
-      )
-    })
-
-    it.each([
-      ["slack=C1", ["Enrich agent"]],
-      ["slack=C9", ["Phishing agent"]],
-      ["slack=C7", ["Phishing agent"]],
-      ["slack=C3", ["Triage agent"]],
-      ["slack=C3&slack=C1", ["Triage agent", "Enrich agent"]],
-      ["slack=any", ["Triage agent", "Enrich agent", "Phishing agent"]],
-    ])("narrows rows for ?%s", async (params, expected) => {
-      serveSlack()
-      renderCatalog(params)
-      expect(await screen.findByText(expected[0])).toBeInTheDocument()
-      for (const { name } of AGENTS) {
-        if (expected.includes(name)) {
-          expect(screen.getByText(name)).toBeInTheDocument()
-        } else {
-          expect(screen.queryByText(name)).not.toBeInTheDocument()
-        }
-      }
     })
   })
 })

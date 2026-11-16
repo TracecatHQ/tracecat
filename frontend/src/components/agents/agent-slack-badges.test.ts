@@ -20,12 +20,9 @@ describe("slackPlacementLabel", () => {
     ).toBe("SecOps › #alerts")
   })
 
-  it("names a single-workspace channel, and an unlisted one by ID", () => {
+  it("names a single-workspace channel", () => {
     expect(
       slackPlacementLabel({ kind: "channel", channelId: "C1", channel })
     ).toBe("#alerts")
-    expect(
-      slackPlacementLabel({ kind: "channel", channelId: "C9", channel: null })
-    ).toBe("C9")
   })
 })

@@ -43,7 +43,8 @@ import { Button } from "@/components/ui/button"
 import { useAdminSlackApp } from "@/hooks/use-admin"
 import { getApiErrorDetail } from "@/lib/errors"
 
-const TRACECAT_ICON_URL = "/icon.png"
+// Slack requires a square app icon between 512px and 2000px.
+const TRACECAT_ICON_URL = "/tracecat-icon-1024.png"
 
 type AdminSlackApp = ReturnType<typeof useAdminSlackApp>
 
@@ -260,10 +261,13 @@ function FinishInSlack({
   const mark = (step: Parameters<typeof onMark>[0]) =>
     void onMark(step).catch(() => undefined)
 
-  if (iconDone && distributionDone) {
+  // The icon is optional, so only distribution gates the collapsed state.
+  if (distributionDone) {
     return (
       <>
-        <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
+        {iconDone ? (
+          <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
+        ) : null}
         <SetupDoneLine>Public distribution on</SetupDoneLine>
       </>
     )
@@ -273,12 +277,12 @@ function FinishInSlack({
       <div className="space-y-1">
         <h4 className="text-sm font-medium">Finish in Slack</h4>
         <p className="text-xs text-muted-foreground">
-          Tracecat can&apos;t check these two settings, so mark each one done
-          once it&apos;s set.
+          Tracecat can&apos;t check these settings, so mark each one done once
+          it&apos;s set.
         </p>
       </div>
       <TickOff
-        title="Upload the Tracecat icon"
+        title="Upload the Tracecat icon (optional)"
         done={iconDone}
         disabled={marking}
         onToggle={() => mark({ icon_uploaded: !iconDone })}

@@ -190,7 +190,7 @@ describe("PlatformSlackAppSettings", () => {
     )
     expect(screen.getByRole("link", { name: "Download logo" })).toHaveAttribute(
       "href",
-      "/icon.png"
+      "/tracecat-icon-1024.png"
     )
     expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument()
   })
@@ -207,7 +207,7 @@ describe("PlatformSlackAppSettings", () => {
     renderSettings()
 
     const icon = await screen.findByRole("group", {
-      name: "Upload the Tracecat icon",
+      name: "Upload the Tracecat icon (optional)",
     })
     await userEvent.click(
       within(icon).getByRole("button", { name: "Mark done" })
@@ -236,12 +236,26 @@ describe("PlatformSlackAppSettings", () => {
     ).toBeNull()
   })
 
+  it("collapses once distribution is on, without the optional icon", async () => {
+    api.get.mockResolvedValue({ ...SAVED, distribution_enabled: true })
+    renderSettings()
+    expect(
+      await screen.findByText("Public distribution on")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Tracecat icon uploaded")).toBeNull()
+    expect(
+      screen.queryByRole("group", {
+        name: "Upload the Tracecat icon (optional)",
+      })
+    ).toBeNull()
+  })
+
   it("shows a step marked done from the server after a remount", async () => {
     api.get.mockResolvedValue(SAVED)
     api.mark.mockResolvedValue({ ...SAVED, icon_uploaded: true })
     const unmount = renderSettings()
     const icon = await screen.findByRole("group", {
-      name: "Upload the Tracecat icon",
+      name: "Upload the Tracecat icon (optional)",
     })
     await userEvent.click(
       within(icon).getByRole("button", { name: "Mark done" })
@@ -253,7 +267,7 @@ describe("PlatformSlackAppSettings", () => {
     renderSettings()
 
     const remounted = await screen.findByRole("group", {
-      name: "Upload the Tracecat icon",
+      name: "Upload the Tracecat icon (optional)",
     })
     expect(
       within(remounted).getByRole("button", { name: "Done" })
