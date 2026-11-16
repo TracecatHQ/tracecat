@@ -19,12 +19,17 @@ from tests._route_utils import iter_effective_api_routes
 from tracecat import config
 from tracecat.agent.channel_bots import provider as provider_module
 from tracecat.agent.channel_bots import router as router_module
+from tracecat.agent.channel_bots.provider import (
+    ChannelListingNeedsReinstall,
+    ChannelListingNotSupported,
+)
 from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotRead,
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
@@ -292,6 +297,14 @@ WORKSPACE_ROUTES = [
         id="install_platform",
     ),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
+    pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
+    pytest.param(
+        "GET",
+        f"/{uuid.uuid4()}/routable-channels",
+        None,
+        "agent:read",
+        id="routable_channels",
+    ),
     pytest.param(
         "POST", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="add_route"
     ),
@@ -299,7 +312,11 @@ WORKSPACE_ROUTES = [
         "PUT", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="set_route"
     ),
     pytest.param(
-        "DELETE", f"/{uuid.uuid4()}/routes/C1", None, "agent:update", id="delete_route"
+        "DELETE",
+        f"/{uuid.uuid4()}/routes?provider_channel_id=C1",
+        None,
+        "agent:update",
+        id="delete_route",
     ),
 ]
 ADMIN_METHODS = (
@@ -313,6 +330,8 @@ ADMIN_METHODS = (
     "install_platform",
     "list_routes",
     "add_route",
+    "list_channels",
+    "list_routable_channels",
     "set_route",
     "delete_route",
 )
@@ -541,7 +560,9 @@ def test_platform_routes_hand_the_request_to_the_admin(
     listed = client.get(f"/agent/channel-bots/{bot_id}/routes")
     added = client.post(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
     put = client.put(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
-    deleted = client.delete(f"/agent/channel-bots/{bot_id}/routes/C1")
+    deleted = client.delete(
+        f"/agent/channel-bots/{bot_id}/routes", params={"provider_channel_id": "C1"}
+    )
 
     assert apps.json() == [{"provider": "slack"}]
     assert install.json() == installed.model_dump(mode="json")
@@ -598,6 +619,39 @@ def test_a_route_needs_a_channel_id(
     response = client.put(
         f"/agent/channel-bots/{uuid.uuid4()}/routes",
         json={**ROUTE_BODY, "provider_channel_id": channel},
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [
+        "19:LpxShHZZh9utjNcEmUS5aOEP9ASw85OUn05NcWYAhX81@thread.tacv2",
+        "a/b?c#d%2F",
+    ],
+)
+def test_route_delete_carries_any_channel_id_verbatim(
+    client: TestClient, admin: AsyncMock, channel: str
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.delete_route.return_value = None
+
+    response = client.delete(
+        f"/agent/channel-bots/{bot_id}/routes", params={"provider_channel_id": channel}
+    )
+
+    assert response.status_code == 204
+    admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, channel)
+
+
+@pytest.mark.parametrize("params", [{}, {"provider_channel_id": " C1"}])
+def test_route_delete_needs_a_channel_id(
+    client: TestClient, admin: AsyncMock, params: dict[str, str]
+) -> None:
+    response = client.delete(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params=params
     )
 
     assert response.status_code == 422
@@ -705,6 +759,108 @@ def test_adding_a_route_for_a_routed_channel_is_a_conflict(
 
     assert response.status_code == 409
     assert response.json() == {"detail": "C1 already has a route"}
+
+
+# The bot's own channels for the agents list, and the tenant's for the routes editor.
+CHANNEL_LISTINGS = [
+    pytest.param("channels", "list_channels", id="channels"),
+    pytest.param("routable-channels", "list_routable_channels", id="routable"),
+]
+
+
+@pytest.mark.parametrize(("path", "method"), CHANNEL_LISTINGS)
+def test_channels_come_from_the_installed_admin(
+    client: TestClient, admin: AsyncMock, path: str, method: str
+) -> None:
+    bot_id = uuid.uuid4()
+    channels = [
+        ChannelBotChannel(id="C1", name="alerts", is_private=False, is_member=True),
+        ChannelBotChannel(id="G1", name="soc", is_private=True, is_member=False),
+        ChannelBotChannel(
+            id="19:a@thread.tacv2",
+            name="General",
+            is_private=False,
+            is_member=True,
+            team_id="19:a@thread.tacv2",
+            team_name="SecOps",
+        ),
+    ]
+    getattr(admin, method).return_value = CursorPaginatedResponse(
+        items=channels, next_cursor="dGVhbTpD", has_more=True
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/{path}",
+        params={"limit": 2, "cursor": "dGVhbTpB"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [c.model_dump(mode="json") for c in channels]
+    assert response.json()["next_cursor"] == "dGVhbTpD"
+    assert response.json()["has_more"] is True
+    getattr(admin, method).assert_awaited_once_with(
+        SESSION, ROLE, bot_id, page=PageParams(limit=2, cursor="dGVhbTpB")
+    )
+
+
+@pytest.mark.parametrize("path", ["channels", "routable-channels"])
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({"limit": 0}, id="limit_too_small"),
+        pytest.param({"limit": 201}, id="limit_too_large"),
+        pytest.param({"cursor": "x" * 8193}, id="cursor_too_long"),
+    ],
+)
+def test_channels_list_refuses_out_of_bounds_paging(
+    client: TestClient, admin: AsyncMock, params: dict[str, object], path: str
+) -> None:
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/{path}", params=params)
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(("path", "method"), CHANNEL_LISTINGS)
+def test_channels_list_keeps_a_malformed_cursors_error_code(
+    client: TestClient, admin: AsyncMock, path: str, method: str
+) -> None:
+    getattr(admin, method).side_effect = PaginationError(
+        "bad cursor", code=PaginationErrorCode.INVALID_CURSOR
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/{path}", params={"cursor": "x"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": {"code": "invalid_cursor"}}
+
+
+@pytest.mark.parametrize(("path", "method"), CHANNEL_LISTINGS)
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        pytest.param(TracecatNotFoundError("gone"), 404, id="unknown_bot"),
+        pytest.param(TracecatValidationError("paused"), 400, id="refused_state"),
+        pytest.param(ChannelListingNotSupported("no list"), 501, id="not_supported"),
+        pytest.param(ChannelListingNeedsReinstall("rescope"), 424, id="reinstall"),
+    ],
+)
+def test_channel_listing_errors_map_to_http_errors(
+    client: TestClient,
+    admin: AsyncMock,
+    error: Exception,
+    status_code: int,
+    path: str,
+    method: str,
+) -> None:
+    getattr(admin, method).side_effect = error
+
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/{path}")
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
 
 
 def test_a_bad_cursor_keeps_its_error_code(
@@ -1081,6 +1237,14 @@ def test_the_callback_stays_out_of_the_openapi_schema() -> None:
     assert not any(
         path.startswith("/agent/channel-bots/") for path in app.openapi()["paths"]
     )
+
+
+@pytest.mark.parametrize("path", ["channels", "routable-channels"])
+def test_channel_listings_declare_their_refusals(path: str) -> None:
+    operation = app.openapi()["paths"][
+        f"/workspaces/{{workspace_id}}/agent/channel-bots/{{bot_id}}/{path}"
+    ]["get"]
+    assert {"424", "501"} <= operation["responses"].keys()
 
 
 def test_slack_oauth_callback_path_is_pinned(

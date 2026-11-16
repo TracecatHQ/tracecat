@@ -43,7 +43,8 @@ import { Button } from "@/components/ui/button"
 import { useAdminSlackApp } from "@/hooks/use-admin"
 import { getApiErrorDetail } from "@/lib/errors"
 
-const TRACECAT_ICON_URL = "/icon.png"
+// Slack requires a square app icon between 512px and 2000px.
+const TRACECAT_ICON_URL = "/tracecat-icon-1024.png"
 
 type AdminSlackApp = ReturnType<typeof useAdminSlackApp>
 
@@ -260,11 +261,51 @@ function FinishInSlack({
   const mark = (step: Parameters<typeof onMark>[0]) =>
     void onMark(step).catch(() => undefined)
 
-  if (iconDone && distributionDone) {
+  const iconStep = (
+    <TickOff
+      title="Upload the Tracecat icon (optional)"
+      done={iconDone}
+      disabled={marking}
+      onToggle={() => mark({ icon_uploaded: !iconDone })}
+      actions={
+        <>
+          <Button type="button" size="sm" variant="outline" asChild>
+            <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
+              <Download className="mr-2 size-4" />
+              Download logo
+            </a>
+          </Button>
+          <Button type="button" size="sm" variant="outline" asChild>
+            <a
+              href={slackAppSettingsUrl(appId, "general")}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Basic Information
+              <ExternalLink className="ml-2 size-4" />
+            </a>
+          </Button>
+        </>
+      }
+    >
+      Basic Information → Display Information → App icon.
+    </TickOff>
+  )
+
+  if (distributionDone && iconDone) {
     return (
       <>
         <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
         <SetupDoneLine>Public distribution on</SetupDoneLine>
+      </>
+    )
+  }
+  // The icon is optional, so it stays open to tick off after distribution.
+  if (distributionDone) {
+    return (
+      <>
+        <SetupDoneLine>Public distribution on</SetupDoneLine>
+        <div className="pt-4">{iconStep}</div>
       </>
     )
   }
@@ -273,38 +314,11 @@ function FinishInSlack({
       <div className="space-y-1">
         <h4 className="text-sm font-medium">Finish in Slack</h4>
         <p className="text-xs text-muted-foreground">
-          Tracecat can&apos;t check these two settings, so mark each one done
-          once it&apos;s set.
+          Tracecat can&apos;t check these settings, so mark each one done once
+          it&apos;s set.
         </p>
       </div>
-      <TickOff
-        title="Upload the Tracecat icon"
-        done={iconDone}
-        disabled={marking}
-        onToggle={() => mark({ icon_uploaded: !iconDone })}
-        actions={
-          <>
-            <Button type="button" size="sm" variant="outline" asChild>
-              <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
-                <Download className="mr-2 size-4" />
-                Download logo
-              </a>
-            </Button>
-            <Button type="button" size="sm" variant="outline" asChild>
-              <a
-                href={slackAppSettingsUrl(appId, "general")}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open Basic Information
-                <ExternalLink className="ml-2 size-4" />
-              </a>
-            </Button>
-          </>
-        }
-      >
-        Basic Information → Display Information → App icon.
-      </TickOff>
+      {iconStep}
       <TickOff
         title="Turn on public distribution"
         done={distributionDone}

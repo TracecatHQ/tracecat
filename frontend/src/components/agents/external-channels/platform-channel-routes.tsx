@@ -1,9 +1,28 @@
 "use client"
 
-import { Hash, Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { type FormEvent, type ReactNode, useId, useState } from "react"
-import type { AgentChannelBotRead, AgentPresetReadMinimal } from "@/client"
-import { CHANNEL_BOT_PROVIDER_NAMES } from "@/components/agents/external-channels/channel-bot-utils"
+import type {
+  AgentChannelBotRead,
+  AgentChannelRouteRead,
+  AgentPresetReadMinimal,
+  ChannelBotChannel,
+  ChannelBotProvider,
+} from "@/client"
+import {
+  CHANNEL_BOT_PROVIDER_NAMES,
+  type ChannelConventions,
+  channelConventions,
+  channelLabel,
+  channelName,
+  isChannelListingNeedsReinstall,
+  isChannelListingNotSupported,
+} from "@/components/agents/external-channels/channel-bot-utils"
+import {
+  ChannelIcon,
+  ChannelPicker,
+} from "@/components/agents/external-channels/channel-picker"
+import { CopyButton } from "@/components/copy-button"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -17,6 +36,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import {
   useAddChannelBotRoute,
+  useChannelBotRoutableChannels,
   useChannelBotRoutes,
   useChannelBotsBusy,
   useDeleteChannelBotRoute,
@@ -24,7 +44,8 @@ import {
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 
 /** Picks one of the workspace's agents. */
 export function AgentSelect({
@@ -56,6 +77,123 @@ export function AgentSelect({
   )
 }
 
+type RouteMembership = "member" | "not_member" | "unknown"
+
+/** Whether the bot is in a routed channel, as far as the loaded listing tells. */
+function routeMembership(
+  known: ChannelBotChannel | undefined,
+  listing: {
+    channels: ChannelBotChannel[] | undefined
+    hasMore: boolean
+    error: TracecatApiError | null
+  }
+): RouteMembership {
+  if (known) {
+    return known.is_member ? "member" : "not_member"
+  }
+  // Unlisted once every page is loaded means private without the bot.
+  if (listing.channels && !listing.hasMore && !listing.error) {
+    return "not_member"
+  }
+  return "unknown"
+}
+
+/** Why the channels cannot be picked, or null while the picker works. */
+function listingNote(
+  providerName: string,
+  channels: ChannelBotChannel[] | undefined,
+  error: unknown
+): string | null {
+  // A failed first page falls back to typing the ID; a failed later page keeps the picker.
+  if (!error || channels) {
+    return null
+  }
+  if (isChannelListingNotSupported(error)) {
+    return `${providerName} channels can't be listed here.`
+  }
+  if (isChannelListingNeedsReinstall(error)) {
+    return `Reinstall Tracecat for ${providerName} to list channels.`
+  }
+  return "Could not load channels."
+}
+
+/** One routed channel, its agent, and a hint when the bot is not in it yet. */
+function RouteRow({
+  route,
+  known,
+  membership,
+  provider,
+  conventions,
+  agents,
+  disabled,
+  onChangeAgent,
+  onRemove,
+}: {
+  route: AgentChannelRouteRead
+  known: ChannelBotChannel | undefined
+  membership: RouteMembership
+  provider: ChannelBotProvider
+  conventions: ChannelConventions
+  agents: AgentPresetReadMinimal[]
+  disabled: boolean
+  onChangeAgent: (agentId: string) => void
+  onRemove: () => void
+}) {
+  const providerName = CHANNEL_BOT_PROVIDER_NAMES[provider]
+  const { inviteCommand } = conventions
+  const label = known
+    ? channelLabel(provider, known)
+    : route.provider_channel_id
+  const where = known ? label : "this channel"
+  return (
+    <li className="space-y-1">
+      <div className="flex items-center gap-2">
+        <ChannelIcon channel={known} conventions={conventions} />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs",
+            !known && "font-mono"
+          )}
+        >
+          {known ? channelName(known) : route.provider_channel_id}
+        </span>
+        <AgentSelect
+          label={`Agent for ${label}`}
+          value={route.agent_preset_id}
+          agents={agents}
+          disabled={disabled}
+          onChange={onChangeAgent}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8"
+          aria-label={`Remove ${label}`}
+          disabled={disabled}
+          onClick={onRemove}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+      {membership === "not_member" && (
+        <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
+          {inviteCommand
+            ? `Tracecat isn't in ${where} yet. Invite @Tracecat to start answering there.`
+            : `Tracecat isn't in ${where} yet. Add it in ${providerName} to start answering there.`}
+          {inviteCommand && (
+            <CopyButton
+              value={inviteCommand}
+              toastMessage="Invite command copied"
+              tooltipMessage={`Copy ${inviteCommand}`}
+            />
+          )}
+        </p>
+      )}
+    </li>
+  )
+}
+
 /**
  * A platform install's default agent, and the channels whose new threads go
  * to another agent. Existing threads keep the agent they started with.
@@ -82,6 +220,14 @@ export function PlatformChannelRoutes({
     workspaceId,
     install.provider
   )
+  const {
+    channels,
+    channelsIsLoading,
+    channelsError,
+    hasMoreChannels,
+    loadingMoreChannels,
+    loadMoreChannels,
+  } = useChannelBotRoutableChannels(workspaceId, install.id)
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(
@@ -94,12 +240,15 @@ export function PlatformChannelRoutes({
   const channelInputId = useId()
   const agents = presets ?? []
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[install.provider]
+  const conventions = channelConventions(install.provider)
 
-  // Slack channel IDs are uppercase; events never match a lowercase one.
-  const newChannel =
-    install.provider === "slack" ? channel.trim().toUpperCase() : channel.trim()
+  const newChannel = conventions.normalizeId(channel)
   // A hint over the loaded pages; the API refuses a channel that already has a route.
-  const taken = routes?.some((r) => r.provider_channel_id === newChannel)
+  const routedIds = new Set((routes ?? []).map((r) => r.provider_channel_id))
+  const taken = routedIds.has(newChannel)
+  const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
+  const unrouted = (channels ?? []).filter((c) => !routedIds.has(c.id))
+  const note = listingNote(providerName, channels, channelsError)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
@@ -153,42 +302,34 @@ export function PlatformChannelRoutes({
   } else if (routes && routes.length > 0) {
     routeList = (
       <ul className="space-y-2" aria-label="Channels">
-        {routes.map((r) => (
-          <li key={r.provider_channel_id} className="flex items-center gap-2">
-            <Hash
-              className="size-3.5 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-            <span className="min-w-0 flex-1 truncate font-mono text-xs">
-              {r.provider_channel_id}
-            </span>
-            <AgentSelect
-              label={`Agent for ${r.provider_channel_id}`}
-              value={r.agent_preset_id}
+        {routes.map((r) => {
+          const known = channelsById.get(r.provider_channel_id)
+          return (
+            <RouteRow
+              key={r.provider_channel_id}
+              route={r}
+              known={known}
+              membership={routeMembership(known, {
+                channels,
+                hasMore: hasMoreChannels,
+                error: channelsError,
+              })}
+              provider={install.provider}
+              conventions={conventions}
               agents={agents}
               disabled={disabled}
-              onChange={(agentId) =>
+              onChangeAgent={(agentId) =>
                 changeRoute(r.provider_channel_id, agentId)
               }
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-8"
-              aria-label={`Remove ${r.provider_channel_id}`}
-              disabled={disabled}
-              onClick={() =>
+              onRemove={() =>
                 deleteRoute({
                   botId: install.id,
                   providerChannelId: r.provider_channel_id,
                 })
               }
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </li>
-        ))}
+            />
+          )
+        })}
         {hasMoreRoutes ? (
           <li>
             <Button
@@ -243,16 +384,35 @@ export function PlatformChannelRoutes({
         <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">
-              Channel ID
+              {note ? "Channel ID" : "Channel"}
             </Label>
-            <Input
-              id={channelInputId}
-              value={channel}
-              onChange={(e) => setChannel(e.target.value)}
-              placeholder="C0123456789"
-              className="h-8 font-mono text-xs"
-              disabled={disabled}
-            />
+            {note ? (
+              <Input
+                id={channelInputId}
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                placeholder={conventions.idPlaceholder}
+                className="h-8 font-mono text-xs"
+                disabled={disabled}
+              />
+            ) : (
+              <ChannelPicker
+                id={channelInputId}
+                conventions={conventions}
+                channels={unrouted}
+                routedIds={routedIds}
+                value={channel}
+                isLoading={channelsIsLoading}
+                disabled={disabled}
+                onChange={setChannel}
+                more={{
+                  hasMore: hasMoreChannels,
+                  loading: loadingMoreChannels,
+                  failed: !!channelsError,
+                  load: loadMoreChannels,
+                }}
+              />
+            )}
           </div>
           <AgentSelect
             label="Agent for the new route"
@@ -272,7 +432,9 @@ export function PlatformChannelRoutes({
           </Button>
         </form>
         <p className="text-xs text-muted-foreground">
-          {`Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`}
+          {note
+            ? `${note} Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`
+            : "Threads already started keep their agent."}
         </p>
       </div>
     </div>

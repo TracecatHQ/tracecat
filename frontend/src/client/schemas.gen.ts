@@ -13089,6 +13089,54 @@ export const $ChannelBotAppOwner = {
   description: "Who owns a bot's provider app.",
 } as const
 
+export const $ChannelBotChannel = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    is_private: {
+      type: "boolean",
+      title: "Is Private",
+    },
+    is_member: {
+      type: "boolean",
+      title: "Is Member",
+    },
+    team_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Id",
+    },
+    team_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "is_private", "is_member"],
+  title: "ChannelBotChannel",
+  description:
+    "A channel in the bot's provider tenant, which a route can name.",
+} as const
+
 export const $ChannelBotCredentialsUpdate = {
   oneOf: [
     {
@@ -15176,6 +15224,69 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_ChannelBotChannel_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ChannelBotChannel",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ChannelBotChannel]",
 } as const
 
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
@@ -21823,6 +21934,30 @@ export const $IPAllowlistCheckResult = {
   title: "IPAllowlistCheckResult",
 } as const
 
+export const $InboxChannelThread = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+      description: "Channel bot the thread is linked on",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+      description: "The bot's provider",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+      description: "The provider's channel ID",
+    },
+  },
+  type: "object",
+  required: ["bot_id", "provider", "provider_channel_id"],
+  title: "InboxChannelThread",
+  description: "The provider channel a session's linked thread is in.",
+} as const
+
 export const $InboxGroup = {
   type: "string",
   enum: ["review_required", "running", "error", "completed"],
@@ -21922,6 +22057,18 @@ export const $InboxItemRead = {
       ],
       title: "Metadata",
       description: "Type-specific metadata",
+    },
+    channel_thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/InboxChannelThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The channel of the session's linked provider thread, if any",
     },
   },
   type: "object",

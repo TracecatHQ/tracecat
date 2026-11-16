@@ -3547,6 +3547,18 @@ export type CatalogMappingSelection = {
  */
 export type ChannelBotAppOwner = "workspace" | "platform"
 
+/**
+ * A channel in the bot's provider tenant, which a route can name.
+ */
+export type ChannelBotChannel = {
+  id: string
+  name: string
+  is_private: boolean
+  is_member: boolean
+  team_id?: string | null
+  team_name?: string | null
+}
+
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
 
 export type ChannelBotDetails = SlackBotDetails
@@ -4348,6 +4360,30 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
 
 export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   items: Array<CaseVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ChannelBotChannel_ = {
+  items: Array<ChannelBotChannel>
   /**
    * Cursor for next page
    */
@@ -6730,6 +6766,24 @@ export type IPAllowlistCheckResult = {
 }
 
 /**
+ * The provider channel a session's linked thread is in.
+ */
+export type InboxChannelThread = {
+  /**
+   * Channel bot the thread is linked on
+   */
+  bot_id: string
+  /**
+   * The bot's provider
+   */
+  provider: ChannelBotProvider
+  /**
+   * The provider's channel ID
+   */
+  provider_channel_id: string
+}
+
+/**
  * Display groups for inbox items.
  *
  * Groups are derived from approval state and live workflow execution status,
@@ -6795,6 +6849,10 @@ export type InboxItemRead = {
   metadata?: {
     [key: string]: unknown
   } | null
+  /**
+   * The channel of the session's linked provider thread, if any
+   */
+  channel_thread?: InboxChannelThread | null
 }
 
 /**
@@ -16588,6 +16646,26 @@ export type AgentChannelBotsDeleteBotRouteData = {
 
 export type AgentChannelBotsDeleteBotRouteResponse = void
 
+export type AgentChannelBotsListBotChannelsData = {
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
+
+export type AgentChannelBotsListBotRoutableChannelsData = {
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotRoutableChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
+
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
   workspaceId: string
@@ -23535,8 +23613,6 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-  }
-  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes/{provider_channel_id}": {
     delete: {
       req: AgentChannelBotsDeleteBotRouteData
       res: {
@@ -23548,6 +23624,52 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels": {
+    get: {
+      req: AgentChannelBotsListBotChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ChannelBotChannel_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routable-channels": {
+    get: {
+      req: AgentChannelBotsListBotRoutableChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ChannelBotChannel_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
       }
     }
   }

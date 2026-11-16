@@ -6,6 +6,7 @@ import uuid
 from functools import lru_cache
 from typing import Protocol, runtime_checkable
 
+from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channel_bots.schemas import (
@@ -15,6 +16,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
@@ -26,7 +28,16 @@ from tracecat.agent.channel_bots.schemas import (
 )
 from tracecat.api.extensions import load_api_extensions
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatException
 from tracecat.pagination import CursorPaginatedResponse, PageParams
+
+
+class ChannelListingNotSupported(TracecatException):
+    """The bot's provider cannot list its channels; the API answers 501."""
+
+
+class ChannelListingNeedsReinstall(TracecatException):
+    """The bot's app lacks the scopes to list channels; the API answers 424."""
 
 
 class ChannelBotAdmin(Protocol):
@@ -117,6 +128,42 @@ class ChannelBotAdmin(Protocol):
         """Raise `TracecatConflictError` when the channel already has a route."""
         ...
 
+    async def list_channels(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[ChannelBotChannel]:
+        """A page of the channels the bot is a member of, for an install of any app,
+        paged by the provider's own cursor.
+
+        Raise `TracecatValidationError` unless the bot is installed and running,
+        `ChannelListingNotSupported` when its provider cannot list channels,
+        `ChannelListingNeedsReinstall` when its app lacks the scopes to, and
+        ``PaginationError`` for a malformed cursor.
+        """
+        ...
+
+    async def list_routable_channels(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[ChannelBotChannel]:
+        """A page of every channel in a platform install's provider tenant, which a
+        route can name, paged by the provider's own cursor.
+
+        Raise `TracecatValidationError` unless the bot is a platform install, installed
+        and running, `ChannelListingNotSupported` when its provider cannot list
+        channels, `ChannelListingNeedsReinstall` when its app lacks the scopes to, and
+        ``PaginationError`` for a malformed cursor.
+        """
+        ...
+
     async def set_route(
         self,
         session: AsyncSession,
@@ -132,6 +179,15 @@ class ChannelBotAdmin(Protocol):
         bot_id: uuid.UUID,
         provider_channel_id: str,
     ) -> None: ...
+
+    def thread_channel_id(
+        self, provider: ChannelBotProvider, provider_thread_id: dict[str, JsonValue]
+    ) -> str | None:
+        """The channel a linked thread is in, as `list_channels` names it. No I/O.
+
+        Return None for a thread `provider` cannot read, instead of raising.
+        """
+        ...
 
     async def complete_oauth(
         self,

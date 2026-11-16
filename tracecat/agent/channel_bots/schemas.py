@@ -244,6 +244,19 @@ class AgentChannelRouteSet(BaseModel):
     agent_preset_id: uuid.UUID
 
 
+class ChannelBotChannel(BaseModel):
+    """A channel in the bot's provider tenant, which a route can name."""
+
+    id: str
+    name: str
+    is_private: bool
+    is_member: bool
+    # The team the channel belongs to, where the tenant spans several: a Teams team or
+    # a Slack Enterprise Grid workspace.
+    team_id: str | None = None
+    team_name: str | None = None
+
+
 class AgentChannelRouteRead(BaseModel):
     bot_id: uuid.UUID
     provider_channel_id: str
@@ -278,3 +291,11 @@ class ChannelBotOAuthResult(BaseModel):
     )
     ok: bool
     message: str | None = Field(default=None)
+
+
+class InboxChannelThread(BaseModel):
+    """The provider channel a session's linked thread is in."""
+
+    bot_id: uuid.UUID = Field(..., description="Channel bot the thread is linked on")
+    provider: ChannelBotProvider = Field(..., description="The bot's provider")
+    provider_channel_id: str = Field(..., description="The provider's channel ID")

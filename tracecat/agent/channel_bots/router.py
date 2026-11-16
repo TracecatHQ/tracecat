@@ -7,14 +7,19 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from tracecat import config
-from tracecat.agent.channel_bots.provider import ChannelBotAdmin, get_channel_bot_admin
+from tracecat.agent.channel_bots.provider import (
+    ChannelBotAdmin,
+    ChannelListingNeedsReinstall,
+    ChannelListingNotSupported,
+    get_channel_bot_admin,
+)
 from tracecat.agent.channel_bots.schemas import (
     CHANNEL_BOTS_PREFIX,
     OAUTH_CALLBACK_ROUTE,
@@ -24,6 +29,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstall,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
@@ -65,6 +71,16 @@ async def _require_agent_channels_preview(
 
 
 Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
+PageQuery = Annotated[PageParams, Depends()]
+
+_CHANNEL_LISTING_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_424_FAILED_DEPENDENCY: {
+        "description": "The bot's app lacks the scopes to list channels; reinstall it"
+    },
+    status.HTTP_501_NOT_IMPLEMENTED: {
+        "description": "The bot's provider cannot list its channels"
+    },
+}
 
 router = APIRouter(
     prefix=CHANNEL_BOTS_PREFIX,
@@ -81,6 +97,12 @@ async def _call[T](call: Awaitable[T]) -> T:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except TracecatConflictError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ChannelListingNotSupported as exc:
+        # The UI falls back to a typed channel ID on this status.
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
+    except ChannelListingNeedsReinstall as exc:
+        # The UI asks for a reinstall on this status.
+        raise HTTPException(status.HTTP_424_FAILED_DEPENDENCY, detail=str(exc)) from exc
     except PaginationError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=exc.detail or str(exc)
@@ -99,12 +121,7 @@ async def list_bots(
     agent_preset_id: uuid.UUID | None = Query(default=None),
     provider: ChannelBotProvider | None = Query(default=None),
     app_owner: ChannelBotAppOwner | None = Query(default=None),
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None, max_length=8192),
+    page: PageQuery,
 ) -> CursorPaginatedResponse[AgentChannelBotRead]:
     return await _call(
         admin.list_bots(
@@ -113,7 +130,7 @@ async def list_bots(
             agent_preset_id=agent_preset_id,
             provider=provider,
             app_owner=app_owner,
-            page=PageParams(limit=limit, cursor=cursor),
+            page=page,
         )
     )
 
@@ -215,12 +232,7 @@ async def list_bot_routes(
     session: AsyncDBSession,
     admin: Admin,
     agent_preset_id: uuid.UUID | None = Query(default=None),
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None, max_length=8192),
+    page: PageQuery,
 ) -> CursorPaginatedResponse[AgentChannelRouteRead]:
     return await _call(
         admin.list_routes(
@@ -228,7 +240,7 @@ async def list_bot_routes(
             role,
             bot_id,
             agent_preset_id=agent_preset_id,
-            page=PageParams(limit=limit, cursor=cursor),
+            page=page,
         )
     )
 
@@ -251,6 +263,41 @@ async def add_bot_route(
     return await _call(admin.add_route(session, role, bot_id, params))
 
 
+@router.get(
+    "/{bot_id}/channels",
+    response_model=CursorPaginatedResponse[ChannelBotChannel],
+    responses=_CHANNEL_LISTING_RESPONSES,
+)
+@require_scope("agent:read")
+async def list_bot_channels(
+    *,
+    bot_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+    page: PageQuery,
+) -> CursorPaginatedResponse[ChannelBotChannel]:
+    """The channels the bot is a member of, for an install of any app."""
+    return await _call(admin.list_channels(session, role, bot_id, page=page))
+
+
+@router.get(
+    "/{bot_id}/routable-channels",
+    response_model=CursorPaginatedResponse[ChannelBotChannel],
+    responses=_CHANNEL_LISTING_RESPONSES,
+)
+@require_scope("agent:read")
+async def list_bot_routable_channels(
+    *,
+    bot_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+    page: PageQuery,
+) -> CursorPaginatedResponse[ChannelBotChannel]:
+    return await _call(admin.list_routable_channels(session, role, bot_id, page=page))
+
+
 @router.put("/{bot_id}/routes", response_model=AgentChannelRouteRead)
 @require_scope("agent:update")
 async def set_bot_route(
@@ -264,15 +311,15 @@ async def set_bot_route(
     return await _call(admin.set_route(session, role, bot_id, params))
 
 
-@router.delete(
-    "/{bot_id}/routes/{provider_channel_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
+# The channel ID is a query parameter: a path segment cannot carry `/`, `?` or `#`.
+@router.delete("/{bot_id}/routes", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:update")
 async def delete_bot_route(
     *,
     bot_id: uuid.UUID,
-    provider_channel_id: Annotated[str, Path(min_length=1, max_length=255)],
+    provider_channel_id: Annotated[
+        str, Query(min_length=1, max_length=255, pattern=r"^\S+$")
+    ],
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,

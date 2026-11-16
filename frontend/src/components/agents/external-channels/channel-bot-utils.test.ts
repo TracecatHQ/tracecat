@@ -1,3 +1,4 @@
+import type { ChannelBotChannel, ChannelBotProvider } from "@/client"
 import {
   reservedSlackBot,
   slackBot,
@@ -5,6 +6,8 @@ import {
 import {
   channelBotReturnUrl,
   channelBotState,
+  channelConventions,
+  channelLabel,
   httpsUrlOrNull,
   isUnreachableEndpoint,
   pickChannelBot,
@@ -111,5 +114,56 @@ describe("channelBotReturnUrl", () => {
       "/agents/a?tab=channels&channel_bot_install=error&channel_bot_message=Denied"
     )
     expect(channelBotReturnUrl()).toBe("http://localhost/agents/a?tab=channels")
+  })
+})
+
+describe("channelConventions", () => {
+  // No other provider is in the client yet; any non-Slack one reads as opaque.
+  const teams = "teams" as ChannelBotProvider
+
+  it("uppercases a Slack ID and accepts only Slack channel IDs", () => {
+    const slack = channelConventions("slack")
+    expect(slack.normalizeId("  c0123abcd ")).toBe("C0123ABCD")
+    expect(slack.isChannelId("C0123ABCD")).toBe(true)
+    expect(slack.isChannelId("D0123ABCD")).toBe(false)
+    expect(slack.isChannelId(slack.normalizeId("general"))).toBe(false)
+  })
+
+  it("only trims another provider's case-sensitive ID", () => {
+    const opaque = channelConventions(teams)
+    const id = "19:LpxShHZZh9utjNcEmUS5aOEP9ASw85OUn05NcWYAhX81@thread.tacv2"
+    expect(opaque.normalizeId(` ${id} `)).toBe(id)
+    expect(opaque.isChannelId(id)).toBe(true)
+    expect(opaque.isChannelId("a b")).toBe(false)
+    expect(opaque.inviteCommand).toBeNull()
+  })
+})
+
+describe("channelLabel", () => {
+  const channel: ChannelBotChannel = {
+    id: "C1",
+    name: "alerts",
+    is_private: false,
+    is_member: true,
+  }
+
+  it("prefixes a public Slack channel with #, and not a private one", () => {
+    expect(channelLabel("slack", channel)).toBe("#alerts")
+    expect(channelLabel("slack", { ...channel, is_private: true })).toBe(
+      "alerts"
+    )
+  })
+
+  it("puts the team first when the channel names one", () => {
+    expect(channelLabel("slack", { ...channel, team_name: "SecOps" })).toBe(
+      "SecOps › #alerts"
+    )
+    expect(
+      channelLabel("teams" as ChannelBotProvider, {
+        ...channel,
+        name: "General",
+        team_name: "SecOps",
+      })
+    ).toBe("SecOps › General")
   })
 })

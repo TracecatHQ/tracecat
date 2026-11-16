@@ -1,12 +1,88 @@
 import type {
   AgentChannelBotRead,
+  ChannelBotChannel,
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
+import { getErrorStatus } from "@/lib/errors"
 
 /** Each provider's name as toasts and warnings show it. */
 export const CHANNEL_BOT_PROVIDER_NAMES: Record<ChannelBotProvider, string> = {
   slack: "Slack",
+}
+
+/** How a provider writes channel IDs and names, and how its bot gets into a channel. */
+export type ChannelConventions = {
+  /** The ID events carry for what an admin typed or pasted. */
+  normalizeId: (raw: string) => string
+  /** Whether a normalized ID can be one of the provider's channel IDs. */
+  isChannelId: (id: string) => boolean
+  idPlaceholder: string
+  /** Shown before a public channel's name. */
+  publicPrefix: string
+  /** The command a member runs to bring the bot into a channel; null without one. */
+  inviteCommand: string | null
+}
+
+const SLACK_CHANNELS: ChannelConventions = {
+  // Events carry uppercase IDs and never match a lowercase one.
+  normalizeId: (raw) => raw.trim().toUpperCase(),
+  // A digit keeps words such as GENERAL from passing as IDs.
+  isChannelId: (id) => /^[CG](?=[A-Z0-9]*\d)[A-Z0-9]{6,}$/.test(id),
+  idPlaceholder: "C0123456789",
+  publicPrefix: "#",
+  inviteCommand: "/invite @Tracecat",
+}
+
+// Opaque, case-sensitive IDs such as Teams' `19:…@thread.tacv2`.
+const OPAQUE_CHANNELS: ChannelConventions = {
+  normalizeId: (raw) => raw.trim(),
+  isChannelId: (id) => /^\S+$/.test(id),
+  idPlaceholder: "Channel ID",
+  publicPrefix: "",
+  inviteCommand: null,
+}
+
+export function channelConventions(
+  provider: ChannelBotProvider
+): ChannelConventions {
+  return provider === "slack" ? SLACK_CHANNELS : OPAQUE_CHANNELS
+}
+
+/** A channel's name beside its icon, after its team when the tenant spans several. */
+export function channelName(channel: ChannelBotChannel): string {
+  return channel.team_name
+    ? `${channel.team_name} › ${channel.name}`
+    : channel.name
+}
+
+/** Orders channels by their name, after their team when the tenant spans several. */
+export function byChannelName(
+  a: ChannelBotChannel,
+  b: ChannelBotChannel
+): number {
+  return channelName(a).localeCompare(channelName(b))
+}
+
+/** Whether the API refused to list channels because the provider cannot. */
+export function isChannelListingNotSupported(error: unknown): boolean {
+  return getErrorStatus(error) === 501
+}
+
+/** Whether the API refused to list channels until the bot's app is reinstalled. */
+export function isChannelListingNeedsReinstall(error: unknown): boolean {
+  return getErrorStatus(error) === 424
+}
+
+/** A channel in words, without an icon: `Team › #name` on Slack. */
+export function channelLabel(
+  provider: ChannelBotProvider,
+  channel: ChannelBotChannel
+): string {
+  const prefix = channel.is_private
+    ? ""
+    : channelConventions(provider).publicPrefix
+  return channelName({ ...channel, name: `${prefix}${channel.name}` })
 }
 
 /** What a provider card shows for its bot. */

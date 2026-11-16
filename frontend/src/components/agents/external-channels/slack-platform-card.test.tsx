@@ -186,7 +186,9 @@ describe("Channels page", () => {
     expect(
       await within(row).findByRole("combobox", { name: "Default agent" })
     ).toBeInTheDocument()
-    expect(within(row).getByLabelText("Channel ID")).toBeInTheDocument()
+    expect(
+      within(row).getByRole("combobox", { name: "Channel" })
+    ).toBeInTheDocument()
     expect(within(row).getByRole("button", { name: "Pause" })).toBeEnabled()
     expect(
       within(row).getByRole("button", { name: "Disconnect" })
@@ -217,7 +219,9 @@ describe("Channels page", () => {
     expect(
       await within(row).findByRole("combobox", { name: "Default agent" })
     ).toBeDisabled()
-    expect(within(row).getByLabelText("Channel ID")).toBeDisabled()
+    expect(
+      within(row).getByRole("combobox", { name: "Channel" })
+    ).toBeDisabled()
     expect(within(row).getByRole("button", { name: "Add" })).toBeDisabled()
     expect(within(row).queryByRole("button", { name: "Pause" })).toBeNull()
     expect(within(row).queryByRole("button", { name: "Disconnect" })).toBeNull()

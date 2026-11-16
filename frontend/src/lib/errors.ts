@@ -129,7 +129,7 @@ export function getApiErrorDetail(error: unknown): string | null {
   return error.message
 }
 
-function getErrorStatus(error: unknown): number | null {
+export function getErrorStatus(error: unknown): number | null {
   if (typeof error !== "object" || error === null || !("status" in error)) {
     return null
   }
