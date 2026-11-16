@@ -7,8 +7,8 @@ import type {
   ChannelBotProvider,
 } from "@/client"
 import {
-  channelBotState,
   pickChannelBot,
+  platformInstallState,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { SlackBotCard } from "@/components/agents/external-channels/slack-bot-card"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
@@ -135,8 +135,7 @@ function PlatformSlackNote({
     "slack",
     slackPlatformAvailable
   )
-  const install = installs ? pickChannelBot(installs) : null
-  const state = channelBotState(install, install?.provider_app_id != null)
+  const { install, state } = platformInstallState(installs)
   if (!slackPlatformAvailable || !install || state !== "active") {
     return null
   }

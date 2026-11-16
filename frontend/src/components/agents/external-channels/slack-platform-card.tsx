@@ -10,9 +10,8 @@ import {
 import {
   CHANNEL_BOT_STATES,
   channelBotReturnUrl,
-  channelBotState,
   goToChannelBotAuthorization,
-  pickChannelBot,
+  platformInstallState,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import {
   AgentSelect,
@@ -61,9 +60,7 @@ export function SlackPlatformCard({
       </p>
     ) : null
   }
-  const install = pickChannelBot(installs)
-  // Only a finished install records the Slack app.
-  const state = channelBotState(install, install?.provider_app_id != null)
+  const { install, state } = platformInstallState(installs)
   const { installed } = CHANNEL_BOT_STATES[state]
   const agents = presets ?? []
   // Adding a disconnected install again offers its last default agent.

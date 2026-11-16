@@ -19,6 +19,70 @@ export const SLACK_CREDENTIAL_HINTS = {
   signingSecret: "App Credentials → Signing Secret",
 } as const
 
+/** Shown in a secret field whose saved value a blank entry keeps. */
+export const SLACK_SAVED_SECRET_PLACEHOLDER = "Saved; leave blank to keep"
+
+/** The Slack app's Client ID and its two secrets. */
+export function SlackClientCredentialFields({
+  idPrefix,
+  clientId,
+  onClientIdChange,
+  clientSecret,
+  onClientSecretChange,
+  signingSecret,
+  onSigningSecretChange,
+  clientSecretSaved,
+  signingSecretSaved,
+  disabled,
+}: {
+  idPrefix: string
+  clientId: string
+  onClientIdChange: (value: string) => void
+  clientSecret: string
+  onClientSecretChange: (value: string) => void
+  signingSecret: string
+  onSigningSecretChange: (value: string) => void
+  clientSecretSaved: boolean
+  signingSecretSaved: boolean
+  disabled: boolean
+}) {
+  const secretPlaceholder = (saved: boolean) =>
+    saved ? SLACK_SAVED_SECRET_PLACEHOLDER : "Click Show, then copy"
+  return (
+    <>
+      <CredentialField
+        id={`${idPrefix}-client-id`}
+        label="Client ID"
+        value={clientId}
+        onChange={onClientIdChange}
+        disabled={disabled}
+        placeholder="1234567890.1234567890"
+        help={SLACK_CREDENTIAL_HINTS.clientId}
+      />
+      <CredentialField
+        id={`${idPrefix}-client-secret`}
+        label="Client secret"
+        secret
+        value={clientSecret}
+        onChange={onClientSecretChange}
+        disabled={disabled}
+        placeholder={secretPlaceholder(clientSecretSaved)}
+        help={SLACK_CREDENTIAL_HINTS.clientSecret}
+      />
+      <CredentialField
+        id={`${idPrefix}-signing-secret`}
+        label="Signing secret"
+        secret
+        value={signingSecret}
+        onChange={onSigningSecretChange}
+        disabled={disabled}
+        placeholder={secretPlaceholder(signingSecretSaved)}
+        help={SLACK_CREDENTIAL_HINTS.signingSecret}
+      />
+    </>
+  )
+}
+
 /** Opens Slack's create-app page in a new tab with the manifest filled in. */
 export function CreateInSlackButton({
   manifest,

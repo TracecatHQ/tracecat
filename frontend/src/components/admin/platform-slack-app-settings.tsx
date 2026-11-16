@@ -22,7 +22,9 @@ import {
   CreateInSlackButton,
   SetupDoneLine,
   SLACK_CREDENTIAL_HINTS,
+  SLACK_SAVED_SECRET_PLACEHOLDER,
   SlackAppTokenFields,
+  SlackClientCredentialFields,
   SlackManualSetup,
 } from "@/components/agents/external-channels/slack-setup-fields"
 import { ProviderIcon } from "@/components/icons"
@@ -231,8 +233,8 @@ function SlackAppCard({
         <div className="min-w-48 flex-1 space-y-0.5">
           <h3 className="text-sm font-semibold">Tracecat for Slack</h3>
           <p className="text-xs text-muted-foreground">
-            Organizations with Agent Channels see Add to Slack on their
-            agents&apos; Channels tab.
+            Workspaces with Agent Channels see Add to Slack on their Channels
+            page.
           </p>
         </div>
         {status}
@@ -497,7 +499,7 @@ function SlackAppCredentials({
     (!rotatingAppToken || appRefreshToken.trim() !== "")
 
   function placeholder(saved: boolean, empty: string): string {
-    return sameApp && saved ? "Saved; leave blank to keep" : empty
+    return sameApp && saved ? SLACK_SAVED_SECRET_PLACEHOLDER : empty
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -562,40 +564,17 @@ function SlackAppCredentials({
           placeholder="A0123456789"
           help={SLACK_CREDENTIAL_HINTS.appId}
         />
-        <CredentialField
-          id="slack-client-id"
-          label="Client ID"
-          value={clientId}
-          onChange={setClientId}
+        <SlackClientCredentialFields
+          idPrefix="slack-app"
+          clientId={clientId}
+          onClientIdChange={setClientId}
+          clientSecret={clientSecret}
+          onClientSecretChange={setClientSecret}
+          signingSecret={signingSecret}
+          onSigningSecretChange={setSigningSecret}
+          clientSecretSaved={sameApp && slackApp.client_secret_set}
+          signingSecretSaved={sameApp && slackApp.signing_secret_set}
           disabled={saving}
-          placeholder="1234567890.1234567890"
-          help={SLACK_CREDENTIAL_HINTS.clientId}
-        />
-        <CredentialField
-          id="slack-client-secret"
-          label="Client secret"
-          value={clientSecret}
-          onChange={setClientSecret}
-          disabled={saving}
-          placeholder={placeholder(
-            slackApp.client_secret_set,
-            "Click Show, then copy"
-          )}
-          help={SLACK_CREDENTIAL_HINTS.clientSecret}
-          secret
-        />
-        <CredentialField
-          id="slack-signing-secret"
-          label="Signing secret"
-          value={signingSecret}
-          onChange={setSigningSecret}
-          disabled={saving}
-          placeholder={placeholder(
-            slackApp.signing_secret_set,
-            "Click Show, then copy"
-          )}
-          help={SLACK_CREDENTIAL_HINTS.signingSecret}
-          secret
         />
       </div>
       {socket ? (

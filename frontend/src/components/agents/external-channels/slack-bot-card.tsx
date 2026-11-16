@@ -32,8 +32,8 @@ import { buildSlackManifest } from "@/components/agents/external-channels/slack-
 import {
   CreateInSlackButton,
   SetupDoneLine,
-  SLACK_CREDENTIAL_HINTS,
   SlackAppTokenFields,
+  SlackClientCredentialFields,
   SlackManualSetup,
 } from "@/components/agents/external-channels/slack-setup-fields"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -342,42 +342,17 @@ function SlackBotDialog({
               </a>
             </Button>
           </div>
-          <CredentialField
-            id="slack-cid"
-            label="Client ID"
-            value={clientId}
-            onChange={setClientId}
+          <SlackClientCredentialFields
+            idPrefix="slack-bot"
+            clientId={clientId}
+            onClientIdChange={setClientId}
+            clientSecret={clientSecret}
+            onClientSecretChange={setClientSecret}
+            signingSecret={signingSecret}
+            onSigningSecretChange={setSigningSecret}
+            clientSecretSaved={mode === "edit" && details.has_client_secret}
+            signingSecretSaved={mode === "edit" && details.has_signing_secret}
             disabled={busy}
-            placeholder="1234567890.1234567890"
-            help={SLACK_CREDENTIAL_HINTS.clientId}
-          />
-          <CredentialField
-            id="slack-cs"
-            label="Client secret"
-            secret
-            value={clientSecret}
-            onChange={setClientSecret}
-            disabled={busy}
-            placeholder={
-              mode === "edit" && details.has_client_secret
-                ? "Stored; enter a new one to replace it"
-                : "Click Show, then copy"
-            }
-            help={SLACK_CREDENTIAL_HINTS.clientSecret}
-          />
-          <CredentialField
-            id="slack-ss"
-            label="Signing secret"
-            secret
-            value={signingSecret}
-            onChange={setSigningSecret}
-            disabled={busy}
-            placeholder={
-              mode === "edit" && details.has_signing_secret
-                ? "Stored; enter a new one to replace it"
-                : "Click Show, then copy"
-            }
-            help={SLACK_CREDENTIAL_HINTS.signingSecret}
           />
           {socket && mode !== "edit" ? (
             <SlackAppTokenFields
