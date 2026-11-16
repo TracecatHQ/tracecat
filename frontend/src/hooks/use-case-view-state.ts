@@ -162,10 +162,11 @@ export function useCaseViewControls({
   // search, not text still being typed.
   const { query: currentQuery, noMatch } = cases.search
   const saveBlockedReason = viewSaveBlocker(noMatch, mapped?.emptyRules)
-  const currentSort = sortToView({
-    ...cases.filters,
-    searchQuery: cases.appliedSearchQuery,
-  })
+  const currentSort = useMemo(
+    () =>
+      sortToView({ ...cases.filters, searchQuery: cases.appliedSearchQuery }),
+    [cases.filters, cases.appliedSearchQuery]
+  )
 
   const isModified = useMemo(() => {
     if (!view || !mapped) {

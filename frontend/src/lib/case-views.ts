@@ -182,18 +182,19 @@ export function sortToView(filters: UseCasesFilters): {
 }
 
 /**
- * The order a view runs in. With no saved order, a full-text search sorts by
- * relevance, as the API does.
+ * The order a view runs in. With no saved order, the API sorts a full-text
+ * search by relevance and anything else by creation time.
  */
-function viewOrder(view: CaseViewDetail): CaseSortField | null {
+function viewOrder(view: CaseViewDetail): CaseSortField {
   if (view.order_by) return view.order_by
   const { search_term, search_mode } = view.query
-  return search_term && search_mode === "full_text" ? "relevance" : null
+  return search_term && search_mode === "full_text" ? "relevance" : "created_at"
 }
 
 function viewSort(view: CaseViewDetail): CaseSortValue {
   const order = viewOrder(view)
-  if (!order || order === "relevance") {
+  // Relevance is chosen through searchOrder; the column sort keeps its default.
+  if (order === "relevance") {
     return DEFAULT_CASE_SORT
   }
   return { field: order, direction: view.sort ?? "desc" }

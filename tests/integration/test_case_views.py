@@ -451,6 +451,48 @@ async def test_deleted_dropdown_in_valueless_tree_condition_matches_nothing(
     assert await _run_view(session, actors.owner, view_id) == set()
 
 
+async def test_caller_without_a_user_cannot_hide_an_orphaned_shared_view(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    view_id = await _create(
+        session, actors.owner, visibility=CaseViewVisibility.WORKSPACE
+    )
+    # The owner was deleted, so the shared view has no owner left.
+    await session.execute(
+        update(CaseView).where(CaseView.id == uuid.UUID(view_id)).values(owner_id=None)
+    )
+    await session.flush()
+
+    with pytest.raises(CaseViewPermissionError, match="owner"):
+        await _views(session, actors.workflow).update_view(
+            view_id, CaseViewUpdate(visibility=CaseViewVisibility.PERSONAL)
+        )
+
+
+async def test_blank_dropdown_option_in_filter_tree_stays_readable(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    workspace_id = actors.owner.workspace_id
+    assert workspace_id is not None
+    session.add(
+        CaseDropdownDefinition(
+            id=uuid.uuid4(), workspace_id=workspace_id, name="Severity", ref="sev"
+        )
+    )
+    await session.flush()
+    view_id = await _create(
+        session,
+        actors.owner,
+        query={"filters": {"field": "dropdowns.sev", "op": "eq", "value": ""}},
+    )
+
+    view = await _views(session, actors.owner).get_view(view_id)
+
+    # A blank option names nothing that exists, so the tree matches nothing.
+    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [("dropdown", "sev:")]
+    assert view.empty_rules.filters
+
+
 async def test_blank_tag_does_not_keep_a_deleted_tag_rule_alive(
     session: AsyncSession, actors: Actors, seeded: Seeded
 ) -> None:

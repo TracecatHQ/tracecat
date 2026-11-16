@@ -2794,7 +2794,7 @@ class CaseTag(WorkspaceModel):
 class CaseView(WorkspaceModel):
     """A saved, named case search with its sort order and visible columns.
 
-    ``query`` holds a validated ``CaseQuery``. It may use values the server
+    ``query`` holds validated ``CaseCriteria``. It may use values the server
     resolves on every run, such as relative date windows and ``"me"``.
     """
 

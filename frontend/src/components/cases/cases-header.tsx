@@ -52,7 +52,6 @@ import {
   isDropdownFilterActive,
 } from "@/components/cases/case-more-filters-menu"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-
 import {
   type CaseSortField,
   type CaseSortValue,

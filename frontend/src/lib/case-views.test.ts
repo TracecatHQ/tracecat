@@ -248,6 +248,15 @@ describe("mergeViewQuery search and hierarchy groups", () => {
     ).toBe("top_level")
   })
 
+  it("sorts a view with no saved order and no search by creation time", () => {
+    const { filters, savedSort } = viewToFilters(
+      makeView({ query: { status: ["new"] } })
+    )
+
+    expect(filters.sortBy).toEqual({ field: "created_at", direction: "desc" })
+    expect(savedSort).toEqual({ order_by: "created_at", sort: "desc" })
+  })
+
   it("sorts a full-text view with no saved order by relevance", () => {
     const { filters, savedSort } = viewToFilters(
       makeView({ query: { search_term: "phish", search_mode: "full_text" } })

@@ -170,7 +170,12 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.cases.views.schemas import CaseViewListRead
+from tracecat.cases.views.schemas import (
+    CaseViewCreate,
+    CaseViewListRead,
+    CaseViewRead,
+    CaseViewUpdate,
+)
 from tracecat.cases.views.service import CaseViewsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
@@ -7304,6 +7309,145 @@ async def list_case_views(
         logger.error("Failed to list case views", error=str(e))
         # Keep internal details in the log, not in the agent-facing message.
         raise ToolError("Failed to list case views") from None
+
+
+def _case_view_tool_error(exc: Exception, action: str) -> ToolError:
+    """Turn a case view error into the message an agent sees."""
+    match exc:
+        case ToolError():
+            return exc
+        case ScopeDeniedError():
+            return ToolError(
+                f"Missing required scope: {', '.join(exc.required_scopes)}"
+            )
+        case (
+            TracecatNotFoundError()
+            | TracecatAuthorizationError()
+            | TracecatValidationError()
+            | ValueError()
+        ):
+            # Pydantic's ValidationError is a ValueError: a bad view or query.
+            return ToolError(str(exc))
+    logger.error(f"Failed to {action}", error=str(exc))
+    # Keep internal details in the log, not in the agent-facing message.
+    return ToolError(f"Failed to {action}")
+
+
+@mcp.tool()
+async def create_case_view(
+    workspace_id: uuid.UUID,
+    name: str,
+    query: dict[str, Any] | None = None,
+    visibility: Literal["personal", "workspace"] = "personal",
+    order_by: str | None = None,
+    sort: Literal["asc", "desc"] | None = None,
+    columns: list[str] | None = None,
+) -> CaseViewRead:
+    """Save a case search as a named view, to run with search_cases(view_id=...).
+
+    Args:
+        workspace_id: The workspace ID.
+        name: The view's name.
+        query: The matching criteria, with the same fields as search_cases,
+            such as {"status": ["new"], "tags": ["phishing"],
+            "created_within": {"amount": 30, "unit": "day"}}. Omit to match
+            every case.
+        visibility: "personal" (only you) or "workspace" (everyone in the
+            workspace). Sharing with the workspace requires case:update.
+        order_by: The saved sort field, such as "created_at" or "priority".
+        sort: The saved sort direction.
+        columns: Column IDs the cases page shows for this view.
+
+    Returns the saved view, including its ``id``.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        params = CaseViewCreate.model_validate(
+            {
+                "name": name,
+                "visibility": visibility,
+                "query": query or {},
+                "order_by": order_by,
+                "sort": sort,
+                "columns": columns,
+            }
+        )
+        async with CaseViewsService.with_session(role=role) as svc:
+            return await svc.create_view(params)
+    except Exception as e:
+        raise _case_view_tool_error(e, "create case view") from e
+
+
+@mcp.tool()
+async def update_case_view(
+    workspace_id: uuid.UUID,
+    view_id: str,
+    changes: dict[str, Any],
+) -> CaseViewRead:
+    """Change, share, or unshare a saved case view you can edit.
+
+    Args:
+        workspace_id: The workspace ID.
+        view_id: The saved view's ID. Built-in views cannot be changed.
+        changes: Only the fields to change: name, visibility ("personal" or
+            "workspace"), query, order_by, sort, and columns. query replaces
+            the whole saved query. order_by, sort, and columns accept null to
+            clear them. Sharing with the workspace requires case:update.
+
+    Returns the updated view.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        params = CaseViewUpdate.model_validate(changes)
+        async with CaseViewsService.with_session(role=role) as svc:
+            return await svc.update_view(view_id, params)
+    except Exception as e:
+        raise _case_view_tool_error(e, "update case view") from e
+
+
+@mcp.tool()
+async def pin_case_view(
+    workspace_id: uuid.UUID,
+    view_id: str,
+    position: int | None = None,
+) -> CaseViewRead:
+    """Pin a saved case view to your own sidebar.
+
+    Args:
+        workspace_id: The workspace ID.
+        view_id: The saved view's ID. Built-in views are always shown.
+        position: Where to place it among your pins, from 0. Omit to add it
+            last.
+
+    Returns the view with its pin position.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        async with CaseViewsService.with_session(role=role) as svc:
+            return await svc.pin_view(view_id, position=position)
+    except Exception as e:
+        raise _case_view_tool_error(e, "pin case view") from e
+
+
+@mcp.tool()
+async def unpin_case_view(workspace_id: uuid.UUID, view_id: str) -> str:
+    """Remove a saved case view from your own sidebar.
+
+    Args:
+        workspace_id: The workspace ID.
+        view_id: The saved view's ID.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        async with CaseViewsService.with_session(role=role) as svc:
+            await svc.unpin_view(view_id)
+        return f"Unpinned case view {view_id}"
+    except Exception as e:
+        raise _case_view_tool_error(e, "unpin case view") from e
 
 
 @mcp.tool()

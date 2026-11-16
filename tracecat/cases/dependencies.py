@@ -4,10 +4,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Path, Query
 from fastapi.exceptions import RequestValidationError
 from pydantic import Field, TypeAdapter, ValidationError
-from starlette.status import (
-    HTTP_404_NOT_FOUND,
-    HTTP_422_UNPROCESSABLE_CONTENT,
-)
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.cases.constants import MAX_PAYLOAD_PATH_KEYS, MAX_PAYLOAD_PATHS

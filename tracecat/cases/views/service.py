@@ -329,7 +329,7 @@ class CaseViewsService(BaseWorkspaceService):
         """
         if request.view_id is None:
             return request
-        defaults = CaseQuery()
+        defaults = CaseCriteria()
         # Field names come from the model, so dynamic attribute access is the
         # only way to compare every matching field without listing them.
         conflicting = sorted(
@@ -478,8 +478,11 @@ class CaseViewsService(BaseWorkspaceService):
             raise CaseViewPermissionError(
                 f"Sharing a view with the workspace requires {SHARED_VIEW_SCOPE}"
             )
-        if visibility == CaseViewVisibility.PERSONAL and view.owner_id != self._user_id:
-            # Making it personal would hide it from everyone but its owner.
+        is_owner = self._user_id is not None and view.owner_id == self._user_id
+        if visibility == CaseViewVisibility.PERSONAL and not is_owner:
+            # Making it personal would hide it from everyone but its owner. A
+            # caller with no user, such as an API key, owns nothing, even a
+            # view whose owner was deleted.
             raise CaseViewPermissionError("Only the view's owner can make it personal")
 
     async def _clean_query(self, query: CaseCriteria) -> _CleanedQuery:
@@ -508,9 +511,8 @@ class CaseViewsService(BaseWorkspaceService):
                 update["tags"] = kept or None
 
         if query.dropdown:
-            _, existing = await self._existing_dropdowns(
-                {parse_dropdown_entry(entry)[0] for entry in query.dropdown}
-            )
+            definitions = {parse_dropdown_entry(e)[0] for e in query.dropdown}
+            _, existing = await self._existing_dropdowns(definitions)
             missing_options = [
                 entry for entry in query.dropdown if entry not in existing
             ]
@@ -520,7 +522,6 @@ class CaseViewsService(BaseWorkspaceService):
                     for entry in missing_options
                 )
                 kept = [entry for entry in query.dropdown if entry in existing]
-                definitions = {parse_dropdown_entry(e)[0] for e in query.dropdown}
                 kept_definitions = {parse_dropdown_entry(e)[0] for e in kept}
                 empty.dropdown_refs = sorted(definitions - kept_definitions)
                 update["dropdown"] = kept or None
@@ -542,7 +543,7 @@ class CaseViewsService(BaseWorkspaceService):
         """Find deleted tags, dropdowns, and dropdown options in the filter tree."""
         tag_refs: set[str] = set()
         dropdown_refs: set[str] = set()
-        dropdown_entries: set[str] = set()
+        dropdown_options: set[tuple[str, str]] = set()
         for condition in iter_case_filter_conditions(query.filters):
             values = (
                 condition.value
@@ -556,9 +557,7 @@ class CaseViewsService(BaseWorkspaceService):
                 ref = condition.field.removeprefix(DROPDOWN_PREFIX)
                 # Conditions such as is_null name a dropdown but no option.
                 dropdown_refs.add(ref)
-                dropdown_entries.update(
-                    format_dropdown_entry(ref, name) for name in names
-                )
+                dropdown_options.update((ref, name) for name in names)
         stale: list[CaseViewStaleRef] = []
         if tag_refs:
             existing_tags = set(
@@ -584,10 +583,12 @@ class CaseViewsService(BaseWorkspaceService):
                 CaseViewStaleRef(kind="dropdown", value=ref)
                 for ref in sorted(dropdown_refs - existing_refs)
             )
+            # Keep the refs apart, so a blank option value is never re-parsed.
             stale.extend(
                 CaseViewStaleRef(kind="dropdown", value=entry)
-                for entry in sorted(dropdown_entries - existing_entries)
-                if parse_dropdown_entry(entry)[0] in existing_refs
+                for ref, name in sorted(dropdown_options)
+                if ref in existing_refs
+                and (entry := format_dropdown_entry(ref, name)) not in existing_entries
             )
         return stale
 

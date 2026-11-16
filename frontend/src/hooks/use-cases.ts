@@ -846,7 +846,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     []
   )
 
-  const { apiQueryParams, hasImpossibleEnumFilter, search } = useMemo(() => {
+  const { apiQueryParams, matchesNone, search } = useMemo(() => {
     const requestFilters: UseCasesFilters = {
       ...DEFAULT_CASES_FILTERS,
       searchQuery: appliedSearchQuery,
@@ -877,7 +877,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         search_mode: query.search_mode,
         hierarchy: (query.hierarchy ?? "all") as CaseHierarchyFilter,
       },
-      hasImpossibleEnumFilter: noMatch !== null,
+      matchesNone: noMatch !== null,
     }
   }, [
     appliedSearchQuery,
@@ -922,12 +922,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     () =>
       JSON.stringify({
         apiQueryParams,
-        hasImpossibleEnumFilter,
+        matchesNone,
         // A new applied search starts at page one even when returning to a
         // previously cached term, including an immediately cleared input.
         searchRevision: appliedSearch.revision,
       }),
-    [apiQueryParams, hasImpossibleEnumFilter, appliedSearch.revision]
+    [apiQueryParams, matchesNone, appliedSearch.revision]
   )
 
   const rowsKey = useMemo(
@@ -981,7 +981,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           requestBody: {
             ...apiQueryParams,
             promote_exact_match: Boolean(appliedSearchQuery) || undefined,
-            match_none: hasImpossibleEnumFilter || undefined,
+            match_none: matchesNone || undefined,
             order_by: serverSortParams.orderBy,
             sort: serverSortParams.sort,
             limit: CASES_PAGE_SIZE,
@@ -997,7 +997,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       enabled &&
       Boolean(workspaceId) &&
       hasHydratedFilters &&
-      (!hasImpossibleEnumFilter || Boolean(appliedSearchQuery)),
+      (!matchesNone || Boolean(appliedSearchQuery)),
     initialPageParam: null,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || !lastPage.next_cursor) {
@@ -1030,10 +1030,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         })
       ),
     enabled:
-      enabled &&
-      Boolean(workspaceId) &&
-      hasHydratedFilters &&
-      !hasImpossibleEnumFilter,
+      enabled && Boolean(workspaceId) && hasHydratedFilters && !matchesNone,
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
@@ -1066,7 +1063,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const cases = flattenedCases
 
-  const totalFilteredCaseEstimate = hasImpossibleEnumFilter
+  const totalFilteredCaseEstimate = matchesNone
     ? 0
     : (visibleAggregateData?.total ?? null)
   const isHydrationPending =
@@ -1142,22 +1139,19 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setIncludeSubCases,
     replaceFilters,
     totalFilteredCaseEstimate,
-    stageCounts: hasImpossibleEnumFilter
+    stageCounts: matchesNone
       ? EMPTY_STAGE_COUNTS
       : (visibleAggregateData?.status_groups ?? null),
-    isCountsLoading: hasImpossibleEnumFilter
+    isCountsLoading: matchesNone
       ? false
       : isHydrationPending || isCountsLoading,
-    isCountsFetching: hasImpossibleEnumFilter
+    isCountsFetching: matchesNone
       ? false
       : hasHydratedFilters && isCountsFetching,
     isCountsError:
-      enabled &&
-      hasHydratedFilters &&
-      !hasImpossibleEnumFilter &&
-      isCountsError,
-    hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
-    isFetchingNextPage: hasImpossibleEnumFilter
+      enabled && hasHydratedFilters && !matchesNone && isCountsError,
+    hasNextPage: matchesNone ? false : Boolean(hasNextPage),
+    isFetchingNextPage: matchesNone
       ? false
       : hasHydratedFilters && isFetchingNextPage,
     fetchNextPage: handleFetchNextPage,
