@@ -63,7 +63,8 @@
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
-                  "automations/integrations/mcp-integrations"
+                  "automations/integrations/mcp-integrations",
+                  "automations/integrations/chatops"
                 ]
               }
             ]
@@ -630,6 +631,10 @@
     },
     {
       "source": "/manage-platform/git-sync",
+      "destination": "/gitops/workspace-git-sync"
+    },
+    {
+      "source": "/quickstart/github-workflow-sync-setup",
       "destination": "/gitops/workspace-git-sync"
     }
   ],

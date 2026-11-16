@@ -16,6 +16,7 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
+from tracecat.agent.channel_bots.channel_threads import channel_threads_by_session
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.chat.enums import MessageKind
@@ -838,6 +839,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         cancelled_session_ids = await self._fetch_cancelled_session_ids(
             approval_session_ids
         )
+        channel_threads = await channel_threads_by_session(
+            self.session, self.role, sessions
+        )
 
         if workflow_ids:
             workflow_stmt = select(Workflow).where(
@@ -968,6 +972,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                     source_id=session.id,  # Always use parent session ID
                     source_type="agent_session",
                     metadata=metadata,
+                    channel_thread=channel_threads.get(session.id),
                 )
             )
 

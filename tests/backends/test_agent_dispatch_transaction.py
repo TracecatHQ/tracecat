@@ -10,16 +10,15 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
 
 import pytest
 from google.protobuf import any_pb2
 from google.protobuf.message import Message
-from sqlalchemy import Table, func, select, text, update
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
-from sqlalchemy.schema import CreateTable
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from temporalio.api.common.v1 import GrpcStatus
 from temporalio.api.enums.v1 import WorkflowExecutionStatus as ExecutionStatusProto
 from temporalio.api.enums.v1 import WorkflowIdReusePolicy
@@ -43,7 +42,6 @@ from temporalio.service import (
     WorkflowService,
 )
 
-from tests.database import TEST_DB_CONFIG
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
 from tracecat.agent.backends.types import (
@@ -59,27 +57,6 @@ from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import TracecatConflictError
 
 pytestmark = [pytest.mark.anyio, pytest.mark.dbtest]
-
-
-@pytest.fixture
-async def connection() -> AsyncIterator[AsyncConnection]:
-    engine = create_async_engine(TEST_DB_CONFIG.sys_url, poolclass=NullPool)
-    try:
-        async with engine.connect() as connection:
-            # Temporary ORM-shaped tables isolate every test from app data.
-            # Workspace/user foreign keys are irrelevant to dispatch atomicity.
-            for table in (AgentSession.__table__, AgentSessionHistory.__table__):
-                assert isinstance(table, Table)
-                ddl = str(
-                    CreateTable(table, include_foreign_key_constraints=[]).compile(
-                        dialect=engine.dialect
-                    )
-                ).replace("CREATE TABLE", "CREATE TEMPORARY TABLE", 1)
-                await connection.execute(text(ddl))
-            await connection.commit()
-            yield connection
-    finally:
-        await engine.dispose()
 
 
 class PreparationBackend(DefaultBackend):
@@ -213,6 +190,36 @@ async def assert_reserved_by(
     return saved
 
 
+def rpc_request(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Message:
+    """The request of an ``_rpc_call``; turn dispatch passes it positionally."""
+    return kwargs["req"] if "req" in kwargs else args[1]
+
+
+def started_workflow_types(rpc: AsyncMock) -> list[str]:
+    """Workflow types of the start requests sent through ``rpc``."""
+    requests = [
+        rpc_request(call.args, dict(call.kwargs)) for call in rpc.await_args_list
+    ]
+    return [
+        req.workflow_type.name
+        for req in requests
+        if isinstance(req, StartWorkflowExecutionRequest)
+    ]
+
+
+def tombstone_claim_answer(*args: Any, **kwargs: Any) -> Message | None:
+    """Accept cleanup's tombstone claim; None for an agent start."""
+    req = rpc_request(args, kwargs)
+    if isinstance(req, TerminateWorkflowExecutionRequest):
+        return TerminateWorkflowExecutionResponse()
+    if (
+        isinstance(req, StartWorkflowExecutionRequest)
+        and req.workflow_type.name == "AgentTurnStartTombstone"
+    ):
+        return StartWorkflowExecutionResponse(run_id="tombstone")
+    return None
+
+
 @pytest.mark.parametrize("failure", ["preparation", "encoding", "validation", "rpc"])
 async def test_failed_start_preserves_history_and_retry_reserves_once(
     connection: AsyncConnection, failure: str
@@ -240,14 +247,20 @@ async def test_failed_start_preserves_history_and_retry_reserves_once(
                         backend, "retry_policy", RetryPolicy(maximum_attempts=-1)
                     )
                 else:
-                    rpc.side_effect = RPCError(
-                        "Rejected", RPCStatusCode.PERMISSION_DENIED, b""
-                    )
+                    rpc.side_effect = [
+                        RPCError("Rejected", RPCStatusCode.PERMISSION_DENIED, b""),
+                        StartWorkflowExecutionResponse(run_id="tombstone"),
+                        TerminateWorkflowExecutionResponse(),
+                    ]
                 message = "was rejected" if failure == "rpc" else "before dispatch"
                 with pytest.raises(RuntimeError, match=message):
                     await backend.start_turn(context)
             if failure == "rpc":
-                rpc.assert_awaited_once()
+                # Cleanup claims the rejected run's ID before releasing it.
+                assert started_workflow_types(rpc) == [
+                    "DurableAgentWorkflow",
+                    "AgentTurnStartTombstone",
+                ]
                 rpc.reset_mock()
                 rpc.side_effect = None
             else:
@@ -411,7 +424,9 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
         paused.set()
         await proceed.wait()
 
-    async def start_rpc(*_args, **_kwargs):
+    async def start_rpc(*args, **kwargs):
+        if (claimed := tombstone_claim_answer(*args, **kwargs)) is not None:
+            return claimed
         if cancel_at == "rpc":
             await pause()
         if outcome == "rejected":
@@ -475,8 +490,16 @@ async def test_caller_cancellation_settles_commit_dispatch_and_cleanup(
 
         assert not db.in_transaction()
         if outcome == "commit_failure":
-            rpc.assert_not_awaited()
+            # Cleanup claims the run's ID; no agent start is ever sent.
+            assert started_workflow_types(rpc) == ["AgentTurnStartTombstone"]
             rollback.assert_awaited_once()
+        elif outcome == "rejected":
+            # Cleanup claims the rejected run's ID before releasing it.
+            assert started_workflow_types(rpc) == [
+                "DurableAgentWorkflow",
+                "AgentTurnStartTombstone",
+            ]
+            rollback.assert_not_awaited()
         else:
             rpc.assert_awaited_once()
             rollback.assert_not_awaited()
@@ -538,7 +561,8 @@ async def test_lost_commit_acknowledgement_releases_only_matching_reservation(
             mismatch is not None
         )
         fresh_session.assert_called_once()
-        rpc.assert_not_awaited()
+        # Cleanup claims the run's ID; no agent start is ever sent.
+        assert started_workflow_types(rpc) == ["AgentTurnStartTombstone"]
         async with AsyncSession(connection) as reader:
             saved = await reader.scalar(
                 select(AgentSession).where(AgentSession.id == session_id)
@@ -577,7 +601,9 @@ async def test_rpc_rejection_releases_only_matching_reservation(
         await db.commit()
         other_id = other.id
 
-        async def reject(*_args, **_kwargs):
+        async def reject(*args, **kwargs):
+            if (claimed := tombstone_claim_answer(*args, **kwargs)) is not None:
+                return claimed
             if mismatch is not None:
                 await db.execute(
                     update(AgentSession)
@@ -615,7 +641,11 @@ async def test_rpc_rejection_releases_only_matching_reservation(
                 assert untouched is not None
                 assert untouched.curr_run_id == context.run_id
                 assert untouched.active_stream_id == context.stream_id
-            rpc.assert_awaited_once()
+            # Cleanup claims the rejected run's ID before releasing it.
+            assert started_workflow_types(rpc) == [
+                "DurableAgentWorkflow",
+                "AgentTurnStartTombstone",
+            ]
 
             if mismatch is None:
                 rpc.side_effect = None
@@ -898,7 +928,7 @@ async def test_caller_owned_reservation_is_never_tombstoned(
         session_id = context.session.id
         service = AgentSessionService(db, context.role)
 
-        async def load_session(*_args: object) -> AgentSession:
+        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
             loaded = await db.scalar(
                 select(AgentSession)
                 .where(AgentSession.id == session_id)
@@ -1067,7 +1097,7 @@ async def test_stale_preparation_keeps_a_newer_reservation_recoverable(
         turn_b = replace(context, run_id=uuid4(), stream_id=uuid4())
         turn_c = replace(context, run_id=uuid4(), stream_id=uuid4())
 
-        async def load_session(*_args: object) -> AgentSession:
+        async def load_session(*_args: object, **_kwargs: object) -> AgentSession:
             loaded = await db.scalar(
                 select(AgentSession)
                 .where(AgentSession.id == session_id)

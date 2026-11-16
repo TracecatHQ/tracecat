@@ -30,7 +30,7 @@ from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import get_agent_backend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
-from tracecat.agent.channel_publisher import approval_batch_id
+from tracecat.agent.channel_notifier import approval_batch_id
 from tracecat.agent.common.stream_types import (
     ApprovalStreamStatus,
     ToolCallContent,

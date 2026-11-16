@@ -51,6 +51,21 @@ async def test_folder_reads_require_table_read_scope() -> None:
     with pytest.raises(ScopeDeniedError) as exc_info:
         await service.get_directory_items("/")
     assert exc_info.value.missing_scopes == ["table:read"]
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        await service.get_table_names({uuid4()})
+    assert exc_info.value.missing_scopes == ["table:read"]
+
+
+@pytest.mark.anyio
+async def test_directory_orders_folders_by_path(
+    folder_service: TableFolderService,
+) -> None:
+    for name in ("zeta", "alpha", "mid"):
+        await folder_service.create_folder(name=name, parent_path="/")
+
+    items = await folder_service.get_directory_items("/")
+
+    assert [item.name for item in items] == ["alpha", "mid", "zeta"]
 
 
 @pytest.mark.anyio

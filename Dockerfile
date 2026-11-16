@@ -45,6 +45,11 @@ FROM python:3.12-slim-bookworm AS sandbox-rootfs
 
 ARG TARGETARCH
 ARG DUCKDB_VERSION=2.0.0
+# Workflows published before the DuckDB 2.0 bump keep locking a registry
+# artifact that bundles this DuckDB version, which loads extensions from
+# v<version>/ under the same directory. Drop it once no supported registry
+# version bundles it.
+ARG DUCKDB_LEGACY_VERSION=1.4.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
@@ -69,6 +74,10 @@ RUN python -m compileall -q -j0 --invalidation-mode checked-hash \
 # downloaded from the version-pinned repository, verified, and installed from
 # local files (DuckDB still validates the signed extensions on load) instead of
 # resolving "latest for this version" via a bare INSTALL.
+#
+# The legacy DuckDB CLI only installs its version's extensions and is then
+# removed; the CLI wrapper and init script stay on DUCKDB_VERSION. Its json
+# extension is skipped because the legacy Python package links json statically.
 RUN set -eu; \
     arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
     case "${arch}" in \
@@ -76,11 +85,15 @@ RUN set -eu; \
             platform="linux_amd64"; \
             duckdb_sha256="c6507206baf7793c6013dbd82368469a45f20dc0e17a6f92f204602f652ed2bc"; \
             ext_shas="httpfs:ee6c7d7e60a5da1b6f6bf6156b4298b55ddce0496a5bfe628bd6ab6d47eb8e3e inet:afc4efe65dfb5106b18e3ab75753f680bd6eecc5d17ec347a325b3bf0e55cfdd fts:9172520652ce609d163cf30645f382b197f2c7294448a816c77d62b0f029d96e"; \
+            legacy_duckdb_sha256="c479794045d094058d3092e404e696508d6310b5d234a8c1945b745678f09d8d"; \
+            legacy_ext_shas="httpfs:786b8e1aea9b49bb3072dba9f553d84c1a9aa042e9351124bb3ec2753b221227 inet:07430f6c1ad5a03e6fcbf153c2690765bfd445c9cab40927011105b75bef4a31 fts:ed5e639aee5070dee0b58f60322393c1861c5c82d57164192065ef758f1371b5"; \
             ;; \
         arm64) \
             platform="linux_arm64"; \
             duckdb_sha256="859e1875d2a9515fbb4bf8871061437a14af82320da68c753f094c4b776348fe"; \
             ext_shas="httpfs:f524888fc7d74cc0c6c4a8f7ed5beedac5b12e71cb426503f882c72ce6afbd43 inet:fa189a8adaa657299d05b8f99a181b10223f5063c396514dea06f8219ff646ab fts:d233d2311825da4d9b6efb45edd52b126b18134c7d7083b1e58f6d450ebdabee"; \
+            legacy_duckdb_sha256="c709eb3efc74a609af4b92bc885c509a1bd21ddfa71ea1e717420d4dd9fc121b"; \
+            legacy_ext_shas="httpfs:662e96fe6c39724be7977649314b92eadf3a9a0c6127c3a3e96611480d6ad04b inet:c48932d9060053e570c76a99169709ad4e52f1ba5cb1a1468e8b1eb00899361a fts:0966c1c9cfb798845b53117ea7f3fd7210fb545d63b1273963075a4b56311a5a"; \
             ;; \
         *) echo "Unsupported DuckDB CLI architecture: ${arch}" >&2; exit 1 ;; \
     esac; \
@@ -101,6 +114,21 @@ RUN set -eu; \
     done; \
     /usr/local/bin/duckdb.real -c "SET extension_directories = ['/usr/local/lib/duckdb/extensions'];${install_args}"; \
     rm -rf /tmp/ddbext; \
+    curl -fsSL "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_LEGACY_VERSION}/duckdb_cli-linux-${arch}.gz" -o /tmp/duckdb-legacy.gz; \
+    echo "${legacy_duckdb_sha256}  /tmp/duckdb-legacy.gz" | sha256sum -c -; \
+    gunzip /tmp/duckdb-legacy.gz; \
+    chmod 0755 /tmp/duckdb-legacy; \
+    mkdir -p /tmp/ddbext; \
+    install_args=""; \
+    for spec in ${legacy_ext_shas}; do \
+        name="${spec%%:*}"; sha="${spec##*:}"; \
+        curl -fsSL "https://extensions.duckdb.org/v${DUCKDB_LEGACY_VERSION}/${platform}/${name}.duckdb_extension.gz" -o "/tmp/ddbext/${name}.duckdb_extension.gz"; \
+        echo "${sha}  /tmp/ddbext/${name}.duckdb_extension.gz" | sha256sum -c -; \
+        gunzip "/tmp/ddbext/${name}.duckdb_extension.gz"; \
+        install_args="${install_args} INSTALL '/tmp/ddbext/${name}.duckdb_extension'; LOAD ${name};"; \
+    done; \
+    /tmp/duckdb-legacy -c "SET extension_directory = '/usr/local/lib/duckdb/extensions';${install_args}"; \
+    rm -rf /tmp/ddbext /tmp/duckdb-legacy; \
     printf '%s\n' \
         "SET extension_directories = ['/usr/local/lib/duckdb/extensions'];" \
         "LOAD httpfs;" \

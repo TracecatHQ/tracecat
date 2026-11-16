@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, WorkflowFolder, Workspace
 from tracecat.exceptions import TracecatValidationError
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.workflow.management.folders.schemas import WorkflowFolderCreate
 from tracecat.workflow.management.folders.service import (
     WorkflowFolderErrorCode,
@@ -443,3 +443,17 @@ class TestWorkflowFolderService:
             if item.type == "folder"
         }
         assert workflow_counts == {"child-a": 1, "child-b": 0}
+
+
+@pytest.mark.anyio
+async def test_get_workflow_titles_returns_only_existing_workflows(
+    folder_service: WorkflowFolderService, workflow_id: WorkflowID
+) -> None:
+    missing = WorkflowUUID.new_uuid4()
+
+    titles = await folder_service.get_workflow_titles(
+        {WorkflowUUID.new(workflow_id), missing}
+    )
+
+    assert titles == {WorkflowUUID.new(workflow_id): "test-workflow"}
+    assert await folder_service.get_managed_workflow_ids(titles.keys()) == set()

@@ -157,7 +157,7 @@ externalPostgres:
 
 For Amazon RDS, download the global CA bundle from the [AWS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
 
-To log in with RDS IAM tokens instead of a password, set `externalPostgres.auth.mode: awsIam`. See [Database IAM login](/self-hosting/database-iam) for the database and IAM setup and the PgDog settings it needs.
+To log in with RDS IAM or Microsoft Entra ID tokens instead of a password, set `externalPostgres.auth.mode` to `awsIam` or `azureWorkloadIdentity`. See [Database IAM login](/self-hosting/database-iam) for the database and identity setup and the PgDog settings it needs.
 
 To run the services and the migrations Job on separate roles instead of this one login, see [Database roles](/self-hosting/database-roles). You set the roles up as the database admin, from a machine or a one-off pod that can reach the database, before you deploy a release that changes them; the Job then logs in as `migrator` (`migrations.migrator`).
 
@@ -226,6 +226,8 @@ externalRedis:
 ```
 
 The `url` key should be a full Redis connection string, e.g. `rediss://:password@host:6379`. Use `rediss://` (double s) for TLS.
+
+To log in with ElastiCache IAM or Microsoft Entra ID tokens instead of a password, list the components in `externalRedis.auth.awsIam` or `externalRedis.auth.azureWorkloadIdentity`. Components you don't list keep the `url` Secret; once you list every component, remove `externalRedis.auth.existingSecret`, delete the Secret and revoke the old password. See [Database IAM login](/self-hosting/database-iam#redis).
 
 ### S3
 

@@ -204,6 +204,9 @@ def _provider() -> Mock:
     provider.withdrawing = True
     provider.start_turn = AsyncMock()
     provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.get_turn_lifecycle_for_control = AsyncMock(
+        return_value=TurnLifecycle.RUNNING
+    )
     provider.steer = AsyncMock(return_value=True)
     provider.withdraw = AsyncMock(return_value=WithdrawResult())
     provider.cancel = AsyncMock()

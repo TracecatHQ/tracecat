@@ -1120,6 +1120,9 @@ class NsjailExecutor:
         # rlimit_nproc under clone_newuser, so the trusted minimal runner
         # applies this injected value before untrusted code runs.
         env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
+        # In-jail runtimes cannot see the jail's memory cgroup (/sys is not
+        # mounted), so pass the budget for DuckDB to size its memory limit.
+        env_map["TRACECAT__SANDBOX_MEMORY_MB"] = str(config.resources.memory_mb)
 
         return env_map
 

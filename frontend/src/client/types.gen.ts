@@ -472,13 +472,17 @@ export type AgentChannelBotCreate = {
 export type AgentChannelBotRead = {
   id: string
   workspace_id: string
+  /**
+   * The agent that answers; a platform install's default agent.
+   */
   agent_preset_id: string
   provider: ChannelBotProvider
+  app_owner: ChannelBotAppOwner
   status: ChannelBotStatus
   provider_tenant_id: string | null
   provider_app_id: string | null
   /**
-   * Inbound event URL; None for a provider that delivers events over a socket.
+   * Inbound event URL; None when the bot's events arrive over a socket.
    */
   endpoint_url: string | null
   created_at: string
@@ -496,6 +500,22 @@ export type AgentChannelBotUpdate = {
    * Must name the bot's provider.
    */
   credentials?: ChannelBotCredentialsUpdate | null
+}
+
+export type AgentChannelRouteRead = {
+  bot_id: string
+  provider_channel_id: string
+  agent_preset_id: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Answer new threads in one channel with another agent than the default.
+ */
+export type AgentChannelRouteSet = {
+  provider_channel_id: string
+  agent_preset_id: string
 }
 
 /**
@@ -3834,6 +3854,23 @@ export type CatalogMappingSelection = {
   target_catalog_id: string
 }
 
+/**
+ * Who owns a bot's provider app.
+ */
+export type ChannelBotAppOwner = "workspace" | "platform"
+
+/**
+ * A channel in the bot's provider tenant, which a route can name.
+ */
+export type ChannelBotChannel = {
+  id: string
+  name: string
+  is_private: boolean
+  is_member: boolean
+  team_id?: string | null
+  team_name?: string | null
+}
+
 export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
 
 export type ChannelBotDetails = SlackBotDetails
@@ -3848,6 +3885,38 @@ export type ChannelBotInstallResult = {
   authorization_url: string | null
 }
 
+/**
+ * A provider app the deployment owns, which a workspace installs in one step.
+ */
+export type ChannelBotPlatformApp = {
+  provider: ChannelBotProvider
+}
+
+/**
+ * What a platform admin pastes into the deployment's own provider app.
+ */
+export type ChannelBotPlatformAppSetup = {
+  transport: ChannelBotTransport
+  oauth_redirect_url: string
+  request_url: string | null
+}
+
+/**
+ * Install the platform app, which the deployment registers, over OAuth; or reconnect.
+ */
+export type ChannelBotPlatformInstall = {
+  provider: ChannelBotProvider
+  /**
+   * Platform install to reconnect. If omitted, creates one.
+   */
+  bot_id?: string | null
+  /**
+   * The install's default agent. Required without bot_id; with it, replaces it.
+   */
+  agent_preset_id?: string | null
+  return_url: string
+}
+
 export type ChannelBotProvider = "slack"
 
 /**
@@ -3860,6 +3929,11 @@ export type ChannelBotStatus =
   | "paused"
   | "disconnected"
   | "needs_reconnect"
+
+/**
+ * How a bot's events arrive: posted to our endpoint, or read from a provider socket.
+ */
+export type ChannelBotTransport = "http" | "socket"
 
 /**
  * Supported external channel types.
@@ -4437,6 +4511,30 @@ export type CursorPaginatedResponse_AgentChannelBotRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_AgentChannelRouteRead_ = {
+  items: Array<AgentChannelRouteRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_AgentFolderRead_ = {
   items: Array<AgentFolderRead>
   /**
@@ -4607,6 +4705,30 @@ export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
 
 export type CursorPaginatedResponse_CaseViewRead_ = {
   items: Array<CaseViewRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ChannelBotChannel_ = {
+  items: Array<ChannelBotChannel>
   /**
    * Cursor for next page
    */
@@ -5520,6 +5642,10 @@ export type EffectiveEntitlements = {
    * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
    */
   agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 /**
@@ -5661,6 +5787,10 @@ export type EntitlementsDict = {
    * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
    */
   agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -6991,6 +7121,24 @@ export type IPAllowlistCheckResult = {
 }
 
 /**
+ * The provider channel a session's linked thread is in.
+ */
+export type InboxChannelThread = {
+  /**
+   * Channel bot the thread is linked on
+   */
+  bot_id: string
+  /**
+   * The bot's provider
+   */
+  provider: ChannelBotProvider
+  /**
+   * The provider's channel ID
+   */
+  provider_channel_id: string
+}
+
+/**
  * Display groups for inbox items.
  *
  * Groups are derived from approval state and live workflow execution status,
@@ -7056,6 +7204,10 @@ export type InboxItemRead = {
   metadata?: {
     [key: string]: unknown
   } | null
+  /**
+   * The channel of the session's linked provider thread, if any
+   */
+  channel_thread?: InboxChannelThread | null
 }
 
 /**
@@ -11487,6 +11639,7 @@ export type SlackBotCredentialsUpdate = {
  */
 export type SlackBotDetails = {
   provider: "slack"
+  transport: ChannelBotTransport
   provider_enterprise_id: string | null
   provider_bot_user_id: string | null
   granted_scopes: Array<string>
@@ -11504,7 +11657,7 @@ export type SlackBotDetails = {
 }
 
 /**
- * Install a customer-owned Slack app over OAuth.
+ * Install a workspace-owned Slack app over OAuth.
  */
 export type SlackBotInstall = {
   /**
@@ -11516,6 +11669,14 @@ export type SlackBotInstall = {
   client_id: string
   client_secret: string
   signing_secret: string
+  /**
+   * App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.
+   */
+  app_token?: string | null
+  /**
+   * The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.
+   */
+  app_refresh_token?: string | null
   return_url: string
 }
 
@@ -11577,6 +11738,48 @@ export type SlackOAuthStartRequest = {
 export type SlackOAuthStartResponse = {
   authorization_url: string
   token: AgentChannelTokenRead
+}
+
+/**
+ * The registration without its secrets, and what to paste into Slack.
+ */
+export type SlackPlatformAppRead = {
+  app_id: string | null
+  client_id: string | null
+  client_secret_set: boolean
+  signing_secret_set: boolean
+  app_token_set: boolean
+  icon_uploaded: boolean
+  distribution_enabled: boolean
+  unreadable: boolean
+  setup: ChannelBotPlatformAppSetup
+}
+
+/**
+ * Mark the Slack-only setup steps done or not done; an omitted step keeps its value.
+ */
+export type SlackPlatformAppSetupStepsUpdate = {
+  icon_uploaded?: boolean | null
+  distribution_enabled?: boolean | null
+}
+
+/**
+ * Register or change the app. An omitted secret keeps its stored value while the
+ * app ID stays the same.
+ */
+export type SlackPlatformAppUpdate = {
+  app_id: string
+  client_id: string
+  client_secret?: string | null
+  signing_secret?: string | null
+  /**
+   * App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.
+   */
+  app_token?: string | null
+  /**
+   * The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.
+   */
+  app_refresh_token?: string | null
 }
 
 /**
@@ -16736,6 +16939,7 @@ export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
 
 export type AgentChannelBotsListBotsData = {
   agentPresetId?: string | null
+  appOwner?: ChannelBotAppOwner | null
   cursor?: string | null
   limit?: number
   provider?: ChannelBotProvider | null
@@ -16780,6 +16984,75 @@ export type AgentChannelBotsInstallBotData = {
 }
 
 export type AgentChannelBotsInstallBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsListPlatformAppsData = {
+  workspaceId: string
+}
+
+export type AgentChannelBotsListPlatformAppsResponse =
+  Array<ChannelBotPlatformApp>
+
+export type AgentChannelBotsInstallPlatformBotData = {
+  requestBody: ChannelBotPlatformInstall
+  workspaceId: string
+}
+
+export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsListBotRoutesData = {
+  agentPresetId?: string | null
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotRoutesResponse =
+  CursorPaginatedResponse_AgentChannelRouteRead_
+
+export type AgentChannelBotsAddBotRouteData = {
+  botId: string
+  requestBody: AgentChannelRouteSet
+  workspaceId: string
+}
+
+export type AgentChannelBotsAddBotRouteResponse = AgentChannelRouteRead
+
+export type AgentChannelBotsSetBotRouteData = {
+  botId: string
+  requestBody: AgentChannelRouteSet
+  workspaceId: string
+}
+
+export type AgentChannelBotsSetBotRouteResponse = AgentChannelRouteRead
+
+export type AgentChannelBotsDeleteBotRouteData = {
+  botId: string
+  providerChannelId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsDeleteBotRouteResponse = void
+
+export type AgentChannelBotsListBotChannelsData = {
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
+
+export type AgentChannelBotsListBotRoutableChannelsData = {
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotRoutableChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
 
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
@@ -18012,6 +18285,22 @@ export type AdminRegistryDeleteRegistryVersionData = {
 }
 
 export type AdminRegistryDeleteRegistryVersionResponse = void
+
+export type AdminSlackAppGetSlackAppResponse = SlackPlatformAppRead
+
+export type AdminSlackAppSaveSlackAppData = {
+  requestBody: SlackPlatformAppUpdate
+}
+
+export type AdminSlackAppSaveSlackAppResponse = SlackPlatformAppRead
+
+export type AdminSlackAppDeleteSlackAppResponse = void
+
+export type AdminSlackAppMarkSlackAppSetupStepsData = {
+  requestBody: SlackPlatformAppSetupStepsUpdate
+}
+
+export type AdminSlackAppMarkSlackAppSetupStepsResponse = SlackPlatformAppRead
 
 export type InboxGetPendingCountData = {
   workspaceId: string
@@ -23708,6 +23997,136 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/channel-bots/platform-apps": {
+    get: {
+      req: AgentChannelBotsListPlatformAppsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChannelBotPlatformApp>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/platform-apps/install": {
+    post: {
+      req: AgentChannelBotsInstallPlatformBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes": {
+    get: {
+      req: AgentChannelBotsListBotRoutesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentChannelRouteRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentChannelBotsAddBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentChannelRouteRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentChannelBotsSetBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelRouteRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentChannelBotsDeleteBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels": {
+    get: {
+      req: AgentChannelBotsListBotChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ChannelBotChannel_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routable-channels": {
+    get: {
+      req: AgentChannelBotsListBotRoutableChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ChannelBotChannel_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets": {
     get: {
       req: AgentPresetsListAgentPresetsData
@@ -23816,6 +24235,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset is the default agent of an installed channel app
+         */
+        400: unknown
         /**
          * Agent preset not found
          */
@@ -26049,6 +26472,52 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/slack-app": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+      }
+    }
+    put: {
+      req: AdminSlackAppSaveSlackAppData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/admin/slack-app/setup": {
+    patch: {
+      req: AdminSlackAppMarkSlackAppSetupStepsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
         /**
          * Validation Error
          */

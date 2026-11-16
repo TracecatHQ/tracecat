@@ -122,6 +122,7 @@ locals {
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
+        TRACECAT__SLACK_INGRESS_MODE               = var.slack_ingress_mode
 
         # Break-glass recovery for a platform admin IP allowlist lockout.
         TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = var.platform_admin_ip_allowlist_bypass

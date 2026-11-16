@@ -1,7 +1,7 @@
 """add case views
 
 Revision ID: 8f7328b839fb
-Revises: ec392d96f2b0
+Revises: 11e685c62cfd
 Create Date: 2026-11-13 00:00:00.000000
 
 Additive only: creates the saved case view tables. The previous app version
@@ -21,7 +21,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "8f7328b839fb"
-down_revision: str | None = "ec392d96f2b0"
+down_revision: str | None = "11e685c62cfd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

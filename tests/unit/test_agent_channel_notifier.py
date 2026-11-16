@@ -1,4 +1,4 @@
-"""Tests for run updates, publisher resolution, and in-activity publishing."""
+"""Tests for run updates, notifier resolution, and in-activity pushing."""
 
 import asyncio
 import uuid
@@ -8,17 +8,18 @@ from typing import Any
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from tracecat.agent import channel_publisher
-from tracecat.agent.channel_publisher import (
+from tracecat.agent import channel_notifier
+from tracecat.agent.channel_notifier import (
     ApprovalDecided,
     ApprovalPending,
-    ChannelPublishRetryAfter,
+    ChannelPushRetryAfter,
     RunUpdate,
     TurnFinished,
+    TurnStarted,
     approval_batch_id,
-    get_channel_publisher,
+    get_channel_notifier,
     is_channel_linked,
-    publish_updates,
+    push_updates,
 )
 from tracecat.agent.session.activities import FinalizeTurnInput
 from tracecat.auth.types import Role
@@ -35,6 +36,7 @@ ROLE = Role(
 
 TURN_FINISHED = TurnFinished(session_id=SESSION_ID, run_id=RUN_ID)
 UPDATES: list[RunUpdate] = [
+    TurnStarted(session_id=SESSION_ID, run_id=RUN_ID),
     TURN_FINISHED,
     ApprovalPending(session_id=SESSION_ID, run_id=RUN_ID, batch_id=BATCH_ID),
     ApprovalDecided(session_id=SESSION_ID, batch_id=BATCH_ID, pending_ref="ref-1"),
@@ -51,7 +53,7 @@ class _EntryPoint:
         return self._target
 
 
-class _RecordingPublisher:
+class _RecordingNotifier:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.error = error
         self.updates: list[RunUpdate] = []
@@ -63,7 +65,7 @@ class _RecordingPublisher:
             raise self.error
         return True
 
-    async def publish(self, role: Role, update: RunUpdate) -> str | None:
+    async def push(self, role: Role, update: RunUpdate) -> str | None:
         del role
         self.attempts += 1
         if self.error is not None:
@@ -74,18 +76,18 @@ class _RecordingPublisher:
 
 @pytest.fixture
 def installed(monkeypatch: pytest.MonkeyPatch):
-    """Install entry points for the publisher group, then reset the cache."""
+    """Install entry points for the notifier group, then reset the cache."""
 
     def install(*entries: _EntryPoint) -> None:
         def fake_entry_points(*, group: str) -> list[_EntryPoint]:
-            assert group == channel_publisher.CHANNEL_PUBLISHER_ENTRY_POINT_GROUP
+            assert group == channel_notifier.CHANNEL_NOTIFIER_ENTRY_POINT_GROUP
             return list(entries)
 
-        monkeypatch.setattr(channel_publisher, "entry_points", fake_entry_points)
-        get_channel_publisher.cache_clear()
+        monkeypatch.setattr(channel_notifier, "entry_points", fake_entry_points)
+        get_channel_notifier.cache_clear()
 
     yield install
-    get_channel_publisher.cache_clear()
+    get_channel_notifier.cache_clear()
 
 
 @pytest.mark.parametrize(
@@ -119,28 +121,28 @@ def no_backoff(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(channel_publisher.asyncio, "sleep", sleep)
+    monkeypatch.setattr(channel_notifier.asyncio, "sleep", sleep)
     return delays
 
 
 @pytest.mark.anyio
-async def test_without_a_publisher_no_session_is_linked(installed) -> None:
+async def test_without_a_notifier_no_session_is_linked(installed) -> None:
     installed()
-    assert get_channel_publisher() is None
+    assert get_channel_notifier() is None
     assert await is_channel_linked(ROLE, SESSION_ID) is False
     # Unreachable from a run, but still never fails the host.
-    assert await publish_updates(ROLE, [TURN_FINISHED]) == [None]
+    assert await push_updates(ROLE, [TURN_FINISHED]) == [None]
 
 
 @pytest.mark.anyio
-async def test_installed_publisher_receives_the_updates_in_order(installed) -> None:
-    publisher = _RecordingPublisher()
-    installed(_EntryPoint("example", lambda: publisher))
+async def test_installed_notifier_receives_the_updates_in_order(installed) -> None:
+    notifier = _RecordingNotifier()
+    installed(_EntryPoint("example", lambda: notifier))
 
-    refs = await publish_updates(ROLE, UPDATES[:2])
+    refs = await push_updates(ROLE, UPDATES[:2])
 
     assert refs == ["ref-1", "ref-1"]
-    assert publisher.updates == UPDATES[:2]
+    assert notifier.updates == UPDATES[:2]
 
 
 @pytest.mark.anyio
@@ -148,25 +150,25 @@ async def test_installed_publisher_receives_the_updates_in_order(installed) -> N
     ("error", "attempts", "delays"),
     [
         (RuntimeError("down"), 3, [2, 4]),
-        (ChannelPublishRetryAfter(timedelta(seconds=7)), 3, [7, 7]),
+        (ChannelPushRetryAfter(timedelta(seconds=7)), 3, [7, 7]),
         (ApplicationError("gone", non_retryable=True), 1, []),
     ],
     ids=["transient", "retry-after", "definitive"],
 )
-async def test_a_failed_publish_retries_then_gives_up_quietly(
+async def test_a_failed_push_retries_then_gives_up_quietly(
     installed,
     no_backoff: list[float],
     error: Exception,
     attempts: int,
     delays: list[float],
 ) -> None:
-    publisher = _RecordingPublisher(error=error)
-    installed(_EntryPoint("example", lambda: publisher))
+    notifier = _RecordingNotifier(error=error)
+    installed(_EntryPoint("example", lambda: notifier))
 
     # The next update still goes out after one gives up.
-    assert await publish_updates(ROLE, [TURN_FINISHED, TURN_FINISHED]) == [None, None]
+    assert await push_updates(ROLE, [TURN_FINISHED, TURN_FINISHED]) == [None, None]
 
-    assert publisher.attempts == 2 * attempts
+    assert notifier.attempts == 2 * attempts
     assert no_backoff == delays * 2
 
 
@@ -178,55 +180,54 @@ def test_approval_batch_id_tells_apart_ids_that_join_alike() -> None:
 @pytest.mark.anyio
 async def test_a_broken_install_never_fails_the_host(installed) -> None:
     installed(
-        _EntryPoint("a", _RecordingPublisher), _EntryPoint("b", _RecordingPublisher)
+        _EntryPoint("a", _RecordingNotifier), _EntryPoint("b", _RecordingNotifier)
     )
     with pytest.raises(RuntimeError, match="a, b"):
-        get_channel_publisher()
+        get_channel_notifier()
 
-    assert await publish_updates(ROLE, [TURN_FINISHED]) == [None]
+    assert await push_updates(ROLE, [TURN_FINISHED]) == [None]
 
 
-class _HangingPublisher(_RecordingPublisher):
+class _HangingNotifier(_RecordingNotifier):
     async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
         await asyncio.Event().wait()
         return True
 
-    async def publish(self, role: Role, update: RunUpdate) -> str | None:
+    async def push(self, role: Role, update: RunUpdate) -> str | None:
         await asyncio.Event().wait()
         return "ref-1"
 
 
 @pytest.mark.anyio
-async def test_a_hanging_provider_is_cut_off_at_the_budget(
-    installed, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    installed(_EntryPoint("example", _HangingPublisher))
-    monkeypatch.setattr(channel_publisher, "PUBLISH_BUDGET", timedelta(milliseconds=50))
+async def test_a_hanging_provider_is_cut_off_at_the_budget(installed) -> None:
+    installed(_EntryPoint("example", _HangingNotifier))
 
     async with asyncio.timeout(1):
-        refs = await publish_updates(ROLE, [TURN_FINISHED, TURN_FINISHED])
+        refs = await push_updates(
+            ROLE, [TURN_FINISHED, TURN_FINISHED], budget=timedelta(milliseconds=50)
+        )
 
     assert refs == [None, None]
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("publisher", "expected"),
+    ("notifier", "expected"),
     [
-        (_RecordingPublisher(), True),
-        (_RecordingPublisher(error=RuntimeError("down")), False),
-        (_HangingPublisher(), False),
+        (_RecordingNotifier(), True),
+        (_RecordingNotifier(error=RuntimeError("down")), False),
+        (_HangingNotifier(), False),
     ],
-    ids=["linked", "publisher-error", "publisher-timeout"],
+    ids=["linked", "notifier-error", "notifier-timeout"],
 )
 async def test_is_channel_linked(
     installed,
     monkeypatch: pytest.MonkeyPatch,
-    publisher: object,
+    notifier: object,
     expected: bool,
 ) -> None:
-    installed(_EntryPoint("example", lambda: publisher))
-    monkeypatch.setattr(channel_publisher, "CHANNEL_LINK_CHECK_TIMEOUT_SECONDS", 0.01)
+    installed(_EntryPoint("example", lambda: notifier))
+    monkeypatch.setattr(channel_notifier, "CHANNEL_LINK_CHECK_TIMEOUT_SECONDS", 0.01)
 
     linked = await is_channel_linked(ROLE, SESSION_ID)
 

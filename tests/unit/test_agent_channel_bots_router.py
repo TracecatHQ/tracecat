@@ -19,15 +19,26 @@ from tests._route_utils import iter_effective_api_routes
 from tracecat import config
 from tracecat.agent.channel_bots import provider as provider_module
 from tracecat.agent.channel_bots import router as router_module
+from tracecat.agent.channel_bots.provider import (
+    ChannelListingNeedsReinstall,
+    ChannelListingNotSupported,
+)
 from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotRead,
     AgentChannelBotUpdate,
+    AgentChannelRouteRead,
+    AgentChannelRouteSet,
+    ChannelBotAppOwner,
+    ChannelBotChannel,
     ChannelBotInstallResult,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
+    ChannelBotPlatformApp,
+    ChannelBotPlatformInstall,
     ChannelBotProvider,
     ChannelBotRunState,
     ChannelBotStatus,
+    ChannelBotTransport,
     SlackBotDetails,
     SlackBotInstall,
     oauth_callback_path,
@@ -42,10 +53,12 @@ from tracecat.api.app import (
 from tracecat.api.lifespan import StoppableTaskFactory
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
+from tracecat.auth.users import optional_current_active_user
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -79,6 +92,12 @@ INSTALL_BODY = {
     "signing_secret": "signing",
     "return_url": f"{APP_URL}/agents/1",
 }
+PLATFORM_INSTALL_BODY = {
+    "provider": "slack",
+    "agent_preset_id": str(uuid.uuid4()),
+    "return_url": f"{APP_URL}/agents/1",
+}
+ROUTE_BODY = {"provider_channel_id": "C1", "agent_preset_id": str(uuid.uuid4())}
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +107,14 @@ def clean_caches() -> Iterator[None]:
     yield
     extensions.load_api_extensions.cache_clear()
     provider_module.get_channel_bot_admin.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def signed_out_browser() -> Iterator[None]:
+    """The callback's browser has no Tracecat session unless a test signs one in."""
+    app.dependency_overrides[optional_current_active_user] = lambda: None
+    yield
+    app.dependency_overrides.pop(optional_current_active_user, None)
 
 
 class PlainExtension:
@@ -133,7 +160,7 @@ def make_client(role: Role = ROLE, *, entitled: bool = True) -> TestClient:
         get_async_session: lambda: SESSION,
     }
     if entitled:
-        overrides[router_module._require_agent_channels_entitlement] = lambda: None
+        overrides[router_module._require_agent_channels_preview] = lambda: None
     test_app.dependency_overrides.update(overrides)
     return TestClient(test_app)
 
@@ -143,18 +170,32 @@ def client() -> TestClient:
     return make_client()
 
 
+def grant(monkeypatch: pytest.MonkeyPatch, *granted: Entitlement) -> AsyncMock:
+    async def check(_session: object, _role: Role, entitlement: Entitlement) -> None:
+        if entitlement not in granted:
+            raise EntitlementRequired(entitlement.value)
+
+    check_mock = AsyncMock(side_effect=check)
+    monkeypatch.setattr(router_module, "check_entitlement", check_mock)
+    return check_mock
+
+
 @pytest.fixture
 def unentitled(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    check = AsyncMock(side_effect=EntitlementRequired(Entitlement.AGENT_CHANNELS.value))
-    monkeypatch.setattr(router_module, "check_entitlement", check)
-    return check
+    return grant(monkeypatch)
 
 
-ENTITLEMENT_REQUIRED_BODY = {
-    "type": "EntitlementRequired",
-    "message": "Feature 'agent_channels' requires an upgraded plan.",
-    "detail": {"entitlement": "agent_channels"},
-}
+def entitlement_required_body(entitlement: Entitlement) -> dict[str, object]:
+    return {
+        "type": "EntitlementRequired",
+        "message": f"Feature '{entitlement.value}' requires an upgraded plan.",
+        "detail": {"entitlement": entitlement.value},
+    }
+
+
+ENTITLEMENT_REQUIRED_BODY = entitlement_required_body(
+    Entitlement.AGENT_CHANNELS_PREVIEW
+)
 
 
 def bot_read() -> AgentChannelBotRead:
@@ -164,6 +205,7 @@ def bot_read() -> AgentChannelBotRead:
         workspace_id=uuid.uuid4(),
         agent_preset_id=uuid.uuid4(),
         provider=ChannelBotProvider.SLACK,
+        app_owner=ChannelBotAppOwner.WORKSPACE,
         status=ChannelBotStatus.ACTIVE,
         provider_tenant_id="T1",
         provider_app_id="A1",
@@ -172,6 +214,7 @@ def bot_read() -> AgentChannelBotRead:
         updated_at=now,
         details=SlackBotDetails(
             provider=ChannelBotProvider.SLACK,
+            transport=ChannelBotTransport.HTTP,
             provider_enterprise_id=None,
             provider_bot_user_id="UBOT",
             granted_scopes=["chat:write"],
@@ -207,7 +250,9 @@ def test_an_unentitled_workspace_is_refused(
 
     assert response.status_code == 403
     assert response.json() == ENTITLEMENT_REQUIRED_BODY
-    unentitled.assert_awaited_once_with(SESSION, ROLE, Entitlement.AGENT_CHANNELS)
+    unentitled.assert_awaited_once_with(
+        SESSION, ROLE, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
     assert admin.mock_calls == []
 
 
@@ -222,33 +267,122 @@ def test_the_entitlement_is_checked_before_the_admin_is_looked_up(
     assert response.json() == ENTITLEMENT_REQUIRED_BODY
 
 
+WORKSPACE_ROUTES = [
+    pytest.param("GET", "", None, "agent:read", id="list"),
+    pytest.param(
+        "POST",
+        "",
+        {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
+        "agent:update",
+        id="create",
+    ),
+    pytest.param(
+        "PATCH",
+        f"/{uuid.uuid4()}",
+        {"status": "paused"},
+        "agent:update",
+        id="update",
+    ),
+    pytest.param("POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"),
+    pytest.param(
+        "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
+    ),
+    pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+    pytest.param("GET", "/platform-apps", None, "agent:read", id="platform_apps"),
+    pytest.param(
+        "POST",
+        "/platform-apps/install",
+        PLATFORM_INSTALL_BODY,
+        "agent:update",
+        id="install_platform",
+    ),
+    pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
+    pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
+    pytest.param(
+        "GET",
+        f"/{uuid.uuid4()}/routable-channels",
+        None,
+        "agent:read",
+        id="routable_channels",
+    ),
+    pytest.param(
+        "POST", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="add_route"
+    ),
+    pytest.param(
+        "PUT", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="set_route"
+    ),
+    pytest.param(
+        "DELETE",
+        f"/{uuid.uuid4()}/routes?provider_channel_id=C1",
+        None,
+        "agent:update",
+        id="delete_route",
+    ),
+]
+ADMIN_METHODS = (
+    "list_bots",
+    "create_bot",
+    "update_bot",
+    "rotate_endpoint",
+    "disconnect_bot",
+    "install",
+    "list_platform_apps",
+    "install_platform",
+    "list_routes",
+    "add_route",
+    "list_channels",
+    "list_routable_channels",
+    "set_route",
+    "delete_route",
+)
+CHANNELS = Entitlement.AGENT_CHANNELS
+PREVIEW = Entitlement.AGENT_CHANNELS_PREVIEW
+
+
+@pytest.mark.parametrize(("method", "path", "body", "scope"), WORKSPACE_ROUTES)
 @pytest.mark.parametrize(
-    ("method", "path", "body", "scope"),
+    ("granted", "checked", "served"),
     [
-        pytest.param("GET", "", None, "agent:read", id="list"),
-        pytest.param(
-            "POST",
-            "",
-            {"agent_preset_id": str(uuid.uuid4()), "provider": "slack"},
-            "agent:update",
-            id="create",
-        ),
-        pytest.param(
-            "PATCH",
-            f"/{uuid.uuid4()}",
-            {"status": "paused"},
-            "agent:update",
-            id="update",
-        ),
-        pytest.param(
-            "POST", f"/{uuid.uuid4()}/rotate", None, "agent:update", id="rotate"
-        ),
-        pytest.param(
-            "POST", f"/{uuid.uuid4()}/disconnect", None, "agent:update", id="disconnect"
-        ),
-        pytest.param("POST", "/install", INSTALL_BODY, "agent:update", id="install"),
+        pytest.param({CHANNELS}, [PREVIEW], False, id="agent_channels_only"),
+        pytest.param({PREVIEW}, [PREVIEW], True, id="preview_only"),
+        pytest.param({CHANNELS, PREVIEW}, [PREVIEW], True, id="both"),
     ],
 )
+def test_routes_require_only_the_preview(
+    admin: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    granted: set[Entitlement],
+    checked: list[Entitlement],
+    served: bool,
+    method: str,
+    path: str,
+    body: dict[str, object] | None,
+    scope: str,
+) -> None:
+    check = grant(monkeypatch, *granted)
+    admin.configure_mock(
+        **{
+            f"{name}.side_effect": TracecatNotFoundError("gone")
+            for name in ADMIN_METHODS
+        }
+    )
+
+    response = make_client(entitled=False).request(
+        method, f"/agent/channel-bots{path}", json=body
+    )
+
+    assert [c.args[2] for c in check.await_args_list] == checked
+    if served:
+        assert response.status_code == 404
+        assert response.json() == {"detail": "gone"}
+        assert len(admin.mock_calls) == 1
+    else:
+        assert response.status_code == 403
+        assert response.json() == entitlement_required_body(checked[-1])
+        assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(("method", "path", "body", "scope"), WORKSPACE_ROUTES)
 def test_routes_require_their_scope(
     admin: AsyncMock,
     method: str,
@@ -295,21 +429,86 @@ def test_routes_hand_the_request_to_the_installed_admin(
     )
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        INSTALL_BODY,
+        {**INSTALL_BODY, "app_token": "xapp-1"},
+        {**INSTALL_BODY, "app_token": "xoxe.xapp-1", "app_refresh_token": "xoxe-1"},
+    ],
+    ids=["without_app_token", "with_app_token", "with_rotating_app_token"],
+)
 def test_install_hands_the_parsed_provider_request_to_the_admin(
-    client: TestClient, admin: AsyncMock
+    client: TestClient, admin: AsyncMock, body: dict[str, str]
 ) -> None:
     expected = ChannelBotInstallResult(
         bot=bot_read(), authorization_url="https://slack.com/oauth/v2/authorize?x=1"
     )
     admin.install.return_value = expected
 
-    response = client.post("/agent/channel-bots/install", json=INSTALL_BODY)
+    response = client.post("/agent/channel-bots/install", json=body)
 
     assert response.status_code == 200
     assert response.json() == expected.model_dump(mode="json")
     admin.install.assert_awaited_once_with(
-        SESSION, ROLE, SlackBotInstall.model_validate(INSTALL_BODY)
+        SESSION, ROLE, SlackBotInstall.model_validate(body)
     )
+
+
+@pytest.mark.parametrize(
+    "app_token",
+    ["", "xapp-", "xoxe.xapp-", "xoxe.xoxb-1", "xoxb-bot-token"],
+    ids=[
+        "blank",
+        "bare_prefix",
+        "bare_rotating_prefix",
+        "rotating_bot_token",
+        "bot_token",
+    ],
+)
+def test_install_refuses_a_token_that_is_not_an_app_token(
+    client: TestClient, admin: AsyncMock, app_token: str
+) -> None:
+    response = client.post(
+        "/agent/channel-bots/install", json={**INSTALL_BODY, "app_token": app_token}
+    )
+
+    assert response.status_code == 422
+    assert [error["loc"][-1] for error in response.json()["detail"]] == ["app_token"]
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        {"app_token": "xoxe.xapp-1"},
+        {"app_token": "xapp-1", "app_refresh_token": "xoxe-1"},
+        {"app_refresh_token": "xoxe-1"},
+    ],
+    ids=["rotating_without_refresh", "refresh_with_non_rotating", "refresh_alone"],
+)
+def test_install_takes_a_refresh_token_with_a_rotating_app_token_only(
+    client: TestClient, admin: AsyncMock, tokens: dict[str, str]
+) -> None:
+    response = client.post(
+        "/agent/channel-bots/install", json={**INSTALL_BODY, **tokens}
+    )
+
+    assert response.status_code == 422
+    assert "refresh token" in response.json()["detail"][0]["msg"]
+    assert admin.mock_calls == []
+
+
+def test_install_refuses_a_refresh_token_that_is_not_one(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    body = {**INSTALL_BODY, "app_token": "xoxe.xapp-1", "app_refresh_token": "xoxb-1"}
+
+    response = client.post("/agent/channel-bots/install", json=body)
+
+    assert response.status_code == 422
+    assert [e["loc"][-1] for e in response.json()["detail"]] == ["app_refresh_token"]
+    assert admin.mock_calls == []
 
 
 @pytest.mark.parametrize(
@@ -330,11 +529,143 @@ def test_install_requires_a_known_provider(
     assert admin.mock_calls == []
 
 
+def test_platform_routes_hand_the_request_to_the_admin(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.list_platform_apps.return_value = [
+        ChannelBotPlatformApp(provider=ChannelBotProvider.SLACK)
+    ]
+    installed = ChannelBotInstallResult(
+        bot=bot_read(), authorization_url="https://slack.com/oauth/v2/authorize?x=1"
+    )
+    admin.install_platform.return_value = installed
+    now = datetime.now(UTC)
+    route = AgentChannelRouteRead(
+        bot_id=bot_id,
+        provider_channel_id="C1",
+        agent_preset_id=uuid.UUID(ROUTE_BODY["agent_preset_id"]),
+        created_at=now,
+        updated_at=now,
+    )
+    admin.list_routes.return_value = CursorPaginatedResponse(items=[route])
+    admin.add_route.return_value = route
+    admin.set_route.return_value = route
+    admin.delete_route.return_value = None
+
+    apps = client.get("/agent/channel-bots/platform-apps")
+    install = client.post(
+        "/agent/channel-bots/platform-apps/install", json=PLATFORM_INSTALL_BODY
+    )
+    listed = client.get(f"/agent/channel-bots/{bot_id}/routes")
+    added = client.post(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
+    put = client.put(f"/agent/channel-bots/{bot_id}/routes", json=ROUTE_BODY)
+    deleted = client.delete(
+        f"/agent/channel-bots/{bot_id}/routes", params={"provider_channel_id": "C1"}
+    )
+
+    assert apps.json() == [{"provider": "slack"}]
+    assert install.json() == installed.model_dump(mode="json")
+    assert listed.json()["items"] == [route.model_dump(mode="json")]
+    assert added.status_code == 201
+    assert added.json() == route.model_dump(mode="json")
+    assert put.json() == route.model_dump(mode="json")
+    assert deleted.status_code == 204
+    admin.list_platform_apps.assert_awaited_once_with(SESSION, ROLE)
+    admin.install_platform.assert_awaited_once_with(
+        SESSION, ROLE, ChannelBotPlatformInstall.model_validate(PLATFORM_INSTALL_BODY)
+    )
+    admin.list_routes.assert_awaited_once_with(
+        SESSION,
+        ROLE,
+        bot_id,
+        agent_preset_id=None,
+        page=PageParams(limit=20, cursor=None),
+    )
+    admin.add_route.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
+    )
+    admin.set_route.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
+    )
+    admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, "C1")
+
+
+def test_a_platform_reconnect_can_replace_the_default_agent(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.install_platform.return_value = ChannelBotInstallResult(
+        bot=bot_read(), authorization_url="https://slack.com/oauth/v2/authorize"
+    )
+    body = {
+        "provider": "slack",
+        "bot_id": str(uuid.uuid4()),
+        "agent_preset_id": str(uuid.uuid4()),
+        "return_url": f"{APP_URL}/agents/1",
+    }
+
+    response = client.post("/agent/channel-bots/platform-apps/install", json=body)
+
+    assert response.status_code == 200
+    admin.install_platform.assert_awaited_once_with(
+        SESSION, ROLE, ChannelBotPlatformInstall.model_validate(body)
+    )
+
+
+@pytest.mark.parametrize("channel", ["", " C1", "C 1", "C" * 256])
+def test_a_route_needs_a_channel_id(
+    client: TestClient, admin: AsyncMock, channel: str
+) -> None:
+    response = client.put(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes",
+        json={**ROUTE_BODY, "provider_channel_id": channel},
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [
+        "19:LpxShHZZh9utjNcEmUS5aOEP9ASw85OUn05NcWYAhX81@thread.tacv2",
+        "a/b?c#d%2F",
+    ],
+)
+def test_route_delete_carries_any_channel_id_verbatim(
+    client: TestClient, admin: AsyncMock, channel: str
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.delete_route.return_value = None
+
+    response = client.delete(
+        f"/agent/channel-bots/{bot_id}/routes", params={"provider_channel_id": channel}
+    )
+
+    assert response.status_code == 204
+    admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, channel)
+
+
+@pytest.mark.parametrize("params", [{}, {"provider_channel_id": " C1"}])
+def test_route_delete_needs_a_channel_id(
+    client: TestClient, admin: AsyncMock, params: dict[str, str]
+) -> None:
+    response = client.delete(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params=params
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
 def test_list_hands_the_page_to_the_admin(client: TestClient, admin: AsyncMock) -> None:
     expected = CursorPaginatedResponse(items=[bot_read()], next_cursor="next")
     admin.list_bots.return_value = expected
 
-    response = client.get("/agent/channel-bots", params={"limit": 5, "cursor": "prev"})
+    response = client.get(
+        "/agent/channel-bots",
+        params={"limit": 5, "cursor": "prev", "app_owner": "platform"},
+    )
 
     assert response.status_code == 200
     assert response.json() == expected.model_dump(mode="json")
@@ -343,6 +674,7 @@ def test_list_hands_the_page_to_the_admin(client: TestClient, admin: AsyncMock) 
         ROLE,
         agent_preset_id=None,
         provider=None,
+        app_owner=ChannelBotAppOwner.PLATFORM,
         page=PageParams(limit=5, cursor="prev"),
     )
 
@@ -357,6 +689,175 @@ def test_admin_errors_map_to_http_errors(
     admin.rotate_endpoint.side_effect = error
 
     response = client.post(f"/agent/channel-bots/{uuid.uuid4()}/rotate")
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
+
+
+def test_routes_list_hands_the_page_to_the_admin(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.list_routes.return_value = CursorPaginatedResponse(
+        items=[], next_cursor="next", has_more=True
+    )
+
+    preset_id = uuid.uuid4()
+
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/routes",
+        params={"limit": 2, "cursor": "c", "agent_preset_id": str(preset_id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["next_cursor"] == "next"
+    assert response.json()["has_more"] is True
+    admin.list_routes.assert_awaited_once_with(
+        SESSION,
+        ROLE,
+        bot_id,
+        agent_preset_id=preset_id,
+        page=PageParams(limit=2, cursor="c"),
+    )
+
+
+@pytest.mark.parametrize("limit", [0, 201])
+def test_routes_list_refuses_a_limit_out_of_bounds(
+    client: TestClient, admin: AsyncMock, limit: int
+) -> None:
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params={"limit": limit}
+    )
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+def test_routes_list_keeps_a_bad_cursors_error_code(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.list_routes.side_effect = PaginationError(
+        "stale", code=PaginationErrorCode.CURSOR_MISMATCH
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", params={"cursor": "x"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": {"code": "cursor_mismatch"}}
+
+
+def test_adding_a_route_for_a_routed_channel_is_a_conflict(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.add_route.side_effect = TracecatConflictError("C1 already has a route")
+
+    response = client.post(
+        f"/agent/channel-bots/{uuid.uuid4()}/routes", json=ROUTE_BODY
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "C1 already has a route"}
+
+
+# The bot's own channels for the agents list, and the tenant's for the routes editor.
+CHANNEL_LISTINGS = [
+    pytest.param("channels", "list_channels", id="channels"),
+    pytest.param("routable-channels", "list_routable_channels", id="routable"),
+]
+
+
+@pytest.mark.parametrize(("path", "method"), CHANNEL_LISTINGS)
+def test_channels_come_from_the_installed_admin(
+    client: TestClient, admin: AsyncMock, path: str, method: str
+) -> None:
+    bot_id = uuid.uuid4()
+    channels = [
+        ChannelBotChannel(id="C1", name="alerts", is_private=False, is_member=True),
+        ChannelBotChannel(id="G1", name="soc", is_private=True, is_member=False),
+        ChannelBotChannel(
+            id="19:a@thread.tacv2",
+            name="General",
+            is_private=False,
+            is_member=True,
+            team_id="19:a@thread.tacv2",
+            team_name="SecOps",
+        ),
+    ]
+    getattr(admin, method).return_value = CursorPaginatedResponse(
+        items=channels, next_cursor="dGVhbTpD", has_more=True
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/{path}",
+        params={"limit": 2, "cursor": "dGVhbTpB"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [c.model_dump(mode="json") for c in channels]
+    assert response.json()["next_cursor"] == "dGVhbTpD"
+    assert response.json()["has_more"] is True
+    getattr(admin, method).assert_awaited_once_with(
+        SESSION, ROLE, bot_id, page=PageParams(limit=2, cursor="dGVhbTpB")
+    )
+
+
+@pytest.mark.parametrize("path", ["channels", "routable-channels"])
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({"limit": 0}, id="limit_too_small"),
+        pytest.param({"limit": 201}, id="limit_too_large"),
+        pytest.param({"cursor": "x" * 8193}, id="cursor_too_long"),
+    ],
+)
+def test_channels_list_refuses_out_of_bounds_paging(
+    client: TestClient, admin: AsyncMock, params: dict[str, object], path: str
+) -> None:
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/{path}", params=params)
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
+
+
+@pytest.mark.parametrize(("path", "method"), CHANNEL_LISTINGS)
+def test_channels_list_keeps_a_malformed_cursors_error_code(
+    client: TestClient, admin: AsyncMock, path: str, method: str
+) -> None:
+    getattr(admin, method).side_effect = PaginationError(
+        "bad cursor", code=PaginationErrorCode.INVALID_CURSOR
+    )
+
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/{path}", params={"cursor": "x"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": {"code": "invalid_cursor"}}
+
+
+@pytest.mark.parametrize(("path", "method"), CHANNEL_LISTINGS)
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        pytest.param(TracecatNotFoundError("gone"), 404, id="unknown_bot"),
+        pytest.param(TracecatValidationError("paused"), 400, id="refused_state"),
+        pytest.param(ChannelListingNotSupported("no list"), 501, id="not_supported"),
+        pytest.param(ChannelListingNeedsReinstall("rescope"), 424, id="reinstall"),
+    ],
+)
+def test_channel_listing_errors_map_to_http_errors(
+    client: TestClient,
+    admin: AsyncMock,
+    error: Exception,
+    status_code: int,
+    path: str,
+    method: str,
+) -> None:
+    getattr(admin, method).side_effect = error
+
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/{path}")
 
     assert response.status_code == status_code
     assert response.json() == {"detail": str(error)}
@@ -396,6 +897,16 @@ def test_a_bad_cursor_keeps_its_error_code(
             id="credentials",
         ),
         pytest.param("POST", "/install", {**INSTALL_BODY, "x": 1}, "x", id="install"),
+        pytest.param(
+            "POST",
+            "/platform-apps/install",
+            {**PLATFORM_INSTALL_BODY, "client_id": "1.2"},
+            "client_id",
+            id="install_platform",
+        ),
+        pytest.param(
+            "PUT", f"/{uuid.uuid4()}/routes", {**ROUTE_BODY, "x": 1}, "x", id="route"
+        ),
     ],
 )
 def test_request_models_reject_unknown_fields(
@@ -442,7 +953,47 @@ def test_callback_redirects_to_the_return_url_on_the_app_host(
         "channel_bot_install": ["success"],
     }
     admin.complete_oauth.assert_awaited_once_with(
-        ChannelBotProvider.SLACK, ChannelBotOAuthCallback(state="s", code="c")
+        ChannelBotProvider.SLACK,
+        ChannelBotOAuthCallback(state="s", code="c"),
+        user_id=None,
+    )
+
+
+def test_callback_keeps_the_error_code_the_admin_put_in_the_return_url(
+    admin: AsyncMock,
+) -> None:
+    # The UI recognizes a claimed provider workspace by this code, not the message.
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/channels?channel_bot_error=workspace_claimed",
+        ok=False,
+        message="Reworded refusal",
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert location_query(response.headers["location"]) == {
+        "channel_bot_error": ["workspace_claimed"],
+        "channel_bot_install": ["error"],
+        "channel_bot_message": ["Reworded refusal"],
+    }
+
+
+def test_callback_passes_the_browsers_signed_in_user(admin: AsyncMock) -> None:
+    user_id = uuid.uuid4()
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/1", ok=True
+    )
+    app.dependency_overrides[optional_current_active_user] = lambda: SimpleNamespace(
+        id=user_id
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert response.status_code == 307
+    admin.complete_oauth.assert_awaited_once_with(
+        ChannelBotProvider.SLACK,
+        ChannelBotOAuthCallback(state="s", code="c"),
+        user_id=user_id,
     )
 
 
@@ -629,6 +1180,23 @@ def test_callback_without_an_admin_redirects_with_an_error(
     }
 
 
+def test_callback_ignores_the_channel_entitlements(
+    admin: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    check = grant(monkeypatch)
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/1", ok=True
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert response.status_code == 307
+    assert location_query(response.headers["location"]) == {
+        "channel_bot_install": ["success"]
+    }
+    check.assert_not_awaited()
+
+
 def test_a_failing_admin_redirects_with_a_generic_error(admin: AsyncMock) -> None:
     admin.complete_oauth.side_effect = RuntimeError("boom")
 
@@ -660,7 +1228,7 @@ def test_admin_routes_are_entitlement_gated_and_the_callback_is_public() -> None
     assert ("/workspaces/{workspace_id}/agent/channel-bots", "GET") in paths
     assert ("/workspaces/{workspace_id}/agent/channel-bots/install", "POST") in paths
     assert ("/workspaces/{workspace_id}/agent/channel-bots/{bot_id}", "PATCH") in paths
-    gate = router_module._require_agent_channels_entitlement
+    gate = router_module._require_agent_channels_preview
     assert any(dep.dependency is gate for dep in router_module.router.dependencies)
     assert not router_module.public_router.dependencies
 
@@ -669,6 +1237,14 @@ def test_the_callback_stays_out_of_the_openapi_schema() -> None:
     assert not any(
         path.startswith("/agent/channel-bots/") for path in app.openapi()["paths"]
     )
+
+
+@pytest.mark.parametrize("path", ["channels", "routable-channels"])
+def test_channel_listings_declare_their_refusals(path: str) -> None:
+    operation = app.openapi()["paths"][
+        f"/workspaces/{{workspace_id}}/agent/channel-bots/{{bot_id}}/{path}"
+    ]["get"]
+    assert {"424", "501"} <= operation["responses"].keys()
 
 
 def test_slack_oauth_callback_path_is_pinned(

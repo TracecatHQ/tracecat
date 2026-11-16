@@ -127,6 +127,12 @@ import type {
   AdminSaveReferenceMatchesResponse,
   AdminSetSourceData,
   AdminSetSourceResponse,
+  AdminSlackAppDeleteSlackAppResponse,
+  AdminSlackAppGetSlackAppResponse,
+  AdminSlackAppMarkSlackAppSetupStepsData,
+  AdminSlackAppMarkSlackAppSetupStepsResponse,
+  AdminSlackAppSaveSlackAppData,
+  AdminSlackAppSaveSlackAppResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminTestAuditWebhookData,
@@ -151,16 +157,32 @@ import type {
   AdminUpdateTargetResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
+  AgentChannelBotsAddBotRouteData,
+  AgentChannelBotsAddBotRouteResponse,
   AgentChannelBotsCreateBotData,
   AgentChannelBotsCreateBotResponse,
+  AgentChannelBotsDeleteBotRouteData,
+  AgentChannelBotsDeleteBotRouteResponse,
   AgentChannelBotsDisconnectBotData,
   AgentChannelBotsDisconnectBotResponse,
   AgentChannelBotsInstallBotData,
   AgentChannelBotsInstallBotResponse,
+  AgentChannelBotsInstallPlatformBotData,
+  AgentChannelBotsInstallPlatformBotResponse,
+  AgentChannelBotsListBotChannelsData,
+  AgentChannelBotsListBotChannelsResponse,
+  AgentChannelBotsListBotRoutableChannelsData,
+  AgentChannelBotsListBotRoutableChannelsResponse,
+  AgentChannelBotsListBotRoutesData,
+  AgentChannelBotsListBotRoutesResponse,
   AgentChannelBotsListBotsData,
   AgentChannelBotsListBotsResponse,
+  AgentChannelBotsListPlatformAppsData,
+  AgentChannelBotsListPlatformAppsResponse,
   AgentChannelBotsRotateBotEndpointData,
   AgentChannelBotsRotateBotEndpointResponse,
+  AgentChannelBotsSetBotRouteData,
+  AgentChannelBotsSetBotRouteResponse,
   AgentChannelBotsUpdateBotData,
   AgentChannelBotsUpdateBotResponse,
   AgentChannelsCreateChannelTokenData,
@@ -6714,6 +6736,7 @@ export const agentChannelsStartSlackOauth = (
  * @param data.workspaceId
  * @param data.agentPresetId
  * @param data.provider
+ * @param data.appOwner
  * @param data.limit
  * @param data.cursor
  * @returns CursorPaginatedResponse_AgentChannelBotRead_ Successful Response
@@ -6731,6 +6754,7 @@ export const agentChannelBotsListBots = (
     query: {
       agent_preset_id: data.agentPresetId,
       provider: data.provider,
+      app_owner: data.appOwner,
       limit: data.limit,
       cursor: data.cursor,
     },
@@ -6861,6 +6885,233 @@ export const agentChannelBotsInstallBot = (
     mediaType: "application/json",
     errors: {
       422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Platform Apps
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ChannelBotPlatformApp Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListPlatformApps = (
+  data: AgentChannelBotsListPlatformAppsData
+): CancelablePromise<AgentChannelBotsListPlatformAppsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/platform-apps",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Install Platform Bot
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChannelBotInstallResult Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsInstallPlatformBot = (
+  data: AgentChannelBotsInstallPlatformBotData
+): CancelablePromise<AgentChannelBotsInstallPlatformBotResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/platform-apps/install",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Bot Routes
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.agentPresetId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelRouteRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBotRoutes = (
+  data: AgentChannelBotsListBotRoutesData
+): CancelablePromise<AgentChannelBotsListBotRoutesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      agent_preset_id: data.agentPresetId,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Bot Route
+ * Route a channel that has no route yet; 409 when it has one.
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelRouteRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsAddBotRoute = (
+  data: AgentChannelBotsAddBotRouteData
+): CancelablePromise<AgentChannelBotsAddBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Set Bot Route
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelRouteRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsSetBotRoute = (
+  data: AgentChannelBotsSetBotRouteData
+): CancelablePromise<AgentChannelBotsSetBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bot Route
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.providerChannelId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsDeleteBotRoute = (
+  data: AgentChannelBotsDeleteBotRouteData
+): CancelablePromise<AgentChannelBotsDeleteBotRouteResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      provider_channel_id: data.providerChannelId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Bot Channels
+ * The channels the bot is a member of, for an install of any app.
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_ChannelBotChannel_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBotChannels = (
+  data: AgentChannelBotsListBotChannelsData
+): CancelablePromise<AgentChannelBotsListBotChannelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+      424: "The bot's app lacks the scopes to list channels; reinstall it",
+      501: "The bot's provider cannot list its channels",
+    },
+  })
+}
+
+/**
+ * List Bot Routable Channels
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_ChannelBotChannel_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBotRoutableChannels = (
+  data: AgentChannelBotsListBotRoutableChannelsData
+): CancelablePromise<AgentChannelBotsListBotRoutableChannelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routable-channels",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+      424: "The bot's app lacks the scopes to list channels; reinstall it",
+      501: "The bot's provider cannot list its channels",
     },
   })
 }
@@ -7050,6 +7301,7 @@ export const agentPresetsDeleteAgentPreset = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      400: "Agent preset is the default agent of an installed channel app",
       404: "Agent preset not found",
       422: "Validation Error",
     },
@@ -11001,6 +11253,78 @@ export const adminRegistryDeleteRegistryVersion = (
       repository_id: data.repositoryId,
       version_id: data.versionId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Slack App
+ * The registration without its secrets, and what to paste into Slack.
+ * @returns SlackPlatformAppRead Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppGetSlackApp =
+  (): CancelablePromise<AdminSlackAppGetSlackAppResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/slack-app",
+    })
+  }
+
+/**
+ * Save Slack App
+ * Register or change the app every organization installs.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SlackPlatformAppRead Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppSaveSlackApp = (
+  data: AdminSlackAppSaveSlackAppData
+): CancelablePromise<AdminSlackAppSaveSlackAppResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/admin/slack-app",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Slack App
+ * Unregister the app; refused while any organization still has it installed.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppDeleteSlackApp =
+  (): CancelablePromise<AdminSlackAppDeleteSlackAppResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/admin/slack-app",
+    })
+  }
+
+/**
+ * Mark Slack App Setup Steps
+ * Remember which Slack-only setup steps an admin marked done.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SlackPlatformAppRead Successful Response
+ * @throws ApiError
+ */
+export const adminSlackAppMarkSlackAppSetupSteps = (
+  data: AdminSlackAppMarkSlackAppSetupStepsData
+): CancelablePromise<AdminSlackAppMarkSlackAppSetupStepsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/slack-app/setup",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

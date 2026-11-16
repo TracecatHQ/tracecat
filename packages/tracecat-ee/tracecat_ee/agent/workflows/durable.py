@@ -29,10 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.backends.schemas import (
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
-    from tracecat.agent.channel_publisher import (
+    from tracecat.agent.channel_notifier import (
+        TURN_STARTED_PUSH_BUDGET,
         RunUpdate,
         TurnFinished,
-        publish_budget,
+        push_budget,
     )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
@@ -553,7 +554,7 @@ class DurableAgentWorkflow:
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
         self.approvals = ApprovalManager(role=self.role)
-        # Set when the session is linked to a channel: the run publishes updates to it.
+        # Set when the session is linked to a channel: the run pushes updates to it.
         self.channel_run_id: uuid.UUID | None = None
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
@@ -1050,7 +1051,7 @@ class DurableAgentWorkflow:
         if self.channel_run_id is not None:
             # Closes an approval message the turn left open (a cancelled wait).
             updates = [
-                *self.approvals.take_unpublished_decision(),
+                *self.approvals.take_unpushed_decision(),
                 TurnFinished(session_id=self.session_id, run_id=self.channel_run_id),
             ]
         try:
@@ -1069,9 +1070,9 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(
                     seconds=20 if emit_terminal_done else 10
                 )
-                + publish_budget(updates),
+                + push_budget(updates),
                 # Retry-safe: pointer cleanup is compare-and-clear by run_id,
-                # clients tolerate a duplicate END, and publishing is idempotent.
+                # clients tolerate a duplicate END, and pushing is idempotent.
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
         except ActivityError as exc:
@@ -1197,7 +1198,7 @@ class DurableAgentWorkflow:
             )
 
     async def _pause_for_approval(self, result: AgentExecutorResult) -> None:
-        """Persist and publish the requests, then close the UI segment."""
+        """Persist and push the requests, then close the UI segment."""
         logger.info("Agent waiting for approval", session_id=self.session_id)
         if result.approval_items:
             request_metadata = {
@@ -1209,14 +1210,14 @@ class DurableAgentWorkflow:
             await self.approvals.prepare(
                 result.approval_items,
                 request_metadata=request_metadata,
-                publish_to=self.channel_run_id,
+                push_to=self.channel_run_id,
             )
         await self._emit_approval_pause_done()
 
     async def _resolve_approvals(
         self, result: AgentExecutorResult, info: workflow.Info
     ) -> AgentOutput | None:
-        """Record and publish the decisions; output only if cancelled."""
+        """Record and push the decisions; output only if cancelled."""
         if self._cancel_requested:
             logger.info(
                 "Agent turn cancelled while waiting for approval",
@@ -1229,8 +1230,8 @@ class DurableAgentWorkflow:
                     for item in result.approval_items or []
                 }
             )
-            # Finalize publishes the decision, so Stop reaches the UI first.
-            await self.approvals.handle_decisions(publish=False)
+            # Finalize pushes the decision, so Stop reaches the UI first.
+            await self.approvals.handle_decisions(push=False)
             return await self._cancelled_turn_output(result, info, emit_cancelled=True)
         # Persist approval decisions to DB (atomic with chat messages)
         await self.approvals.handle_decisions()
@@ -1405,7 +1406,7 @@ class DurableAgentWorkflow:
                     else None
                 ),
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30) + TURN_STARTED_PUSH_BUDGET,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not create_result.success:

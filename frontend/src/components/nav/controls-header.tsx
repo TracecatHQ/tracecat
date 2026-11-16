@@ -51,6 +51,7 @@ import {
 } from "@/components/agents/agents-catalog-view-toggle"
 import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
+import { useAgentsChannelsHref } from "@/components/agents/external-channels/agents-channels-href"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -739,9 +740,12 @@ function AgentsActions() {
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
 
+  const channelsHref = useAgentsChannelsHref(workspaceId)
   const catalogView = pathname?.includes("/agents/tags")
     ? AgentsCatalogViewMode.Tags
-    : AgentsCatalogViewMode.Agents
+    : pathname?.includes("/agents/channels")
+      ? AgentsCatalogViewMode.Channels
+      : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
   const isFoldersView =
@@ -762,7 +766,7 @@ function AgentsActions() {
           />
         )
       }
-    } else {
+    } else if (catalogView === AgentsCatalogViewMode.Agents) {
       agentActionControls = (
         <>
           <DropdownMenu>
@@ -822,11 +826,12 @@ function AgentsActions() {
 
   return (
     <>
-      {organizationEnabled ? (
+      {organizationEnabled || channelsHref ? (
         <AgentsCatalogViewToggle
           view={catalogView}
           agentsHref={agentsHref}
-          tagsHref={tagsHref}
+          tagsHref={organizationEnabled ? tagsHref : undefined}
+          channelsHref={channelsHref}
         />
       ) : null}
       <WorkspaceResourceSyncActions
@@ -2489,6 +2494,19 @@ function getPageConfig(
     if (pagePath === "/agents/tags") {
       return {
         title: "Agents",
+        actions: <AgentsActions />,
+      }
+    }
+
+    if (pagePath === "/agents/channels") {
+      return {
+        title: (
+          <FolderPathBreadcrumb
+            rootLabel="Agents"
+            rootHref={`${basePath}/agents`}
+            currentPage="Channels"
+          />
+        ),
         actions: <AgentsActions />,
       }
     }

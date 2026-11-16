@@ -42,7 +42,7 @@ from tracecat.agent.approvals.submission import (
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import AgentControlUncertain
-from tracecat.agent.channel_publisher import (
+from tracecat.agent.channel_notifier import (
     ApprovalPending,
     RunUpdate,
     approval_batch_id,
@@ -323,8 +323,8 @@ async def test_channel_card_batch_id_is_the_one_decide_accepts(
     ]
     updates: list[RunUpdate] = []
 
-    class _Publisher:
-        async def publish(self, role: Role, update: RunUpdate) -> str | None:
+    class _Notifier:
+        async def push(self, role: Role, update: RunUpdate) -> str | None:
             del role
             updates.append(update)
             return "msg-1"
@@ -343,12 +343,12 @@ async def test_channel_card_batch_id_is_the_one_decide_accepts(
         patch("temporalio.workflow.patched", return_value=True),
         patch("temporalio.workflow.execute_activity", execute_activity),
         patch(
-            "tracecat.agent.channel_publisher.get_channel_publisher",
-            return_value=_Publisher(),
+            "tracecat.agent.channel_notifier.get_channel_notifier",
+            return_value=_Notifier(),
         ),
     ):
         await ApprovalManager(role=svc_role).prepare(
-            items, publish_to=agent_session.curr_run_id
+            items, push_to=agent_session.curr_run_id
         )
         assert isinstance(updates[0], ApprovalPending)
         result = await service.decide(

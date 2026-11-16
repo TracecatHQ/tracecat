@@ -49,6 +49,7 @@ import {
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { AgentDeleteDescription } from "@/components/agents/agent-preset-delete-dialog"
+import { AgentSlackBadges } from "@/components/agents/agent-slack-badges"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import {
@@ -139,6 +140,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAgentSlackPlacements } from "@/hooks/use-agent-channel-bots"
 import {
   type AgentDirectoryItem,
   useAgentDirectoryItems,
@@ -161,6 +163,7 @@ import {
   matchesAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
+import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
   compareAgentStatusPriority,
@@ -1601,6 +1604,7 @@ type McpIntegrationsBySlug = Map<string, MCPIntegrationRead>
 const NO_MCP_INTEGRATIONS: McpIntegrationsBySlug = new Map()
 
 const NO_WORKFLOWS: AgentWorkflowRef[] = []
+const NO_SLACK_PLACEMENTS: SlackPlacement[] = []
 
 function pluralize(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`
@@ -1720,10 +1724,12 @@ function AgentCatalogRow({
   defaultAgentActions,
   mcpBySlug,
   workflows,
+  slackPlacements,
 }: {
   item: AgentDirectoryItem
   mcpBySlug: McpIntegrationsBySlug
   workflows: AgentWorkflowRef[]
+  slackPlacements: SlackPlacement[]
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
   setSelectedItem: (item: AgentDirectoryItem) => void
@@ -1819,6 +1825,7 @@ function AgentCatalogRow({
                 mcpBySlug={mcpBySlug}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
+                <AgentSlackBadges placements={slackPlacements} />
                 <AgentWorkflowBadges workflows={workflows} />
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
@@ -2115,6 +2122,7 @@ export function AgentsDashboard() {
     searchParams,
     replaceParams,
   })
+  const slackPlacementsByPreset = useAgentSlackPlacements(workspaceId)
   // A folder only lists its own children, so an active filter searches the
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
@@ -2419,6 +2427,9 @@ export function AgentsDashboard() {
                   item={item}
                   mcpBySlug={mcpBySlug}
                   workflows={workflowsByPreset.get(item.id) ?? NO_WORKFLOWS}
+                  slackPlacements={
+                    slackPlacementsByPreset.get(item.id) ?? NO_SLACK_PLACEMENTS
+                  }
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
                   setSelectedItem={setSelectedItem}

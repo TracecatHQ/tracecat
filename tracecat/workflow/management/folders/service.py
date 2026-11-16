@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from enum import StrEnum
 from typing import Literal
 
@@ -23,7 +23,12 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.managed_resources.guard import ensure_none_managed, ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_none_managed,
+    ensure_unmanaged,
+    managed_local_ids,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
@@ -244,6 +249,38 @@ class WorkflowFolderService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    @require_scope("workflow:read")
+    async def get_workflow_titles(
+        self, workflow_ids: Collection[WorkflowUUID]
+    ) -> dict[WorkflowUUID, str]:
+        """Return titles of the given workflows that exist in this workspace."""
+        if not workflow_ids:
+            return {}
+        result = await self.session.execute(
+            select(Workflow.id, Workflow.title).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id.in_(workflow_ids),
+            )
+        )
+        return {
+            WorkflowUUID.new(workflow_id): title
+            for workflow_id, title in result.tuples().all()
+        }
+
+    @require_scope("workflow:read")
+    async def get_managed_workflow_ids(
+        self, workflow_ids: Collection[WorkflowUUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given workflows are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_ids=workflow_ids,
+        )
 
     @require_scope("workflow:update")
     async def move_workflow(
@@ -833,21 +870,29 @@ class WorkflowFolderService(BaseWorkspaceService):
         # For root path, get workflows with no folder_id
         if path == "/":
             # Get root-level folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                func.length(WorkflowFolder.path)
-                - func.length(func.replace(WorkflowFolder.path, "/", ""))
-                == 2,  # folders with exactly two slashes
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    func.length(WorkflowFolder.path)
+                    - func.length(func.replace(WorkflowFolder.path, "/", ""))
+                    == 2,  # folders with exactly two slashes
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()
         else:
             # Get direct child folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path.startswith(path, autoescape=True),
-                WorkflowFolder.path != path,
-                ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    WorkflowFolder.path.startswith(path, autoescape=True),
+                    WorkflowFolder.path != path,
+                    ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()

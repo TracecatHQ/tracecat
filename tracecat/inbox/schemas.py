@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tracecat.agent.channel_bots.schemas import InboxChannelThread
 from tracecat.inbox.types import InboxItemStatus, InboxItemType
 
 
@@ -52,6 +53,10 @@ class InboxItemRead(BaseModel):
     )
     metadata: dict[str, Any] | None = Field(
         default=None, description="Type-specific metadata"
+    )
+    channel_thread: InboxChannelThread | None = Field(
+        default=None,
+        description="The channel of the session's linked provider thread, if any",
     )
 
 
