@@ -26,60 +26,77 @@ Slack app settings pages live at `https://api.slack.com/apps/<app-id>/<page>`. F
 
 ### App manifest and scopes
 
-The manifest requests these [bot token scopes](https://docs.slack.dev/reference/scopes). Comments explain why each scope is there. Edit scopes later in `OAuth & Permissions` (`/apps/<app-id>/oauth`).
+The manifest requests these [bot token scopes](https://docs.slack.dev/reference/scopes). Edit scopes later in `OAuth & Permissions` (`/apps/<app-id>/oauth`).
 
 Remove the `slash_commands`, `event_subscriptions`, or `interactivity` block if you don't use that feature. See the [app manifest reference](https://docs.slack.dev/reference/app-manifest).
 
-```yaml
-display_information:
-  name: Tracecat
-features:
-  bot_user:
-    display_name: Tracecat
-    always_online: true
-  slash_commands:
-    - command: /tracecat
-      url: "https://<tracecat-host>/api/webhooks/<slash-command-workflow-id>/<webhook-secret>?echo=true&empty_echo=true"
-      description: Run a Tracecat workflow
-      usage_hint: "[text]"
-      should_escape: false
-oauth_config:
-  scopes:
-    bot:
-      # Receive @Tracecat mentions
-      - app_mentions:read
-      # Read messages in channels the app is in
-      - channels:history
-      - groups:history
-      # Look up channel names and IDs
-      - channels:read
-      - groups:read
-      # Post messages, even in unjoined public channels
-      - chat:write
-      - chat:write.public
-      # Register slash commands
-      - commands
-      # Read and send DMs
-      - im:history
-      - im:write
-      # Read and add reactions
-      - reactions:read
-      - reactions:write
-      # Look up users by ID or email
-      - users:read
-      - users:read.email
-settings:
-  event_subscriptions:
-    request_url: "https://<tracecat-host>/api/webhooks/<events-workflow-id>/<webhook-secret>?echo=true"
-    bot_events:
-      - app_mention
-  interactivity:
-    is_enabled: true
-    request_url: "https://<tracecat-host>/api/webhooks/<interactivity-workflow-id>/<webhook-secret>?echo=true&empty_echo=true"
-  org_deploy_enabled: false
-  socket_mode_enabled: false
-  token_rotation_enabled: false
+```json
+{
+  "display_information": {
+    "name": "Tracecat"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Tracecat",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/tracecat",
+        "url": "https://<tracecat-host>/api/webhooks/<slash-command-workflow-id>/<webhook-secret>?echo=true&empty_echo=true",
+        "description": "Run a Tracecat workflow",
+        "usage_hint": "[text]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "chat:write.public",
+        "commands",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:write",
+        "reactions:read",
+        "reactions:write",
+        "users:read",
+        "users:read.email"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://<tracecat-host>/api/webhooks/<events-workflow-id>/<webhook-secret>?echo=true",
+      "bot_events": ["app_mention"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://<tracecat-host>/api/webhooks/<interactivity-workflow-id>/<webhook-secret>?echo=true&empty_echo=true"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
 ```
+
+| Scope | Why |
+| --- | --- |
+| `app_mentions:read` | Receive `@Tracecat` mentions |
+| `channels:history`, `groups:history` | Read messages and threads in channels the app is in |
+| `channels:read`, `groups:read` | Look up channel names and IDs |
+| `chat:write` | Post and update messages |
+| `chat:write.public` | Post to public channels without joining |
+| `commands` | Register slash commands |
+| `im:history`, `im:write` | Read DMs to the app and open DMs with users |
+| `reactions:read`, `reactions:write` | Read and add reactions |
+| `users:read`, `users:read.email` | Look up users by ID or email |
 
 <Accordion title="Optional scopes">
 Add these only for the `tools.slack` actions you use.
@@ -104,7 +121,7 @@ Before you start, publish each workflow, copy its webhook URL (`https://<traceca
 
 <Steps>
   <Step title="Create the app from a manifest">
-    Open [Slack apps](https://api.slack.com/apps), click `Create New App` > `From a manifest`, pick your workspace, select `YAML`, and paste the [manifest](#app-manifest-and-scopes) above with your webhook URLs.
+    Open [Slack apps](https://api.slack.com/apps), click `Create New App` > `From a manifest`, pick your workspace, and paste the [manifest](#app-manifest-and-scopes) above with your webhook URLs.
   </Step>
   <Step title="Install the app">
     Open `Install App` (`/apps/<app-id>/install-on-team`) and click `Install to Workspace`.
