@@ -112,7 +112,7 @@ export function SlackBotCard({
         <p className="truncate text-xs text-muted-foreground">
           In {channelLabels.slice(0, CHANNEL_SUMMARY_CAP).join(", ")}
           {hiddenChannels > 0
-            ? ` +${hiddenChannels}${hasMoreChannels ? " more" : ""}`
+            ? ` +${hiddenChannels}${hasMoreChannels ? "+" : ""}`
             : ""}
         </p>
       ) : null}

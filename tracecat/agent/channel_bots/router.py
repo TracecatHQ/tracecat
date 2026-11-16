@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -72,6 +72,15 @@ async def _require_agent_channels_preview(
 
 Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
 PageQuery = Annotated[PageParams, Depends()]
+
+_CHANNEL_LISTING_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_424_FAILED_DEPENDENCY: {
+        "description": "The bot's app lacks the scopes to list channels; reinstall it"
+    },
+    status.HTTP_501_NOT_IMPLEMENTED: {
+        "description": "The bot's provider cannot list its channels"
+    },
+}
 
 router = APIRouter(
     prefix=CHANNEL_BOTS_PREFIX,
@@ -257,14 +266,7 @@ async def add_bot_route(
 @router.get(
     "/{bot_id}/channels",
     response_model=CursorPaginatedResponse[ChannelBotChannel],
-    responses={
-        status.HTTP_424_FAILED_DEPENDENCY: {
-            "description": "The bot's app lacks the scopes to list channels; reinstall it"
-        },
-        status.HTTP_501_NOT_IMPLEMENTED: {
-            "description": "The bot's provider cannot list its channels"
-        },
-    },
+    responses=_CHANNEL_LISTING_RESPONSES,
 )
 @require_scope("agent:read")
 async def list_bot_channels(
@@ -282,14 +284,7 @@ async def list_bot_channels(
 @router.get(
     "/{bot_id}/routable-channels",
     response_model=CursorPaginatedResponse[ChannelBotChannel],
-    responses={
-        status.HTTP_424_FAILED_DEPENDENCY: {
-            "description": "The bot's app lacks the scopes to list channels; reinstall it"
-        },
-        status.HTTP_501_NOT_IMPLEMENTED: {
-            "description": "The bot's provider cannot list its channels"
-        },
-    },
+    responses=_CHANNEL_LISTING_RESPONSES,
 )
 @require_scope("agent:read")
 async def list_bot_routable_channels(

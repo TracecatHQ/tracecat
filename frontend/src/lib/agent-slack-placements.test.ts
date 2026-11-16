@@ -45,14 +45,12 @@ function placements({
   install = null,
   channelsByBot = {},
   routes,
-  moreRoutesLoading = false,
   routesError = null,
 }: {
   ownBots?: AgentChannelBotRead[]
   install?: AgentChannelBotRead | null
   channelsByBot?: Record<string, BotChannels>
   routes?: AgentChannelRouteRead[]
-  moreRoutesLoading?: boolean
   routesError?: Error | null
 }) {
   return slackPlacementsByPreset({
@@ -60,7 +58,6 @@ function placements({
     install,
     channelsByBot: new Map(Object.entries(channelsByBot)),
     routes,
-    moreRoutesLoading,
     routesError,
   })
 }
@@ -134,16 +131,14 @@ describe("slackPlacementsByPreset", () => {
     expect(summary(routesFailed)).toEqual({ triage: ["default"] })
   })
 
-  it("holds the default's channels until every route page has loaded", () => {
+  it("holds the install's channels until its routes have loaded", () => {
     const result = placements({
       install: INSTALL,
       channelsByBot: {
         [INSTALL.id]: listed([channel("C1", "alerts"), channel("C2", "b")]),
       },
-      routes: [route("C1", "enrich")],
-      moreRoutesLoading: true,
     })
-    expect(summary(result)).toEqual({ enrich: ["C1"] })
+    expect(summary(result)).toEqual({})
   })
 
   it("shows no badge for a routed channel the install is not in", () => {

@@ -39,7 +39,6 @@ export function slackPlacementsByPreset({
   install,
   channelsByBot,
   routes,
-  moreRoutesLoading,
   routesError,
 }: {
   /** The workspace's running custom-app bots. */
@@ -47,10 +46,8 @@ export function slackPlacementsByPreset({
   /** The running platform install, if any. */
   install: AgentChannelBotRead | null
   channelsByBot: Map<string, BotChannels>
-  /** The install's routes loaded so far. */
+  /** Every route of the install, once loaded. */
   routes: AgentChannelRouteRead[] | undefined
-  /** Later pages of routes are still loading. */
-  moreRoutesLoading: boolean
   routesError: Error | null
 }): Map<string, SlackPlacement[]> {
   const byPreset = new Map<string, SlackPlacement[]>()
@@ -90,7 +87,7 @@ export function slackPlacementsByPreset({
   }
 
   const listed = channelsByBot.get(install.id)
-  if (listed?.channels && routes && !moreRoutesLoading) {
+  if (listed?.channels && routes) {
     const routed = new Set(routes.map((route) => route.provider_channel_id))
     addChannels(
       install.agent_preset_id,

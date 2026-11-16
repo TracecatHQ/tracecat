@@ -468,7 +468,7 @@ describe("Creating the custom Slack app", () => {
     })
   })
 
-  it("says more when the bot is in channels past the first page", async () => {
+  it("marks the count a lower bound when the bot is in channels past the first page", async () => {
     serveBots([slackBot()])
     api.listChannels.mockResolvedValue(
       channelPage(
@@ -482,9 +482,7 @@ describe("Creating the custom Slack app", () => {
       )
     )
     renderPanel()
-    expect(
-      await screen.findByText("In #alerts, #soc +1 more")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("In #alerts, #soc +1+")).toBeInTheDocument()
   })
 
   it("lists no channels for a paused bot", async () => {

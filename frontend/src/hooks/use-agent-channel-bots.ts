@@ -67,6 +67,12 @@ const INSTALL_MESSAGE_LIMIT = 200
 const BOT_CHANNEL_LIMIT = 100
 // The API's cap; a tenant's channels are paged in for the route picker.
 const ROUTABLE_CHANNEL_PAGE_LIMIT = 200
+// The API's cap; every route of an install is read for the Agents list.
+const ROUTE_PAGE_LIMIT = 200
+// Defensive bound on route pages followed for one install.
+const MAX_ROUTE_PAGES = 50
+// Channel listings call Slack per bot, so mounts and focus reuse them briefly.
+const CHANNEL_LIST_STALE_TIME = 60_000
 
 /** What an OAuth return needs the Channels tab to show beside the cards. */
 export type ChannelBotInstallFailure = "slack_workspace_claimed"
@@ -258,6 +264,38 @@ export function useChannelBotRoutes(
   }
 }
 
+/** Every route of a platform install, following the cursor to the end. */
+function useAllChannelBotRoutes(
+  workspaceId: string,
+  botId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const query = useQuery<AgentChannelRouteRead[], TracecatApiError>({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes", "all"],
+    queryFn: async () => {
+      const routes: AgentChannelRouteRead[] = []
+      let cursor: string | null = null
+      for (let page = 0; page < MAX_ROUTE_PAGES; page++) {
+        const result = await agentChannelBotsListBotRoutes({
+          workspaceId,
+          botId,
+          limit: ROUTE_PAGE_LIMIT,
+          cursor,
+        })
+        routes.push(...result.items)
+        if (!result.has_more || !result.next_cursor) break
+        cursor = result.next_cursor
+      }
+      return routes
+    },
+    enabled,
+    staleTime: CHANNEL_LIST_STALE_TIME,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { routes: query.data, routesError: query.error }
+}
+
 /** Whether any channel of a platform install routes to the agent, asked of the server. */
 export function useChannelRoutesToAgent(
   workspaceId: string,
@@ -304,6 +342,7 @@ function channelBotChannelsQuery(workspaceId: string, botId: string) {
         botId,
         limit: BOT_CHANNEL_LIMIT,
       }),
+    staleTime: CHANNEL_LIST_STALE_TIME,
     retry: retryChannelListing,
     meta: { suppressErrorToast: true },
   }
@@ -425,21 +464,9 @@ export function useAgentSlackPlacements(
   )
   const activeInstall = state === "active" ? install : null
   const botId = activeInstall?.id ?? ""
-  const {
-    routes,
-    routesError,
-    hasMoreRoutes,
-    loadingMoreRoutes,
-    loadMoreRoutes,
-  } = useChannelBotRoutes(workspaceId, botId, {
+  const { routes, routesError } = useAllChannelBotRoutes(workspaceId, botId, {
     enabled: activeInstall !== null,
   })
-  const loadAllRoutes = activeInstall !== null && hasMoreRoutes && !routesError
-  useEffect(() => {
-    if (loadAllRoutes && !loadingMoreRoutes) {
-      loadMoreRoutes()
-    }
-  }, [loadAllRoutes, loadingMoreRoutes, loadMoreRoutes])
 
   const ownBots = useMemo(
     () =>
@@ -468,18 +495,9 @@ export function useAgentSlackPlacements(
           listedBots.map((bot, index) => [bot.id, botChannels[index]])
         ),
         routes: activeInstall ? routes : undefined,
-        moreRoutesLoading: loadAllRoutes,
         routesError,
       }),
-    [
-      activeInstall,
-      botChannels,
-      listedBots,
-      loadAllRoutes,
-      ownBots,
-      routes,
-      routesError,
-    ]
+    [activeInstall, botChannels, listedBots, ownBots, routes, routesError]
   )
 }
 

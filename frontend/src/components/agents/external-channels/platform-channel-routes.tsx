@@ -44,7 +44,7 @@ import {
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
 /** Picks one of the workspace's agents. */
@@ -82,7 +82,11 @@ type RouteMembership = "member" | "not_member" | "unknown"
 /** Whether the bot is in a routed channel, as far as the loaded listing tells. */
 function routeMembership(
   known: ChannelBotChannel | undefined,
-  listing: { channels: unknown[] | undefined; hasMore: boolean; error: unknown }
+  listing: {
+    channels: ChannelBotChannel[] | undefined
+    hasMore: boolean
+    error: TracecatApiError | null
+  }
 ): RouteMembership {
   if (known) {
     return known.is_member ? "member" : "not_member"

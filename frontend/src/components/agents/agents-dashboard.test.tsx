@@ -1074,9 +1074,19 @@ describe("AgentsDashboard entitlement split", () => {
       expect(phish.getByText("#phish-reports")).toBeInTheDocument()
       expect(phish.queryByText("All channels")).not.toBeInTheDocument()
       expect(phish.queryByText("C9")).not.toBeInTheDocument()
-      expect(api.listRoutes).toHaveBeenCalledWith(
-        expect.objectContaining({ botId: "platform-1", cursor: "page-2" })
-      )
+      // Every route page is read at the API's cap.
+      expect(api.listRoutes.mock.calls.map(([call]) => call)).toEqual([
+        expect.objectContaining({
+          botId: "platform-1",
+          limit: 200,
+          cursor: null,
+        }),
+        expect.objectContaining({
+          botId: "platform-1",
+          limit: 200,
+          cursor: "page-2",
+        }),
+      ])
       expect(api.listChannels.mock.calls.map(([call]) => call)).toEqual(
         expect.arrayContaining([
           { workspaceId: "workspace-1", botId: "platform-1", limit: 100 },
