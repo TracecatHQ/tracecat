@@ -4213,6 +4213,7 @@ async def test_list_case_views_returns_builtins_separately(
     assert [view.id for view in first.builtins] == ["assigned_to_me"]
     assert [view.id for view in first.saved.items] == [saved.id]
     assert [view.id for view in later.saved.items] == [saved.id]
+    assert [view.id for view in later.builtins] == ["assigned_to_me"]
     assert pinned.builtins == []
     assert [view.id for view in pinned.saved.items] == [saved.id]
     assert [call.kwargs for call in list_views.await_args_list] == [

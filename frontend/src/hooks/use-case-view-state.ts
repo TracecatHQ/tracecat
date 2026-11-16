@@ -2,13 +2,11 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
-import type { CaseViewRead, CaseViewVisibility } from "@/client"
-import { DEFAULT_CASE_SORT } from "@/components/cases/case-sort"
+import type { CaseViewDetail, CaseViewVisibility } from "@/client"
 import { normalizeVisibleColumnIds } from "@/hooks/use-case-column-visibility"
 import { useCaseView, useCaseViewMutations } from "@/hooks/use-case-views"
 import type { UseCasesResult } from "@/hooks/use-cases"
 import {
-  buildViewSearch,
   type CaseViewFilters,
   columnsEqual,
   sortToView,
@@ -24,7 +22,7 @@ export const VIEW_PARAM = "view"
 export interface ActiveCaseView {
   /** The `?view=` value, or null when no view is open. */
   viewId: string | null
-  view: CaseViewRead | null
+  view: CaseViewDetail | null
   mapped: CaseViewFilters | null
   isLoading: boolean
   /** The view could not be loaded, for example because it was deleted. */
@@ -88,7 +86,7 @@ export function useViewColumns({
   togglePersonalColumn,
   knownColumnIds,
 }: {
-  view: CaseViewRead | null
+  view: CaseViewDetail | null
   personalColumns: string[]
   togglePersonalColumn: (columnId: string) => void
   knownColumnIds?: Set<string>
@@ -148,7 +146,10 @@ export function useCaseViewControls({
 }: {
   workspaceId: string
   active: ActiveCaseView
-  cases: Pick<UseCasesResult, "filters" | "replaceFilters">
+  cases: Pick<
+    UseCasesResult,
+    "filters" | "appliedSearchQuery" | "search" | "replaceFilters"
+  >
   viewColumns: ViewColumns
   personalColumns: string[]
 }): CaseViewControls {
@@ -157,26 +158,23 @@ export function useCaseViewControls({
   const { replaceFilters } = cases
   const { columns, resetColumns } = viewColumns
 
-  // useCases builds its request the same way, so what a view saves is
-  // exactly what the list searched.
-  const { query: currentQuery, noMatch } = useMemo(
-    () =>
-      buildViewSearch(cases.filters, mapped?.extraQuery, mapped?.emptyRules),
-    [cases.filters, mapped]
-  )
+  // Save what the list searched: its query, and the sort for its applied
+  // search, not text still being typed.
+  const { query: currentQuery, noMatch } = cases.search
   const saveBlockedReason = viewSaveBlocker(noMatch, mapped?.emptyRules)
-  const currentSort = sortToView(cases.filters)
+  const currentSort = sortToView({
+    ...cases.filters,
+    searchQuery: cases.appliedSearchQuery,
+  })
 
   const isModified = useMemo(() => {
     if (!view || !mapped) {
       return false
     }
-    const savedOrder = view.order_by ?? DEFAULT_CASE_SORT.field
-    const savedSort = view.sort ?? DEFAULT_CASE_SORT.direction
     return (
       !viewQueriesEqual(currentQuery, mapped.savedQuery) ||
-      currentSort.order_by !== savedOrder ||
-      currentSort.sort !== savedSort ||
+      currentSort.order_by !== mapped.savedSort.order_by ||
+      currentSort.sort !== mapped.savedSort.sort ||
       (columns !== null && !columnsEqual(columns, view.columns))
     )
   }, [view, mapped, currentQuery, currentSort, columns])

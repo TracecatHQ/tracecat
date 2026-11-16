@@ -1,9 +1,9 @@
 import type {
-  CaseQuery_Input,
-  CaseQuery_Output,
+  CaseCriteria_Input,
+  CaseCriteria_Output,
   CaseStatus,
+  CaseViewDetail,
   CaseViewEmptyRules,
-  CaseViewRead,
   CaseViewSort,
   RelativeTimeWindow,
 } from "@/client"
@@ -38,7 +38,7 @@ const DATE_PRESETS: NonNullable<CaseDatePreset>[] = ["1d", "3d", "1w", "1m"]
  * Query fields the filter bar can show. Anything else in a view's query is
  * kept as-is in {@link CaseViewFilters.extraQuery} and shown read-only.
  */
-const FILTER_BAR_FIELDS = new Set<keyof CaseQuery_Output>([
+const FILTER_BAR_FIELDS = new Set<keyof CaseCriteria_Output>([
   "search_term",
   "search_mode",
   "hierarchy",
@@ -56,8 +56,8 @@ const FILTER_BAR_FIELDS = new Set<keyof CaseQuery_Output>([
   "updated_within",
 ])
 
-/** Query fields that are part of a view's matching criteria. */
-export type CaseViewQuery = Omit<CaseQuery_Input, "view_id">
+/** A view's matching criteria, as the API stores them. */
+export type CaseViewQuery = CaseCriteria_Input
 
 /** A view, split into what the filter bar shows and what it cannot. */
 export interface CaseViewFilters {
@@ -66,13 +66,12 @@ export interface CaseViewFilters {
   extraQuery: CaseViewQuery
   /** Short labels for {@link extraQuery}, such as "Created by me". */
   extraLabels: string[]
-  /**
-   * Rules left empty by deletions, as the server reports them. They match
-   * nothing until refilled. Null when the view was not read on its own.
-   */
-  emptyRules: CaseViewEmptyRules | null
+  /** Rules left empty by deletions. They match nothing until refilled. */
+  emptyRules: CaseViewEmptyRules
   /** The view's query as it runs (deleted refs removed), for change tracking. */
   savedQuery: CaseViewQuery
+  /** The view's order as it runs, for change tracking. */
+  savedSort: { order_by: CaseSortField; sort: CaseViewSort }
 }
 
 function windowToPreset(window: RelativeTimeWindow): CaseDatePreset | null {
@@ -182,11 +181,22 @@ export function sortToView(filters: UseCasesFilters): {
   return { order_by: filters.sortBy.field, sort: filters.sortBy.direction }
 }
 
-function viewSort(view: CaseViewRead): CaseSortValue {
-  if (!view.order_by || view.order_by === "relevance") {
+/**
+ * The order a view runs in. With no saved order, a full-text search sorts by
+ * relevance, as the API does.
+ */
+function viewOrder(view: CaseViewDetail): CaseSortField | null {
+  if (view.order_by) return view.order_by
+  const { search_term, search_mode } = view.query
+  return search_term && search_mode === "full_text" ? "relevance" : null
+}
+
+function viewSort(view: CaseViewDetail): CaseSortValue {
+  const order = viewOrder(view)
+  if (!order || order === "relevance") {
     return DEFAULT_CASE_SORT
   }
-  return { field: view.order_by, direction: view.sort ?? "desc" }
+  return { field: order, direction: view.sort ?? "desc" }
 }
 
 function dateFilterFromQuery(
@@ -225,7 +235,7 @@ function isLocalDayEnd(date: Date): boolean {
   return toEndOfDay(date).getTime() === date.getTime()
 }
 
-function extraLabel(field: string, query: CaseQuery_Output): string {
+function extraLabel(field: string, query: CaseCriteria_Output): string {
   switch (field) {
     case "created_by":
       return query.created_by?.length === 1 &&
@@ -234,18 +244,6 @@ function extraLabel(field: string, query: CaseQuery_Output): string {
         : "Created by"
     case "filters":
       return "Advanced filters"
-    case "created_within":
-      return "Created in a custom window"
-    case "updated_within":
-      return "Updated in a custom window"
-    case "created_range":
-      return "Created in a fixed range"
-    case "updated_range":
-      return "Updated in a fixed range"
-    case "legacy_search":
-      return `Text contains "${query.search_term ?? ""}"`
-    case "top_level_search":
-      return "Top-level cases only"
     case "search_columns":
       return `Searches ${query.search_columns?.join(" and ") ?? ""} only`
     default:
@@ -254,8 +252,7 @@ function extraLabel(field: string, query: CaseQuery_Output): string {
 }
 
 function hasValue(value: unknown): boolean {
-  // `false` is a flag left at its default, such as `match_none`.
-  if (value === null || value === undefined || value === false) return false
+  if (value === null || value === undefined) return false
   if (Array.isArray(value)) return value.length > 0
   return true
 }
@@ -266,15 +263,15 @@ function hasValue(value: unknown): boolean {
  * Statuses, priorities, and severities load as "include" lists. A relative
  * window that is not one of the filter-bar presets stays in `extraQuery`.
  */
-export function viewToFilters(view: CaseViewRead): CaseViewFilters {
+export function viewToFilters(view: CaseViewDetail): CaseViewFilters {
   // The server has already removed deleted tags and options from the query
   // it returns for a single view, and lists rules left empty.
-  const query: CaseQuery_Output = view.query
+  const query: CaseCriteria_Output = view.query
   const extraQuery: Record<string, unknown> = {}
   const extraLabels: string[] = []
   for (const [field, value] of Object.entries(query)) {
-    if (field === "view_id" || !hasValue(value)) continue
-    if (!FILTER_BAR_FIELDS.has(field as keyof CaseQuery_Output)) {
+    if (!hasValue(value)) continue
+    if (!FILTER_BAR_FIELDS.has(field as keyof CaseCriteria_Output)) {
       extraQuery[field] = value
       extraLabels.push(extraLabel(field, query))
     }
@@ -290,10 +287,9 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
     extraQuery.start_time = query.start_time
     extraQuery.end_time = query.end_time
     extraLabels.push(
-      extraLabel(
-        query.created_within ? "created_within" : "created_range",
-        query
-      )
+      query.created_within
+        ? "Created in a custom window"
+        : "Created in a fixed range"
     )
     createdAfter = DEFAULT_DATE_FILTER
   }
@@ -307,10 +303,9 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
     extraQuery.updated_after = query.updated_after
     extraQuery.updated_before = query.updated_before
     extraLabels.push(
-      extraLabel(
-        query.updated_within ? "updated_within" : "updated_range",
-        query
-      )
+      query.updated_within
+        ? "Updated in a custom window"
+        : "Updated in a fixed range"
     )
     updatedAfter = DEFAULT_DATE_FILTER
   }
@@ -319,13 +314,13 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
   const legacySearch = Boolean(query.search_term) && !query.search_mode
   if (legacySearch) {
     extraQuery.search_term = query.search_term
-    extraLabels.push(extraLabel("legacy_search", query))
+    extraLabels.push(`Text contains "${query.search_term ?? ""}"`)
   }
   // A search always shows sub-cases in the filter bar. A view that searches
   // top-level cases only keeps that as a view condition.
   if (query.search_term && query.hierarchy === "top_level") {
     extraQuery.hierarchy = "top_level"
-    extraLabels.push(extraLabel("top_level_search", query))
+    extraLabels.push("Top-level cases only")
   }
 
   const dropdownFilters: Record<string, DropdownFilterState> = {}
@@ -346,7 +341,7 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
     ...DEFAULT_CASES_FILTERS,
     searchQuery: legacySearch ? "" : (query.search_term ?? ""),
     searchMode: query.search_mode === "literal" ? "literal" : "full_text",
-    searchOrder: view.order_by === "relevance" ? "relevance" : "column",
+    searchOrder: viewOrder(view) === "relevance" ? "relevance" : "column",
     sortBy,
     statusFilter: (query.status ?? []) as CaseStatus[],
     priorityFilter: query.priority ?? [],
@@ -369,8 +364,9 @@ export function viewToFilters(view: CaseViewRead): CaseViewFilters {
     filters,
     extraQuery: extraQuery as CaseViewQuery,
     extraLabels,
-    emptyRules: view.empty_rules ?? null,
+    emptyRules: view.empty_rules,
     savedQuery: query as CaseViewQuery,
+    savedSort: sortToView(filters),
   }
 }
 
@@ -399,6 +395,11 @@ export function mergeViewQuery(
   }
   // Search columns need a search to narrow; the API rejects them alone.
   if (!merged.search_mode) delete merged.search_columns
+  // A view's top-level-only rule belongs to its search. Without a search
+  // in the bar, the sub-cases toggle decides.
+  if (!barQuery.search_term && barQuery.hierarchy === undefined) {
+    delete merged.hierarchy
+  }
   // A parent's sub-cases cannot also be top-level only.
   if (merged.parent_id) delete merged.hierarchy
   return merged
@@ -422,10 +423,12 @@ export interface ViewSearch {
  */
 export function buildViewSearch(
   filters: UseCasesFilters,
-  extraQuery: CaseViewQuery | null | undefined,
-  emptyRules: CaseViewEmptyRules | null | undefined
+  view: CaseViewFilters | null | undefined
 ): ViewSearch {
-  const query = mergeViewQuery(extraQuery ?? {}, filtersToViewQuery(filters))
+  const query = mergeViewQuery(
+    view?.extraQuery ?? {},
+    filtersToViewQuery(filters)
+  )
   const excludesEverything = [
     resolveEnumIncludeFilter(
       filters.statusFilter,
@@ -446,7 +449,7 @@ export function buildViewSearch(
   if (excludesEverything) {
     return { query, noMatch: "excluded" }
   }
-  if (emptyRulesMatchNone(emptyRules, filters)) {
+  if (view && emptyRulesMatchNone(view.emptyRules, filters)) {
     return { query, noMatch: "emptied" }
   }
   return { query, noMatch: null }
@@ -460,7 +463,7 @@ export function buildViewSearch(
  */
 export function viewSaveBlocker(
   noMatch: NoMatchReason | null,
-  emptyRules: CaseViewEmptyRules | null | undefined
+  emptyRules: CaseViewEmptyRules | undefined
 ): string | null {
   switch (noMatch) {
     case "excluded":
@@ -494,7 +497,7 @@ function canonical(value: unknown): unknown {
 }
 
 function withoutDefaults(query: CaseViewQuery): CaseViewQuery {
-  const { hierarchy, ...rest } = query as CaseQuery_Output
+  const { hierarchy, ...rest } = query as CaseCriteria_Output
   return hierarchy === "top_level" ? { ...rest, hierarchy } : rest
 }
 

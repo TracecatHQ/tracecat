@@ -53,8 +53,6 @@ import {
 } from "@/components/cases/case-more-filters-menu"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 
-/** Assignee filter value the server resolves to the requesting user. */
-
 import {
   type CaseSortField,
   type CaseSortValue,

@@ -445,6 +445,18 @@ examples:
             - in_progress
           limit: 25
 
+  cases-list-views:
+    title: Run a shared case view
+    language: yaml
+    code: |
+      - ref: list_case_views
+        action: core.cases.list_case_views
+      - ref: search_view
+        action: core.cases.search_cases
+        args:
+          view_id: ${{ ACTIONS.list_case_views.result[0].id }}
+          limit: 25
+
   cases-aggregate:
     title: Count open cases by priority and day
     language: yaml

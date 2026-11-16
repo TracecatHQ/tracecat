@@ -5,9 +5,10 @@ from fastapi import APIRouter, Query, status
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
-from tracecat.cases.views.errors import CASE_VIEW_ERRORS, raise_case_view_error
+from tracecat.cases.errors import CASE_REQUEST_ERRORS, case_http_error
 from tracecat.cases.views.schemas import (
     CaseViewCreate,
+    CaseViewDetail,
     CaseViewPinUpdate,
     CaseViewRead,
     CaseViewUpdate,
@@ -59,20 +60,20 @@ async def create_case_view(
     """Save a view. Sharing it with the workspace requires case:update."""
     try:
         return await CaseViewsService(session, role).create_view(params)
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.get("/{view_id}")
 @require_scope("case:read")
 async def get_case_view(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, view_id: str
-) -> CaseViewRead:
+) -> CaseViewDetail:
     """Get a saved or built-in view, including references to deleted tags."""
     try:
         return await CaseViewsService(session, role).get_view(view_id)
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.patch("/{view_id}")
@@ -87,8 +88,8 @@ async def update_case_view(
     """Change a view you own, or a shared view if you have case:update."""
     try:
         return await CaseViewsService(session, role).update_view(view_id, params)
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.delete("/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -99,8 +100,8 @@ async def delete_case_view(
     """Delete a view you own, or a shared view if you have case:update."""
     try:
         await CaseViewsService(session, role).delete_view(view_id)
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.put("/{view_id}/pin")
@@ -117,8 +118,8 @@ async def pin_case_view(
         return await CaseViewsService(session, role).pin_view(
             view_id, position=params.position
         )
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.delete("/{view_id}/pin", status_code=status.HTTP_204_NO_CONTENT)
@@ -129,5 +130,5 @@ async def unpin_case_view(
     """Remove a view from your sidebar."""
     try:
         await CaseViewsService(session, role).unpin_view(view_id)
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc

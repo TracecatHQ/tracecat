@@ -5,8 +5,8 @@ from fastapi import APIRouter, Query
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
-from tracecat.cases.views.errors import CASE_VIEW_ERRORS, raise_case_view_error
-from tracecat.cases.views.schemas import CaseViewRead
+from tracecat.cases.errors import CASE_REQUEST_ERRORS, case_http_error
+from tracecat.cases.views.schemas import CaseViewDetail, CaseViewRead
 from tracecat.cases.views.service import CaseViewsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.pagination import CursorPaginatedResponse, PageParams
@@ -50,9 +50,9 @@ async def executor_list_builtin_case_views(
 @require_scope("case:read")
 async def executor_get_case_view(
     *, role: ExecutorWorkspaceRole, session: AsyncDBSession, view_id: str
-) -> CaseViewRead:
+) -> CaseViewDetail:
     """Get one shared or built-in view."""
     try:
         return await CaseViewsService(session, role).get_view(view_id)
-    except CASE_VIEW_ERRORS as exc:
-        raise_case_view_error(exc)
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc

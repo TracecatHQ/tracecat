@@ -152,8 +152,9 @@ def _created_by_predicate(
     """Match the user recorded on the case's ``case_created`` event.
 
     Cases have no creator column; the creation event records the acting user.
-    Cases created by workflows or other non-user callers have no user there,
-    so ``is_null`` matches them and ``eq``/``in`` never do.
+    A workflow or agent acting on a user's behalf records that user, so its
+    cases count as theirs. Scheduled, webhook, and other runs with no user
+    record none, so ``is_null`` matches their cases and ``eq``/``in`` never do.
     """
     creation_event = (
         sa.select(1)

@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import {
   type CaseViewCreate,
+  type CaseViewDetail,
   type CaseViewRead,
   type CaseViewUpdate,
   caseViewsCreateCaseView,
@@ -102,7 +103,7 @@ export function useCaseViews(workspaceId: string, enabled = true) {
  * @param viewId - A saved view's UUID or a built-in view ID; null loads nothing.
  */
 export function useCaseView(workspaceId: string, viewId: string | null) {
-  return useQuery<CaseViewRead, TracecatApiError>({
+  return useQuery<CaseViewDetail, TracecatApiError>({
     queryKey: [...caseViewsKey(workspaceId), "view", viewId],
     queryFn: () => caseViewsGetCaseView({ workspaceId, viewId: viewId ?? "" }),
     enabled: Boolean(workspaceId) && viewId !== null,

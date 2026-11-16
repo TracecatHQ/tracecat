@@ -449,6 +449,9 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.list_case_views
+        examples:
+          - cases-list-views
       - id: core.cases.aggregate_cases
         info: |
           The example counts `new` and `in_progress` cases by priority and day.

@@ -307,7 +307,8 @@ class CasesClient:
         Explicit full_text uses required words/per-field phrases and defaults to
         relevance. Literal is an escaped complete substring. Omitted mode retains
         legacy behavior. search_columns selects summary/description.
-        created_by takes user IDs or "me". created_within and updated_within
+        created_by takes user IDs, or "me" for the signed-in user; workflows
+        have no signed-in user, so "me" fails there. created_within and updated_within
         take a window ending now, such as {"amount": 30, "unit": "day"}
         (units: hour, day, week, month); they replace the matching fixed
         bounds.
@@ -420,7 +421,7 @@ class CasesClient:
         """List the built-in case views, such as "Assigned to me"."""
         return await self._client.get("/case-views/builtins")
 
-    async def get_view(self, view_id: str) -> types.CaseViewRead:
+    async def get_view(self, view_id: str) -> types.CaseViewDetail:
         """Get one shared or built-in case view.
 
         Args:

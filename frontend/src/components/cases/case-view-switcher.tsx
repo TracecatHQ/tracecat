@@ -513,7 +513,7 @@ function ShareToggle({
 /** Read-only chips for view conditions the filter bar cannot show. */
 export function CaseViewChips({ controls }: { controls: CaseViewControls }) {
   const { view, mapped } = controls.active
-  const staleCount = view?.stale_refs?.length ?? 0
+  const staleCount = view?.stale_refs.length ?? 0
   if (!mapped || (mapped.extraLabels.length === 0 && staleCount === 0)) {
     return null
   }
@@ -540,7 +540,7 @@ export function CaseViewChips({ controls }: { controls: CaseViewControls }) {
           </TooltipTrigger>
           <TooltipContent>
             This view names{" "}
-            {view?.stale_refs?.map((ref) => ref.value).join(", ")}, which no
+            {view?.stale_refs.map((ref) => ref.value).join(", ")}, which no
             longer exist. A filter left with nothing to match shows no cases.
             Update the filters and save the view to fix it.
           </TooltipContent>

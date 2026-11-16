@@ -9,10 +9,10 @@ import httpx
 from typing_extensions import Doc
 
 from tracecat_registry import config, ctx, registry, types
-from tracecat_registry.sdk.types import UNSET
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
+from tracecat_registry.sdk.types import UNSET
 
 
 PriorityType = Literal[

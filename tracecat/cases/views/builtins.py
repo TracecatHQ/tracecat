@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from tracecat.cases.enums import CaseStatus
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder
+from tracecat.cases.search_schemas import CaseCriteria, CaseSearchOrder
 from tracecat.cases.views.types import BuiltinCaseViewId
 
 OPEN_CASE_STATUSES: tuple[CaseStatus, ...] = tuple(
@@ -23,7 +23,7 @@ class BuiltinCaseView:
 
     id: BuiltinCaseViewId
     name: str
-    query: CaseQuery
+    query: CaseCriteria
     order_by: CaseSearchOrder
     sort: Literal["asc", "desc"]
 
@@ -35,7 +35,7 @@ BUILTIN_CASE_VIEWS: dict[BuiltinCaseViewId, BuiltinCaseView] = {
         BuiltinCaseView(
             id="assigned_to_me",
             name="Assigned to me",
-            query=CaseQuery(
+            query=CaseCriteria(
                 status=list(OPEN_CASE_STATUSES),
                 assignee_id=["me"],
                 hierarchy="all",

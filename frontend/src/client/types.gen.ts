@@ -2449,6 +2449,122 @@ export type CaseCreate = {
 }
 
 /**
+ * Matching criteria shared by case search, status counts, and saved views.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseCriteria_Input = {
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter_Input | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
+   */
+  created_by?: Array<string | "me"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
+  updated_after?: string | null
+  updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+}
+
+export type hierarchy = "all" | "top_level"
+
+/**
+ * Matching criteria shared by case search, status counts, and saved views.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseCriteria_Output = {
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter_Output | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
+   */
+  created_by?: Array<string | "me"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
+  updated_after?: string | null
+  updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+}
+
+/**
  * Create a new dropdown definition with initial options.
  */
 export type CaseDropdownDefinitionCreate = {
@@ -3013,25 +3129,9 @@ export type CasePriority =
   | "other"
 
 /**
- * Matching criteria shared by case search and filtered status counts.
- *
- * Explicit text, identity, and hierarchy constraints are combined with
- * ``filters`` using AND. Workspace and entitlement checks belong to the
- * service and cannot be supplied or negated by this request.
- *
- * Tag membership uses existing filter nodes: ``in`` matches any tag, an
- * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
- * ``in`` excludes the selected tags. ``is_null`` matches no tags.
- *
- * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
- * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
- * unset values explicitly with an ``or`` containing ``is_null``.
+ * Case criteria as a request runs them: on their own or through a view.
  */
-export type CaseQuery_Input = {
-  /**
-   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
-   */
-  view_id?: string | BuiltinCaseViewId | null
+export type CaseQuery = {
   /**
    * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
    */
@@ -3054,7 +3154,7 @@ export type CaseQuery_Input = {
    */
   assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
   /**
-   * Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
    */
   created_by?: Array<string | "me"> | null
   tags?: Array<string> | null
@@ -3071,73 +3171,10 @@ export type CaseQuery_Input = {
    * Updated within this window, ending at the time the query runs.
    */
   updated_within?: RelativeTimeWindow | null
-  /**
-   * The ordinary filter population matches no cases.
-   */
-  match_none?: boolean
-}
-
-export type hierarchy = "all" | "top_level"
-
-/**
- * Matching criteria shared by case search and filtered status counts.
- *
- * Explicit text, identity, and hierarchy constraints are combined with
- * ``filters`` using AND. Workspace and entitlement checks belong to the
- * service and cannot be supplied or negated by this request.
- *
- * Tag membership uses existing filter nodes: ``in`` matches any tag, an
- * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
- * ``in`` excludes the selected tags. ``is_null`` matches no tags.
- *
- * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
- * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
- * unset values explicitly with an ``or`` containing ``is_null``.
- */
-export type CaseQuery_Output = {
   /**
    * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
    */
   view_id?: string | BuiltinCaseViewId | null
-  /**
-   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
-   */
-  filters?: Filter_Output | null
-  search_term?: string | null
-  /**
-   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
-   */
-  search_mode?: SearchMode | null
-  search_columns?: Array<"summary" | "description"> | null
-  short_id?: string | null
-  case_id?: string | null
-  hierarchy?: "all" | "top_level"
-  parent_id?: string | null
-  status?: Array<CaseStatus> | null
-  priority?: Array<CasePriority> | null
-  severity?: Array<CaseSeverity> | null
-  /**
-   * User IDs, "unassigned", or "me" for the requesting user.
-   */
-  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
-  /**
-   * Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.
-   */
-  created_by?: Array<string | "me"> | null
-  tags?: Array<string> | null
-  dropdown?: Array<string> | null
-  start_time?: string | null
-  end_time?: string | null
-  /**
-   * Created within this window, ending at the time the query runs.
-   */
-  created_within?: RelativeTimeWindow | null
-  updated_after?: string | null
-  updated_before?: string | null
-  /**
-   * Updated within this window, ending at the time the query runs.
-   */
-  updated_within?: RelativeTimeWindow | null
   /**
    * The ordinary filter population matches no cases.
    */
@@ -3270,10 +3307,6 @@ export type CaseSearchRequest = {
    */
   reverse?: boolean
   /**
-   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
-   */
-  view_id?: string | BuiltinCaseViewId | null
-  /**
    * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
    */
   filters?: Filter_Input | null
@@ -3295,7 +3328,7 @@ export type CaseSearchRequest = {
    */
   assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
   /**
-   * Users who created the case, or "me" for the requesting user. Cases created by workflows or other non-user callers never match.
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
    */
   created_by?: Array<string | "me"> | null
   tags?: Array<string> | null
@@ -3312,6 +3345,10 @@ export type CaseSearchRequest = {
    * Updated within this window, ending at the time the query runs.
    */
   updated_within?: RelativeTimeWindow | null
+  /**
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
+   */
+  view_id?: string | BuiltinCaseViewId | null
   /**
    * The ordinary filter population matches no cases.
    */
@@ -3597,10 +3634,47 @@ export type CaseViewColumns = Array<string>
 export type CaseViewCreate = {
   name: CaseViewName
   visibility?: CaseViewVisibility
-  query?: CaseQuery_Input
+  query?: CaseCriteria_Input
   order_by?: CaseSearchOrder | null
   sort?: CaseViewSort | null
   columns?: CaseViewColumns | null
+}
+
+/**
+ * One view in the form it runs in, with what deletions changed.
+ */
+export type CaseViewDetail = {
+  /**
+   * A UUID for saved views, or a built-in view ID.
+   */
+  id: string
+  kind: CaseViewKind
+  name: string
+  visibility: CaseViewVisibility
+  owner_id?: string | null
+  /**
+   * The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.
+   */
+  query: CaseCriteria_Output
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: Array<string> | null
+  /**
+   * Whether the requesting user may rename, change, or delete it.
+   */
+  can_edit: boolean
+  pinned?: boolean
+  pin_position?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+  /**
+   * Deleted tags, dropdowns, or dropdown options the stored query names. They are removed from query.
+   */
+  stale_refs: Array<CaseViewStaleRef>
+  /**
+   * Rules left with nothing to match after deletions.
+   */
+  empty_rules: CaseViewEmptyRules
 }
 
 /**
@@ -3644,9 +3718,9 @@ export type CaseViewRead = {
   visibility: CaseViewVisibility
   owner_id?: string | null
   /**
-   * The view's criteria. When reading one view, deleted tags and options are removed; see stale_refs and empty_rules.
+   * The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.
    */
-  query: CaseQuery_Output
+  query: CaseCriteria_Output
   order_by?: CaseSearchOrder | null
   sort?: CaseViewSort | null
   columns?: Array<string> | null
@@ -3658,14 +3732,6 @@ export type CaseViewRead = {
   pin_position?: number | null
   created_at?: string | null
   updated_at?: string | null
-  /**
-   * Deleted tags or dropdown options the stored query names. Null when not computed, which is the case in list responses.
-   */
-  stale_refs?: Array<CaseViewStaleRef> | null
-  /**
-   * Rules left with nothing to match. Null when not computed.
-   */
-  empty_rules?: CaseViewEmptyRules | null
 }
 
 export type CaseViewSort = "asc" | "desc"
@@ -3676,7 +3742,7 @@ export type CaseViewSort = "asc" | "desc"
 export type CaseViewStaleRef = {
   kind: "tag" | "dropdown"
   /**
-   * The identifier as stored in the view's query.
+   * The identifier as stored in the view's query: a tag ref, a `definition_ref:option_ref` entry, or a dropdown ref from the filter tree.
    */
   value: string
 }
@@ -3691,7 +3757,7 @@ export type kind = "tag" | "dropdown"
 export type CaseViewUpdate = {
   name?: CaseViewName | null
   visibility?: CaseViewVisibility | null
-  query?: CaseQuery_Input | null
+  query?: CaseCriteria_Input | null
   order_by?: CaseSearchOrder | null
   sort?: CaseViewSort | null
   columns?: CaseViewColumns | null
@@ -11591,7 +11657,7 @@ export type StepStartUIPart = {
   type: "step-start"
 }
 
-export type StoredCaseQuery = CaseQuery_Input
+export type StoredCaseQuery = CaseCriteria_Input
 
 export type StreamEvent = {
   uuid: string
@@ -18909,7 +18975,7 @@ export type CasesSearchCasesData = {
 export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesQueryCaseAggregatesData = {
-  requestBody: CaseQuery_Input
+  requestBody: CaseQuery
   workspaceId: string
 }
 
@@ -19387,7 +19453,7 @@ export type CaseViewsGetCaseViewData = {
   workspaceId: string
 }
 
-export type CaseViewsGetCaseViewResponse = CaseViewRead
+export type CaseViewsGetCaseViewResponse = CaseViewDetail
 
 export type CaseViewsUpdateCaseViewData = {
   requestBody: CaseViewUpdate
@@ -28181,7 +28247,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CaseViewRead
+        200: CaseViewDetail
         /**
          * Validation Error
          */

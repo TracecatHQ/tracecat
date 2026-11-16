@@ -16,9 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseViewVisibility
-from tracecat.cases.search_schemas import CaseQuery
+from tracecat.cases.search_schemas import CaseCriteria
 from tracecat.cases.views import router as views_router
-from tracecat.cases.views.schemas import CaseViewRead
+from tracecat.cases.views.schemas import (
+    CaseViewDetail,
+    CaseViewEmptyRules,
+    CaseViewRead,
+)
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.pagination import CursorPaginatedResponse
@@ -29,9 +33,10 @@ READ = CaseViewRead(
     kind="custom",
     name="Synthetic view",
     visibility=CaseViewVisibility.PERSONAL,
-    query=CaseQuery(),
+    query=CaseCriteria(),
     can_edit=True,
 )
+DETAIL = CaseViewDetail(**dict(READ), stale_refs=[], empty_rules=CaseViewEmptyRules())
 
 # (method, path, JSON body) for every public case-view endpoint.
 ENDPOINTS: list[tuple[str, str, dict[str, object] | None]] = [
@@ -52,8 +57,9 @@ def _client(
     service = MagicMock()
     service.list_views = AsyncMock(return_value=CursorPaginatedResponse(items=[]))
     service.list_builtins = MagicMock(return_value=[])
-    for name in ("create_view", "get_view", "update_view", "pin_view"):
+    for name in ("create_view", "update_view", "pin_view"):
         setattr(service, name, AsyncMock(return_value=READ))
+    service.get_view = AsyncMock(return_value=DETAIL)
     service.delete_view = AsyncMock(return_value=None)
     service.unpin_view = AsyncMock(return_value=None)
 

@@ -132,8 +132,8 @@ class CaseQueryErrorResponse(BaseModel):
     detail: str | CaseQueryErrorDetail
 
 
-class CaseQuery(BaseModel):
-    """Matching criteria shared by case search and filtered status counts.
+class CaseCriteria(BaseModel):
+    """Matching criteria shared by case search, status counts, and saved views.
 
     Explicit text, identity, and hierarchy constraints are combined with
     ``filters`` using AND. Workspace and entitlement checks belong to the
@@ -150,15 +150,6 @@ class CaseQuery(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    view_id: UUID | BuiltinCaseViewId | None = Field(
-        default=None,
-        description=(
-            "Run a saved case view. The view supplies the matching criteria; "
-            "the request may add a `filters` tree, which is ANDed with the view's, "
-            "and other matching fields are rejected. Pagination, result options, "
-            "and order_by/sort still apply; order_by overrides the view's order."
-        ),
-    )
     filters: Filter | None = Field(
         default=None,
         description='AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
@@ -189,7 +180,9 @@ class CaseQuery(BaseModel):
         max_length=MAX_FILTER_VALUES,
         description=(
             'Users who created the case, or "me" for the requesting user. '
-            "Cases created by workflows or other non-user callers never match."
+            "A case a workflow or agent created on a user's behalf counts as "
+            "that user's. Scheduled, webhook, and other runs with no user "
+            "record no creator, so their cases never match."
         ),
     )
     tags: list[str] | None = Field(default=None, max_length=1000)
@@ -205,9 +198,6 @@ class CaseQuery(BaseModel):
     updated_within: RelativeTimeWindow | None = Field(
         default=None,
         description="Updated within this window, ending at the time the query runs.",
-    )
-    match_none: bool = Field(
-        default=False, description="The ordinary filter population matches no cases."
     )
 
     @field_validator("search_term", "short_id")
@@ -251,6 +241,23 @@ class CaseQuery(BaseModel):
         elif self.search_columns is not None:
             raise ValueError("search_columns requires an explicit search_mode")
         return self
+
+
+class CaseQuery(CaseCriteria):
+    """Case criteria as a request runs them: on their own or through a view."""
+
+    view_id: UUID | BuiltinCaseViewId | None = Field(
+        default=None,
+        description=(
+            "Run a saved case view. The view supplies the matching criteria; "
+            "the request may add a `filters` tree, which is ANDed with the view's, "
+            "and other matching fields are rejected. Pagination, result options, "
+            "and order_by/sort still apply; order_by overrides the view's order."
+        ),
+    )
+    match_none: bool = Field(
+        default=False, description="The ordinary filter population matches no cases."
+    )
 
 
 class CaseSearchRequest(CaseQuery, CursorPaginationParams):

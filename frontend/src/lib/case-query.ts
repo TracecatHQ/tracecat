@@ -21,10 +21,10 @@ import type {
  * saved case views. Nothing here touches React or the network.
  */
 
-/** Every case status, in display order. */
 /** The assignee and creator value that means the requesting user. */
 export const CURRENT_USER = "me"
 
+/** Every case status, in display order. */
 export const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
   "new",
@@ -204,10 +204,9 @@ export function resolveEnumIncludeFilter<T extends string>(
  * matches nothing. The server reports these rules in `empty_rules`.
  */
 export function emptyRulesMatchNone(
-  rules: CaseViewEmptyRules | null | undefined,
+  rules: CaseViewEmptyRules,
   filters: Pick<UseCasesFilters, "tagFilter" | "dropdownFilters">
 ): boolean {
-  if (!rules) return false
   if (rules.filters) return true
   if (rules.tags && filters.tagFilter.length === 0) return true
   return (rules.dropdown_refs ?? []).some(

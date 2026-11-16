@@ -251,10 +251,13 @@ class CaseViewRead(TypedDict):
     pin_position: int | None
     created_at: datetime | None
     updated_at: datetime | None
-    stale_refs: list[CaseViewStaleRef] | None
-    """Set only when a single view is read; None in lists."""
-    empty_rules: CaseViewEmptyRules | None
-    """Set only when a single view is read; None in lists."""
+
+
+class CaseViewDetail(CaseViewRead):
+    """One case view in the form it runs in, with what deletions changed."""
+
+    stale_refs: list[CaseViewStaleRef]
+    empty_rules: CaseViewEmptyRules
 
 
 class CaseViewListResponse(TypedDict):

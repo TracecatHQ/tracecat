@@ -11,7 +11,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 from tracecat.cases.enums import CaseViewVisibility
 from tracecat.cases.search_adapters import parse_dropdown_entry
 from tracecat.cases.search_schemas import (
-    CaseQuery,
+    CaseCriteria,
     CaseSearchOrder,
     check_relevance_order,
 )
@@ -24,12 +24,8 @@ type CaseViewKind = Literal["builtin", "custom"]
 type CaseViewSort = Literal["asc", "desc"]
 
 
-def _validate_stored_query(query: CaseQuery) -> CaseQuery:
-    """A stored query holds criteria only, in a form the view can keep running."""
-    if query.view_id is not None:
-        raise ValueError("A saved view's query cannot reference another view")
-    if query.match_none:
-        raise ValueError("A saved view's query cannot set match_none")
+def _validate_stored_query(query: CaseCriteria) -> CaseCriteria:
+    """A stored query must stay runnable as the view is kept."""
     # A malformed entry would later look like a deleted option, so reject it.
     for entry in query.dropdown or []:
         parse_dropdown_entry(entry)
@@ -56,7 +52,7 @@ def _validate_columns(columns: list[str]) -> list[str]:
 type CaseViewName = Annotated[
     str, Field(min_length=1, max_length=255), AfterValidator(_strip_name)
 ]
-type StoredCaseQuery = Annotated[CaseQuery, AfterValidator(_validate_stored_query)]
+type StoredCaseQuery = Annotated[CaseCriteria, AfterValidator(_validate_stored_query)]
 type CaseViewColumns = Annotated[
     list[str],
     Field(max_length=MAX_CASE_VIEW_COLUMNS),
@@ -66,7 +62,7 @@ type CaseViewColumns = Annotated[
 
 
 def validate_view_order(
-    query: CaseQuery, order_by: str | None, sort: str | None
+    query: CaseCriteria, order_by: str | None, sort: str | None
 ) -> None:
     """Reject an order the view's query cannot produce, such as relevance
     without a full-text term.
@@ -87,7 +83,7 @@ class CaseViewCreate(BaseModel):
 
     name: CaseViewName
     visibility: CaseViewVisibility = Field(default=CaseViewVisibility.PERSONAL)
-    query: StoredCaseQuery = Field(default_factory=CaseQuery)
+    query: StoredCaseQuery = Field(default_factory=CaseCriteria)
     order_by: CaseSearchOrder | None = Field(default=None)
     sort: CaseViewSort | None = Field(default=None)
     columns: CaseViewColumns | None = Field(default=None)
@@ -131,7 +127,11 @@ class CaseViewStaleRef(BaseModel):
     """A reference in a view's query to something that no longer exists."""
 
     kind: Literal["tag", "dropdown"]
-    value: str = Field(description="The identifier as stored in the view's query.")
+    value: str = Field(
+        description="The identifier as stored in the view's query: a tag ref, "
+        "a `definition_ref:option_ref` entry, or a dropdown ref from the "
+        "filter tree."
+    )
 
 
 class CaseViewEmptyRules(BaseModel):
@@ -161,9 +161,9 @@ class CaseViewRead(BaseModel):
     name: str
     visibility: CaseViewVisibility
     owner_id: UUID | None = Field(default=None)
-    query: CaseQuery = Field(
-        description="The view's criteria. When reading one view, deleted tags "
-        "and options are removed; see stale_refs and empty_rules."
+    query: CaseCriteria = Field(
+        description="The view's criteria. Reading one view removes deleted "
+        "tags and options; see CaseViewDetail."
     )
     order_by: CaseSearchOrder | None = Field(default=None)
     sort: CaseViewSort | None = Field(default=None)
@@ -175,14 +175,17 @@ class CaseViewRead(BaseModel):
     pin_position: int | None = Field(default=None)
     created_at: datetime | None = Field(default=None)
     updated_at: datetime | None = Field(default=None)
-    stale_refs: list[CaseViewStaleRef] | None = Field(
-        default=None,
-        description="Deleted tags or dropdown options the stored query names. "
-        "Null when not computed, which is the case in list responses.",
+
+
+class CaseViewDetail(CaseViewRead):
+    """One view in the form it runs in, with what deletions changed."""
+
+    stale_refs: list[CaseViewStaleRef] = Field(
+        description="Deleted tags, dropdowns, or dropdown options the stored "
+        "query names. They are removed from query."
     )
-    empty_rules: CaseViewEmptyRules | None = Field(
-        default=None,
-        description="Rules left with nothing to match. Null when not computed.",
+    empty_rules: CaseViewEmptyRules = Field(
+        description="Rules left with nothing to match after deletions."
     )
 
 

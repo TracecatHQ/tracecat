@@ -11,7 +11,6 @@ import {
   type CaseStatus,
   type CasesQueryCaseAggregatesResponse,
   type CasesQueryCasesResponse,
-  type CaseViewEmptyRules,
   casesQueryCaseAggregates,
   casesQueryCases,
   type SearchMode,
@@ -37,7 +36,11 @@ import {
   getCaseSearchTerm,
   type UseCasesFilters,
 } from "@/lib/case-query"
-import { buildViewSearch, type CaseViewQuery } from "@/lib/case-views"
+import {
+  buildViewSearch,
+  type CaseViewFilters,
+  type ViewSearch,
+} from "@/lib/case-views"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { withAbortSignal } from "@/lib/query-cancellation"
@@ -63,15 +66,12 @@ export interface UseCasesOptions {
   fieldIds?: string[]
   includeDurations?: boolean
   /**
-   * Start from these filters instead of the ones saved in this browser, and
-   * never save changes there. A saved view passes its filters here; the page
-   * mounts a fresh hook per view, so the user's own filters stay untouched.
+   * An open saved view. The list starts from its filters instead of the ones
+   * saved in this browser, sends its other conditions with every request,
+   * and never saves changes to this browser. The page mounts a fresh hook per
+   * view, so the user's own filters stay untouched.
    */
-  initialFilters?: UseCasesFilters
-  /** Conditions the filter bar cannot show, sent with every request. */
-  extraQuery?: CaseViewQuery
-  /** A view's rules left empty by deletions; they match nothing until refilled. */
-  emptyRules?: CaseViewEmptyRules | null
+  view?: CaseViewFilters
 }
 
 export interface UseCasesResult {
@@ -81,6 +81,11 @@ export interface UseCasesResult {
   refetch: () => void
   filters: UseCasesFilters
   appliedSearchQuery: string
+  /**
+   * The query the list runs, and whether it matches nothing. A saved view
+   * stores this query, so what it saves is exactly what the list searched.
+   */
+  search: ViewSearch
   effectiveHierarchy: CaseHierarchyFilter
   isSearchPending: boolean
   setSearchMode: (mode: SearchMode) => void
@@ -508,12 +513,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     autoRefresh = true,
     fieldIds = [],
     includeDurations = false,
-    initialFilters,
-    extraQuery,
-    emptyRules,
+    view,
   } = options
+  const initialFilters = view?.filters
   // Fixed for the hook's lifetime: a view's hook never saves to this browser.
-  const [persist] = useState(initialFilters === undefined)
+  const [persist] = useState(view === undefined)
   const workspaceId = useWorkspaceId()
   const normalizedFieldIds = useMemo(
     () => [...new Set(fieldIds)].sort(),
@@ -842,7 +846,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     []
   )
 
-  const { apiQueryParams, hasImpossibleEnumFilter } = useMemo(() => {
+  const { apiQueryParams, hasImpossibleEnumFilter, search } = useMemo(() => {
     const requestFilters: UseCasesFilters = {
       ...DEFAULT_CASES_FILTERS,
       searchQuery: appliedSearchQuery,
@@ -862,12 +866,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       createdAfter,
       includeSubCases,
     }
-    const { query, noMatch } = buildViewSearch(
-      requestFilters,
-      extraQuery,
-      emptyRules
-    )
+    const search = buildViewSearch(requestFilters, view)
+    const { query, noMatch } = search
     return {
+      search,
       // Keep the search keys and the hierarchy explicit on the wire.
       apiQueryParams: {
         ...query,
@@ -894,8 +896,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     updatedAfter,
     createdAfter,
     includeSubCases,
-    extraQuery,
-    emptyRules,
+    view,
   ])
 
   const effectiveSortBy: CaseSortValue =
@@ -1089,6 +1090,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     error: error ?? null,
     refetch,
     appliedSearchQuery,
+    search,
     isSearchPending: normalizedSearchInput !== appliedSearchQuery,
     effectiveHierarchy: apiQueryParams.hierarchy,
     filters: {

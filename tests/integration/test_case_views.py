@@ -19,7 +19,7 @@ from tracecat.cases.enums import (
     CaseViewVisibility,
 )
 from tracecat.cases.search_adapters import CurrentUserRequiredError
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
 from tracecat.cases.service import CasesService
 from tracecat.cases.views.schemas import (
     CaseViewCreate,
@@ -30,7 +30,14 @@ from tracecat.cases.views.service import (
     CaseViewPermissionError,
     CaseViewsService,
 )
-from tracecat.db.models import Case, CaseEvent, CaseTag, CaseView, User
+from tracecat.db.models import (
+    Case,
+    CaseDropdownDefinition,
+    CaseEvent,
+    CaseTag,
+    CaseView,
+    User,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import PageParams
 
@@ -153,7 +160,7 @@ async def _create(
         CaseViewCreate(
             name="Open phishing",
             visibility=visibility,
-            query=CaseQuery.model_validate(
+            query=CaseCriteria.model_validate(
                 query or {"tags": ["phishing"], "status": ["new", "in_progress"]}
             ),
         )
@@ -308,9 +315,7 @@ async def test_deleted_tag_is_reported_and_matches_nothing(
     await session.flush()
 
     view = await _views(session, actors.owner).get_view(view_id)
-    assert [(ref.kind, ref.value) for ref in view.stale_refs or []] == [
-        ("tag", "phishing")
-    ]
+    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [("tag", "phishing")]
     # Dropping the only tag would widen the view to every open case.
     assert await _run_view(session, actors.owner, view_id) == set()
     counts = await CasesService(session, actors.owner).query_case_aggregates(
@@ -336,22 +341,22 @@ async def test_unreadable_stored_query_is_a_validation_error(
 
 
 async def test_stored_query_cannot_reference_another_view() -> None:
-    with pytest.raises(ValueError, match="another view"):
-        CaseViewCreate(
-            name="Nested", query=CaseQuery.model_validate({"view_id": "assigned_to_me"})
-        )
+    # A view stores criteria only, so view_id and match_none are not fields.
+    for field, value in (("view_id", "assigned_to_me"), ("match_none", True)):
+        with pytest.raises(ValueError, match="Extra inputs"):
+            CaseViewCreate.model_validate({"name": "Nested", "query": {field: value}})
 
 
 async def test_relevance_order_needs_a_full_text_view(
     session: AsyncSession, actors: Actors, seeded: Seeded
 ) -> None:
     with pytest.raises(ValueError, match="full_text"):
-        CaseViewCreate(name="No search", query=CaseQuery(), order_by="relevance")
+        CaseViewCreate(name="No search", query=CaseCriteria(), order_by="relevance")
 
     view = await _views(session, actors.owner).create_view(
         CaseViewCreate(
             name="Phishing words",
-            query=CaseQuery.model_validate(
+            query=CaseCriteria.model_validate(
                 {"search_term": "phishing", "search_mode": "full_text"}
             ),
         )
@@ -363,7 +368,7 @@ async def test_relevance_order_needs_a_full_text_view(
         await _views(session, actors.owner).update_view(
             view.id,
             CaseViewUpdate(
-                query=CaseQuery(status=[CaseStatus.NEW]), order_by="relevance"
+                query=CaseCriteria(status=[CaseStatus.NEW]), order_by="relevance"
             ),
         )
 
@@ -375,7 +380,7 @@ async def test_request_sort_sets_direction_for_the_view_order(
     view = await _views(session, actors.owner).create_view(
         CaseViewCreate(
             name="By created",
-            query=CaseQuery(),
+            query=CaseCriteria(),
             order_by="created_at",
             sort="desc",
         )
@@ -390,7 +395,7 @@ async def test_request_sort_sets_direction_for_the_view_order(
 def test_stored_query_rejects_malformed_dropdown_entries() -> None:
     with pytest.raises(ValueError, match="definition_ref:option_ref"):
         CaseViewCreate(
-            name="Bad dropdown", query=CaseQuery.model_validate({"dropdown": ["x"]})
+            name="Bad dropdown", query=CaseCriteria.model_validate({"dropdown": ["x"]})
         )
 
 
@@ -413,10 +418,36 @@ async def test_deleted_tag_in_filter_tree_matches_nothing(
     await session.flush()
 
     view = await _views(session, actors.owner).get_view(view_id)
-    assert [(ref.kind, ref.value) for ref in view.stale_refs or []] == [
-        ("tag", "phishing")
-    ]
+    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [("tag", "phishing")]
     # Rewriting the tree could widen it, so the view matches nothing instead.
+    assert await _run_view(session, actors.owner, view_id) == set()
+
+
+async def test_deleted_dropdown_in_valueless_tree_condition_matches_nothing(
+    session: AsyncSession, actors: Actors, seeded: Seeded
+) -> None:
+    workspace_id = actors.owner.workspace_id
+    assert workspace_id is not None
+    definition = CaseDropdownDefinition(
+        id=uuid.uuid4(), workspace_id=workspace_id, name="Verdict", ref="verdict"
+    )
+    session.add(definition)
+    await session.flush()
+    view_id = await _create(
+        session,
+        actors.owner,
+        query={"filters": {"field": "dropdowns.verdict", "op": "is_null"}},
+    )
+    await session.execute(
+        delete(CaseDropdownDefinition).where(CaseDropdownDefinition.id == definition.id)
+    )
+    await session.flush()
+
+    view = await _views(session, actors.owner).get_view(view_id)
+    assert [(ref.kind, ref.value) for ref in view.stale_refs] == [
+        ("dropdown", "verdict")
+    ]
+    assert view.query.filters is None
     assert await _run_view(session, actors.owner, view_id) == set()
 
 
@@ -467,7 +498,7 @@ async def test_relevance_order_applies_to_a_full_text_view(
     view = await _views(session, actors.owner).create_view(
         CaseViewCreate(
             name="Phishing words",
-            query=CaseQuery.model_validate(
+            query=CaseCriteria.model_validate(
                 {"search_term": "phishing", "search_mode": "full_text"}
             ),
             order_by="created_at",
@@ -487,4 +518,4 @@ async def test_relevance_order_applies_to_a_full_text_view(
 
 def test_saved_sort_requires_an_order() -> None:
     with pytest.raises(ValueError, match="sort requires order_by"):
-        CaseViewCreate(name="Sorted", query=CaseQuery(), sort="asc")
+        CaseViewCreate(name="Sorted", query=CaseCriteria(), sort="asc")

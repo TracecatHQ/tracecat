@@ -22,13 +22,14 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
-from tracecat.cases.dependencies import PayloadPathsQuery, case_query_http_error
+from tracecat.cases.dependencies import PayloadPathsQuery
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.cases.errors import CASE_REQUEST_ERRORS, case_http_error
 from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
     CaseEventRead,
@@ -359,8 +360,8 @@ async def query_cases(
         return await CasesService(session, role).query_cases(params)
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
-    except (ValueError, TracecatValidationError, TracecatNotFoundError) as exc:
-        raise case_query_http_error(exc) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @cases_router.post("/search/aggregate", responses=CASE_SEARCH_ERROR_RESPONSES)
@@ -373,8 +374,8 @@ async def query_case_aggregates(
         return await CasesService(session, role).query_case_aggregates(params)
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
-    except (ValueError, TracecatValidationError, TracecatNotFoundError) as exc:
-        raise case_query_http_error(exc) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @cases_router.get("/search")

@@ -1,4 +1,4 @@
-import type { CaseViewEmptyRules, CaseViewRead } from "@/client"
+import type { CaseViewDetail, CaseViewEmptyRules } from "@/client"
 import { DEFAULT_CASES_FILTERS, type UseCasesFilters } from "@/lib/case-query"
 import {
   buildViewSearch,
@@ -13,13 +13,16 @@ import {
 
 function blocker(
   filters: UseCasesFilters,
-  emptyRules: CaseViewEmptyRules | null | undefined
+  emptyRules?: CaseViewEmptyRules
 ): string | null {
-  const { noMatch } = buildViewSearch(filters, null, emptyRules)
+  const view = emptyRules
+    ? viewToFilters(makeView({ empty_rules: emptyRules }))
+    : null
+  const { noMatch } = buildViewSearch(filters, view)
   return viewSaveBlocker(noMatch, emptyRules)
 }
 
-function makeView(overrides: Partial<CaseViewRead>): CaseViewRead {
+function makeView(overrides: Partial<CaseViewDetail>): CaseViewDetail {
   return {
     id: "00000000-0000-4000-8000-000000000001",
     kind: "custom",
@@ -27,6 +30,8 @@ function makeView(overrides: Partial<CaseViewRead>): CaseViewRead {
     visibility: "personal",
     query: {},
     can_edit: true,
+    stale_refs: [],
+    empty_rules: { tags: false, dropdown_refs: [], filters: false },
     ...overrides,
   }
 }
@@ -210,9 +215,7 @@ describe("deleted tags and options", () => {
     const { extraLabels, extraQuery } = viewToFilters(
       makeView({
         query: {
-          view_id: null,
           status: ["new"],
-          match_none: false,
           created_by: null,
           filters: null,
           tags: [],
@@ -226,6 +229,35 @@ describe("deleted tags and options", () => {
 })
 
 describe("mergeViewQuery search and hierarchy groups", () => {
+  it("lets the sub-cases toggle decide once a view's search is cleared", () => {
+    const view = makeView({
+      query: {
+        search_term: "phish",
+        search_mode: "full_text",
+        hierarchy: "top_level",
+      },
+    })
+    const { extraQuery } = viewToFilters(view)
+
+    expect(mergeViewQuery(extraQuery, { search_term: "phish" }).hierarchy).toBe(
+      "top_level"
+    )
+    expect(mergeViewQuery(extraQuery, {}).hierarchy).toBeUndefined()
+    expect(
+      mergeViewQuery(extraQuery, { hierarchy: "top_level" }).hierarchy
+    ).toBe("top_level")
+  })
+
+  it("sorts a full-text view with no saved order by relevance", () => {
+    const { filters, savedSort } = viewToFilters(
+      makeView({ query: { search_term: "phish", search_mode: "full_text" } })
+    )
+
+    expect(filters.searchOrder).toBe("relevance")
+    expect(savedSort).toEqual({ order_by: "relevance", sort: "desc" })
+    expect(sortToView(filters)).toEqual(savedSort)
+  })
+
   it("keeps a view's search columns on its own search", () => {
     const view = makeView({
       query: {
@@ -304,8 +336,8 @@ describe("viewSaveBlocker", () => {
       statusMode: "exclude",
     }
 
-    expect(blocker(filters, undefined)).toMatch(/match no cases/)
-    expect(blocker(DEFAULT_CASES_FILTERS, undefined)).toBeNull()
+    expect(blocker(filters)).toMatch(/match no cases/)
+    expect(blocker(DEFAULT_CASES_FILTERS)).toBeNull()
   })
 })
 

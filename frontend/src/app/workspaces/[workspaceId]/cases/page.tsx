@@ -210,9 +210,7 @@ function CasesPageBody({
   const casesResult = useCases({
     fieldIds: selectedFieldIds,
     includeDurations,
-    initialFilters: activeView.mapped?.filters,
-    extraQuery: activeView.mapped?.extraQuery,
-    emptyRules: activeView.mapped?.emptyRules,
+    view: activeView.mapped ?? undefined,
   })
   const viewControls = useCaseViewControls({
     workspaceId,

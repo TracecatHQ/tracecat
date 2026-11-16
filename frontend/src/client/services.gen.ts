@@ -15033,7 +15033,7 @@ export const caseViewsListBuiltinCaseViews = (
  * @param data The data for the request.
  * @param data.viewId
  * @param data.workspaceId
- * @returns CaseViewRead Successful Response
+ * @returns CaseViewDetail Successful Response
  * @throws ApiError
  */
 export const caseViewsGetCaseView = (

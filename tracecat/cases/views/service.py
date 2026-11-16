@@ -21,6 +21,7 @@ from tracecat.cases.search_adapters import (
     requesting_user_id,
 )
 from tracecat.cases.search_schemas import (
+    CaseCriteria,
     CaseQuery,
     CaseSearchOrder,
     CaseSearchRequest,
@@ -29,6 +30,7 @@ from tracecat.cases.tags.search import split_case_tag_filters
 from tracecat.cases.views.builtins import BUILTIN_CASE_VIEWS
 from tracecat.cases.views.schemas import (
     CaseViewCreate,
+    CaseViewDetail,
     CaseViewEmptyRules,
     CaseViewRead,
     CaseViewStaleRef,
@@ -57,11 +59,7 @@ SHARED_VIEW_SCOPE = "case:update"
 
 # Matching fields a request may not combine with ``view_id``. ``filters`` is
 # allowed and ANDed with the view's own tree; ``match_none`` is ORed.
-_VIEW_EXCLUSIVE_FIELDS = frozenset(CaseQuery.model_fields) - {
-    "view_id",
-    "filters",
-    "match_none",
-}
+_VIEW_EXCLUSIVE_FIELDS = frozenset(CaseCriteria.model_fields) - {"filters"}
 
 
 class CaseViewNotFoundError(TracecatNotFoundError):
@@ -77,7 +75,7 @@ class CaseViewPermissionError(TracecatAuthorizationError):
 
 @dataclass(frozen=True, slots=True)
 class _CleanedQuery:
-    query: CaseQuery
+    query: CaseCriteria
     stale_refs: list[CaseViewStaleRef]
     empty_rules: CaseViewEmptyRules
 
@@ -179,9 +177,7 @@ class CaseViewsService(BaseWorkspaceService):
             has_previous=result.has_previous,
         )
 
-    async def get_view(
-        self, view_id: str | uuid.UUID, *, include_pin: bool = True
-    ) -> CaseViewRead:
+    async def get_view(self, view_id: str | uuid.UUID) -> CaseViewDetail:
         """Return one view in the form it runs in.
 
         Deleted tags and options are removed from ``query`` and listed in
@@ -190,23 +186,20 @@ class CaseViewsService(BaseWorkspaceService):
 
         Args:
             view_id: A saved view's UUID or a built-in view ID.
-            include_pin: Look up the requesting user's pin; searches skip it.
         """
         parsed = parse_view_id(view_id)
         if not isinstance(parsed, uuid.UUID):
-            return self._builtin_read(parsed).model_copy(
-                update={"stale_refs": [], "empty_rules": CaseViewEmptyRules()}
+            read = self._builtin_read(parsed)
+            return CaseViewDetail(
+                **dict(read), stale_refs=[], empty_rules=CaseViewEmptyRules()
             )
         view = await self._get_visible(parsed)
-        position = await self._pin_position(view.id) if include_pin else None
-        read = self._custom_read(view, position)
+        read = self._custom_read(view, await self._pin_position(view.id))
         cleaned = await self._clean_query(read.query)
-        return read.model_copy(
-            update={
-                "query": cleaned.query,
-                "stale_refs": cleaned.stale_refs,
-                "empty_rules": cleaned.empty_rules,
-            }
+        return CaseViewDetail(
+            **(dict(read) | {"query": cleaned.query}),
+            stale_refs=cleaned.stale_refs,
+            empty_rules=cleaned.empty_rules,
         )
 
     # Writes
@@ -349,7 +342,7 @@ class CaseViewsService(BaseWorkspaceService):
                 "A view supplies its own matching criteria. Use `filters` to "
                 f"narrow it; remove {', '.join(conflicting)}."
             )
-        resolved = await self.get_view(request.view_id, include_pin=False)
+        resolved = await self.get_view(request.view_id)
         view_query = resolved.query
         filters = view_query.filters
         if request.filters is not None:
@@ -364,8 +357,7 @@ class CaseViewsService(BaseWorkspaceService):
         update.update(
             view_id=None,
             filters=filters,
-            match_none=request.match_none
-            or (resolved.empty_rules is not None and resolved.empty_rules.matches_none),
+            match_none=request.match_none or resolved.empty_rules.matches_none,
         )
         if (
             isinstance(request, CaseSearchRequest)
@@ -411,13 +403,13 @@ class CaseViewsService(BaseWorkspaceService):
         )
 
     @staticmethod
-    def _stored_query(view: CaseView) -> CaseQuery:
+    def _stored_query(view: CaseView) -> CaseCriteria:
         if view.query_version > CASE_VIEW_QUERY_VERSION:
             raise TracecatValidationError(
                 f"Case view {view.name!r} was saved by a newer version of Tracecat"
             )
         try:
-            return CaseQuery.model_validate(view.query)
+            return CaseCriteria.model_validate(view.query)
         except ValueError as exc:
             raise TracecatValidationError(
                 f"Case view {view.name!r} has a query this version cannot read: {exc}"
@@ -490,7 +482,7 @@ class CaseViewsService(BaseWorkspaceService):
             # Making it personal would hide it from everyone but its owner.
             raise CaseViewPermissionError("Only the view's owner can make it personal")
 
-    async def _clean_query(self, query: CaseQuery) -> _CleanedQuery:
+    async def _clean_query(self, query: CaseCriteria) -> _CleanedQuery:
         """Drop deleted tags and dropdown options from a stored query.
 
         A rule left with no values would otherwise widen the results, so it is
@@ -516,7 +508,9 @@ class CaseViewsService(BaseWorkspaceService):
                 update["tags"] = kept or None
 
         if query.dropdown:
-            existing = await self._existing_dropdown_options(query.dropdown)
+            _, existing = await self._existing_dropdowns(
+                {parse_dropdown_entry(entry)[0] for entry in query.dropdown}
+            )
             missing_options = [
                 entry for entry in query.dropdown if entry not in existing
             ]
@@ -542,9 +536,12 @@ class CaseViewsService(BaseWorkspaceService):
         cleaned = query.model_copy(update=update) if update else query
         return _CleanedQuery(query=cleaned, stale_refs=stale, empty_rules=empty)
 
-    async def _stale_filter_tree_refs(self, query: CaseQuery) -> list[CaseViewStaleRef]:
-        """Find deleted tag refs and dropdown options named in the filter tree."""
+    async def _stale_filter_tree_refs(
+        self, query: CaseCriteria
+    ) -> list[CaseViewStaleRef]:
+        """Find deleted tags, dropdowns, and dropdown options in the filter tree."""
         tag_refs: set[str] = set()
+        dropdown_refs: set[str] = set()
         dropdown_entries: set[str] = set()
         for condition in iter_case_filter_conditions(query.filters):
             values = (
@@ -557,6 +554,8 @@ class CaseViewsService(BaseWorkspaceService):
                 tag_refs.update(names)
             elif condition.field.startswith(DROPDOWN_PREFIX):
                 ref = condition.field.removeprefix(DROPDOWN_PREFIX)
+                # Conditions such as is_null name a dropdown but no option.
+                dropdown_refs.add(ref)
                 dropdown_entries.update(
                     format_dropdown_entry(ref, name) for name in names
                 )
@@ -576,22 +575,32 @@ class CaseViewsService(BaseWorkspaceService):
                 CaseViewStaleRef(kind="tag", value=ref)
                 for ref in sorted(tag_refs - existing_tags)
             )
-        if dropdown_entries:
-            existing = await self._existing_dropdown_options(list(dropdown_entries))
+        if dropdown_refs:
+            existing_refs, existing_entries = await self._existing_dropdowns(
+                dropdown_refs
+            )
+            # A deleted dropdown is reported once, not once per option.
+            stale.extend(
+                CaseViewStaleRef(kind="dropdown", value=ref)
+                for ref in sorted(dropdown_refs - existing_refs)
+            )
             stale.extend(
                 CaseViewStaleRef(kind="dropdown", value=entry)
-                for entry in sorted(dropdown_entries - existing)
+                for entry in sorted(dropdown_entries - existing_entries)
+                if parse_dropdown_entry(entry)[0] in existing_refs
             )
         return stale
 
-    async def _existing_dropdown_options(self, entries: list[str]) -> set[str]:
-        definition_refs = {parse_dropdown_entry(entry)[0] for entry in entries}
+    async def _existing_dropdowns(
+        self, definition_refs: set[str]
+    ) -> tuple[set[str], set[str]]:
+        """Return which of these dropdowns exist, and their options as entries."""
         if not definition_refs:
-            return set()
+            return set(), set()
         rows = (
             await self.session.execute(
                 select(CaseDropdownDefinition.ref, CaseDropdownOption.ref)
-                .join(
+                .outerjoin(
                     CaseDropdownOption,
                     CaseDropdownOption.definition_id == CaseDropdownDefinition.id,
                 )
@@ -601,6 +610,10 @@ class CaseViewsService(BaseWorkspaceService):
                 )
             )
         ).tuples()
-        return {
-            format_dropdown_entry(definition, option) for definition, option in rows
-        }
+        refs: set[str] = set()
+        entries: set[str] = set()
+        for definition, option in rows:
+            refs.add(definition)
+            if option is not None:
+                entries.add(format_dropdown_entry(definition, option))
+        return refs, entries
