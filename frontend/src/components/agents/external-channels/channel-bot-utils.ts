@@ -107,17 +107,6 @@ function latestUpdated(
  * The bot a provider card manages: active, else installed, else the latest
  * disconnected, else reserved. Only an install sets `provider_app_id`.
  */
-/** The workspace's platform install and its state; only a finished install records the app. */
-export function platformInstallState(
-  installs: Array<AgentChannelBotRead> | undefined
-): { install: AgentChannelBotRead | null; state: ChannelBotState } {
-  const install = installs ? pickChannelBot(installs) : null
-  return {
-    install,
-    state: channelBotState(install, install?.provider_app_id != null),
-  }
-}
-
 export function pickChannelBot(
   bots: Array<AgentChannelBotRead>
 ): AgentChannelBotRead | null {
@@ -129,6 +118,17 @@ export function pickChannelBot(
     latestUpdated(bots.filter((bot) => bot.status === "disconnected")) ??
     latestUpdated(bots)
   )
+}
+
+/** The workspace's platform install and its state; only a finished install records the app. */
+export function platformInstallState(
+  installs: Array<AgentChannelBotRead> | undefined
+): { install: AgentChannelBotRead | null; state: ChannelBotState } {
+  const install = installs ? pickChannelBot(installs) : null
+  return {
+    install,
+    state: channelBotState(install, install?.provider_app_id != null),
+  }
 }
 
 /** `value` when it parses as an https URL, else null. */
