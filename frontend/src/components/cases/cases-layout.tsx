@@ -2,13 +2,7 @@
 
 import { TimerOffIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CaseBatchResponse,
   CaseDropdownDefinitionRead,
@@ -35,7 +29,7 @@ import {
   CasesAccordion,
   orderCasesForDisplay,
 } from "@/components/cases/cases-accordion"
-import { CasesHeader } from "@/components/cases/cases-header"
+import { CasesHeader, type CasesViewBar } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import type {
   FilterMode,
@@ -111,8 +105,8 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
-  /** Read-only view conditions, shown with the filters. */
-  viewChips?: ReactNode
+  /** Saved-view controls for the header. */
+  viewBar?: CasesViewBar
 }
 
 /** Workspace case list with a promoted exact match and filtered results. */
@@ -162,7 +156,7 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
-  viewChips,
+  viewBar,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -477,7 +471,7 @@ export function CasesLayout({
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
-    viewChips,
+    viewBar,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
     isCountsError,

@@ -982,7 +982,6 @@ function CasesActions() {
         closureRequirementsHref={closureRequirementsHref}
         durationsHref={durationsHref}
       />
-      {view === CasesViewMode.Cases && <CaseViewHeaderSlot />}
       {syncActions}
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
@@ -2870,6 +2869,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         ) : (
           titleContent
         )}
+        {isCasesListPage && <CaseViewHeaderSlot />}
       </div>
 
       {/* Middle section: bulk selection actions */}

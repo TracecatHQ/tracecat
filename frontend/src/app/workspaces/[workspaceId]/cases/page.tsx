@@ -10,8 +10,11 @@ import type {
 } from "@/client"
 import { CaseViewHeaderPortal } from "@/components/cases/case-view-header-slot"
 import {
+  CaseViewActions,
   CaseViewChips,
-  CaseViewSwitcher,
+  CaseViewEditorPanel,
+  CaseViewMenu,
+  useCaseViewEditor,
 } from "@/components/cases/case-view-switcher"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -220,6 +223,7 @@ function CasesPageBody({
     viewColumns,
     personalColumns: personalColumnIds,
   })
+  const viewEditor = useCaseViewEditor()
   const {
     cases,
     isLoading,
@@ -264,7 +268,11 @@ function CasesPageBody({
   return (
     <div className="size-full overflow-hidden">
       <CaseViewHeaderPortal>
-        <CaseViewSwitcher workspaceId={workspaceId} controls={viewControls} />
+        <CaseViewMenu
+          workspaceId={workspaceId}
+          controls={viewControls}
+          editor={viewEditor}
+        />
       </CaseViewHeaderPortal>
       <CasesLayout
         cases={cases}
@@ -318,7 +326,26 @@ function CasesPageBody({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}
-        viewChips={<CaseViewChips controls={viewControls} />}
+        viewBar={{
+          panel: viewEditor.mode && (
+            <CaseViewEditorPanel
+              key={viewEditor.mode.kind}
+              workspaceId={workspaceId}
+              controls={viewControls}
+              editor={viewEditor}
+              mode={viewEditor.mode}
+            />
+          ),
+          chips: <CaseViewChips controls={viewControls} />,
+          renderActions: ({ hasFilters, clearFilters }) => (
+            <CaseViewActions
+              controls={viewControls}
+              editor={viewEditor}
+              hasFilters={hasFilters}
+              clearFilters={clearFilters}
+            />
+          ),
+        }}
       />
     </div>
   )

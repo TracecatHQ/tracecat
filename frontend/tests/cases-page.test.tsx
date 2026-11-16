@@ -106,8 +106,11 @@ jest.mock("@/hooks/use-case-view-state", () => ({
 }))
 
 jest.mock("@/components/cases/case-view-switcher", () => ({
+  CaseViewActions: () => null,
   CaseViewChips: () => null,
-  CaseViewSwitcher: () => null,
+  CaseViewEditorPanel: () => null,
+  CaseViewMenu: () => null,
+  useCaseViewEditor: () => ({ mode: null, open: jest.fn(), close: jest.fn() }),
 }))
 
 jest.mock("@/components/cases/cases-layout", () => ({

@@ -369,7 +369,7 @@ describe("exact-first case search UI", () => {
         })
       )
     )
-    await user.click(screen.getByRole("button", { name: "Reset" }))
+    await user.click(screen.getByRole("button", { name: "Clear" }))
     expect(sortControl).toHaveTextContent("Updated")
     await waitFor(() =>
       expect(casesQueryCases).toHaveBeenLastCalledWith(
@@ -455,7 +455,7 @@ describe("exact-first case search UI", () => {
     expect(mockToast).not.toHaveBeenCalled()
   })
 
-  it("restores relevance for the next words search after Reset", async () => {
+  it("restores relevance for the next words search after Clear", async () => {
     const user = userEvent.setup()
     setup({ lexicalControls: true })
     const searchInput = screen.getByRole("textbox", { name: "Search cases" })
@@ -472,7 +472,7 @@ describe("exact-first case search UI", () => {
         })
       )
     )
-    await user.click(screen.getByRole("button", { name: "Reset" }))
+    await user.click(screen.getByRole("button", { name: "Clear" }))
     expect(searchInput).toHaveValue("")
     fireEvent.change(searchInput, { target: { value: "next words" } })
     await waitFor(() =>

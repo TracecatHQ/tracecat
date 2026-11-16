@@ -1,13 +1,10 @@
 "use client"
 
-import { Cross2Icon } from "@radix-ui/react-icons"
-import { format } from "date-fns"
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   CalendarIcon,
   Check,
-  ChevronDown,
   CircleSlashIcon,
   ClockIcon,
   ListIcon,
@@ -20,14 +17,7 @@ import {
   UserIcon,
   WholeWordIcon,
 } from "lucide-react"
-import {
-  type ComponentType,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
-import type { DateRange } from "react-day-picker"
+import { type ComponentType, type ReactNode, useMemo } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseDurationDefinitionRead,
@@ -46,7 +36,13 @@ import {
 } from "@/components/cases/case-categories"
 import { CaseColumnPicker } from "@/components/cases/case-column-picker"
 import {
-  CaseMoreFiltersMenu,
+  CaseAddFilterMenu,
+  CaseDateFilterChip,
+  type CaseFilterProperty,
+  CaseMultiFilterChip,
+  isDateFilterActive,
+} from "@/components/cases/case-filter-chips"
+import {
   DropdownDefinitionIcon,
   getDropdownFilterOptions,
   isDropdownFilterActive,
@@ -57,21 +53,14 @@ import {
   type CaseSortValue,
   DEFAULT_CASE_SORT,
 } from "@/components/cases/case-sort"
-import {
-  type FilterMode,
-  FilterMultiSelect,
-  type FilterOption,
-  type SortDirection,
+import type {
+  FilterMode,
+  FilterOption,
+  SortDirection,
 } from "@/components/filters/filter-multi-select"
 import { ListHeaderSearch } from "@/components/list-header-search"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -86,7 +75,6 @@ import {
 } from "@/components/ui/tooltip"
 import {
   type CaseDateFilterValue,
-  type CaseDatePreset,
   CURRENT_USER,
   DEFAULT_CREATED_PRESET,
   type DropdownFilterState,
@@ -96,197 +84,6 @@ import { cn } from "@/lib/utils"
 const getIconTextClass = (color?: string) =>
   color?.split(" ").find((token) => token.startsWith("text-")) ||
   "text-muted-foreground"
-
-const DATE_PRESET_OPTIONS: Array<{
-  value: CaseDatePreset
-  label: string
-}> = [
-  { value: null, label: "Any time" },
-  { value: "1d", label: "1 day ago" },
-  { value: "3d", label: "3 days ago" },
-  { value: "1w", label: "1 week ago" },
-  { value: "1m", label: "1 month ago" },
-]
-
-function getDateFilterLabel(filter: CaseDateFilterValue): string | null {
-  if (filter.type === "preset") {
-    if (filter.value === null) return null
-    return (
-      DATE_PRESET_OPTIONS.find((o) => o.value === filter.value)?.label ?? null
-    )
-  }
-  // Custom range
-  if (filter.value.from) {
-    if (filter.value.to) {
-      return `${format(filter.value.from, "MMM d")} - ${format(filter.value.to, "MMM d")}`
-    }
-    return `From ${format(filter.value.from, "MMM d")}`
-  }
-  return null
-}
-
-function isDateFilterActive(filter: CaseDateFilterValue): boolean {
-  if (filter.type === "preset") {
-    return filter.value !== null
-  }
-  return filter.value.from !== undefined
-}
-
-interface DateFilterSelectProps {
-  placeholder: string
-  icon: typeof ClockIcon | typeof CalendarIcon
-  value: CaseDateFilterValue
-  onChange: (value: CaseDateFilterValue) => void
-  className?: string
-}
-
-function DateFilterSelect({
-  placeholder,
-  icon: Icon,
-  value,
-  onChange,
-  className,
-}: DateFilterSelectProps) {
-  const [open, setOpen] = useState(false)
-  const [showCalendar, setShowCalendar] = useState(false)
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(
-    value.type === "range" ? value.value : undefined
-  )
-
-  useEffect(() => {
-    if (value.type === "range") {
-      setDateRange(value.value)
-    } else {
-      setDateRange(undefined)
-    }
-  }, [value])
-
-  const label = getDateFilterLabel(value)
-  const isActive = isDateFilterActive(value)
-
-  const handlePresetSelect = (preset: CaseDatePreset) => {
-    onChange({ type: "preset", value: preset })
-    setShowCalendar(false)
-    if (preset !== null) {
-      setOpen(false)
-    }
-  }
-
-  const handleRangeChange = (range: DateRange | undefined) => {
-    setDateRange(range)
-    if (range?.from) {
-      onChange({ type: "range", value: range })
-    }
-  }
-
-  const handleOpenChange = (newOpen: boolean) => {
-    setOpen(newOpen)
-    if (!newOpen) {
-      setShowCalendar(false)
-    }
-  }
-
-  return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
-            "hover:bg-muted/50",
-            isActive && "border-primary/50 bg-primary/5",
-            className
-          )}
-        >
-          <Icon className="size-3.5 text-muted-foreground" />
-          <span>{placeholder}</span>
-          {label && (
-            <span className="ml-0.5 max-w-[100px] truncate text-[10px] font-medium text-muted-foreground">
-              {label}
-            </span>
-          )}
-          <ChevronDown className="size-3 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-auto p-0 shadow-sm"
-        align="start"
-        sideOffset={4}
-      >
-        {showCalendar ? (
-          <div className="p-0">
-            <div className="flex items-center justify-between border-b px-3 py-2">
-              <span className="text-xs font-medium">Select date range</span>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setShowCalendar(false)}
-              >
-                Back
-              </button>
-            </div>
-            <Calendar
-              mode="range"
-              selected={dateRange}
-              onSelect={handleRangeChange}
-              numberOfMonths={2}
-              className="p-3"
-            />
-            {dateRange?.from && (
-              <div className="border-t px-3 py-2">
-                <button
-                  type="button"
-                  className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-                  onClick={() => setOpen(false)}
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="py-1">
-            {DATE_PRESET_OPTIONS.map((option) => (
-              <button
-                key={option.value ?? "any"}
-                type="button"
-                className={cn(
-                  "flex w-full items-center justify-between px-3 py-1.5 text-xs transition-colors",
-                  "hover:bg-muted",
-                  value.type === "preset" && value.value === option.value
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                )}
-                onClick={() => handlePresetSelect(option.value)}
-              >
-                <span>{option.label}</span>
-                {value.type === "preset" && value.value === option.value && (
-                  <Check className="size-3.5" />
-                )}
-              </button>
-            ))}
-            <div className="my-1 border-t" />
-            <button
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors",
-                "hover:bg-muted",
-                value.type === "range"
-                  ? "text-foreground"
-                  : "text-muted-foreground"
-              )}
-              onClick={() => setShowCalendar(true)}
-            >
-              <CalendarIcon className="size-3.5" />
-              <span>Custom range...</span>
-              {value.type === "range" && <Check className="ml-auto size-3.5" />}
-            </button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  )
-}
 
 const CASE_SORT_OPTIONS: Array<{
   value: CaseSortField
@@ -503,8 +300,21 @@ interface CasesHeaderProps {
   selectedCount?: number
   onSelectAll?: () => void
   onDeselectAll?: () => void
-  /** Read-only view conditions, shown with the filters. */
-  viewChips?: ReactNode
+  /** Saved-view controls, when the page supports views. */
+  viewBar?: CasesViewBar
+}
+
+/** The saved-view controls the cases page places in the header. */
+export interface CasesViewBar {
+  /** The inline form for naming a view, shown under the search row. */
+  panel?: ReactNode
+  /** Read-only view conditions, shown with the filter chips. */
+  chips?: ReactNode
+  /** Clear, reset, and save buttons at the end of the filter row. */
+  renderActions: (state: {
+    hasFilters: boolean
+    clearFilters: () => void
+  }) => ReactNode
 }
 
 /** Case search, visible scope, and the current view's filter controls. */
@@ -569,7 +379,7 @@ export function CasesHeader({
   selectedCount = 0,
   onSelectAll,
   onDeselectAll,
-  viewChips,
+  viewBar,
 }: CasesHeaderProps) {
   const statusOptions = useMemo<FilterOption<CaseStatus>[]>(() => {
     return Object.values(STATUSES).map((status) => ({
@@ -720,6 +530,91 @@ export function CasesHeader({
     )
   }
 
+  const filterProperties: CaseFilterProperty[] = [
+    {
+      kind: "multi",
+      key: "status",
+      label: "Status",
+      icon: <SignalIcon className="size-3.5 text-muted-foreground" />,
+      options: statusOptions,
+      value: statusFilter,
+      onChange: (value) => onStatusChange(value as CaseStatus[]),
+    },
+    {
+      kind: "multi",
+      key: "priority",
+      label: "Priority",
+      icon: <SignalHighIcon className="size-3.5 text-muted-foreground" />,
+      options: priorityOptions,
+      value: priorityFilter,
+      onChange: (value) => onPriorityChange(value as CasePriority[]),
+    },
+    {
+      kind: "multi",
+      key: "severity",
+      label: "Severity",
+      icon: <ShieldAlertIcon className="size-3.5 text-muted-foreground" />,
+      options: severityOptions,
+      value: severityFilter,
+      onChange: (value) => onSeverityChange(value as CaseSeverity[]),
+    },
+    {
+      kind: "multi",
+      key: "assignee",
+      label: "Assignee",
+      icon: <UserIcon className="size-3.5 text-muted-foreground" />,
+      options: assigneeOptions,
+      value: assigneeFilter,
+      onChange: onAssigneeChange,
+    },
+    {
+      kind: "multi",
+      key: "tags",
+      label: "Tags",
+      icon: <TagIcon className="size-3.5 text-muted-foreground" />,
+      options: tagOptions,
+      value: tagFilter,
+      onChange: onTagChange,
+    },
+    ...(dropdownDefinitions ?? []).map(
+      (definition): CaseFilterProperty => ({
+        kind: "multi",
+        key: `dropdown:${definition.ref}`,
+        label: definition.name,
+        icon: <DropdownDefinitionIcon definition={definition} />,
+        options: getDropdownFilterOptions(definition),
+        value: dropdownFilters[definition.ref]?.values ?? [],
+        onChange: (values) => onDropdownFilterChange(definition.ref, values),
+      })
+    ),
+    {
+      kind: "date",
+      key: "updated",
+      label: "Updated",
+      icon: <ClockIcon className="size-3.5 text-muted-foreground" />,
+      value: updatedAfter,
+      onChange: onUpdatedAfterChange,
+    },
+    {
+      kind: "date",
+      key: "created",
+      label: "Created",
+      icon: <CalendarIcon className="size-3.5 text-muted-foreground" />,
+      value: createdAfter,
+      onChange: onCreatedAfterChange,
+    },
+  ]
+
+  const hasFilterChips =
+    statusFilter.length > 0 ||
+    priorityFilter.length > 0 ||
+    severityFilter.length > 0 ||
+    assigneeFilter.length > 0 ||
+    tagFilter.length > 0 ||
+    hasDropdownFilters ||
+    isDateFilterActive(updatedAfter) ||
+    isDateFilterActive(createdAfter)
+
   return (
     <div className="shrink-0 border-b">
       {/* Row 1: Search */}
@@ -760,13 +655,10 @@ export function CasesHeader({
               onIncludeSubCasesChange={onIncludeSubCasesChange}
             />
           )}
-          <CaseMoreFiltersMenu
-            dropdownDefinitions={dropdownDefinitions}
-            dropdownFilters={dropdownFilters}
-            onDropdownFilterChange={onDropdownFilterChange}
-          />
         </div>
       </header>
+
+      {viewBar?.panel}
 
       <p id="case-search-scope" role="status" className="sr-only">
         {[
@@ -777,7 +669,7 @@ export function CasesHeader({
           .join(" · ")}
       </p>
 
-      {/* Row 2: Filter dropdowns */}
+      {/* Row 2: Applied filters, sort, and view actions */}
       <div className="flex items-start gap-2 py-2 pl-3 pr-4">
         {/* Select all keeps the accordion chevron column (w-7) so it stays
             aligned with case rows while the filters wrap beside it. */}
@@ -812,82 +704,90 @@ export function CasesHeader({
           <div className="h-6 w-7 shrink-0" aria-hidden />
         )}
 
-        <fieldset className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <fieldset className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <legend className="sr-only">Current view filters</legend>
-          <FilterMultiSelect
-            placeholder="Status"
-            icon={SignalIcon}
-            value={statusFilter}
-            onChange={onStatusChange}
-            options={statusOptions}
-            mode={statusMode}
-            onModeChange={onStatusModeChange}
-          />
-
-          <FilterMultiSelect
-            placeholder="Priority"
-            icon={SignalHighIcon}
-            value={priorityFilter}
-            onChange={onPriorityChange}
-            options={priorityOptions}
-            mode={priorityMode}
-            onModeChange={onPriorityModeChange}
-          />
-
-          <FilterMultiSelect
-            placeholder="Severity"
-            icon={ShieldAlertIcon}
-            value={severityFilter}
-            onChange={onSeverityChange}
-            options={severityOptions}
-            mode={severityMode}
-            onModeChange={onSeverityModeChange}
-          />
-
-          <FilterMultiSelect
-            placeholder="Assignee"
-            icon={UserIcon}
-            value={assigneeFilter}
-            onChange={onAssigneeChange}
-            options={assigneeOptions}
-            mode={assigneeMode}
-            onModeChange={onAssigneeModeChange}
-            allowExclude={false}
-            emptyMessage={
-              members && members.length > 0
-                ? "No matching assignees."
-                : "No assignees found."
-            }
-          />
-
-          <FilterMultiSelect
-            placeholder="Tags"
-            icon={TagIcon}
-            value={tagFilter}
-            onChange={onTagChange}
-            options={tagOptions}
-            mode={tagMode}
-            onModeChange={onTagModeChange}
-            allowExclude={false}
-            emptyMessage={
-              tags && tags.length > 0 ? "No matching tags." : "No tags found."
-            }
-          />
+          {statusFilter.length > 0 && (
+            <CaseMultiFilterChip
+              label="Status"
+              noun="statuses"
+              icon={<SignalIcon className="size-3.5 text-muted-foreground" />}
+              options={statusOptions}
+              value={statusFilter}
+              onChange={(value) => onStatusChange(value as CaseStatus[])}
+              mode={statusMode}
+              onModeChange={onStatusModeChange}
+            />
+          )}
+          {priorityFilter.length > 0 && (
+            <CaseMultiFilterChip
+              label="Priority"
+              noun="priorities"
+              icon={
+                <SignalHighIcon className="size-3.5 text-muted-foreground" />
+              }
+              options={priorityOptions}
+              value={priorityFilter}
+              onChange={(value) => onPriorityChange(value as CasePriority[])}
+              mode={priorityMode}
+              onModeChange={onPriorityModeChange}
+            />
+          )}
+          {severityFilter.length > 0 && (
+            <CaseMultiFilterChip
+              label="Severity"
+              noun="severities"
+              icon={
+                <ShieldAlertIcon className="size-3.5 text-muted-foreground" />
+              }
+              options={severityOptions}
+              value={severityFilter}
+              onChange={(value) => onSeverityChange(value as CaseSeverity[])}
+              mode={severityMode}
+              onModeChange={onSeverityModeChange}
+            />
+          )}
+          {assigneeFilter.length > 0 && (
+            <CaseMultiFilterChip
+              label="Assignee"
+              noun="assignees"
+              icon={<UserIcon className="size-3.5 text-muted-foreground" />}
+              options={assigneeOptions}
+              value={assigneeFilter}
+              onChange={onAssigneeChange}
+              mode={assigneeMode}
+              onModeChange={onAssigneeModeChange}
+              allowExclude={false}
+              emptyMessage="No matching assignees."
+            />
+          )}
+          {tagFilter.length > 0 && (
+            <CaseMultiFilterChip
+              label="Tags"
+              noun="tags"
+              icon={<TagIcon className="size-3.5 text-muted-foreground" />}
+              options={tagOptions}
+              value={tagFilter}
+              onChange={onTagChange}
+              mode={tagMode}
+              onModeChange={onTagModeChange}
+              allowExclude={false}
+              emptyMessage="No matching tags."
+            />
+          )}
 
           {dropdownDefinitions
             ?.filter((def) => isDropdownFilterActive(dropdownFilters[def.ref]))
             .map((def) => {
               const state = dropdownFilters[def.ref]
               return (
-                <FilterMultiSelect
+                <CaseMultiFilterChip
                   key={def.id}
-                  placeholder={def.name}
-                  renderTriggerIcon={() => (
-                    <DropdownDefinitionIcon definition={def} />
-                  )}
+                  label={def.name}
+                  noun="options"
+                  icon={<DropdownDefinitionIcon definition={def} />}
+                  options={getDropdownFilterOptions(def)}
                   value={state.values}
                   onChange={(values) => onDropdownFilterChange(def.ref, values)}
-                  options={getDropdownFilterOptions(def)}
                   mode={state.mode}
                   onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
                   allowExclude={false}
@@ -916,22 +816,38 @@ export function CasesHeader({
                 </Button>
               ))}
 
-          <DateFilterSelect
-            placeholder="Updated"
-            icon={ClockIcon}
-            value={updatedAfter}
-            onChange={onUpdatedAfterChange}
+          {isDateFilterActive(updatedAfter) && (
+            <CaseDateFilterChip
+              label="Updated"
+              icon={<ClockIcon className="size-3.5 text-muted-foreground" />}
+              value={updatedAfter}
+              onChange={onUpdatedAfterChange}
+              onRemove={() =>
+                onUpdatedAfterChange({ type: "preset", value: null })
+              }
+            />
+          )}
+          {isDateFilterActive(createdAfter) && (
+            <CaseDateFilterChip
+              label="Created"
+              icon={<CalendarIcon className="size-3.5 text-muted-foreground" />}
+              value={createdAfter}
+              onChange={onCreatedAfterChange}
+              onRemove={() =>
+                onCreatedAfterChange({ type: "preset", value: null })
+              }
+            />
+          )}
+
+          {viewBar?.chips}
+
+          <CaseAddFilterMenu
+            properties={filterProperties}
+            showLabel={!hasFilterChips}
           />
+        </fieldset>
 
-          <DateFilterSelect
-            placeholder="Created"
-            icon={CalendarIcon}
-            value={createdAfter}
-            onChange={onCreatedAfterChange}
-          />
-
-          {viewChips}
-
+        <div className="flex shrink-0 items-center gap-1.5">
           <CaseSortSelect
             value={sortBy}
             onChange={onSortByChange}
@@ -939,18 +855,19 @@ export function CasesHeader({
               searchMode === "full_text" && Boolean(appliedSearchQuery)
             }
           />
-
-          {hasFilters && (
-            <button
-              type="button"
-              onClick={handleReset}
-              className="flex h-6 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              Reset
-              <Cross2Icon className="size-3" />
-            </button>
-          )}
-        </fieldset>
+          {viewBar
+            ? viewBar.renderActions({ hasFilters, clearFilters: handleReset })
+            : hasFilters && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={handleReset}
+                >
+                  Clear
+                </Button>
+              )}
+        </div>
       </div>
     </div>
   )
