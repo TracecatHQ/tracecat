@@ -11,7 +11,7 @@ import {
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
-  agentChannelBotsListBotChannels,
+  agentChannelBotsListBotRoutableChannels,
   agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
@@ -277,7 +277,7 @@ export function isChannelListingNotSupported(error: unknown): boolean {
 }
 
 /** The channels a route can name, from the bot's provider tenant, a page at a time. */
-export function useChannelBotChannels(
+export function useChannelBotRoutableChannels(
   workspaceId: string,
   botId: string,
   { enabled = true }: { enabled?: boolean } = {}
@@ -285,7 +285,7 @@ export function useChannelBotChannels(
   const query = useInfiniteQuery({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "channels"],
     queryFn: async ({ pageParam }) =>
-      await agentChannelBotsListBotChannels({
+      await agentChannelBotsListBotRoutableChannels({
         workspaceId,
         botId,
         cursor: pageParam,
@@ -348,7 +348,7 @@ export function useAgentSlackPlacements(workspaceId: string): {
   } = useChannelBotRoutes(workspaceId, botId, {
     enabled: activeInstall !== null,
   })
-  const { channels } = useChannelBotChannels(workspaceId, botId, {
+  const { channels } = useChannelBotRoutableChannels(workspaceId, botId, {
     enabled: activeInstall !== null,
   })
   const loadAllRoutes = activeInstall !== null && hasMoreRoutes && !routesError

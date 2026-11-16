@@ -9,7 +9,7 @@ import {
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
-  agentChannelBotsListBotChannels,
+  agentChannelBotsListBotRoutableChannels,
   agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
@@ -36,7 +36,7 @@ export const api = {
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
   listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
   addRoute: jest.mocked(agentChannelBotsAddBotRoute),
-  listChannels: jest.mocked(agentChannelBotsListBotChannels),
+  listRoutableChannels: jest.mocked(agentChannelBotsListBotRoutableChannels),
   setRoute: jest.mocked(agentChannelBotsSetBotRoute),
   deleteRoute: jest.mocked(agentChannelBotsDeleteBotRoute),
   listPresets: jest.mocked(agentPresetsListAgentPresets),
@@ -136,7 +136,7 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
   )
   api.listPlatformApps.mockResolvedValue([])
   api.listRoutes.mockResolvedValue(routePage([]))
-  api.listChannels.mockResolvedValue(channelPage([]))
+  api.listRoutableChannels.mockResolvedValue(channelPage([]))
   api.listPresets.mockResolvedValue(AGENTS)
 }
 

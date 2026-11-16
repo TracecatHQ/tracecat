@@ -169,8 +169,8 @@ import type {
   AgentChannelBotsInstallBotResponse,
   AgentChannelBotsInstallPlatformBotData,
   AgentChannelBotsInstallPlatformBotResponse,
-  AgentChannelBotsListBotChannelsData,
-  AgentChannelBotsListBotChannelsResponse,
+  AgentChannelBotsListBotRoutableChannelsData,
+  AgentChannelBotsListBotRoutableChannelsResponse,
   AgentChannelBotsListBotRoutesData,
   AgentChannelBotsListBotRoutesResponse,
   AgentChannelBotsListBotsData,
@@ -7034,7 +7034,7 @@ export const agentChannelBotsDeleteBotRoute = (
 }
 
 /**
- * List Bot Channels
+ * List Bot Routable Channels
  * @param data The data for the request.
  * @param data.botId
  * @param data.workspaceId
@@ -7043,12 +7043,12 @@ export const agentChannelBotsDeleteBotRoute = (
  * @returns CursorPaginatedResponse_ChannelBotChannel_ Successful Response
  * @throws ApiError
  */
-export const agentChannelBotsListBotChannels = (
-  data: AgentChannelBotsListBotChannelsData
-): CancelablePromise<AgentChannelBotsListBotChannelsResponse> => {
+export const agentChannelBotsListBotRoutableChannels = (
+  data: AgentChannelBotsListBotRoutableChannelsData
+): CancelablePromise<AgentChannelBotsListBotRoutableChannelsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routable-channels",
     path: {
       bot_id: data.botId,
       workspace_id: data.workspaceId,

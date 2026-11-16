@@ -294,7 +294,13 @@ WORKSPACE_ROUTES = [
         id="install_platform",
     ),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
-    pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
+    pytest.param(
+        "GET",
+        f"/{uuid.uuid4()}/routable-channels",
+        None,
+        "agent:read",
+        id="routable_channels",
+    ),
     pytest.param(
         "POST", f"/{uuid.uuid4()}/routes", ROUTE_BODY, "agent:update", id="add_route"
     ),
@@ -320,7 +326,7 @@ ADMIN_METHODS = (
     "install_platform",
     "list_routes",
     "add_route",
-    "list_channels",
+    "list_routable_channels",
     "set_route",
     "delete_route",
 )
@@ -766,12 +772,12 @@ def test_channels_come_from_the_installed_admin(
             team_name="SecOps",
         ),
     ]
-    admin.list_channels.return_value = CursorPaginatedResponse(
+    admin.list_routable_channels.return_value = CursorPaginatedResponse(
         items=channels, next_cursor="dGVhbTpD", has_more=True
     )
 
     response = client.get(
-        f"/agent/channel-bots/{bot_id}/channels",
+        f"/agent/channel-bots/{bot_id}/routable-channels",
         params={"limit": 2, "cursor": "dGVhbTpB"},
     )
 
@@ -779,7 +785,7 @@ def test_channels_come_from_the_installed_admin(
     assert response.json()["items"] == [c.model_dump(mode="json") for c in channels]
     assert response.json()["next_cursor"] == "dGVhbTpD"
     assert response.json()["has_more"] is True
-    admin.list_channels.assert_awaited_once_with(
+    admin.list_routable_channels.assert_awaited_once_with(
         SESSION, ROLE, bot_id, page=PageParams(limit=2, cursor="dGVhbTpB")
     )
 
@@ -795,7 +801,9 @@ def test_channels_come_from_the_installed_admin(
 def test_channels_list_refuses_out_of_bounds_paging(
     client: TestClient, admin: AsyncMock, params: dict[str, object]
 ) -> None:
-    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/channels", params=params)
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/routable-channels", params=params
+    )
 
     assert response.status_code == 422
     assert admin.mock_calls == []
@@ -804,12 +812,12 @@ def test_channels_list_refuses_out_of_bounds_paging(
 def test_channels_list_keeps_a_malformed_cursors_error_code(
     client: TestClient, admin: AsyncMock
 ) -> None:
-    admin.list_channels.side_effect = PaginationError(
+    admin.list_routable_channels.side_effect = PaginationError(
         "bad cursor", code=PaginationErrorCode.INVALID_CURSOR
     )
 
     response = client.get(
-        f"/agent/channel-bots/{uuid.uuid4()}/channels", params={"cursor": "x"}
+        f"/agent/channel-bots/{uuid.uuid4()}/routable-channels", params={"cursor": "x"}
     )
 
     assert response.status_code == 400
@@ -827,9 +835,9 @@ def test_channels_list_keeps_a_malformed_cursors_error_code(
 def test_channel_listing_errors_map_to_http_errors(
     client: TestClient, admin: AsyncMock, error: Exception, status_code: int
 ) -> None:
-    admin.list_channels.side_effect = error
+    admin.list_routable_channels.side_effect = error
 
-    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/channels")
+    response = client.get(f"/agent/channel-bots/{uuid.uuid4()}/routable-channels")
 
     assert response.status_code == status_code
     assert response.json() == {"detail": str(error)}

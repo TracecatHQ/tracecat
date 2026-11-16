@@ -16624,14 +16624,14 @@ export type AgentChannelBotsDeleteBotRouteData = {
 
 export type AgentChannelBotsDeleteBotRouteResponse = void
 
-export type AgentChannelBotsListBotChannelsData = {
+export type AgentChannelBotsListBotRoutableChannelsData = {
   botId: string
   cursor?: string | null
   limit?: number
   workspaceId: string
 }
 
-export type AgentChannelBotsListBotChannelsResponse =
+export type AgentChannelBotsListBotRoutableChannelsResponse =
   CursorPaginatedResponse_ChannelBotChannel_
 
 export type AgentPresetsListAgentPresetsData = {
@@ -23595,9 +23595,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels": {
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routable-channels": {
     get: {
-      req: AgentChannelBotsListBotChannelsData
+      req: AgentChannelBotsListBotRoutableChannelsData
       res: {
         /**
          * Successful Response

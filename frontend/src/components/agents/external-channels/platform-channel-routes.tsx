@@ -41,7 +41,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   isChannelListingNotSupported,
   useAddChannelBotRoute,
-  useChannelBotChannels,
+  useChannelBotRoutableChannels,
   useChannelBotRoutes,
   useChannelBotsBusy,
   useDeleteChannelBotRoute,
@@ -287,7 +287,7 @@ export function PlatformChannelRoutes({
     hasMoreChannels,
     loadingMoreChannels,
     loadMoreChannels,
-  } = useChannelBotChannels(workspaceId, install.id)
+  } = useChannelBotRoutableChannels(workspaceId, install.id)
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(

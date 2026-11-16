@@ -52,7 +52,7 @@ function servePlatform(
   serveBots([platformSlackBot()])
   api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
   api.listRoutes.mockResolvedValue(routePage(routes))
-  api.listChannels.mockResolvedValue(channelPage(channels))
+  api.listRoutableChannels.mockResolvedValue(channelPage(channels))
 }
 
 /** Renders the Channels page and waits for the install's route editor. */
@@ -108,7 +108,7 @@ describe("PlatformChannelRoutes", () => {
     await choose(card, "Agent for the new route", "Phishing")
     await userEvent.click(within(card).getByRole("button", { name: "Add" }))
 
-    expect(api.listChannels).toHaveBeenCalledWith({
+    expect(api.listRoutableChannels).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
       botId: INSTALL_ID,
       cursor: null,
@@ -144,7 +144,7 @@ describe("PlatformChannelRoutes", () => {
 
   it("loads more channels, even while searching the loaded ones", async () => {
     const [alerts, phishing, soc] = CHANNELS
-    api.listChannels
+    api.listRoutableChannels
       .mockResolvedValueOnce(channelPage([alerts], "next"))
       .mockResolvedValueOnce(channelPage([phishing, soc]))
     const card = await editor()
@@ -162,7 +162,7 @@ describe("PlatformChannelRoutes", () => {
     expect(
       await screen.findByRole("option", { name: /soc/ })
     ).toBeInTheDocument()
-    expect(api.listChannels).toHaveBeenLastCalledWith({
+    expect(api.listRoutableChannels).toHaveBeenLastCalledWith({
       workspaceId: WORKSPACE_ID,
       botId: INSTALL_ID,
       cursor: "next",
@@ -173,7 +173,7 @@ describe("PlatformChannelRoutes", () => {
   })
 
   it("keeps the picker when a later channel page fails", async () => {
-    api.listChannels
+    api.listRoutableChannels
       .mockResolvedValueOnce(channelPage([CHANNELS[0]], "next"))
       .mockRejectedValueOnce(apiError(400, { detail: "Flaky" }))
     const card = await editor()
@@ -196,7 +196,9 @@ describe("PlatformChannelRoutes", () => {
 
   it("holds the invite hint for an unlisted channel until every page loads", async () => {
     servePlatform([route("C9", PRESET.id)])
-    api.listChannels.mockResolvedValue(channelPage([CHANNELS[0]], "next"))
+    api.listRoutableChannels.mockResolvedValue(
+      channelPage([CHANNELS[0]], "next")
+    )
     const card = await editor()
 
     const list = await within(card).findByRole("list", { name: "Channels" })
@@ -338,7 +340,9 @@ describe("PlatformChannelRoutes", () => {
   ])(
     "falls back to the channel ID on a %i from the listing",
     async (status, note) => {
-      api.listChannels.mockRejectedValue(apiError(status, { detail: "no" }))
+      api.listRoutableChannels.mockRejectedValue(
+        apiError(status, { detail: "no" })
+      )
       const card = await editor()
       expect(
         await within(card).findByText(note, { exact: false })
@@ -364,7 +368,7 @@ describe("PlatformChannelRoutes", () => {
 
   it("refuses a typed channel that already has a route", async () => {
     servePlatform([route("C1", "preset-2")])
-    api.listChannels.mockRejectedValue(apiError(501, { detail: "no" }))
+    api.listRoutableChannels.mockRejectedValue(apiError(501, { detail: "no" }))
     const card = await editor()
     await within(card).findByText("C1")
 
@@ -560,6 +564,6 @@ describe("PlatformChannelRoutes", () => {
     ).toBeNull()
     expect(api.listPlatformApps).not.toHaveBeenCalled()
     expect(api.listRoutes).not.toHaveBeenCalled()
-    expect(api.listChannels).not.toHaveBeenCalled()
+    expect(api.listRoutableChannels).not.toHaveBeenCalled()
   })
 })

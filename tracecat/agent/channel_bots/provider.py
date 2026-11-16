@@ -123,7 +123,7 @@ class ChannelBotAdmin(Protocol):
         """Raise `TracecatConflictError` when the channel already has a route."""
         ...
 
-    async def list_channels(
+    async def list_routable_channels(
         self,
         session: AsyncSession,
         role: Role,

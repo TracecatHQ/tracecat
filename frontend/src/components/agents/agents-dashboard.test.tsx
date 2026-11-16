@@ -63,7 +63,7 @@ jest.mock("@/client", () => ({
   agentChannelBotsListBots: jest.fn(),
   agentChannelBotsListPlatformApps: jest.fn(),
   agentChannelBotsListBotRoutes: jest.fn(),
-  agentChannelBotsListBotChannels: jest.fn(),
+  agentChannelBotsListBotRoutableChannels: jest.fn(),
   agentPresetsListAgentPresets: jest.fn(),
 }))
 
@@ -996,7 +996,7 @@ describe("AgentsDashboard entitlement split", () => {
           )
       )
       // C9 is on a channel page that is never loaded.
-      api.listChannels.mockResolvedValue(
+      api.listRoutableChannels.mockResolvedValue(
         channelPage(
           [
             {
@@ -1053,7 +1053,7 @@ describe("AgentsDashboard entitlement split", () => {
       expect(api.listRoutes).toHaveBeenCalledWith(
         expect.objectContaining({ botId: "platform-1", cursor: "page-2" })
       )
-      expect(api.listChannels).toHaveBeenCalledTimes(1)
+      expect(api.listRoutableChannels).toHaveBeenCalledTimes(1)
 
       // A paused bot of its own does not answer.
       expect(
@@ -1093,7 +1093,7 @@ describe("AgentsDashboard entitlement split", () => {
         row("Enrich agent").queryByTestId("slack-badges")
       ).not.toBeInTheDocument()
       expect(api.listRoutes).not.toHaveBeenCalled()
-      expect(api.listChannels).not.toHaveBeenCalled()
+      expect(api.listRoutableChannels).not.toHaveBeenCalled()
     })
 
     it("lists Slack filter options and writes a choice to the URL", async () => {

@@ -260,7 +260,7 @@ async def add_bot_route(
 
 
 @router.get(
-    "/{bot_id}/channels",
+    "/{bot_id}/routable-channels",
     response_model=CursorPaginatedResponse[ChannelBotChannel],
     responses={
         status.HTTP_501_NOT_IMPLEMENTED: {
@@ -269,7 +269,7 @@ async def add_bot_route(
     },
 )
 @require_scope("agent:read")
-async def list_bot_channels(
+async def list_bot_routable_channels(
     *,
     bot_id: uuid.UUID,
     role: WorkspaceActorRouteRole,
@@ -283,7 +283,7 @@ async def list_bot_channels(
     cursor: str | None = Query(default=None, max_length=8192),
 ) -> CursorPaginatedResponse[ChannelBotChannel]:
     return await _call(
-        admin.list_channels(
+        admin.list_routable_channels(
             session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
         )
     )
