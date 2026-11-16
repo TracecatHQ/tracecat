@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -24,7 +24,12 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.managed_resources.guard import ensure_none_managed, ensure_unmanaged
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_none_managed,
+    ensure_unmanaged,
+    managed_local_ids,
+)
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -302,6 +307,20 @@ class AgentFolderService(BaseWorkspaceService):
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
+        )
+
+    @require_scope("agent:read")
+    async def get_managed_preset_ids(
+        self, preset_ids: Collection[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given presets are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.AGENT_PRESET,
+            local_ids=preset_ids,
         )
 
     @require_scope("agent:update")

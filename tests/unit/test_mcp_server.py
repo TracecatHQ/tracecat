@@ -6253,6 +6253,67 @@ async def test_create_agent_folder_without_parents_requires_parent(
 
 
 @pytest.mark.anyio
+async def test_move_workflows_dry_run_batches_lookup_and_reports_locked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    movable = mcp_server.WorkflowUUID.new_uuid4()
+    locked = mcp_server.WorkflowUUID.new_uuid4()
+    missing = mcp_server.WorkflowUUID.new_uuid4()
+    lookups: list[set[mcp_server.WorkflowUUID]] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return SimpleNamespace(id=uuid.uuid4(), path=path)
+
+        async def get_workflow_titles(
+            self, workflow_ids: set[mcp_server.WorkflowUUID]
+        ) -> dict[mcp_server.WorkflowUUID, str]:
+            lookups.append(set(workflow_ids))
+            titles = {movable: "Triage", locked: "Synced"}
+            return {wf_id: titles[wf_id] for wf_id in workflow_ids if wf_id in titles}
+
+        async def get_managed_workflow_ids(
+            self, workflow_ids: Any
+        ) -> set[mcp_server.WorkflowUUID]:
+            return {locked} & set(workflow_ids)
+
+        async def move_workflow(self, *_args: Any) -> None:
+            raise AssertionError("dry run must not move workflows")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.move_workflows)(
+            workspace_id=str(workspace_id),
+            workflow_ids=[movable.short(), "not-an-id", missing.short(), str(locked)],
+            destination_path="/soc",
+            dry_run=True,
+        )
+    )
+
+    assert lookups == [{movable, missing, locked}]
+    assert result["movable_count"] == 1
+    assert result["movable_workflows"] == [
+        {"workflow_id": str(uuid.UUID(int=movable.int)), "title": "Triage"}
+    ]
+    errors = [error["error"] for error in result["errors"]]
+    assert len(errors) == 3
+    assert errors[1:] == [
+        f"Workflow {missing.short()} not found",
+        mcp_server.LOCKED_MESSAGE,
+    ]
+
+
+@pytest.mark.anyio
 async def test_move_agent_presets_dry_run_reports_invalid_and_missing_slugs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -6260,6 +6321,7 @@ async def test_move_agent_presets_dry_run_reports_invalid_and_missing_slugs(
     role = SimpleNamespace(workspace_id=workspace_id)
     destination_folder = SimpleNamespace(id=uuid.uuid4(), path="/soc/")
     preset_id = uuid.uuid4()
+    locked_preset_id = uuid.uuid4()
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -6270,10 +6332,15 @@ async def test_move_agent_presets_dry_run_reports_invalid_and_missing_slugs(
         async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
             return destination_folder if path == "/soc/" else None
 
+        async def get_managed_preset_ids(self, preset_ids: Any) -> set[uuid.UUID]:
+            return {locked_preset_id} & set(preset_ids)
+
     class _PresetService:
         async def get_preset_by_slug(self, slug: str) -> SimpleNamespace | None:
             if slug == "triage":
                 return SimpleNamespace(id=preset_id, slug=slug, name="Triage")
+            if slug == "locked":
+                return SimpleNamespace(id=locked_preset_id, slug=slug, name="Locked")
             return None
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -6291,17 +6358,22 @@ async def test_move_agent_presets_dry_run_reports_invalid_and_missing_slugs(
     result = _payload(
         await _tool(mcp_server.move_agent_presets)(
             workspace_id=str(workspace_id),
-            preset_slugs=["triage", "", "missing"],
+            preset_slugs=["triage", "", "missing", "locked"],
             destination_path="/soc/",
             dry_run=True,
         )
     )
 
     assert result["destination_path"] == "/soc/"
-    assert result["requested_count"] == 3
+    assert result["requested_count"] == 4
     assert result["movable_count"] == 1
     assert result["movable_presets"] == [{"preset_slug": "triage", "name": "Triage"}]
-    assert [error["preset_slug"] for error in result["errors"]] == ["", "missing"]
+    assert [error["preset_slug"] for error in result["errors"]] == [
+        "",
+        "missing",
+        "locked",
+    ]
+    assert result["errors"][-1]["error"] == mcp_server.LOCKED_MESSAGE
 
 
 @pytest.mark.anyio
@@ -6324,6 +6396,9 @@ async def test_move_agent_presets_to_root_moves_with_none_folder(
         ) -> None:
             moved["preset_id"] = requested_preset_id
             moved["folder"] = folder
+
+        async def get_managed_preset_ids(self, _preset_ids: Any) -> set[uuid.UUID]:
+            return set()
 
     class _PresetService:
         async def get_preset_by_slug(self, slug: str) -> SimpleNamespace | None:

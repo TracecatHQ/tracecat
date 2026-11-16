@@ -5126,36 +5126,38 @@ async def move_workflows(
                 if folder is None:
                     raise ToolError(f"Folder {normalized_destination} not found")
 
-            validated: list[WorkflowMoveItem] = []
             errors: list[WorkflowMoveError] = []
+            requested_uuids: list[tuple[str, WorkflowUUID]] = []
             for raw_workflow_id in workflow_ids:
                 try:
-                    workflow_uuid = WorkflowUUID.new(raw_workflow_id)
+                    requested_uuids.append(
+                        (raw_workflow_id, WorkflowUUID.new(raw_workflow_id))
+                    )
                 except ValueError as e:
                     errors.append(
                         WorkflowMoveError(workflow_id=raw_workflow_id, error=str(e))
                     )
-                    continue
 
-                statement = select(Workflow.id, Workflow.title).where(
-                    Workflow.workspace_id == folder_svc.workspace_id,
-                    Workflow.id == workflow_uuid,
-                )
-                result = await folder_svc.session.execute(statement)
-                if row := result.one_or_none():
-                    validated.append(
-                        WorkflowMoveItem(
-                            workflow_id=row.id,
-                            title=row.title,
-                        )
-                    )
+            workflow_titles = await folder_svc.get_workflow_titles(
+                {workflow_uuid for _, workflow_uuid in requested_uuids}
+            )
+            managed_ids = await folder_svc.get_managed_workflow_ids(
+                workflow_titles.keys()
+            )
+            validated: list[WorkflowMoveItem] = []
+            for raw_workflow_id, workflow_uuid in requested_uuids:
+                if (title := workflow_titles.get(workflow_uuid)) is None:
+                    error = f"Workflow {raw_workflow_id} not found"
+                elif workflow_uuid in managed_ids:
+                    error = LOCKED_MESSAGE
                 else:
-                    errors.append(
-                        WorkflowMoveError(
-                            workflow_id=raw_workflow_id,
-                            error=f"Workflow {raw_workflow_id} not found",
-                        )
+                    validated.append(
+                        WorkflowMoveItem(workflow_id=workflow_uuid, title=title)
                     )
+                    continue
+                errors.append(
+                    WorkflowMoveError(workflow_id=raw_workflow_id, error=error)
+                )
 
             if dry_run:
                 return WorkflowMoveResponse(
@@ -11115,6 +11117,21 @@ async def move_agent_presets(
                             ),
                         )
                     )
+
+            managed_ids = await folder_svc.get_managed_preset_ids(
+                {preset_id for preset_id, _ in validated}
+            )
+            if managed_ids:
+                errors.extend(
+                    AgentPresetMoveError(
+                        preset_slug=item.preset_slug, error=LOCKED_MESSAGE
+                    )
+                    for preset_id, item in validated
+                    if preset_id in managed_ids
+                )
+                validated = [
+                    entry for entry in validated if entry[0] not in managed_ids
+                ]
 
             if dry_run:
                 return AgentPresetMoveResponse(
