@@ -6921,6 +6921,7 @@ export const agentChannelBotsInstallPlatformBot = (
  * @param data The data for the request.
  * @param data.botId
  * @param data.workspaceId
+ * @param data.agentPresetId
  * @param data.limit
  * @param data.cursor
  * @returns CursorPaginatedResponse_AgentChannelRouteRead_ Successful Response
@@ -6937,6 +6938,7 @@ export const agentChannelBotsListBotRoutes = (
       workspace_id: data.workspaceId,
     },
     query: {
+      agent_preset_id: data.agentPresetId,
       limit: data.limit,
       cursor: data.cursor,
     },

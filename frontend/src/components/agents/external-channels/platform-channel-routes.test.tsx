@@ -168,6 +168,24 @@ describe("PlatformChannelRoutes", () => {
     expect(within(card).getByLabelText("Channel ID")).toHaveValue("C9")
   })
 
+  it("keeps the loaded channels when a later page fails", async () => {
+    api.listRoutes
+      .mockResolvedValueOnce(routePage([route("C1", "preset-2")], "next"))
+      .mockRejectedValueOnce(apiError(400, { detail: "Flaky" }))
+    const card = await editor()
+    await within(card).findByText("C1")
+
+    await userEvent.click(
+      within(card).getByRole("button", { name: "Show more" })
+    )
+
+    expect(await within(card).findByText("Flaky")).toBeInTheDocument()
+    expect(within(card).getByText("C1")).toBeInTheDocument()
+    expect(
+      within(card).getByRole("button", { name: "Show more" })
+    ).toBeEnabled()
+  })
+
   it("shows more channels a page at a time, still editable meanwhile", async () => {
     let finish: (page: ReturnType<typeof routePage>) => void = () => undefined
     api.listRoutes

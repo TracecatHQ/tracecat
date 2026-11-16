@@ -214,6 +214,7 @@ async def list_bot_routes(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
+    agent_preset_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -223,7 +224,11 @@ async def list_bot_routes(
 ) -> CursorPaginatedResponse[AgentChannelRouteRead]:
     return await _call(
         admin.list_routes(
-            session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
+            session,
+            role,
+            bot_id,
+            agent_preset_id=agent_preset_id,
+            page=PageParams(limit=limit, cursor=cursor),
         )
     )
 

@@ -19,7 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   useAgentChannelBots,
   useChannelBotInstallResult,
-  useChannelBotRoutes,
+  useChannelRoutesToAgent,
   usePlatformChannelBots,
   useSlackPlatformAppAvailable,
 } from "@/hooks/use-agent-channel-bots"
@@ -157,10 +157,12 @@ function PlatformSlackRoutesNote({
   install: AgentChannelBotRead
   agentPresetId: string
 }) {
-  const { routes } = useChannelBotRoutes(workspaceId, install.id)
-  const answers =
-    install.agent_preset_id === agentPresetId ||
-    routes?.some((route) => route.agent_preset_id === agentPresetId) === true
+  const { routed } = useChannelRoutesToAgent(
+    workspaceId,
+    install.id,
+    agentPresetId
+  )
+  const answers = install.agent_preset_id === agentPresetId || routed
   if (!answers) {
     return null
   }

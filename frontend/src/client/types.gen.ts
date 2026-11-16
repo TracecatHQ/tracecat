@@ -16554,6 +16554,7 @@ export type AgentChannelBotsInstallPlatformBotData = {
 export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
 
 export type AgentChannelBotsListBotRoutesData = {
+  agentPresetId?: string | null
   botId: string
   cursor?: string | null
   limit?: number

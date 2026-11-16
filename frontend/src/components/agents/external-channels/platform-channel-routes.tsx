@@ -145,14 +145,8 @@ export function PlatformChannelRoutes({
     )
   }
 
-  let routeList: ReactNode
-  if (routesError) {
-    routeList = (
-      <p className="text-xs text-destructive">
-        {getApiErrorDetail(routesError) ?? "Failed to load the channels."}
-      </p>
-    )
-  } else if (routesIsLoading) {
+  let routeList: ReactNode = null
+  if (routesIsLoading) {
     routeList = (
       <p className="text-xs text-muted-foreground">Loading channels...</p>
     )
@@ -211,13 +205,19 @@ export function PlatformChannelRoutes({
         ) : null}
       </ul>
     )
-  } else {
+  } else if (!routesError) {
     routeList = (
       <p className="text-xs text-muted-foreground">
         Every channel uses the default agent.
       </p>
     )
   }
+  // A failed later page keeps the pages already loaded, and Show more retries.
+  const routesErrorLine = routesError ? (
+    <p className="text-xs text-destructive">
+      {getApiErrorDetail(routesError) ?? "Failed to load the channels."}
+    </p>
+  ) : null
 
   return (
     <div className="space-y-6">
@@ -239,6 +239,7 @@ export function PlatformChannelRoutes({
       <div className="space-y-2">
         <p className="text-xs font-medium">Channels</p>
         {routeList}
+        {routesErrorLine}
         <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">

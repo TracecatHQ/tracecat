@@ -214,6 +214,35 @@ export function useChannelBotRoutes(workspaceId: string, botId: string) {
   }
 }
 
+/** Whether any channel of a platform install routes to the agent, asked of the server. */
+export function useChannelRoutesToAgent(
+  workspaceId: string,
+  botId: string,
+  agentPresetId: string
+) {
+  const { data: routed } = useQuery<boolean, TracecatApiError>({
+    queryKey: [
+      CHANNEL_BOTS_QUERY_KEY,
+      workspaceId,
+      botId,
+      "routes",
+      agentPresetId,
+    ],
+    queryFn: async () => {
+      const page = await agentChannelBotsListBotRoutes({
+        workspaceId,
+        botId,
+        agentPresetId,
+        limit: 1,
+      })
+      return page.items.length > 0
+    },
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  return { routed: routed === true }
+}
+
 /** Whether any channel bot mutation in the workspace is still running. */
 export function useChannelBotsBusy(workspaceId: string): boolean {
   return (

@@ -97,9 +97,11 @@ class ChannelBotAdmin(Protocol):
         role: Role,
         bot_id: uuid.UUID,
         *,
+        agent_preset_id: uuid.UUID | None,
         page: PageParams,
     ) -> CursorPaginatedResponse[AgentChannelRouteRead]:
-        """A page of the install's routes, ordered by `provider_channel_id` ascending.
+        """A page of the install's routes, only those to `agent_preset_id` when given,
+        ordered by `provider_channel_id` ascending.
 
         Raise ``PaginationError`` for a malformed or foreign cursor.
         """

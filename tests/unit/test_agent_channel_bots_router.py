@@ -555,7 +555,11 @@ def test_platform_routes_hand_the_request_to_the_admin(
         SESSION, ROLE, ChannelBotPlatformInstall.model_validate(PLATFORM_INSTALL_BODY)
     )
     admin.list_routes.assert_awaited_once_with(
-        SESSION, ROLE, bot_id, page=PageParams(limit=20, cursor=None)
+        SESSION,
+        ROLE,
+        bot_id,
+        agent_preset_id=None,
+        page=PageParams(limit=20, cursor=None),
     )
     admin.add_route.assert_awaited_once_with(
         SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
@@ -644,15 +648,22 @@ def test_routes_list_hands_the_page_to_the_admin(
         items=[], next_cursor="next", has_more=True
     )
 
+    preset_id = uuid.uuid4()
+
     response = client.get(
-        f"/agent/channel-bots/{bot_id}/routes", params={"limit": 2, "cursor": "c"}
+        f"/agent/channel-bots/{bot_id}/routes",
+        params={"limit": 2, "cursor": "c", "agent_preset_id": str(preset_id)},
     )
 
     assert response.status_code == 200
     assert response.json()["next_cursor"] == "next"
     assert response.json()["has_more"] is True
     admin.list_routes.assert_awaited_once_with(
-        SESSION, ROLE, bot_id, page=PageParams(limit=2, cursor="c")
+        SESSION,
+        ROLE,
+        bot_id,
+        agent_preset_id=preset_id,
+        page=PageParams(limit=2, cursor="c"),
     )
 
 

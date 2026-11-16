@@ -7,9 +7,9 @@ import {
   PRESET,
   platformSlackBot,
   reservedSlackBot,
-  routePage,
   serveBots,
   serveEntitlements,
+  serveRoutes,
   slackBot,
 } from "@/components/agents/external-channels/channel-bot-fixtures"
 import {
@@ -151,7 +151,7 @@ function servePlatform(
 ): void {
   serveBots(installs)
   api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
-  api.listRoutes.mockResolvedValue(routePage(routes))
+  serveRoutes(routes)
 }
 
 describe("Tracecat for Slack on the Channels tab", () => {
@@ -194,6 +194,12 @@ describe("Tracecat for Slack on the Channels tab", () => {
     expect(
       await screen.findByRole("link", { name: "Tracecat for Slack" })
     ).toBeInTheDocument()
+    expect(api.listRoutes).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "platform-1",
+      agentPresetId: PRESET.id,
+      limit: 1,
+    })
   })
 
   it("says nothing when another agent answers every channel", async () => {
