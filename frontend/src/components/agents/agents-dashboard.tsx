@@ -2122,7 +2122,7 @@ export function AgentsDashboard() {
     searchParams,
     replaceParams,
   })
-  const { slackPlacementsByPreset } = useAgentSlackPlacements(workspaceId)
+  const slackPlacementsByPreset = useAgentSlackPlacements(workspaceId)
   // A folder only lists its own children, so an active filter searches the
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)

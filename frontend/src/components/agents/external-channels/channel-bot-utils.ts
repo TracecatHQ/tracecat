@@ -55,7 +55,6 @@ export function channelName(channel: ChannelBotChannel): string {
     : channel.name
 }
 
-/** A channel in words, without an icon: `Team › #name` on Slack. */
 /** Whether the API refused to list channels because the provider cannot. */
 export function isChannelListingNotSupported(error: unknown): boolean {
   return getErrorStatus(error) === 501
@@ -66,6 +65,7 @@ export function isChannelListingNeedsReinstall(error: unknown): boolean {
   return getErrorStatus(error) === 424
 }
 
+/** A channel in words, without an icon: `Team › #name` on Slack. */
 export function channelLabel(
   provider: ChannelBotProvider,
   channel: ChannelBotChannel

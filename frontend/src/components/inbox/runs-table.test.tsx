@@ -11,6 +11,7 @@ import type { InboxSessionItem } from "@/lib/agents"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 let mockPreview = true
+let mockCanReadAgents = true
 
 jest.mock("@/client", () => ({
   agentChannelBotsListBotChannels: jest.fn(),
@@ -22,6 +23,10 @@ jest.mock("@/hooks/use-entitlements", () => ({
       key === "agent_channels_preview" && mockPreview,
     isLoading: false,
   }),
+}))
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: (scope: string) => scope !== "agent:read" || mockCanReadAgents,
 }))
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -107,6 +112,7 @@ function renderRows(sessions: InboxSessionItem[]) {
 describe("RunsTable thread channel", () => {
   beforeEach(() => {
     mockPreview = true
+    mockCanReadAgents = true
     jest.mocked(agentChannelBotsListBotChannels).mockReset()
     jest.mocked(agentChannelBotsListBotChannels).mockResolvedValue({
       items: [ALERTS, INCIDENTS],
@@ -151,8 +157,11 @@ describe("RunsTable thread channel", () => {
     expect(agentChannelBotsListBotChannels).not.toHaveBeenCalled()
   })
 
-  it("reads no channels without the preview entitlement", () => {
-    mockPreview = false
+  it.each([
+    ["the preview entitlement", () => (mockPreview = false)],
+    ["agent:read", () => (mockCanReadAgents = false)],
+  ])("reads no channels without %s", (_, closeGate) => {
+    closeGate()
     renderRows([inboxSession("linked", thread("C1"))])
 
     expect(screen.getByText("Session linked")).toBeInTheDocument()

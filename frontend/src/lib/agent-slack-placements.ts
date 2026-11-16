@@ -21,11 +21,7 @@ export type SlackPlacement =
       needsReinstall: boolean
     }
   | { kind: "default" }
-  | {
-      kind: "channel"
-      channelId: string
-      channel: ChannelBotChannel
-    }
+  | { kind: "channel"; channel: ChannelBotChannel }
 
 /** A bot's first page of channels, or why it could not be listed. */
 export type BotChannels = {
@@ -33,7 +29,11 @@ export type BotChannels = {
   error: Error | null
 }
 
-function byName(a: ChannelBotChannel, b: ChannelBotChannel): number {
+/** Orders channels by their name, after their team when the tenant spans several. */
+export function byChannelName(
+  a: ChannelBotChannel,
+  b: ChannelBotChannel
+): number {
   return channelName(a).localeCompare(channelName(b))
 }
 
@@ -68,7 +68,7 @@ export function slackPlacementsByPreset({
     if (
       placement.kind === "channel" &&
       placements.some(
-        (p) => p.kind === "channel" && p.channelId === placement.channelId
+        (p) => p.kind === "channel" && p.channel.id === placement.channel.id
       )
     ) {
       return
@@ -76,8 +76,8 @@ export function slackPlacementsByPreset({
     byPreset.set(presetId, [...placements, placement])
   }
   function addChannels(presetId: string, channels: ChannelBotChannel[]): void {
-    for (const channel of [...channels].sort(byName)) {
-      add(presetId, { kind: "channel", channelId: channel.id, channel })
+    for (const channel of [...channels].sort(byChannelName)) {
+      add(presetId, { kind: "channel", channel })
     }
   }
 
@@ -113,9 +113,9 @@ export function slackPlacementsByPreset({
     const channel = channelsById.get(route.provider_channel_id)
     return channel ? [{ presetId: route.agent_preset_id, channel }] : []
   })
-  routedChannels.sort((a, b) => byName(a.channel, b.channel))
+  routedChannels.sort((a, b) => byChannelName(a.channel, b.channel))
   for (const { presetId, channel } of routedChannels) {
-    add(presetId, { kind: "channel", channelId: channel.id, channel })
+    add(presetId, { kind: "channel", channel })
   }
   return byPreset
 }

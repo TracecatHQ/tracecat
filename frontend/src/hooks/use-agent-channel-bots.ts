@@ -37,6 +37,7 @@ import {
   isChannelListingNotSupported,
   platformInstallState,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
@@ -140,7 +141,10 @@ export function useAgentChannelBots(
 }
 
 /** The providers whose app this deployment registers, installable in one click. */
-export function useChannelBotPlatformApps(workspaceId: string) {
+export function useChannelBotPlatformApps(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const { hasEntitlement } = useEntitlements()
   const {
     data: platformApps,
@@ -150,7 +154,7 @@ export function useChannelBotPlatformApps(workspaceId: string) {
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform-apps"],
     queryFn: async () =>
       await agentChannelBotsListPlatformApps({ workspaceId }),
-    enabled: hasEntitlement("agent_channels_preview"),
+    enabled: enabled && hasEntitlement("agent_channels_preview"),
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
@@ -161,12 +165,16 @@ export function useChannelBotPlatformApps(workspaceId: string) {
  * Whether the workspace can manage Tracecat for Slack: the preview entitlement
  * and a Slack app the deployment registers.
  */
-export function useSlackPlatformAppAvailable(workspaceId: string) {
+export function useSlackPlatformAppAvailable(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const { platformApps, platformAppsIsLoading, platformAppsError } =
-    useChannelBotPlatformApps(workspaceId)
+    useChannelBotPlatformApps(workspaceId, { enabled })
   return {
     slackPlatformAvailable:
+      enabled &&
       hasEntitlement("agent_channels_preview") &&
       platformApps?.some((app) => app.provider === "slack") === true,
     slackPlatformIsLoading: entitlementsLoading || platformAppsIsLoading,
@@ -321,14 +329,16 @@ export function useChannelBotChannels(
 
 /**
  * The channel a session's linked thread is in, when its bot's cached first page
- * of channels names it. Never requests without the preview entitlement.
+ * of channels names it. Never requests without the preview entitlement and
+ * `agent:read`, which the API requires.
  */
 export function useChannelThreadChannel(
   workspaceId: string,
   channelThread: InboxChannelThread
 ): ChannelBotChannel | undefined {
   const { hasEntitlement } = useEntitlements()
-  const enabled = hasEntitlement("agent_channels_preview")
+  const canReadAgents = useScopeCheck("agent:read") === true
+  const enabled = hasEntitlement("agent_channels_preview") && canReadAgents
   const botId = channelThread.bot_id
   const { channels } = useChannelBotChannels(workspaceId, botId, { enabled })
   // A skipped query still returns data cached before the gate closed.
@@ -375,37 +385,37 @@ export function useChannelBotRoutableChannels(
 
 function combineBotChannels(
   results: UseQueryResult<CursorPaginatedResponse_ChannelBotChannel_>[]
-): { listed: BotChannels[]; isLoading: boolean } {
-  return {
-    listed: results.map(({ data, error }) => ({
-      channels: data?.items,
-      error,
-    })),
-    isLoading: results.some((result) => result.isLoading),
-  }
+): BotChannels[] {
+  return results.map(({ data, error }) => ({ channels: data?.items, error }))
 }
 
 /**
  * Where each agent answers in Slack, by preset ID: the channels each running
  * bot is in, from the first page of each. A platform install's routed channels
  * go to their agents and the rest to its default agent. A bot whose channels
- * cannot be listed falls back to answering everywhere.
+ * cannot be listed falls back to answering everywhere. Never requests without
+ * the preview entitlement and `agent:read`.
  */
-export function useAgentSlackPlacements(workspaceId: string): {
-  slackPlacementsByPreset: Map<string, SlackPlacement[]>
-  slackPlacementsIsLoading: boolean
-} {
+export function useAgentSlackPlacements(
+  workspaceId: string
+): Map<string, SlackPlacement[]> {
   const { hasEntitlement } = useEntitlements()
-  const preview = hasEntitlement("agent_channels_preview")
-  const { slackPlatformAvailable, slackPlatformIsLoading } =
-    useSlackPlatformAppAvailable(workspaceId)
-  const { installs, installsIsLoading } = usePlatformChannelBots(
+  const canReadAgents = useScopeCheck("agent:read") === true
+  const enabled = hasEntitlement("agent_channels_preview") && canReadAgents
+  const { slackPlatformAvailable } = useSlackPlatformAppAvailable(workspaceId, {
+    enabled,
+  })
+  const { installs } = usePlatformChannelBots(
     workspaceId,
     "slack",
     slackPlatformAvailable
   )
-  const { data: workspaceBots, isLoading: workspaceBotsIsLoading } =
-    useChannelBotsOwnedBy(workspaceId, "slack", "workspace", preview)
+  const { data: workspaceBots } = useChannelBotsOwnedBy(
+    workspaceId,
+    "slack",
+    "workspace",
+    enabled
+  )
   // A skipped query still returns data cached before the gate closed.
   const { install, state } = platformInstallState(
     slackPlatformAvailable ? installs : undefined
@@ -414,7 +424,6 @@ export function useAgentSlackPlacements(workspaceId: string): {
   const botId = activeInstall?.id ?? ""
   const {
     routes,
-    routesIsLoading,
     routesError,
     hasMoreRoutes,
     loadingMoreRoutes,
@@ -431,10 +440,10 @@ export function useAgentSlackPlacements(workspaceId: string): {
 
   const ownBots = useMemo(
     () =>
-      (preview ? (workspaceBots ?? []) : []).filter(
+      (enabled ? (workspaceBots ?? []) : []).filter(
         (bot) => bot.status === "active"
       ),
-    [preview, workspaceBots]
+    [enabled, workspaceBots]
   )
   const listedBots = useMemo(
     () => (activeInstall ? [activeInstall, ...ownBots] : ownBots),
@@ -447,13 +456,13 @@ export function useAgentSlackPlacements(workspaceId: string): {
     combine: useCallback(combineBotChannels, []),
   })
 
-  const placements = useMemo(
+  return useMemo(
     () =>
       slackPlacementsByPreset({
         ownBots,
         install: activeInstall,
         channelsByBot: new Map(
-          listedBots.map((bot, index) => [bot.id, botChannels.listed[index]])
+          listedBots.map((bot, index) => [bot.id, botChannels[index]])
         ),
         routes: activeInstall ? routes : undefined,
         moreRoutesLoading: loadAllRoutes,
@@ -469,17 +478,6 @@ export function useAgentSlackPlacements(workspaceId: string): {
       routesError,
     ]
   )
-
-  return {
-    slackPlacementsByPreset: placements,
-    slackPlacementsIsLoading:
-      (preview && workspaceBotsIsLoading) ||
-      slackPlatformIsLoading ||
-      installsIsLoading ||
-      routesIsLoading ||
-      loadAllRoutes ||
-      botChannels.isLoading,
-  }
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */

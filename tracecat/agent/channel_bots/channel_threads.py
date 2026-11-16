@@ -9,11 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channel_bots.provider import get_channel_bot_admin
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channel_bots.schemas import (
+    ChannelBotProvider,
+    InboxChannelThread,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentChannelBot, AgentSession, AgentSessionThread
-from tracecat.inbox.schemas import InboxChannelThread
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 

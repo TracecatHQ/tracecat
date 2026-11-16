@@ -46,6 +46,7 @@ import {
   useInstallAgentChannelBot,
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
+import { byChannelName } from "@/lib/agent-slack-placements"
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"
 const CHANNEL_SUMMARY_CAP = 2
@@ -81,9 +82,9 @@ export function SlackBotCard({
   const { channels } = useChannelBotChannels(workspaceId, bot?.id ?? "", {
     enabled: state === "active" && bot !== null,
   })
-  const channelLabels = (state === "active" ? (channels ?? []) : [])
+  const channelLabels = (state === "active" ? [...(channels ?? [])] : [])
+    .sort(byChannelName)
     .map((channel) => channelLabel("slack", channel))
-    .sort((a, b) => a.replace(/^#/, "").localeCompare(b.replace(/^#/, "")))
   const hiddenChannels = channelLabels.length - CHANNEL_SUMMARY_CAP
 
   return (

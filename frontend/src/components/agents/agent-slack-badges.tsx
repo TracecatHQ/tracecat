@@ -36,7 +36,7 @@ function slackPlacementKey(placement: SlackPlacement): string {
     case "default":
       return "default"
     case "channel":
-      return `channel:${placement.channelId}`
+      return `channel:${placement.channel.id}`
   }
 }
 

@@ -70,7 +70,7 @@ function summary(byPreset: ReturnType<typeof placements>) {
   return Object.fromEntries(
     [...byPreset].map(([presetId, list]) => [
       presetId,
-      list.map((p) => (p.kind === "channel" ? p.channelId : p.kind)),
+      list.map((p) => (p.kind === "channel" ? p.channel.id : p.kind)),
     ])
   )
 }

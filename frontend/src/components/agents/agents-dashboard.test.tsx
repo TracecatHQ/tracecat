@@ -1124,8 +1124,12 @@ describe("AgentsDashboard entitlement split", () => {
       )
     })
 
-    it("fetches and shows nothing without the preview", async () => {
-      serveSlack({ preview: false })
+    it.each([
+      ["the preview", { preview: false }, ""],
+      ["agent:read", {}, "agent:read"],
+    ])("fetches and shows nothing without %s", (_, slack, missingScope) => {
+      serveSlack(slack)
+      mockUseScopeCheck.mockImplementation((scope) => scope !== missingScope)
       renderCatalog()
       expect(screen.getByText("Triage agent")).toBeInTheDocument()
       expect(screen.getByText("Plain agent")).toBeInTheDocument()
