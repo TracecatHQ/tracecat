@@ -65,7 +65,7 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
     )
     monkeypatch.setattr(
         runtime_services,
-        "_EmbeddedUvicornServer",
+        "WorkerOwnedUvicornServer",
         lambda config: SimpleNamespace(serve=fake_serve),
     )
 
