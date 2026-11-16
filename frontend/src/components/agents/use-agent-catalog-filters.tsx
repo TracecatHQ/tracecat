@@ -173,8 +173,10 @@ function listSlackFilterOptions(
 ): FilterOption[] | null {
   if (slackPlacementsByPreset.size === 0) return null
   const channels = new Map<string, FilterOption>()
+  let hasDefault = false
   for (const placements of slackPlacementsByPreset.values()) {
     for (const placement of placements) {
+      hasDefault ||= placement.kind === "default"
       if (placement.kind === "channel") {
         channels.set(placement.channelId, {
           value: placement.channelId,
@@ -188,7 +190,9 @@ function listSlackFilterOptions(
     ...[...channels.values()].sort((a, b) =>
       a.label.replace(/^#/, "").localeCompare(b.label.replace(/^#/, ""))
     ),
-    { value: SLACK_FILTER_DEFAULT, label: "All other channels (default)" },
+    ...(hasDefault
+      ? [{ value: SLACK_FILTER_DEFAULT, label: "All other channels (default)" }]
+      : []),
     { value: SLACK_FILTER_ANY, label: "Any Slack channel" },
   ]
 }

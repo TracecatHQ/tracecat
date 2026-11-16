@@ -35,6 +35,10 @@ class ChannelListingNotSupported(TracecatException):
     """The bot's provider cannot list its channels; the API answers 501."""
 
 
+class ChannelListingNeedsReinstall(TracecatException):
+    """The bot's app lacks the scopes to list channels; the API answers 424."""
+
+
 class ChannelBotAdmin(Protocol):
     """Workspace-scoped by `role` except `complete_oauth` and the deployment-wide
     `platform_app_setup`. Raise `TracecatNotFoundError` for an unknown bot or preset,
@@ -123,6 +127,24 @@ class ChannelBotAdmin(Protocol):
         """Raise `TracecatConflictError` when the channel already has a route."""
         ...
 
+    async def list_channels(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[ChannelBotChannel]:
+        """A page of the channels the bot is a member of, for an install of any app,
+        paged by the provider's own cursor.
+
+        Raise `TracecatValidationError` unless the bot is installed and running,
+        `ChannelListingNotSupported` when its provider cannot list channels,
+        `ChannelListingNeedsReinstall` when its app lacks the scopes to, and
+        ``PaginationError`` for a malformed cursor.
+        """
+        ...
+
     async def list_routable_channels(
         self,
         session: AsyncSession,
@@ -131,11 +153,12 @@ class ChannelBotAdmin(Protocol):
         *,
         page: PageParams,
     ) -> CursorPaginatedResponse[ChannelBotChannel]:
-        """A page of the provider tenant's channels, paged by the provider's own cursor.
+        """A page of every channel in a platform install's provider tenant, which a
+        route can name, paged by the provider's own cursor.
 
-        Raise `TracecatValidationError` unless the bot is installed and running,
-        `ChannelListingNotSupported` when its provider cannot list channels, and
-        ``PaginationError`` for a malformed cursor.
+        Raise `TracecatValidationError` unless the bot is a platform install, installed
+        and running, `ChannelListingNotSupported` when its provider cannot list
+        channels, and ``PaginationError`` for a malformed cursor.
         """
         ...
 

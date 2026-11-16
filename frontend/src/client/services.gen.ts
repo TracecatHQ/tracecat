@@ -169,6 +169,8 @@ import type {
   AgentChannelBotsInstallBotResponse,
   AgentChannelBotsInstallPlatformBotData,
   AgentChannelBotsInstallPlatformBotResponse,
+  AgentChannelBotsListBotChannelsData,
+  AgentChannelBotsListBotChannelsResponse,
   AgentChannelBotsListBotRoutableChannelsData,
   AgentChannelBotsListBotRoutableChannelsResponse,
   AgentChannelBotsListBotRoutesData,
@@ -7029,6 +7031,39 @@ export const agentChannelBotsDeleteBotRoute = (
     },
     errors: {
       422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Bot Channels
+ * The channels the bot is a member of, for an install of any app.
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_ChannelBotChannel_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListBotChannels = (
+  data: AgentChannelBotsListBotChannelsData
+): CancelablePromise<AgentChannelBotsListBotChannelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+      424: "The bot's app lacks the scopes to list channels; reinstall it",
+      501: "The bot's provider cannot list its channels",
     },
   })
 }

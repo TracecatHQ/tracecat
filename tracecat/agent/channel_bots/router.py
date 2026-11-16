@@ -16,6 +16,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from tracecat import config
 from tracecat.agent.channel_bots.provider import (
     ChannelBotAdmin,
+    ChannelListingNeedsReinstall,
     ChannelListingNotSupported,
     get_channel_bot_admin,
 )
@@ -89,6 +90,9 @@ async def _call[T](call: Awaitable[T]) -> T:
     except ChannelListingNotSupported as exc:
         # The UI falls back to a typed channel ID on this status.
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
+    except ChannelListingNeedsReinstall as exc:
+        # The UI asks for a reinstall on this status.
+        raise HTTPException(status.HTTP_424_FAILED_DEPENDENCY, detail=str(exc)) from exc
     except PaginationError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail=exc.detail or str(exc)
@@ -257,6 +261,40 @@ async def add_bot_route(
 ) -> AgentChannelRouteRead:
     """Route a channel that has no route yet; 409 when it has one."""
     return await _call(admin.add_route(session, role, bot_id, params))
+
+
+@router.get(
+    "/{bot_id}/channels",
+    response_model=CursorPaginatedResponse[ChannelBotChannel],
+    responses={
+        status.HTTP_424_FAILED_DEPENDENCY: {
+            "description": "The bot's app lacks the scopes to list channels; reinstall it"
+        },
+        status.HTTP_501_NOT_IMPLEMENTED: {
+            "description": "The bot's provider cannot list its channels"
+        },
+    },
+)
+@require_scope("agent:read")
+async def list_bot_channels(
+    *,
+    bot_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[ChannelBotChannel]:
+    """The channels the bot is a member of, for an install of any app."""
+    return await _call(
+        admin.list_channels(
+            session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
+        )
+    )
 
 
 @router.get(

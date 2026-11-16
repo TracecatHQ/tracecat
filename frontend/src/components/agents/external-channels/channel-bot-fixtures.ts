@@ -9,6 +9,7 @@ import {
   agentChannelBotsDisconnectBot,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
+  agentChannelBotsListBotChannels,
   agentChannelBotsListBotRoutableChannels,
   agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
@@ -36,6 +37,7 @@ export const api = {
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
   listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
   addRoute: jest.mocked(agentChannelBotsAddBotRoute),
+  listChannels: jest.mocked(agentChannelBotsListBotChannels),
   listRoutableChannels: jest.mocked(agentChannelBotsListBotRoutableChannels),
   setRoute: jest.mocked(agentChannelBotsSetBotRoute),
   deleteRoute: jest.mocked(agentChannelBotsDeleteBotRoute),
@@ -136,6 +138,7 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
   )
   api.listPlatformApps.mockResolvedValue([])
   api.listRoutes.mockResolvedValue(routePage([]))
+  api.listChannels.mockResolvedValue(channelPage([]))
   api.listRoutableChannels.mockResolvedValue(channelPage([]))
   api.listPresets.mockResolvedValue(AGENTS)
 }
@@ -166,7 +169,7 @@ export function routePage(
   return { items, next_cursor: nextCursor, has_more: nextCursor !== null }
 }
 
-/** One page of a provider tenant's channels; `nextCursor` means more follow. */
+/** One page of channels; `nextCursor` means more follow. */
 export function channelPage(
   items: ChannelBotChannel[],
   nextCursor: string | null = null

@@ -4,7 +4,7 @@ export function buildSlackManifest({
   oauthRedirectUrl,
   appName,
   legacy = false,
-  channelAccess = false,
+  joinChannels = false,
 }: {
   /** Where Slack posts events and interactions, or null over Socket Mode. */
   endpointUrl: string | null
@@ -12,8 +12,9 @@ export function buildSlackManifest({
   appName: string
   /** The legacy channel token path: mentions only, and no agent_view (one-way per app). */
   legacy?: boolean
-  /** Read and join channels. Scopes added after install make every workspace re-approve. */
-  channelAccess?: boolean
+  /** Join public channels, which only the platform app routes. Scopes added after
+   * install make every workspace re-approve. */
+  joinChannels?: boolean
 }): Record<string, unknown> {
   const socket = endpointUrl === null
   const requestUrl = socket ? {} : { request_url: endpointUrl }
@@ -58,11 +59,13 @@ export function buildSlackManifest({
           // Agent label, and `assistant.threads.setStatus`.
           ...(legacy ? [] : ["assistant:write"]),
           "channels:history",
-          ...(channelAccess ? ["channels:join", "channels:read"] : []),
+          ...(joinChannels ? ["channels:join"] : []),
+          // Lists the channels the bot is in.
+          ...(legacy ? [] : ["channels:read"]),
           "chat:write",
           "chat:write.customize",
           "groups:history",
-          ...(channelAccess ? ["groups:read"] : []),
+          ...(legacy ? [] : ["groups:read"]),
           "im:history",
           "mpim:history",
           "reactions:read",
@@ -89,7 +92,7 @@ export function buildSlackPlatformManifest({
     endpointUrl,
     oauthRedirectUrl,
     appName: "Tracecat",
-    channelAccess: true,
+    joinChannels: true,
   })
 }
 

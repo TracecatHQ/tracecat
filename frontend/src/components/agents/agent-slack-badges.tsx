@@ -59,6 +59,37 @@ function SlackPlacementText({ placement }: { placement: SlackPlacement }) {
   )
 }
 
+function SlackPlacementBadge({
+  placement,
+  first,
+}: {
+  placement: SlackPlacement
+  first: boolean
+}) {
+  const badge = (
+    <Badge
+      variant="secondary"
+      className="h-5 max-w-[160px] gap-1 px-2 text-[10px] font-normal"
+    >
+      {first ? (
+        <SlackIcon className="size-3 shrink-0" aria-label="Slack" />
+      ) : null}
+      <SlackPlacementText placement={placement} />
+    </Badge>
+  )
+  if (placement.kind !== "workspace_bot" || !placement.needsReinstall) {
+    return badge
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipContent>
+        <span className="opacity-70">Reinstall to show channels</span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 /** Badges for where an agent answers in Slack, with overflow as `+N`. */
 export function AgentSlackBadges({
   placements,
@@ -74,16 +105,11 @@ export function AgentSlackBadges({
       className="flex shrink-0 items-center gap-1"
     >
       {placements.slice(0, SLACK_BADGE_CAP).map((placement, index) => (
-        <Badge
+        <SlackPlacementBadge
           key={slackPlacementKey(placement)}
-          variant="secondary"
-          className="h-5 max-w-[160px] gap-1 px-2 text-[10px] font-normal"
-        >
-          {index === 0 ? (
-            <SlackIcon className="size-3 shrink-0" aria-label="Slack" />
-          ) : null}
-          <SlackPlacementText placement={placement} />
-        </Badge>
+          placement={placement}
+          first={index === 0}
+        />
       ))}
       {overflow.length > 0 ? (
         <Tooltip>

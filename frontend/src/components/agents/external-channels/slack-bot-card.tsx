@@ -25,6 +25,7 @@ import {
   channelBotDetails,
   channelBotReturnUrl,
   channelBotState,
+  channelLabel,
   goToChannelBotAuthorization,
   httpsUrlOrNull,
 } from "@/components/agents/external-channels/channel-bot-utils"
@@ -40,12 +41,14 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
+  useChannelBotChannels,
   useChannelBotsBusy,
   useInstallAgentChannelBot,
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"
+const CHANNEL_SUMMARY_CAP = 2
 const TITLE = "Custom Slack app"
 const RECONNECT_WARNING =
   "Reconnecting takes this bot offline until you approve the app in Slack."
@@ -75,6 +78,13 @@ export function SlackBotCard({
   const updateNeeded =
     CHANNEL_BOT_STATES[state].installed &&
     (details?.update_needed === true || missingScopes.length > 0)
+  const { channels } = useChannelBotChannels(workspaceId, bot?.id ?? "", {
+    enabled: state === "active" && bot !== null,
+  })
+  const channelLabels = (state === "active" ? (channels ?? []) : [])
+    .map((channel) => channelLabel("slack", channel))
+    .sort((a, b) => a.replace(/^#/, "").localeCompare(b.replace(/^#/, "")))
+  const hiddenChannels = channelLabels.length - CHANNEL_SUMMARY_CAP
 
   return (
     <ChannelBotCard
@@ -91,6 +101,12 @@ export function SlackBotCard({
         <p className="text-xs text-muted-foreground">
           Run <code>/invite</code> with the bot&apos;s name in any channel, then
           mention the bot there.
+        </p>
+      ) : null}
+      {channelLabels.length > 0 ? (
+        <p className="truncate text-xs text-muted-foreground">
+          In {channelLabels.slice(0, CHANNEL_SUMMARY_CAP).join(", ")}
+          {hiddenChannels > 0 ? ` +${hiddenChannels}` : ""}
         </p>
       ) : null}
       {updateNeeded ? (

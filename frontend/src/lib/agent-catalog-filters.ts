@@ -14,7 +14,8 @@ const AGENT_FILTER_PARAMS = {
 
 /** Slack filter value matching an agent that answers anywhere in Slack. */
 export const SLACK_FILTER_ANY = "any"
-/** Slack filter value matching a platform install's default agent. */
+/** Slack filter value matching a platform install's default agent, shown only
+ * when its channels could not be listed. */
 export const SLACK_FILTER_DEFAULT = "default"
 
 /** Selected agents catalog filters. Each facet matches any of its values. */
@@ -26,11 +27,17 @@ export interface AgentCatalogFilters {
 }
 
 /**
- * Where an agent answers in Slack: every channel of its own Slack app, the
- * channels of the platform install without a route, or one routed channel.
+ * Where an agent answers in Slack: one channel its bot is in or routes to it,
+ * or, when a bot's channels cannot be listed, every channel of its own Slack
+ * app or the platform install's channels without a route.
  */
 export type SlackPlacement =
-  | { kind: "workspace_bot"; botId: string }
+  | {
+      kind: "workspace_bot"
+      botId: string
+      /** The app lacks the scopes to list its channels until reinstalled. */
+      needsReinstall: boolean
+    }
   | { kind: "default" }
   | {
       kind: "channel"

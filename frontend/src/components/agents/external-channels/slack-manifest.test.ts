@@ -124,15 +124,16 @@ describe("buildSlackManifest", () => {
     expect(manifest.oauth_config.scopes.bot).toContain("assistant:write")
   })
 
-  it("never asks a custom app for channel access", () => {
+  it("lets a custom app list the channels it is in, never join one", () => {
     const manifest = buildSlackManifest({
       endpointUrl: null,
       oauthRedirectUrl: REDIRECT,
       appName: "Triage",
     }) as { oauth_config: { scopes: { bot: string[] } } }
-    for (const scope of ["channels:read", "groups:read", "channels:join"]) {
-      expect(manifest.oauth_config.scopes.bot).not.toContain(scope)
-    }
+    expect(manifest.oauth_config.scopes.bot).toEqual(
+      expect.arrayContaining(["channels:read", "groups:read"])
+    )
+    expect(manifest.oauth_config.scopes.bot).not.toContain("channels:join")
   })
 })
 

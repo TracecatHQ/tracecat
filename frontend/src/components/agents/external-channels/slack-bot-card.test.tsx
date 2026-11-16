@@ -4,6 +4,7 @@ import type { ChannelBotInstallResult } from "@/client"
 import {
   api,
   apiError,
+  channelPage,
   reservedSlackBot,
   SLACK_ENDPOINT,
   SLACK_REDIRECT,
@@ -443,6 +444,35 @@ describe("Creating the custom Slack app", () => {
     expect(
       screen.getByText("/invite", { selector: "code" })
     ).toBeInTheDocument()
+    expect(screen.queryByText(/^In /)).not.toBeInTheDocument()
+  })
+
+  it("names the first channels an active bot is in", async () => {
+    serveBots([slackBot()])
+    api.listChannels.mockResolvedValue(
+      channelPage(
+        ["triage", "alerts", "soc"].map((name, i) => ({
+          id: `C${i}`,
+          name,
+          is_private: name === "soc",
+          is_member: true,
+        }))
+      )
+    )
+    renderPanel()
+    expect(await screen.findByText("In #alerts, soc +1")).toBeInTheDocument()
+    expect(api.listChannels).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "bot-1",
+      limit: 100,
+    })
+  })
+
+  it("lists no channels for a paused bot", async () => {
+    serveBots([slackBot({ status: "paused" })])
+    renderPanel()
+    await screen.findByText("Custom Slack app")
+    expect(api.listChannels).not.toHaveBeenCalled()
   })
 })
 
