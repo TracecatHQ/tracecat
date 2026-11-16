@@ -5675,11 +5675,25 @@ async def test_list_skill_tree_paginates_and_traverses(
     assert result["next_cursor"] is not None
     assert calls == ["/"]
 
+    second_page = _payload(
+        await _tool(mcp_server.list_skill_tree)(
+            workspace_id=str(workspace_id),
+            depth=2,
+            limit=1,
+            cursor=result["next_cursor"],
+        )
+    )
+    assert second_page["items"][0]["type"] == "skill"
+    assert second_page["items"][0]["skill_slug"] == "triage"
+    assert "slug" not in second_page["items"][0]
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("tool_name", "service_name"),
     [
+        ("create_workflow_folder", "WorkflowFolderService"),
+        ("create_table_folder", "TableFolderService"),
         ("create_agent_folder", "AgentFolderService"),
         ("create_skill_folder", "SkillFolderService"),
     ],
@@ -5733,6 +5747,359 @@ async def test_create_folder_creates_missing_parents(
     assert result["created_paths"] == ["/soc/", "/soc/triage/"]
     assert result["already_existed"] is False
     assert created_paths == ["/soc/", "/soc/triage/"]
+
+
+class _TreeItem:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+        assert mode == "json"
+        return self._payload
+
+
+@pytest.mark.anyio
+async def test_list_workflow_tree_stops_reading_when_page_is_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    calls: list[str] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    class _FolderService:
+        async def get_directory_items(
+            self, path: str, order_by: str = "desc"
+        ) -> list[_TreeItem]:
+            assert order_by == "desc"
+            calls.append(path)
+            if path == "/":
+                return [
+                    _TreeItem({"type": "folder", "path": "/a/", "name": "a"}),
+                    _TreeItem({"type": "folder", "path": "/b/", "name": "b"}),
+                ]
+            return [
+                _TreeItem(
+                    {
+                        "type": "workflow",
+                        "id": str(uuid.uuid4()),
+                        "title": f"Workflow in {path}",
+                        "alias": None,
+                        "status": "offline",
+                        "tags": [],
+                    }
+                )
+            ]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_workflow_tree)(
+            workspace_id=str(workspace_id), depth=0, limit=2
+        )
+    )
+    assert [item["path"] for item in first_page["items"]] == ["/a/", "/b/"]
+    assert first_page["has_more"] is True
+    assert first_page["depth"] == "unlimited"
+    assert calls == ["/", "/a/"]
+
+    calls.clear()
+    second_page = _payload(
+        await _tool(mcp_server.list_workflow_tree)(
+            workspace_id=str(workspace_id),
+            depth=0,
+            limit=2,
+            cursor=first_page["next_cursor"],
+        )
+    )
+    assert [item["folder_path"] for item in second_page["items"]] == ["/a/", "/b/"]
+    assert second_page["has_more"] is False
+    assert second_page["has_previous"] is True
+    assert calls == ["/", "/a/", "/b/"]
+
+
+@pytest.mark.anyio
+async def test_list_table_tree_paginates_and_traverses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    nested_table_id = uuid.uuid4()
+    calls: list[str] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    class _FolderService:
+        async def get_directory_items(
+            self, path: str, order_by: str = "desc"
+        ) -> list[_TreeItem]:
+            assert order_by == "desc"
+            calls.append(path)
+            if path == "/":
+                return [
+                    _TreeItem({"type": "folder", "path": "/soc/", "name": "soc"}),
+                    _TreeItem(
+                        {"type": "table", "id": str(uuid.uuid4()), "name": "assets"}
+                    ),
+                ]
+            if path == "/soc/":
+                return [
+                    _TreeItem(
+                        {"type": "table", "id": str(nested_table_id), "name": "iocs"}
+                    )
+                ]
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TableFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_table_tree)(
+            workspace_id=str(workspace_id), depth=2, limit=1
+        )
+    )
+    assert first_page["items"] == [
+        {"type": "folder", "path": "/soc/", "name": "soc", "depth": 1}
+    ]
+    assert first_page["has_more"] is True
+    assert calls == ["/"]
+
+    full_page = _payload(
+        await _tool(mcp_server.list_table_tree)(
+            workspace_id=str(workspace_id), depth=2, limit=10
+        )
+    )
+    assert [item["type"] for item in full_page["items"]] == [
+        "folder",
+        "table",
+        "table",
+    ]
+    assert full_page["items"][2] == {
+        "type": "table",
+        "table_id": str(nested_table_id),
+        "name": "iocs",
+        "folder_path": "/soc/",
+        "depth": 2,
+    }
+
+    folders_only = _payload(
+        await _tool(mcp_server.list_table_tree)(
+            workspace_id=str(workspace_id), depth=2, include_tables=False
+        )
+    )
+    assert [item["type"] for item in folders_only["items"]] == ["folder"]
+
+    with pytest.raises(ToolError, match="depth must be >= 0"):
+        await _tool(mcp_server.list_table_tree)(
+            workspace_id=str(workspace_id), depth=-1
+        )
+
+
+class _TableMoveFolderService:
+    def __init__(self, workspace_id: uuid.UUID, tables: dict[uuid.UUID, str]) -> None:
+        self.workspace_id = workspace_id
+        self.tables = tables
+        self.folders = {"/soc/": SimpleNamespace(id=uuid.uuid4(), path="/soc/")}
+        self.moves: list[tuple[uuid.UUID, SimpleNamespace | None]] = []
+        self.failing_ids: set[uuid.UUID] = set()
+        self.session = SimpleNamespace(execute=self._execute, rollback=self._rollback)
+        self.queries = 0
+
+    async def _execute(self, _statement: Any) -> SimpleNamespace:
+        self.queries += 1
+        rows = [
+            SimpleNamespace(id=table_id, name=name)
+            for table_id, name in self.tables.items()
+        ]
+        return SimpleNamespace(all=lambda: rows)
+
+    async def _rollback(self) -> None:
+        return None
+
+    async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+        return self.folders.get(path)
+
+    async def move_table(
+        self, table_id: uuid.UUID, folder: SimpleNamespace | None
+    ) -> None:
+        if table_id in self.failing_ids:
+            raise TracecatValidationError("Table is managed")
+        self.moves.append((table_id, folder))
+
+
+def _patch_table_move_service(
+    monkeypatch: pytest.MonkeyPatch, service: _TableMoveFolderService
+) -> None:
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return service.workspace_id, SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TableFolderService,
+        "with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+
+@pytest.mark.anyio
+async def test_move_tables_dry_run_reports_invalid_and_missing_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table_id = uuid.uuid4()
+    missing_id = uuid.uuid4()
+    service = _TableMoveFolderService(uuid.uuid4(), {table_id: "iocs"})
+    _patch_table_move_service(monkeypatch, service)
+
+    result = _payload(
+        await _tool(mcp_server.move_tables)(
+            workspace_id=str(service.workspace_id),
+            table_ids=[str(table_id), "not-a-uuid", str(missing_id)],
+            destination_path="/soc",
+            dry_run=True,
+        )
+    )
+
+    assert result["destination_path"] == "/soc/"
+    assert result["requested_count"] == 3
+    assert result["movable_count"] == 1
+    assert result["movable_tables"] == [{"table_id": str(table_id), "name": "iocs"}]
+    assert [error["table_id"] for error in result["errors"]] == [
+        "not-a-uuid",
+        str(missing_id),
+    ]
+    assert service.queries == 1
+    assert service.moves == []
+
+
+@pytest.mark.anyio
+async def test_move_tables_moves_to_root_and_continues_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    moved_id = uuid.uuid4()
+    failing_id = uuid.uuid4()
+    service = _TableMoveFolderService(
+        uuid.uuid4(), {moved_id: "assets", failing_id: "managed"}
+    )
+    service.failing_ids.add(failing_id)
+    _patch_table_move_service(monkeypatch, service)
+
+    result = _payload(
+        await _tool(mcp_server.move_tables)(
+            workspace_id=str(service.workspace_id),
+            table_ids=[str(failing_id), str(moved_id)],
+            destination_path="/",
+        )
+    )
+
+    assert result["moved_count"] == 1
+    assert result["moved_tables"] == [{"table_id": str(moved_id), "name": "assets"}]
+    assert result["errors"] == [
+        {"table_id": str(failing_id), "error": "Table is managed"}
+    ]
+    assert service.moves == [(moved_id, None)]
+
+
+@pytest.mark.anyio
+async def test_move_tables_rejects_missing_destination_and_empty_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _TableMoveFolderService(uuid.uuid4(), {})
+    _patch_table_move_service(monkeypatch, service)
+
+    with pytest.raises(ToolError, match="Folder /missing/ not found"):
+        await _tool(mcp_server.move_tables)(
+            workspace_id=str(service.workspace_id),
+            table_ids=[str(uuid.uuid4())],
+            destination_path="/missing/",
+        )
+    with pytest.raises(ToolError, match="table_ids must not be empty"):
+        await _tool(mcp_server.move_tables)(
+            workspace_id=str(service.workspace_id), table_ids=[]
+        )
+
+
+@pytest.mark.anyio
+async def test_table_folder_lifecycle_tools_resolve_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/soc/", name="soc")
+    parent = SimpleNamespace(id=uuid.uuid4(), path="/archive/", name="archive")
+    calls: list[tuple[Any, ...]] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return {"/soc/": folder, "/archive/": parent}.get(path)
+
+        async def rename_folder(
+            self, folder_id: uuid.UUID, new_name: str
+        ) -> SimpleNamespace:
+            calls.append(("rename", folder_id, new_name))
+            return SimpleNamespace(id=folder_id, path=f"/{new_name}/")
+
+        async def move_folder(
+            self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
+        ) -> SimpleNamespace:
+            calls.append(("move", folder_id, new_parent_id))
+            return SimpleNamespace(id=folder_id, path="/archive/soc/")
+
+        async def delete_folder(
+            self, folder_id: uuid.UUID, recursive: bool = False
+        ) -> None:
+            calls.append(("delete", folder_id, recursive))
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TableFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    renamed = _payload(
+        await _tool(mcp_server.rename_table_folder)(
+            workspace_id=str(workspace_id), path="/soc", new_name="detections"
+        )
+    )
+    assert renamed["path"] == "/detections/"
+
+    moved = _payload(
+        await _tool(mcp_server.move_table_folder)(
+            workspace_id=str(workspace_id),
+            path="/soc/",
+            destination_parent_path="/archive/",
+        )
+    )
+    assert moved["path"] == "/archive/soc/"
+
+    deleted = _payload(
+        await _tool(mcp_server.delete_table_folder)(
+            workspace_id=str(workspace_id), path="/soc/", recursive=True
+        )
+    )
+    assert deleted["recursive"] is True
+    assert calls == [
+        ("rename", folder.id, "detections"),
+        ("move", folder.id, parent.id),
+        ("delete", folder.id, True),
+    ]
+
+    with pytest.raises(ToolError, match="Folder /missing/ not found"):
+        await _tool(mcp_server.rename_table_folder)(
+            workspace_id=str(workspace_id), path="/missing/", new_name="x"
+        )
 
 
 @pytest.mark.anyio

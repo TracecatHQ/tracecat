@@ -14,7 +14,14 @@ import json
 import re
 import uuid
 from collections import defaultdict, deque
-from collections.abc import AsyncIterator, Collection, Mapping, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Collection,
+    Mapping,
+    Sequence,
+)
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -285,6 +292,7 @@ from tracecat.storage.object import (
     retrieve_stored_object,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.folders.service import TableFolderService
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -1084,7 +1092,7 @@ class SkillTreeSkillItem(BaseModel):
 
     type: Literal["skill"]
     name: str
-    slug: str
+    skill_slug: str
     description: str | None = None
     current_version_id: uuid.UUID | None = None
     folder_path: str
@@ -1300,6 +1308,70 @@ class TableResponse(TableSummaryResponse):
     """Table metadata response."""
 
     columns: list[TableColumnResponse] = Field(default_factory=list)
+
+
+class TableFolderCreatedResponse(BaseModel):
+    """Created table folder response."""
+
+    path: str
+    folder_id: uuid.UUID
+    created_paths: list[str]
+    already_existed: bool
+
+
+class TableTreeFolderItem(BaseModel):
+    """Folder item in the table tree response."""
+
+    type: Literal["folder"]
+    path: str
+    name: str
+    depth: int
+
+
+class TableTreeTableItem(BaseModel):
+    """Table item in the table tree response."""
+
+    type: Literal["table"]
+    table_id: uuid.UUID
+    name: str
+    folder_path: str
+    depth: int
+
+
+TableTreeItem = TableTreeFolderItem | TableTreeTableItem
+
+
+class TableTreeResponse(MCPPaginatedResponse[TableTreeItem]):
+    """Paginated table tree response."""
+
+    root_path: str
+    depth: int | Literal["unlimited"]
+
+
+class TableMoveItem(BaseModel):
+    """Table move candidate/result item."""
+
+    table_id: uuid.UUID
+    name: str
+
+
+class TableMoveError(BaseModel):
+    """Per-table move error."""
+
+    table_id: str
+    error: str
+
+
+class TableMoveResponse(BaseModel):
+    """Bulk table move response."""
+
+    destination_path: str
+    requested_count: int
+    moved_count: int | None = None
+    movable_count: int | None = None
+    moved_tables: list[TableMoveItem] = Field(default_factory=list)
+    movable_tables: list[TableMoveItem] = Field(default_factory=list)
+    errors: list[TableMoveError] = Field(default_factory=list)
 
 
 class TableRowResponse(BaseModel):
@@ -3627,6 +3699,67 @@ def _paginate_items[T](
     )
 
 
+async def _list_folder_tree_page[T](
+    *,
+    tool_name: str,
+    list_directory: Callable[[str], Awaitable[Sequence[BaseModel]]],
+    build_item: Callable[[dict[str, Any], str, int], T | None],
+    root_path: str,
+    depth: int,
+    limit: int,
+    cursor: str | None,
+    filters: dict[str, Any],
+) -> MCPPaginatedResponse[T]:
+    """Walk a folder tree breadth-first and return one page of items.
+
+    Stops reading directories once the page is full, so cost scales with the
+    requested page instead of the whole tree.
+    """
+    limit = _normalize_limit(
+        limit,
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    fingerprint = _pagination_fingerprint(tool_name, **filters)
+    start = (
+        _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
+        if cursor is not None
+        else 0
+    )
+    end = start + limit
+    queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+    items: list[T] = []
+    seen_items = 0
+    has_more = False
+
+    while queue and not has_more:
+        current_path, current_depth = queue.popleft()
+        for entry in await list_directory(current_path):
+            payload = entry.model_dump(mode="json")
+            if payload["type"] == "folder" and (depth == 0 or current_depth < depth):
+                queue.append((payload["path"], current_depth + 1))
+            item = build_item(payload, current_path, current_depth)
+            if item is None:
+                continue
+            if seen_items >= end:
+                has_more = True
+                break
+            if seen_items >= start:
+                items.append(item)
+            seen_items += 1
+
+    prev_start = max(0, start - limit)
+    return MCPPaginatedResponse[T](
+        items=items,
+        next_cursor=_encode_offset_cursor(end, fingerprint) if has_more else None,
+        prev_cursor=(
+            _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
+        ),
+        has_more=has_more,
+        has_previous=start > 0,
+    )
+
+
 def _truncate_embedded_list[T](
     items: Sequence[T],
     *,
@@ -4655,49 +4788,37 @@ async def list_workflow_tree(
         _, role = await _resolve_workspace_role(workspace_id)
         root_path = _normalize_folder_path_arg(path)
 
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> WorkflowTreeItem | None:
+            if payload["type"] == "folder":
+                return WorkflowTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_workflows:
+                return None
+            return WorkflowTreeWorkflowItem(
+                type="workflow",
+                workflow_id=WorkflowUUID.new(payload["id"]).short(),
+                title=payload["title"],
+                alias=payload["alias"],
+                status=payload["status"],
+                tags=payload.get("tags") or [],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
+
         async with WorkflowFolderService.with_session(role=role) as svc:
-            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
-            items: list[WorkflowTreeItem] = []
-
-            while queue:
-                current_path, current_depth = queue.popleft()
-                for item in await svc.get_directory_items(
-                    current_path, order_by="desc"
-                ):
-                    payload = item.model_dump(mode="json")
-                    if payload["type"] == "folder":
-                        items.append(
-                            WorkflowTreeFolderItem(
-                                type="folder",
-                                path=payload["path"],
-                                name=payload["name"],
-                                depth=current_depth,
-                            )
-                        )
-                        if depth == 0 or current_depth < depth:
-                            queue.append((payload["path"], current_depth + 1))
-                    elif include_workflows:
-                        items.append(
-                            WorkflowTreeWorkflowItem(
-                                type="workflow",
-                                workflow_id=WorkflowUUID.new(payload["id"]).short(),
-                                title=payload["title"],
-                                alias=payload["alias"],
-                                status=payload["status"],
-                                folder_path=current_path,
-                                depth=current_depth,
-                                tags=payload.get("tags") or [],
-                            )
-                        )
-
-            page = _paginate_items(
-                items,
+            page = await _list_folder_tree_page(
                 tool_name="list_workflow_tree",
-                limit=_normalize_limit(
-                    limit,
-                    default=config.TRACECAT__LIMIT_DEFAULT,
-                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-                ),
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
+                root_path=root_path,
+                depth=depth,
+                limit=limit,
                 cursor=cursor,
                 filters={
                     "path": root_path,
@@ -4705,15 +4826,15 @@ async def list_workflow_tree(
                     "include_workflows": include_workflows,
                 },
             )
-            return WorkflowTreeResponse(
-                items=page.items,
-                next_cursor=page.next_cursor,
-                prev_cursor=page.prev_cursor,
-                has_more=page.has_more,
-                has_previous=page.has_previous,
-                root_path=root_path,
-                depth="unlimited" if depth == 0 else depth,
-            )
+        return WorkflowTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
     except ToolError:
         raise
     except ValueError as e:
@@ -4785,7 +4906,7 @@ async def create_workflow_folder(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create workflow folder", error=str(e))
@@ -4798,7 +4919,17 @@ async def rename_workflow_folder(
     path: str,
     new_name: str,
 ) -> FolderOperationResponse:
-    """Rename a workflow folder by absolute path."""
+    """Rename a workflow folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -4829,7 +4960,18 @@ async def move_workflow_folder(
     path: str,
     destination_parent_path: str = "/",
 ) -> FolderOperationResponse:
-    """Move a workflow folder under a new parent path."""
+    """Move a workflow folder under a new parent path.
+
+    The folder's subfolders and workflows move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -4872,7 +5014,17 @@ async def delete_workflow_folder(
     path: str,
     recursive: bool = False,
 ) -> FolderDeleteResponse:
-    """Delete a workflow folder by absolute path."""
+    """Delete a workflow folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their workflows move to the workspace root.
+            Workflows are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -8954,6 +9106,403 @@ async def update_table(
 
 
 @mcp.tool()
+async def list_table_tree(
+    workspace_id: uuid.UUID,
+    path: str = "/",
+    depth: int = 1,
+    include_tables: bool = True,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> TableTreeResponse:
+    """List table folders and tables under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_tables: Whether to include tables alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> TableTreeItem | None:
+            if payload["type"] == "folder":
+                return TableTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_tables:
+                return None
+            return TableTreeTableItem(
+                type="table",
+                table_id=payload["id"],
+                name=payload["name"],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
+
+        async with TableFolderService.with_session(role=role) as svc:
+            page = await _list_folder_tree_page(
+                tool_name="list_table_tree",
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
+                root_path=root_path,
+                depth=depth,
+                limit=limit,
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_tables": include_tables,
+                },
+            )
+        return TableTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
+    except ToolError:
+        raise
+    except (ValueError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list table tree", error=str(e))
+        raise ToolError(f"Failed to list table tree: {e}") from None
+
+
+@mcp.tool()
+async def create_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    parents: bool = False,
+) -> TableFolderCreatedResponse:
+    """Create a table folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/iocs/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with TableFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return TableFolderCreatedResponse(
+                path=normalized_path,
+                folder_id=folder.id,
+                created_paths=created_paths,
+                already_existed=not created_paths,
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create table folder", error=str(e))
+        raise ToolError(f"Failed to create table folder: {e}") from None
+
+
+@mcp.tool()
+async def rename_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    new_name: str,
+) -> FolderOperationResponse:
+    """Rename a table folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with TableFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            renamed = await svc.rename_folder(folder.id, new_name)
+            return FolderOperationResponse(
+                folder_id=renamed.id,
+                path=renamed.path,
+                message=f"Table folder {normalized_path} renamed to {renamed.path}",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to rename table folder", error=str(e))
+        raise ToolError(f"Failed to rename table folder: {e}") from None
+
+
+@mcp.tool()
+async def move_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    destination_parent_path: str = "/",
+) -> FolderOperationResponse:
+    """Move a table folder under a new parent path.
+
+    The folder's subfolders and tables move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        normalized_parent_path = _normalize_folder_path_arg(destination_parent_path)
+
+        async with TableFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+
+            new_parent_id = None
+            if normalized_parent_path != "/":
+                parent_folder = await svc.get_folder_by_path(normalized_parent_path)
+                if parent_folder is None:
+                    raise ToolError(f"Folder {normalized_parent_path} not found")
+                new_parent_id = parent_folder.id
+
+            moved = await svc.move_folder(folder.id, new_parent_id)
+            return FolderOperationResponse(
+                folder_id=moved.id,
+                path=moved.path,
+                message=(
+                    f"Table folder {normalized_path} moved under "
+                    f"{normalized_parent_path}"
+                ),
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move table folder", error=str(e))
+        raise ToolError(f"Failed to move table folder: {e}") from None
+
+
+@mcp.tool()
+async def delete_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    recursive: bool = False,
+) -> FolderDeleteResponse:
+    """Delete a table folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their tables move to the workspace root.
+            Tables are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with TableFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            folder_id = folder.id
+            await svc.delete_folder(folder_id, recursive=recursive)
+            return FolderDeleteResponse(
+                folder_id=folder_id,
+                path=normalized_path,
+                recursive=recursive,
+                message=f"Table folder {normalized_path} deleted",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete table folder", error=str(e))
+        raise ToolError(f"Failed to delete table folder: {e}") from None
+
+
+@mcp.tool()
+async def move_tables(
+    workspace_id: uuid.UUID,
+    table_ids: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> TableMoveResponse:
+    """Move tables into or out of a folder.
+
+    This tool is best-effort and non-atomic. If one table fails to move,
+    the remaining table moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        table_ids: Table UUIDs.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved tables and per-table errors.
+    """
+
+    try:
+        if not table_ids:
+            raise ToolError("table_ids must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+
+        async with TableFolderService.with_session(role=role) as folder_svc:
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+
+            errors: list[TableMoveError] = []
+            requested_uuids: list[tuple[str, uuid.UUID]] = []
+            for raw_table_id in table_ids:
+                try:
+                    requested_uuids.append((raw_table_id, uuid.UUID(raw_table_id)))
+                except ValueError:
+                    errors.append(
+                        TableMoveError(
+                            table_id=raw_table_id,
+                            error=f"Invalid table ID {raw_table_id!r}",
+                        )
+                    )
+
+            table_names: dict[uuid.UUID, str] = {}
+            if requested_uuids:
+                result = await folder_svc.session.execute(
+                    select(Table.id, Table.name).where(
+                        Table.workspace_id == folder_svc.workspace_id,
+                        Table.id.in_({table_uuid for _, table_uuid in requested_uuids}),
+                    )
+                )
+                table_names = {row.id: row.name for row in result.all()}
+
+            validated: list[TableMoveItem] = []
+            for raw_table_id, table_uuid in requested_uuids:
+                if (name := table_names.get(table_uuid)) is not None:
+                    validated.append(TableMoveItem(table_id=table_uuid, name=name))
+                else:
+                    errors.append(
+                        TableMoveError(
+                            table_id=raw_table_id,
+                            error=f"Table {raw_table_id} not found",
+                        )
+                    )
+
+            if dry_run:
+                return TableMoveResponse(
+                    destination_path=normalized_destination,
+                    requested_count=len(table_ids),
+                    movable_count=len(validated),
+                    movable_tables=validated,
+                    errors=errors,
+                )
+
+            moved: list[TableMoveItem] = []
+            for table_info in validated:
+                try:
+                    await folder_svc.move_table(table_info.table_id, folder)
+                    moved.append(table_info)
+                except Exception as e:
+                    await folder_svc.session.rollback()
+                    errors.append(
+                        TableMoveError(
+                            table_id=str(table_info.table_id),
+                            error=str(e),
+                        )
+                    )
+
+            return TableMoveResponse(
+                destination_path=normalized_destination,
+                requested_count=len(table_ids),
+                moved_count=len(moved),
+                moved_tables=moved,
+                errors=errors,
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move tables", error=str(e))
+        raise ToolError(f"Failed to move tables: {e}") from None
+
+
+@mcp.tool()
 async def create_column(
     workspace_id: uuid.UUID,
     table_id: uuid.UUID,
@@ -10071,7 +10620,17 @@ async def list_agent_tree(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
 ) -> AgentTreeResponse:
-    """List agent folders and presets under a path."""
+    """List agent folders and presets under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_presets: Whether to include presets alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
 
     try:
         if depth < 0:
@@ -10079,86 +10638,54 @@ async def list_agent_tree(
 
         _, role = await _resolve_workspace_role(workspace_id)
         root_path = _normalize_folder_path_arg(path)
-        limit = _normalize_limit(
-            limit,
-            default=config.TRACECAT__LIMIT_DEFAULT,
-            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-        )
-        filters = {
-            "path": root_path,
-            "depth": depth,
-            "include_presets": include_presets,
-        }
-        fingerprint = _pagination_fingerprint("list_agent_tree", **filters)
-        start = (
-            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
-            if cursor is not None
-            else 0
-        )
-        end = start + limit
+
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> AgentTreeItem | None:
+            if payload["type"] == "folder":
+                return AgentTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_presets:
+                return None
+            return AgentTreePresetItem(
+                type="preset",
+                preset_slug=payload["slug"],
+                name=payload["name"],
+                model_provider=payload.get("model_provider"),
+                model_name=payload.get("model_name"),
+                tags=payload.get("tags") or [],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
 
         async with AgentFolderService.with_session(role=role) as svc:
-            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
-            items: list[AgentTreeItem] = []
-            seen_items = 0
-            has_more = False
-
-            def collect_item(item: AgentTreeItem) -> None:
-                nonlocal seen_items, has_more
-                if seen_items >= end:
-                    has_more = True
-                    return
-                if seen_items >= start:
-                    items.append(item)
-                seen_items += 1
-
-            while queue and not has_more:
-                current_path, current_depth = queue.popleft()
-                for item in await svc.get_directory_items(
-                    current_path, order_by="desc"
-                ):
-                    payload = item.model_dump(mode="json")
-                    if payload["type"] == "folder":
-                        collect_item(
-                            AgentTreeFolderItem(
-                                type="folder",
-                                path=payload["path"],
-                                name=payload["name"],
-                                depth=current_depth,
-                            )
-                        )
-                        if depth == 0 or current_depth < depth:
-                            queue.append((payload["path"], current_depth + 1))
-                    elif include_presets:
-                        collect_item(
-                            AgentTreePresetItem(
-                                type="preset",
-                                preset_slug=payload["slug"],
-                                name=payload["name"],
-                                folder_path=current_path,
-                                depth=current_depth,
-                                model_provider=payload.get("model_provider"),
-                                model_name=payload.get("model_name"),
-                                tags=payload.get("tags") or [],
-                            )
-                        )
-                    if has_more:
-                        break
-
-            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
-            prev_start = max(0, start - limit)
-            prev_cursor = (
-                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
-            )
-            return AgentTreeResponse(
-                items=items,
-                next_cursor=next_cursor,
-                prev_cursor=prev_cursor,
-                has_more=next_cursor is not None,
-                has_previous=start > 0,
+            page = await _list_folder_tree_page(
+                tool_name="list_agent_tree",
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
                 root_path=root_path,
-                depth="unlimited" if depth == 0 else depth,
+                depth=depth,
+                limit=limit,
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_presets": include_presets,
+                },
             )
+        return AgentTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
     except ToolError:
         raise
     except ValueError as e:
@@ -10174,7 +10701,15 @@ async def create_agent_folder(
     path: str,
     parents: bool = False,
 ) -> AgentFolderCreatedResponse:
-    """Create an agent folder by absolute path."""
+    """Create an agent folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/triage/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10235,7 +10770,17 @@ async def rename_agent_folder(
     path: str,
     new_name: str,
 ) -> FolderOperationResponse:
-    """Rename an agent folder by absolute path."""
+    """Rename an agent folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10266,7 +10811,18 @@ async def move_agent_folder(
     path: str,
     destination_parent_path: str = "/",
 ) -> FolderOperationResponse:
-    """Move an agent folder under a new parent path."""
+    """Move an agent folder under a new parent path.
+
+    The folder's subfolders and presets move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10309,7 +10865,17 @@ async def delete_agent_folder(
     path: str,
     recursive: bool = False,
 ) -> FolderDeleteResponse:
-    """Delete an agent folder by absolute path."""
+    """Delete an agent folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their presets move to the workspace root.
+            Presets are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10343,7 +10909,19 @@ async def move_agent_presets(
     destination_path: str = "/",
     dry_run: bool = False,
 ) -> AgentPresetMoveResponse:
-    """Move agent presets into or out of a folder by preset slug."""
+    """Move agent presets into or out of a folder by preset slug.
+
+    This tool is best-effort and non-atomic. If one preset fails to move,
+    the remaining preset moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        preset_slugs: Agent preset slugs.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved presets and per-preset errors.
+    """
 
     try:
         if not preset_slugs:
@@ -10438,91 +11016,74 @@ async def list_skill_tree(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
 ) -> SkillTreeResponse:
-    """List skill folders and skills under a path."""
+    """List skill folders and skills under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_skills: Whether to include skills alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
 
     try:
         if depth < 0:
             raise ToolError("depth must be >= 0")
+
         _, role = await _resolve_workspace_role(workspace_id)
         root_path = _normalize_folder_path_arg(path)
-        limit = _normalize_limit(
-            limit,
-            default=config.TRACECAT__LIMIT_DEFAULT,
-            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-        )
-        filters = {"path": root_path, "depth": depth, "include_skills": include_skills}
-        fingerprint = _pagination_fingerprint("list_skill_tree", **filters)
-        start = (
-            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
-            if cursor is not None
-            else 0
-        )
-        end = start + limit
+
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> SkillTreeItem | None:
+            if payload["type"] == "folder":
+                return SkillTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_skills:
+                return None
+            return SkillTreeSkillItem(
+                type="skill",
+                skill_slug=payload["slug"],
+                name=payload["name"],
+                description=payload.get("description"),
+                current_version_id=payload.get("current_version_id"),
+                tags=payload.get("tags") or [],
+                created_at=payload["created_at"],
+                updated_at=payload["updated_at"],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
 
         async with SkillFolderService.with_session(role=role) as svc:
-            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
-            items: list[SkillTreeItem] = []
-            seen_items = 0
-            has_more = False
-
-            def collect_item(item: SkillTreeItem) -> None:
-                nonlocal seen_items, has_more
-                if seen_items >= end:
-                    has_more = True
-                    return
-                if seen_items >= start:
-                    items.append(item)
-                seen_items += 1
-
-            while queue and not has_more:
-                current_path, current_depth = queue.popleft()
-                for item in await svc.get_directory_items(
-                    current_path, order_by="desc"
-                ):
-                    payload = item.model_dump(mode="json")
-                    if payload["type"] == "folder":
-                        collect_item(
-                            SkillTreeFolderItem(
-                                type="folder",
-                                path=payload["path"],
-                                name=payload["name"],
-                                depth=current_depth,
-                            )
-                        )
-                        if depth == 0 or current_depth < depth:
-                            queue.append((payload["path"], current_depth + 1))
-                    elif include_skills:
-                        collect_item(
-                            SkillTreeSkillItem(
-                                type="skill",
-                                name=payload["name"],
-                                slug=payload["slug"],
-                                description=payload.get("description"),
-                                current_version_id=payload.get("current_version_id"),
-                                folder_path=current_path,
-                                depth=current_depth,
-                                tags=payload.get("tags") or [],
-                                created_at=payload["created_at"],
-                                updated_at=payload["updated_at"],
-                            )
-                        )
-                    if has_more:
-                        break
-
-            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
-            prev_start = max(0, start - limit)
-            prev_cursor = (
-                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
-            )
-            return SkillTreeResponse(
-                items=items,
-                next_cursor=next_cursor,
-                prev_cursor=prev_cursor,
-                has_more=next_cursor is not None,
-                has_previous=start > 0,
+            page = await _list_folder_tree_page(
+                tool_name="list_skill_tree",
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
                 root_path=root_path,
-                depth="unlimited" if depth == 0 else depth,
+                depth=depth,
+                limit=limit,
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_skills": include_skills,
+                },
             )
+        return SkillTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
     except ToolError:
         raise
     except ValueError as e:
@@ -10538,7 +11099,15 @@ async def create_skill_folder(
     path: str,
     parents: bool = False,
 ) -> SkillFolderCreatedResponse:
-    """Create a skill folder by absolute path."""
+    """Create a skill folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/triage/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10599,7 +11168,17 @@ async def rename_skill_folder(
     path: str,
     new_name: str,
 ) -> FolderOperationResponse:
-    """Rename a skill folder by absolute path."""
+    """Rename a skill folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10630,7 +11209,18 @@ async def move_skill_folder(
     path: str,
     destination_parent_path: str = "/",
 ) -> FolderOperationResponse:
-    """Move a skill folder under a new parent path."""
+    """Move a skill folder under a new parent path.
+
+    The folder's subfolders and skills move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10673,7 +11263,17 @@ async def delete_skill_folder(
     path: str,
     recursive: bool = False,
 ) -> FolderDeleteResponse:
-    """Delete a skill folder by absolute path."""
+    """Delete a skill folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their skills move to the workspace root.
+            Skills are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10707,7 +11307,19 @@ async def move_skills(
     destination_path: str = "/",
     dry_run: bool = False,
 ) -> SkillMoveResponse:
-    """Move skills by slug into a destination folder."""
+    """Move skills into or out of a folder by skill slug.
+
+    This tool is best-effort and non-atomic. If one skill fails to move,
+    the remaining skill moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        skill_slugs: Skill slugs.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved skills and per-skill errors.
+    """
 
     try:
         if not skill_slugs:
