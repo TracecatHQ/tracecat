@@ -22,6 +22,7 @@ import {
   type ChannelBotProvider,
 } from "@/client"
 import {
+  CHANNEL_BOT_ERROR_PARAM,
   CHANNEL_BOT_INSTALL_PARAM,
   CHANNEL_BOT_MESSAGE_PARAM,
   CHANNEL_BOT_PROVIDER_NAMES,
@@ -48,10 +49,6 @@ const INSTALL_MESSAGE_LIMIT = 200
 /** What an OAuth return needs the Channels tab to show beside the cards. */
 export type ChannelBotInstallFailure = "slack_workspace_claimed"
 
-// The platform install's refusal when another Tracecat workspace holds the Slack workspace.
-const SLACK_WORKSPACE_CLAIMED =
-  /^Tracecat is already installed in this Slack workspace\b/
-
 /**
  * Toasts the result of an OAuth install the browser just returned from, except
  * a failure the tab explains inline. The parameters are untrusted, so titles are
@@ -74,7 +71,8 @@ export function useChannelBotInstallResult(): ChannelBotInstallFailure | null {
     const message = (url.searchParams.get(CHANNEL_BOT_MESSAGE_PARAM) ?? "")
       .trim()
       .slice(0, INSTALL_MESSAGE_LIMIT)
-    if (SLACK_WORKSPACE_CLAIMED.test(message)) {
+    // Only a platform install sets this code, so the claimed workspace is Slack's.
+    if (url.searchParams.get(CHANNEL_BOT_ERROR_PARAM) === "workspace_claimed") {
       setFailure("slack_workspace_claimed")
       return
     }

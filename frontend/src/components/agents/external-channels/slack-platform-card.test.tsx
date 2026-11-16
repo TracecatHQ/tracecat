@@ -241,8 +241,8 @@ describe("Channels page", () => {
     window.history.replaceState(
       {},
       "",
-      `${PAGE_PATH}?channel_bot_install=error&channel_bot_message=${encodeURIComponent(
-        "Tracecat is already installed in this Slack workspace. Disconnect that install, or ask a Slack admin to remove the app in Slack"
+      `${PAGE_PATH}?channel_bot_install=error&channel_bot_error=workspace_claimed&channel_bot_message=${encodeURIComponent(
+        "Reworded refusal"
       )}`
     )
     servePlatform([])
