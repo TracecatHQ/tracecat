@@ -13890,6 +13890,7 @@ export const $CaseViewPinUpdate = {
       anyOf: [
         {
           type: "integer",
+          maximum: 10000,
           minimum: 0,
         },
         {

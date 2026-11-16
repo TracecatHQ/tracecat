@@ -19,6 +19,8 @@ from tracecat.pagination import CursorPaginatedResponse
 
 MAX_CASE_VIEW_COLUMNS = 100
 MAX_CASE_VIEW_COLUMN_LENGTH = 200
+MAX_CASE_VIEW_PIN_POSITION = 10_000
+"""Keeps pin positions, and the next one after them, inside a 32-bit column."""
 
 type CaseViewKind = Literal["builtin", "custom"]
 type CaseViewSort = Literal["asc", "desc"]
@@ -208,5 +210,6 @@ class CaseViewPinUpdate(BaseModel):
     position: int | None = Field(
         default=None,
         ge=0,
+        le=MAX_CASE_VIEW_PIN_POSITION,
         description="Sidebar position. Omit to add the view at the end.",
     )

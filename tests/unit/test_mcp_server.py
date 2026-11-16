@@ -4346,7 +4346,7 @@ async def test_pin_and_unpin_case_view(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_pin_case_view_rejects_a_negative_position(
+async def test_pin_case_view_rejects_an_out_of_range_position(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pin_view = AsyncMock(return_value=_TOOL_VIEW)
@@ -4355,6 +4355,10 @@ async def test_pin_case_view_rejects_a_negative_position(
     with pytest.raises(ToolError, match="greater than or equal to 0"):
         await _tool(mcp_server.pin_case_view)(
             workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=-1
+        )
+    with pytest.raises(ToolError, match="less than or equal to 10000"):
+        await _tool(mcp_server.pin_case_view)(
+            workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=3_000_000_000
         )
     pin_view.assert_not_awaited()
 
