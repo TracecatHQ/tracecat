@@ -708,6 +708,7 @@ export function CasesHeader({
           <legend className="sr-only">Current view filters</legend>
           {statusFilter.length > 0 && (
             <CaseMultiFilterChip
+              key="status"
               label="Status"
               noun="statuses"
               icon={<SignalIcon className="size-3.5 text-muted-foreground" />}
@@ -720,6 +721,7 @@ export function CasesHeader({
           )}
           {priorityFilter.length > 0 && (
             <CaseMultiFilterChip
+              key="priority"
               label="Priority"
               noun="priorities"
               icon={
@@ -734,6 +736,7 @@ export function CasesHeader({
           )}
           {severityFilter.length > 0 && (
             <CaseMultiFilterChip
+              key="severity"
               label="Severity"
               noun="severities"
               icon={
@@ -748,6 +751,7 @@ export function CasesHeader({
           )}
           {assigneeFilter.length > 0 && (
             <CaseMultiFilterChip
+              key="assignee"
               label="Assignee"
               noun="assignees"
               icon={<UserIcon className="size-3.5 text-muted-foreground" />}
@@ -762,6 +766,7 @@ export function CasesHeader({
           )}
           {tagFilter.length > 0 && (
             <CaseMultiFilterChip
+              key="tags"
               label="Tags"
               noun="tags"
               icon={<TagIcon className="size-3.5 text-muted-foreground" />}
@@ -781,7 +786,7 @@ export function CasesHeader({
               const state = dropdownFilters[def.ref]
               return (
                 <CaseMultiFilterChip
-                  key={def.id}
+                  key={`dropdown:${def.id}`}
                   label={def.name}
                   noun="options"
                   icon={<DropdownDefinitionIcon definition={def} />}
@@ -818,6 +823,7 @@ export function CasesHeader({
 
           {isDateFilterActive(updatedAfter) && (
             <CaseDateFilterChip
+              key="updated"
               label="Updated"
               icon={<ClockIcon className="size-3.5 text-muted-foreground" />}
               value={updatedAfter}
@@ -829,6 +835,7 @@ export function CasesHeader({
           )}
           {isDateFilterActive(createdAfter) && (
             <CaseDateFilterChip
+              key="created"
               label="Created"
               icon={<CalendarIcon className="size-3.5 text-muted-foreground" />}
               value={createdAfter}

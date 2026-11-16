@@ -7418,7 +7418,7 @@ async def pin_case_view(
         view_id: A saved view's ID or a built-in view ID, such as
             assigned_to_me.
         position: Where to place it among your pins, from 0. Omit to add it
-            last.
+            last; a view that is already pinned keeps its current place.
 
     Returns the view with its pin position.
     """

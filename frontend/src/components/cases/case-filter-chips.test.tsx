@@ -55,6 +55,26 @@ describe("CaseMultiFilterChip", () => {
     expect(onChange).toHaveBeenCalledWith([])
   })
 
+  it("counts values that no longer have an option", () => {
+    render(
+      <CaseMultiFilterChip
+        label="Tags"
+        noun="tags"
+        icon={null}
+        options={TAG_OPTIONS}
+        value={["phishing", "deleted-tag"]}
+        onChange={jest.fn()}
+        mode="include"
+        onModeChange={jest.fn()}
+        allowExclude={false}
+      />
+    )
+
+    expect(
+      screen.getByRole("group", { name: "Tags filter" })
+    ).toHaveTextContent("is any of2 tags (1 unavailable)")
+  })
+
   it("names the single value and switches to exclude", async () => {
     const onModeChange = jest.fn()
     render(

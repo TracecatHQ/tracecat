@@ -438,7 +438,7 @@ export function CaseViewEditorPanel({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="View name"
-          className="w-full bg-transparent text-sm font-medium outline-none placeholder:text-muted-foreground"
+          className="-mx-1 w-[calc(100%+0.5rem)] rounded-sm bg-transparent px-1 text-sm font-medium outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         />
         <div className="flex flex-wrap items-center gap-3">
           <fieldset className="flex items-center gap-0.5 rounded-md border border-input p-0.5">
@@ -547,8 +547,9 @@ interface CaseViewActionsProps {
 /**
  * The buttons at the end of the filter row.
  *
- * Without a view open: Clear and Save view, once filters are applied. With a
- * changed view: Reset, Save as new, and Save when the user may edit it.
+ * Clear shows whenever filters are applied, with or without a view open.
+ * Without a view, Save view follows it. With a changed view: Reset, Save as
+ * new, and Save when the user may edit it.
  */
 export function CaseViewActions({
   controls,
@@ -561,10 +562,9 @@ export function CaseViewActions({
   const cannotSave = isSaving || saveBlockedReason !== null
   const blockedTitle = saveBlockedReason ?? undefined
 
-  if (!view) {
-    if (!hasFilters) return null
-    return (
-      <>
+  return (
+    <>
+      {hasFilters && (
         <Button
           size="sm"
           variant="ghost"
@@ -573,6 +573,8 @@ export function CaseViewActions({
         >
           Clear
         </Button>
+      )}
+      {!view && hasFilters && (
         <Button
           size="sm"
           variant="outline"
@@ -583,42 +585,40 @@ export function CaseViewActions({
         >
           Save view
         </Button>
-      </>
-    )
-  }
-
-  if (!isModified) return null
-  return (
-    <>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-6 px-2 text-xs"
-        onClick={controls.reset}
-      >
-        Reset
-      </Button>
-      <Button
-        size="sm"
-        variant={view.can_edit ? "ghost" : "outline"}
-        className="h-6 px-2 text-xs"
-        disabled={cannotSave || editor.mode !== null}
-        title={blockedTitle}
-        onClick={() => editor.open({ kind: "duplicate", view })}
-      >
-        Save as new
-      </Button>
-      {view.can_edit && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-6 px-2 text-xs"
-          disabled={cannotSave}
-          title={blockedTitle}
-          onClick={() => void controls.save()}
-        >
-          Save
-        </Button>
+      )}
+      {view && isModified && (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs"
+            onClick={controls.reset}
+          >
+            Reset
+          </Button>
+          <Button
+            size="sm"
+            variant={view.can_edit ? "ghost" : "outline"}
+            className="h-6 px-2 text-xs"
+            disabled={cannotSave || editor.mode !== null}
+            title={blockedTitle}
+            onClick={() => editor.open({ kind: "duplicate", view })}
+          >
+            Save as new
+          </Button>
+          {view.can_edit && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              disabled={cannotSave}
+              title={blockedTitle}
+              onClick={() => void controls.save()}
+            >
+              Save
+            </Button>
+          )}
+        </>
       )}
     </>
   )

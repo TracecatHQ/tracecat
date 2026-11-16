@@ -388,8 +388,17 @@ export function CaseMultiFilterChip({
     </span>
   )
 
+  // Values can outlive their options, for example a deleted tag. Name them
+  // as unavailable so the summary always matches the operator's count.
+  const missing = count - selected.length
   let summary: ReactNode
-  if (selected.length === 1) {
+  if (selected.length === 0) {
+    summary = (
+      <span className="truncate text-muted-foreground">
+        {count === 1 ? "1 unavailable value" : `${count} unavailable values`}
+      </span>
+    )
+  } else if (count === 1) {
     summary = (
       <>
         <OptionIcon option={selected[0]} />
@@ -413,6 +422,12 @@ export function CaseMultiFilterChip({
         </span>
         <span className="truncate">
           {count} {noun}
+          {missing > 0 && (
+            <span className="text-muted-foreground">
+              {" "}
+              ({missing} unavailable)
+            </span>
+          )}
         </span>
       </>
     )
