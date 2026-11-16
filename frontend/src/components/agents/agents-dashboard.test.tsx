@@ -7,7 +7,16 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { type AgentPresetReadMinimal, agentFoldersGetFolder } from "@/client"
+import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { AgentsDashboard } from "@/components/agents/agents-dashboard"
+import {
+  api,
+  channelPage,
+  platformSlackBot,
+  routePage,
+  serveBots,
+  slackBot,
+} from "@/components/agents/external-channels/channel-bot-fixtures"
 import { OpenAIIcon } from "@/components/icons"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -51,6 +60,11 @@ jest.mock("@/components/ai-elements/code-block", () => ({
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentFoldersGetFolder: jest.fn(),
+  agentChannelBotsListBots: jest.fn(),
+  agentChannelBotsListPlatformApps: jest.fn(),
+  agentChannelBotsListBotRoutes: jest.fn(),
+  agentChannelBotsListBotChannels: jest.fn(),
+  agentPresetsListAgentPresets: jest.fn(),
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -188,6 +202,8 @@ describe("AgentsDashboard entitlement split", () => {
     mockReplace.mockClear()
     mockUseWorkflowReferences.mockReset()
     mockUseWorkflowReferences.mockReturnValue({ workflowReferences: [] })
+    jest.clearAllMocks()
+    serveBots([])
   })
 
   describe.each(["list", "folders"] as const)("%s row details", (view) => {
@@ -933,5 +949,193 @@ describe("AgentsDashboard entitlement split", () => {
         expect(screen.getByText("Enrich agent")).toBeInTheDocument()
       }
     )
+  })
+  describe("Slack placements", () => {
+    const AGENTS = [
+      { ...PRESET, id: "triage", name: "Triage agent" },
+      { ...PRESET, id: "enrich", name: "Enrich agent" },
+      { ...PRESET, id: "phish", name: "Phishing agent" },
+      { ...PRESET, id: "plain", name: "Plain agent" },
+    ]
+    const ROUTES = [
+      { channel: "C1", agent: "enrich" },
+      { channel: "C2", agent: "enrich" },
+      { channel: "C5", agent: "enrich" },
+      { channel: "C9", agent: "phish" },
+    ].map(({ channel, agent }) => ({
+      bot_id: "platform-1",
+      provider_channel_id: channel,
+      agent_preset_id: agent,
+      created_at: PRESET.created_at,
+      updated_at: PRESET.updated_at,
+    }))
+
+    // The install's default is triage; phish also has its own Slack app.
+    function serveSlack({
+      preview = true,
+      install = platformSlackBot({ agent_preset_id: "triage" }),
+    } = {}) {
+      mockHasEntitlement.mockImplementation(
+        (key) => preview && key === "agent_channels_preview"
+      )
+      serveBots([
+        install,
+        slackBot({ id: "own-1", agent_preset_id: "phish" }),
+        slackBot({ id: "own-2", agent_preset_id: "plain", status: "paused" }),
+      ])
+      api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
+      // Two route pages; C9 arrives only on the second.
+      api.listRoutes.mockImplementation(
+        ({ cursor }) =>
+          new CancelablePromise((resolve) =>
+            resolve(
+              cursor === "page-2"
+                ? routePage(ROUTES.slice(3))
+                : routePage(ROUTES.slice(0, 3), "page-2")
+            )
+          )
+      )
+      // C9 is on a channel page that is never loaded.
+      api.listChannels.mockResolvedValue(
+        channelPage(
+          [
+            {
+              id: "C1",
+              name: "soc-alerts",
+              is_private: false,
+              is_member: true,
+            },
+            { id: "C2", name: "secops", is_private: true, is_member: true },
+            { id: "C5", name: "triage-x", is_private: false, is_member: true },
+          ],
+          "more"
+        )
+      )
+    }
+
+    function renderCatalog(params = "") {
+      mockSearchParams.current = new URLSearchParams(params)
+      mockUseAgentPresets.mockReturnValue({
+        presets: AGENTS,
+        presetsIsLoading: false,
+        presetsError: null,
+      })
+      return renderDashboard()
+    }
+
+    function row(name: string) {
+      const button = screen.getByText(name).closest("button")
+      if (!button) throw new Error(`No row for ${name}`)
+      return within(button)
+    }
+
+    it("shows where each agent answers in Slack", async () => {
+      serveSlack()
+      renderCatalog()
+      expect(await row("Phishing agent").findByText("C9")).toBeInTheDocument()
+
+      const triage = row("Triage agent")
+      expect(triage.getByText("All other channels")).toBeInTheDocument()
+      expect(triage.getByLabelText("Slack")).toBeInTheDocument()
+
+      const enrich = row("Enrich agent")
+      expect(enrich.getByText("secops")).toBeInTheDocument()
+      expect(enrich.getByLabelText("Private channel")).toBeInTheDocument()
+      expect(enrich.getByText("#soc-alerts")).toBeInTheDocument()
+      expect(enrich.queryByText("#triage-x")).not.toBeInTheDocument()
+      expect(enrich.getAllByLabelText("Slack")).toHaveLength(1)
+      await userEvent.hover(enrich.getByText("+1"))
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("#triage-x")
+
+      const phish = row("Phishing agent")
+      expect(phish.getByText("All channels")).toBeInTheDocument()
+      expect(phish.getByText("C9")).toHaveClass("font-mono")
+      expect(api.listRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({ botId: "platform-1", cursor: "page-2" })
+      )
+      expect(api.listChannels).toHaveBeenCalledTimes(1)
+
+      // A paused bot of its own does not answer.
+      expect(
+        row("Plain agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
+    })
+
+    it("fetches and shows nothing without the preview, ignoring a Slack URL filter", async () => {
+      serveSlack({ preview: false })
+      renderCatalog("slack=C1")
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.getByText("Plain agent")).toBeInTheDocument()
+      expect(screen.queryByTestId("slack-badges")).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /Slack channels/ })
+      ).not.toBeInTheDocument()
+      expect(api.listBots).not.toHaveBeenCalled()
+      expect(api.listPlatformApps).not.toHaveBeenCalled()
+      expect(api.listRoutes).not.toHaveBeenCalled()
+    })
+
+    it("shows nothing for a disconnected install", async () => {
+      serveSlack({
+        install: platformSlackBot({
+          agent_preset_id: "triage",
+          status: "disconnected",
+        }),
+      })
+      renderCatalog()
+      expect(
+        await row("Phishing agent").findByText("All channels")
+      ).toBeInTheDocument()
+      expect(
+        row("Triage agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
+      expect(
+        row("Enrich agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
+      expect(api.listRoutes).not.toHaveBeenCalled()
+      expect(api.listChannels).not.toHaveBeenCalled()
+    })
+
+    it("lists Slack filter options and writes a choice to the URL", async () => {
+      serveSlack()
+      renderCatalog("view=list")
+      await userEvent.click(
+        await screen.findByRole("button", { name: /Slack channels/ })
+      )
+      const options = (await screen.findAllByRole("option")).map(
+        (option) => option.textContent
+      )
+      expect(options).toEqual([
+        "C9",
+        "secops",
+        "#soc-alerts",
+        "#triage-x",
+        "All other channels (default)",
+        "Any Slack channel",
+      ])
+      await userEvent.click(screen.getByRole("option", { name: /soc-alerts/ }))
+      expect(mockReplace).toHaveBeenLastCalledWith(
+        "/workspaces/workspace-1/agents?view=list&slack=C1"
+      )
+    })
+
+    it.each([
+      ["slack=C1", ["Enrich agent"]],
+      ["slack=C9", ["Phishing agent"]],
+      ["slack=default", ["Triage agent"]],
+      ["slack=default&slack=C1", ["Triage agent", "Enrich agent"]],
+      ["slack=any", ["Triage agent", "Enrich agent", "Phishing agent"]],
+    ])("narrows rows for ?%s", async (params, expected) => {
+      serveSlack()
+      renderCatalog(params)
+      expect(await screen.findByText(expected[0])).toBeInTheDocument()
+      for (const { name } of AGENTS) {
+        if (expected.includes(name)) {
+          expect(screen.getByText(name)).toBeInTheDocument()
+        } else {
+          expect(screen.queryByText(name)).not.toBeInTheDocument()
+        }
+      }
+    })
   })
 })

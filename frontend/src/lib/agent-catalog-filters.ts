@@ -2,19 +2,42 @@ import type {
   AgentFolderDirectoryItem,
   AgentPresetDirectoryItem,
   AgentPresetWorkflowReference,
+  ChannelBotChannel,
 } from "@/client"
 
 /** URL params holding the agents catalog filters; each value repeats. */
 const AGENT_FILTER_PARAMS = {
   mcp: "mcp",
   workflow: "workflow",
+  slack: "slack",
 } as const
+
+/** Slack filter value matching an agent that answers anywhere in Slack. */
+export const SLACK_FILTER_ANY = "any"
+/** Slack filter value matching a platform install's default agent. */
+export const SLACK_FILTER_DEFAULT = "default"
 
 /** Selected agents catalog filters. Each facet matches any of its values. */
 export interface AgentCatalogFilters {
   mcpSlugs: string[]
   workflowIds: string[]
+  /** Slack channel IDs, `SLACK_FILTER_ANY`, or `SLACK_FILTER_DEFAULT`. */
+  slackChannels: string[]
 }
+
+/**
+ * Where an agent answers in Slack: every channel of its own Slack app, the
+ * channels of the platform install without a route, or one routed channel.
+ */
+export type SlackPlacement =
+  | { kind: "workspace_bot"; botId: string }
+  | { kind: "default" }
+  | {
+      kind: "channel"
+      channelId: string
+      /** Null when the channel's page is not loaded. */
+      channel: ChannelBotChannel | null
+    }
 
 /** A workflow that runs an agent preset. */
 export interface AgentWorkflowRef {
@@ -29,6 +52,7 @@ export function parseAgentCatalogFilters(
   return {
     mcpSlugs: params?.getAll(AGENT_FILTER_PARAMS.mcp) ?? [],
     workflowIds: params?.getAll(AGENT_FILTER_PARAMS.workflow) ?? [],
+    slackChannels: params?.getAll(AGENT_FILTER_PARAMS.slack) ?? [],
   }
 }
 
@@ -40,18 +64,26 @@ export function writeAgentCatalogFilters(
   const next = new URLSearchParams(params ?? undefined)
   next.delete(AGENT_FILTER_PARAMS.mcp)
   next.delete(AGENT_FILTER_PARAMS.workflow)
+  next.delete(AGENT_FILTER_PARAMS.slack)
   for (const slug of filters.mcpSlugs) {
     next.append(AGENT_FILTER_PARAMS.mcp, slug)
   }
   for (const id of filters.workflowIds) {
     next.append(AGENT_FILTER_PARAMS.workflow, id)
   }
+  for (const value of filters.slackChannels) {
+    next.append(AGENT_FILTER_PARAMS.slack, value)
+  }
   return next
 }
 
 /** Whether any catalog filter is selected. */
 export function hasAgentCatalogFilters(filters: AgentCatalogFilters): boolean {
-  return filters.mcpSlugs.length > 0 || filters.workflowIds.length > 0
+  return (
+    filters.mcpSlugs.length > 0 ||
+    filters.workflowIds.length > 0 ||
+    filters.slackChannels.length > 0
+  )
 }
 
 /**
@@ -95,7 +127,8 @@ export function listReferencedWorkflows(
 export function matchesAgentCatalogFilters(
   item: AgentFolderDirectoryItem | AgentPresetDirectoryItem,
   filters: AgentCatalogFilters,
-  workflowsByPreset: Map<string, AgentWorkflowRef[]>
+  workflowsByPreset: Map<string, AgentWorkflowRef[]>,
+  slackPlacementsByPreset: Map<string, SlackPlacement[]>
 ): boolean {
   if (!hasAgentCatalogFilters(filters)) return true
   if (item.type === "folder") return false
@@ -110,5 +143,23 @@ export function matchesAgentCatalogFilters(
       return false
     }
   }
+  if (filters.slackChannels.length > 0) {
+    const placements = slackPlacementsByPreset.get(item.id) ?? []
+    const matched = filters.slackChannels.some((value) =>
+      placements.some((placement) => matchesSlackFilter(placement, value))
+    )
+    if (!matched) return false
+  }
   return true
+}
+
+function matchesSlackFilter(placement: SlackPlacement, value: string): boolean {
+  switch (value) {
+    case SLACK_FILTER_ANY:
+      return true
+    case SLACK_FILTER_DEFAULT:
+      return placement.kind === "default"
+    default:
+      return placement.kind === "channel" && placement.channelId === value
+  }
 }

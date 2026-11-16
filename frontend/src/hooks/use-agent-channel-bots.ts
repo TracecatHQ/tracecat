@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AgentChannelBotCreate,
   type AgentChannelBotRead,
@@ -17,6 +17,7 @@ import {
   agentChannelBotsListPlatformApps,
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
+  type ChannelBotAppOwner,
   type ChannelBotChannel,
   type ChannelBotInstall,
   type ChannelBotInstallResult,
@@ -30,9 +31,11 @@ import {
   CHANNEL_BOT_MESSAGE_PARAM,
   CHANNEL_BOT_PROVIDER_NAMES,
   channelBotReturnUrl,
+  platformInstallState,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import type { SlackPlacement } from "@/lib/agent-catalog-filters"
 import {
   getApiErrorDetail,
   retryHandler,
@@ -157,22 +160,21 @@ export function useSlackPlatformAppAvailable(workspaceId: string) {
   }
 }
 
-/** The workspace's installs of the platform app for `provider`, any agent. */
-export function usePlatformChannelBots(
+/** The workspace's bots for `provider` whose app `appOwner` owns, any agent. */
+function useChannelBotsOwnedBy(
   workspaceId: string,
   provider: ChannelBotProvider,
+  appOwner: ChannelBotAppOwner,
   enabled: boolean
 ) {
-  const { data: installs, error: installsError } = useQuery<
-    Array<AgentChannelBotRead>,
-    TracecatApiError
-  >({
-    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "platform", provider],
+  return useQuery<Array<AgentChannelBotRead>, TracecatApiError>({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, appOwner, provider],
     queryFn: async () => {
+      // Only the first 100 bots are read; the accepted bound per workspace.
       const page = await agentChannelBotsListBots({
         workspaceId,
         provider,
-        appOwner: "platform",
+        appOwner,
         limit: 100,
       })
       return page.items
@@ -181,14 +183,31 @@ export function usePlatformChannelBots(
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { installs, installsError }
+}
+
+/** The workspace's installs of the platform app for `provider`, any agent. */
+export function usePlatformChannelBots(
+  workspaceId: string,
+  provider: ChannelBotProvider,
+  enabled: boolean
+) {
+  const {
+    data: installs,
+    isLoading: installsIsLoading,
+    error: installsError,
+  } = useChannelBotsOwnedBy(workspaceId, provider, "platform", enabled)
+  return { installs, installsIsLoading, installsError }
 }
 
 /**
  * Which agent answers new threads in each channel of a platform install, a page
  * at a time in channel ID order.
  */
-export function useChannelBotRoutes(workspaceId: string, botId: string) {
+export function useChannelBotRoutes(
+  workspaceId: string,
+  botId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const query = useInfiniteQuery({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes"],
     queryFn: async ({ pageParam }) =>
@@ -200,6 +219,7 @@ export function useChannelBotRoutes(workspaceId: string, botId: string) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) =>
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
+    enabled,
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
@@ -256,7 +276,11 @@ export function isChannelListingNotSupported(error: unknown): boolean {
 }
 
 /** The channels a route can name, from the bot's provider tenant, a page at a time. */
-export function useChannelBotChannels(workspaceId: string, botId: string) {
+export function useChannelBotChannels(
+  workspaceId: string,
+  botId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const query = useInfiniteQuery({
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "channels"],
     queryFn: async ({ pageParam }) =>
@@ -268,6 +292,7 @@ export function useChannelBotChannels(workspaceId: string, botId: string) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) =>
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
+    enabled,
     retry: (failureCount, error) =>
       !isChannelListingNotSupported(error) &&
       retryHandler(failureCount, error as TracecatApiError),
@@ -284,6 +309,101 @@ export function useChannelBotChannels(workspaceId: string, botId: string) {
     loadingMoreChannels: query.isFetchingNextPage,
     loadMoreChannels: () => void query.fetchNextPage(),
   }
+}
+
+/**
+ * Where each agent answers in Slack, by preset ID: its own Slack apps, and the
+ * active platform install's default and routes. Channel names come from the
+ * pages already loaded.
+ */
+export function useAgentSlackPlacements(workspaceId: string): {
+  slackPlacementsByPreset: Map<string, SlackPlacement[]>
+  slackPlacementsIsLoading: boolean
+} {
+  const { hasEntitlement } = useEntitlements()
+  const preview = hasEntitlement("agent_channels_preview")
+  const { slackPlatformAvailable, slackPlatformIsLoading } =
+    useSlackPlatformAppAvailable(workspaceId)
+  const { installs, installsIsLoading } = usePlatformChannelBots(
+    workspaceId,
+    "slack",
+    slackPlatformAvailable
+  )
+  const { data: workspaceBots, isLoading: workspaceBotsIsLoading } =
+    useChannelBotsOwnedBy(workspaceId, "slack", "workspace", preview)
+  // A skipped query still returns data cached before the gate closed.
+  const { install, state } = platformInstallState(
+    slackPlatformAvailable ? installs : undefined
+  )
+  const activeInstall = state === "active" ? install : null
+  const botId = activeInstall?.id ?? ""
+  const {
+    routes,
+    routesIsLoading,
+    routesError,
+    hasMoreRoutes,
+    loadingMoreRoutes,
+    loadMoreRoutes,
+  } = useChannelBotRoutes(workspaceId, botId, {
+    enabled: activeInstall !== null,
+  })
+  const { channels } = useChannelBotChannels(workspaceId, botId, {
+    enabled: activeInstall !== null,
+  })
+  const loadAllRoutes = activeInstall !== null && hasMoreRoutes && !routesError
+  useEffect(() => {
+    if (loadAllRoutes && !loadingMoreRoutes) {
+      loadMoreRoutes()
+    }
+  }, [loadAllRoutes, loadingMoreRoutes, loadMoreRoutes])
+
+  const ownBots = preview ? workspaceBots : undefined
+  const installRoutes = activeInstall ? routes : undefined
+  const slackPlacementsByPreset = useMemo(() => {
+    const byPreset = new Map<string, SlackPlacement[]>()
+    function add(presetId: string, placement: SlackPlacement): void {
+      byPreset.set(presetId, [...(byPreset.get(presetId) ?? []), placement])
+    }
+    for (const bot of ownBots ?? []) {
+      if (bot.status === "active") {
+        add(bot.agent_preset_id, { kind: "workspace_bot", botId: bot.id })
+      }
+    }
+    if (activeInstall) {
+      add(activeInstall.agent_preset_id, { kind: "default" })
+    }
+    const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
+    const sortedRoutes = [...(installRoutes ?? [])].sort((a, b) =>
+      channelSortKey(a.provider_channel_id, channelsById).localeCompare(
+        channelSortKey(b.provider_channel_id, channelsById)
+      )
+    )
+    for (const route of sortedRoutes) {
+      add(route.agent_preset_id, {
+        kind: "channel",
+        channelId: route.provider_channel_id,
+        channel: channelsById.get(route.provider_channel_id) ?? null,
+      })
+    }
+    return byPreset
+  }, [activeInstall, channels, installRoutes, ownBots])
+
+  return {
+    slackPlacementsByPreset,
+    slackPlacementsIsLoading:
+      (preview && workspaceBotsIsLoading) ||
+      slackPlatformIsLoading ||
+      installsIsLoading ||
+      routesIsLoading ||
+      loadAllRoutes,
+  }
+}
+
+function channelSortKey(
+  channelId: string,
+  channelsById: Map<string, ChannelBotChannel>
+): string {
+  return channelsById.get(channelId)?.name ?? channelId
 }
 
 /** Whether any channel bot mutation in the workspace is still running. */

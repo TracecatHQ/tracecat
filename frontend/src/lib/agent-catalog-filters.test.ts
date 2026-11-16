@@ -9,6 +9,9 @@ import {
   listReferencedWorkflows,
   matchesAgentCatalogFilters,
   parseAgentCatalogFilters,
+  SLACK_FILTER_ANY,
+  SLACK_FILTER_DEFAULT,
+  type SlackPlacement,
   writeAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
 
@@ -37,21 +40,33 @@ function preset(id: string, mcpSlugs: string[]): AgentPresetDirectoryItem {
   }
 }
 
+const SLACK_PLACEMENTS = new Map<string, SlackPlacement[]>([
+  ["triage", [{ kind: "default" }]],
+  ["enrich", [{ kind: "channel", channelId: "C1", channel: null }]],
+])
+
 const FOLDER = { type: "folder", id: "f" } as AgentFolderDirectoryItem
 
 function filters(partial: Partial<AgentCatalogFilters>): AgentCatalogFilters {
-  return { mcpSlugs: [], workflowIds: [], ...partial }
+  return { mcpSlugs: [], workflowIds: [], slackChannels: [], ...partial }
 }
 
 it("round-trips filters through URL params, keeping other params", () => {
   const params = writeAgentCatalogFilters(
     new URLSearchParams("view=list&mcp=stale"),
-    filters({ mcpSlugs: ["github", "jira"], workflowIds: ["wf_a"] })
+    filters({
+      mcpSlugs: ["github", "jira"],
+      workflowIds: ["wf_a"],
+      slackChannels: ["C1"],
+    })
   )
-  expect(params.toString()).toBe("view=list&mcp=github&mcp=jira&workflow=wf_a")
+  expect(params.toString()).toBe(
+    "view=list&mcp=github&mcp=jira&workflow=wf_a&slack=C1"
+  )
   expect(parseAgentCatalogFilters(params)).toEqual({
     mcpSlugs: ["github", "jira"],
     workflowIds: ["wf_a"],
+    slackChannels: ["C1"],
   })
   expect(parseAgentCatalogFilters(null)).toEqual(filters({}))
 })
@@ -82,6 +97,17 @@ it.each([
     ["triage"],
   ],
   ["an unused MCP", filters({ mcpSlugs: ["unused"] }), []],
+  ["a Slack channel", filters({ slackChannels: ["C1"] }), ["enrich"]],
+  [
+    "the Slack default",
+    filters({ slackChannels: [SLACK_FILTER_DEFAULT] }),
+    ["triage"],
+  ],
+  [
+    "any Slack channel",
+    filters({ slackChannels: [SLACK_FILTER_ANY] }),
+    ["triage", "enrich"],
+  ],
 ])("matches %s", (_name, selected, expected) => {
   const byPreset = groupWorkflowsByPreset(REFERENCES)
   const items = [
@@ -92,7 +118,9 @@ it.each([
   ]
   expect(
     items
-      .filter((item) => matchesAgentCatalogFilters(item, selected, byPreset))
+      .filter((item) =>
+        matchesAgentCatalogFilters(item, selected, byPreset, SLACK_PLACEMENTS)
+      )
       .map((item) => item.id)
   ).toEqual(expected)
 })

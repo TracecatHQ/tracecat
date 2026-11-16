@@ -49,6 +49,7 @@ import {
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { AgentDeleteDescription } from "@/components/agents/agent-preset-delete-dialog"
+import { AgentSlackBadges } from "@/components/agents/agent-slack-badges"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import {
@@ -76,6 +77,7 @@ import {
   getMcpProviderIconId,
   getModelProviderIconId,
   ProviderIcon,
+  SlackIcon,
 } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { ListHeaderSearch } from "@/components/list-header-search"
@@ -159,6 +161,7 @@ import {
   type AgentWorkflowRef,
   hasAgentCatalogFilters,
   matchesAgentCatalogFilters,
+  type SlackPlacement,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
@@ -1601,6 +1604,7 @@ type McpIntegrationsBySlug = Map<string, MCPIntegrationRead>
 const NO_MCP_INTEGRATIONS: McpIntegrationsBySlug = new Map()
 
 const NO_WORKFLOWS: AgentWorkflowRef[] = []
+const NO_SLACK_PLACEMENTS: SlackPlacement[] = []
 
 function pluralize(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`
@@ -1720,10 +1724,12 @@ function AgentCatalogRow({
   defaultAgentActions,
   mcpBySlug,
   workflows,
+  slackPlacements,
 }: {
   item: AgentDirectoryItem
   mcpBySlug: McpIntegrationsBySlug
   workflows: AgentWorkflowRef[]
+  slackPlacements: SlackPlacement[]
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
   setSelectedItem: (item: AgentDirectoryItem) => void
@@ -1819,6 +1825,7 @@ function AgentCatalogRow({
                 mcpBySlug={mcpBySlug}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
+                <AgentSlackBadges placements={slackPlacements} />
                 <AgentWorkflowBadges workflows={workflows} />
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
@@ -1914,6 +1921,7 @@ function AgentsCatalogHeader({
   mcpEmptyMessage,
   workflowOptions,
   workflowEmptyMessage,
+  slackOptions,
 }: {
   filters: AgentCatalogFilters
   onFiltersChange: (filters: AgentCatalogFilters) => void
@@ -1922,6 +1930,8 @@ function AgentsCatalogHeader({
   /** Null hides the filter, e.g. without workflow read access. */
   workflowOptions: FilterOption[] | null
   workflowEmptyMessage: string
+  /** Null hides the filter, e.g. when no agent answers in Slack. */
+  slackOptions: FilterOption[] | null
   searchQuery: string
   onSearchChange: (query: string) => void
   sortBy: AgentsSortValue
@@ -2044,6 +2054,20 @@ function AgentsCatalogHeader({
             emptyMessage={workflowEmptyMessage}
           />
         ) : null}
+        {slackOptions ? (
+          <FilterMultiSelect
+            placeholder="Slack channels"
+            icon={SlackIcon}
+            value={filters.slackChannels}
+            options={slackOptions}
+            onChange={(slackChannels) =>
+              onFiltersChange({ ...filters, slackChannels })
+            }
+            mode="include"
+            onModeChange={() => {}}
+            allowExclude={false}
+          />
+        ) : null}
         {defaultAgentId ? (
           <WorkspaceDefaultAgentBadge
             presetId={defaultAgentId}
@@ -2111,10 +2135,13 @@ export function AgentsDashboard() {
     (params: URLSearchParams) => router.replace(buildRoute(params)),
     [buildRoute, router]
   )
-  const { filters, setFilters, canReadWorkflows } = useAgentCatalogFilterState({
-    searchParams,
-    replaceParams,
-  })
+  const {
+    filters,
+    setFilters,
+    canReadWorkflows,
+    slackPlacementsByPreset,
+    slackFilterIsLoading,
+  } = useAgentCatalogFilterState({ workspaceId, searchParams, replaceParams })
   // A folder only lists its own children, so an active filter searches the
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
@@ -2179,12 +2206,14 @@ export function AgentsDashboard() {
     workflowEmptyMessage,
     workflowFilterIsLoading,
     workflowFilterError,
+    slackOptions,
   } = useAgentCatalogFilterOptions({
     workspaceId,
     filters,
     canReadWorkflows,
     mcpBySlug,
     usedMcpSlugs,
+    slackPlacementsByPreset,
   })
 
   const { agentTags, agentTagsIsLoading } = useAgentTagCatalog(workspaceId, {
@@ -2327,8 +2356,13 @@ export function AgentsDashboard() {
   const matchesQuery = useCallback(
     (item: AgentDirectoryItem): boolean =>
       matchesSearch(item) &&
-      matchesAgentCatalogFilters(item, filters, workflowsByPreset),
-    [filters, matchesSearch, workflowsByPreset]
+      matchesAgentCatalogFilters(
+        item,
+        filters,
+        workflowsByPreset,
+        slackPlacementsByPreset
+      ),
+    [filters, matchesSearch, slackPlacementsByPreset, workflowsByPreset]
   )
 
   // Folder view items
@@ -2364,6 +2398,7 @@ export function AgentsDashboard() {
   const isLoading =
     entitlementsLoading ||
     workflowFilterIsLoading ||
+    slackFilterIsLoading ||
     (flatCatalog ? presetsIsLoading : directoryItemsIsLoading)
   const error =
     (flatCatalog ? presetsError : directoryItemsError) ?? workflowFilterError
@@ -2387,6 +2422,7 @@ export function AgentsDashboard() {
           mcpEmptyMessage={mcpEmptyMessage}
           workflowOptions={workflowOptions}
           workflowEmptyMessage={workflowEmptyMessage}
+          slackOptions={slackOptions}
         />
 
         <div className="min-h-0 flex-1 overflow-auto">
@@ -2419,6 +2455,9 @@ export function AgentsDashboard() {
                   item={item}
                   mcpBySlug={mcpBySlug}
                   workflows={workflowsByPreset.get(item.id) ?? NO_WORKFLOWS}
+                  slackPlacements={
+                    slackPlacementsByPreset.get(item.id) ?? NO_SLACK_PLACEMENTS
+                  }
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
                   setSelectedItem={setSelectedItem}
