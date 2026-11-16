@@ -7094,6 +7094,7 @@ export const agentChannelBotsListBotRoutableChannels = (
     },
     errors: {
       422: "Validation Error",
+      424: "The bot's app lacks the scopes to list channels; reinstall it",
       501: "The bot's provider cannot list its channels",
     },
   })

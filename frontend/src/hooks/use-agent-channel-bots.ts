@@ -34,12 +34,16 @@ import {
   CHANNEL_BOT_MESSAGE_PARAM,
   CHANNEL_BOT_PROVIDER_NAMES,
   channelBotReturnUrl,
-  channelName,
+  isChannelListingNotSupported,
   platformInstallState,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import type { SlackPlacement } from "@/lib/agent-catalog-filters"
+import {
+  type BotChannels,
+  type SlackPlacement,
+  slackPlacementsByPreset,
+} from "@/lib/agent-slack-placements"
 import {
   getApiErrorDetail,
   retryHandler,
@@ -60,6 +64,8 @@ const CHANNEL_BOTS_QUERY_KEY = "agent-channel-bots"
 const INSTALL_MESSAGE_LIMIT = 200
 // Only the first 100 channels a bot is in are read; the accepted bound per bot.
 const BOT_CHANNEL_LIMIT = 100
+// The API's cap; a tenant's channels are paged in for the route picker.
+const ROUTABLE_CHANNEL_PAGE_LIMIT = 200
 
 /** What an OAuth return needs the Channels tab to show beside the cards. */
 export type ChannelBotInstallFailure = "slack_workspace_claimed"
@@ -273,23 +279,11 @@ export function useChannelRoutesToAgent(
   return { routed: routed === true }
 }
 
-/** Whether the API refused to list channels because the provider cannot. */
-export function isChannelListingNotSupported(error: unknown): boolean {
+/** A provider that cannot list channels never will, so that refusal is not retried. */
+function retryChannelListing(failureCount: number, error: Error): boolean {
   return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    error.status === 501
-  )
-}
-
-/** Whether the API refused to list channels until the bot's app is reinstalled. */
-export function isChannelListingNeedsReinstall(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    error.status === 424
+    !isChannelListingNotSupported(error) &&
+    retryHandler(failureCount, error as TracecatApiError)
   )
 }
 
@@ -302,9 +296,7 @@ function channelBotChannelsQuery(workspaceId: string, botId: string) {
         botId,
         limit: BOT_CHANNEL_LIMIT,
       }),
-    retry: (failureCount: number, error: Error) =>
-      !isChannelListingNotSupported(error) &&
-      retryHandler(failureCount, error as TracecatApiError),
+    retry: retryChannelListing,
     meta: { suppressErrorToast: true },
   }
 }
@@ -358,15 +350,14 @@ export function useChannelBotRoutableChannels(
       await agentChannelBotsListBotRoutableChannels({
         workspaceId,
         botId,
+        limit: ROUTABLE_CHANNEL_PAGE_LIMIT,
         cursor: pageParam,
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (page) =>
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
     enabled,
-    retry: (failureCount, error) =>
-      !isChannelListingNotSupported(error) &&
-      retryHandler(failureCount, error as TracecatApiError),
+    retry: retryChannelListing,
     meta: { suppressErrorToast: true },
   })
   const channels: ChannelBotChannel[] | undefined = query.data?.pages.flatMap(
@@ -380,12 +371,6 @@ export function useChannelBotRoutableChannels(
     loadingMoreChannels: query.isFetchingNextPage,
     loadMoreChannels: () => void query.fetchNextPage(),
   }
-}
-
-/** A bot's first page of channels, or why it could not be listed. */
-type BotChannels = {
-  channels: ChannelBotChannel[] | undefined
-  error: Error | null
 }
 
 function combineBotChannels(
@@ -462,91 +447,31 @@ export function useAgentSlackPlacements(workspaceId: string): {
     combine: useCallback(combineBotChannels, []),
   })
 
-  const installRoutes = activeInstall ? routes : undefined
-  const routesListed = installRoutes !== undefined && !loadAllRoutes
-  const slackPlacementsByPreset = useMemo(() => {
-    const byPreset = new Map<string, SlackPlacement[]>()
-    function add(presetId: string, placement: SlackPlacement): void {
-      const placements = byPreset.get(presetId) ?? []
-      // The same channel can reach one agent through two bots.
-      if (
-        placement.kind === "channel" &&
-        placements.some(
-          (p) => p.kind === "channel" && p.channelId === placement.channelId
-        )
-      ) {
-        return
-      }
-      byPreset.set(presetId, [...placements, placement])
-    }
-    function addChannels(
-      presetId: string,
-      channels: ChannelBotChannel[]
-    ): void {
-      const sorted = [...channels].sort((a, b) =>
-        channelName(a).localeCompare(channelName(b))
-      )
-      for (const channel of sorted) {
-        add(presetId, { kind: "channel", channelId: channel.id, channel })
-      }
-    }
-    const listedByBot = new Map(
-      listedBots.map((bot, index) => [bot.id, botChannels.listed[index]])
-    )
-
-    for (const bot of ownBots) {
-      const listed = listedByBot.get(bot.id)
-      if (listed?.channels) {
-        addChannels(bot.agent_preset_id, listed.channels)
-      } else if (listed?.error) {
-        add(bot.agent_preset_id, {
-          kind: "workspace_bot",
-          botId: bot.id,
-          needsReinstall: isChannelListingNeedsReinstall(listed.error),
-        })
-      }
-    }
-    if (!activeInstall) {
-      return byPreset
-    }
-
-    const listed = listedByBot.get(activeInstall.id)
-    if (listed?.channels && routesListed) {
-      const routed = new Set(
-        installRoutes.map((route) => route.provider_channel_id)
-      )
-      addChannels(
-        activeInstall.agent_preset_id,
-        listed.channels.filter((channel) => !routed.has(channel.id))
-      )
-    } else if (listed?.error || routesError) {
-      add(activeInstall.agent_preset_id, { kind: "default" })
-    }
-    // A routed channel the bot is not in has no name to show, so it shows nothing.
-    const channelsById = new Map((listed?.channels ?? []).map((c) => [c.id, c]))
-    const routedChannels = (installRoutes ?? []).flatMap((route) => {
-      const channel = channelsById.get(route.provider_channel_id)
-      return channel ? [{ presetId: route.agent_preset_id, channel }] : []
-    })
-    routedChannels.sort((a, b) =>
-      channelName(a.channel).localeCompare(channelName(b.channel))
-    )
-    for (const { presetId, channel } of routedChannels) {
-      add(presetId, { kind: "channel", channelId: channel.id, channel })
-    }
-    return byPreset
-  }, [
-    activeInstall,
-    botChannels,
-    installRoutes,
-    listedBots,
-    ownBots,
-    routesError,
-    routesListed,
-  ])
+  const placements = useMemo(
+    () =>
+      slackPlacementsByPreset({
+        ownBots,
+        install: activeInstall,
+        channelsByBot: new Map(
+          listedBots.map((bot, index) => [bot.id, botChannels.listed[index]])
+        ),
+        routes: activeInstall ? routes : undefined,
+        moreRoutesLoading: loadAllRoutes,
+        routesError,
+      }),
+    [
+      activeInstall,
+      botChannels,
+      listedBots,
+      loadAllRoutes,
+      ownBots,
+      routes,
+      routesError,
+    ]
+  )
 
   return {
-    slackPlacementsByPreset,
+    slackPlacementsByPreset: placements,
     slackPlacementsIsLoading:
       (preview && workspaceBotsIsLoading) ||
       slackPlatformIsLoading ||

@@ -261,14 +261,51 @@ function FinishInSlack({
   const mark = (step: Parameters<typeof onMark>[0]) =>
     void onMark(step).catch(() => undefined)
 
-  // The icon is optional, so only distribution gates the collapsed state.
+  const iconStep = (
+    <TickOff
+      title="Upload the Tracecat icon (optional)"
+      done={iconDone}
+      disabled={marking}
+      onToggle={() => mark({ icon_uploaded: !iconDone })}
+      actions={
+        <>
+          <Button type="button" size="sm" variant="outline" asChild>
+            <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
+              <Download className="mr-2 size-4" />
+              Download logo
+            </a>
+          </Button>
+          <Button type="button" size="sm" variant="outline" asChild>
+            <a
+              href={slackAppSettingsUrl(appId, "general")}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Basic Information
+              <ExternalLink className="ml-2 size-4" />
+            </a>
+          </Button>
+        </>
+      }
+    >
+      Basic Information → Display Information → App icon.
+    </TickOff>
+  )
+
+  if (distributionDone && iconDone) {
+    return (
+      <>
+        <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
+        <SetupDoneLine>Public distribution on</SetupDoneLine>
+      </>
+    )
+  }
+  // The icon is optional, so it stays open to tick off after distribution.
   if (distributionDone) {
     return (
       <>
-        {iconDone ? (
-          <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
-        ) : null}
         <SetupDoneLine>Public distribution on</SetupDoneLine>
+        <div className="pt-4">{iconStep}</div>
       </>
     )
   }
@@ -281,34 +318,7 @@ function FinishInSlack({
           it&apos;s set.
         </p>
       </div>
-      <TickOff
-        title="Upload the Tracecat icon (optional)"
-        done={iconDone}
-        disabled={marking}
-        onToggle={() => mark({ icon_uploaded: !iconDone })}
-        actions={
-          <>
-            <Button type="button" size="sm" variant="outline" asChild>
-              <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
-                <Download className="mr-2 size-4" />
-                Download logo
-              </a>
-            </Button>
-            <Button type="button" size="sm" variant="outline" asChild>
-              <a
-                href={slackAppSettingsUrl(appId, "general")}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open Basic Information
-                <ExternalLink className="ml-2 size-4" />
-              </a>
-            </Button>
-          </>
-        }
-      >
-        Basic Information → Display Information → App icon.
-      </TickOff>
+      {iconStep}
       <TickOff
         title="Turn on public distribution"
         done={distributionDone}

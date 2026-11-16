@@ -71,6 +71,7 @@ async def _require_agent_channels_preview(
 
 
 Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
+PageQuery = Annotated[PageParams, Depends()]
 
 router = APIRouter(
     prefix=CHANNEL_BOTS_PREFIX,
@@ -111,12 +112,7 @@ async def list_bots(
     agent_preset_id: uuid.UUID | None = Query(default=None),
     provider: ChannelBotProvider | None = Query(default=None),
     app_owner: ChannelBotAppOwner | None = Query(default=None),
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None, max_length=8192),
+    page: PageQuery,
 ) -> CursorPaginatedResponse[AgentChannelBotRead]:
     return await _call(
         admin.list_bots(
@@ -125,7 +121,7 @@ async def list_bots(
             agent_preset_id=agent_preset_id,
             provider=provider,
             app_owner=app_owner,
-            page=PageParams(limit=limit, cursor=cursor),
+            page=page,
         )
     )
 
@@ -227,12 +223,7 @@ async def list_bot_routes(
     session: AsyncDBSession,
     admin: Admin,
     agent_preset_id: uuid.UUID | None = Query(default=None),
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None, max_length=8192),
+    page: PageQuery,
 ) -> CursorPaginatedResponse[AgentChannelRouteRead]:
     return await _call(
         admin.list_routes(
@@ -240,7 +231,7 @@ async def list_bot_routes(
             role,
             bot_id,
             agent_preset_id=agent_preset_id,
-            page=PageParams(limit=limit, cursor=cursor),
+            page=page,
         )
     )
 
@@ -282,28 +273,22 @@ async def list_bot_channels(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None, max_length=8192),
+    page: PageQuery,
 ) -> CursorPaginatedResponse[ChannelBotChannel]:
     """The channels the bot is a member of, for an install of any app."""
-    return await _call(
-        admin.list_channels(
-            session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
-        )
-    )
+    return await _call(admin.list_channels(session, role, bot_id, page=page))
 
 
 @router.get(
     "/{bot_id}/routable-channels",
     response_model=CursorPaginatedResponse[ChannelBotChannel],
     responses={
+        status.HTTP_424_FAILED_DEPENDENCY: {
+            "description": "The bot's app lacks the scopes to list channels; reinstall it"
+        },
         status.HTTP_501_NOT_IMPLEMENTED: {
             "description": "The bot's provider cannot list its channels"
-        }
+        },
     },
 )
 @require_scope("agent:read")
@@ -313,18 +298,9 @@ async def list_bot_routable_channels(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None, max_length=8192),
+    page: PageQuery,
 ) -> CursorPaginatedResponse[ChannelBotChannel]:
-    return await _call(
-        admin.list_routable_channels(
-            session, role, bot_id, page=PageParams(limit=limit, cursor=cursor)
-        )
-    )
+    return await _call(admin.list_routable_channels(session, role, bot_id, page=page))
 
 
 @router.put("/{bot_id}/routes", response_model=AgentChannelRouteRead)

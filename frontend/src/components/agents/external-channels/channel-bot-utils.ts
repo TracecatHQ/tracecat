@@ -4,6 +4,7 @@ import type {
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
+import { getErrorStatus } from "@/lib/errors"
 
 /** Each provider's name as toasts and warnings show it. */
 export const CHANNEL_BOT_PROVIDER_NAMES: Record<ChannelBotProvider, string> = {
@@ -55,6 +56,16 @@ export function channelName(channel: ChannelBotChannel): string {
 }
 
 /** A channel in words, without an icon: `Team › #name` on Slack. */
+/** Whether the API refused to list channels because the provider cannot. */
+export function isChannelListingNotSupported(error: unknown): boolean {
+  return getErrorStatus(error) === 501
+}
+
+/** Whether the API refused to list channels until the bot's app is reinstalled. */
+export function isChannelListingNeedsReinstall(error: unknown): boolean {
+  return getErrorStatus(error) === 424
+}
+
 export function channelLabel(
   provider: ChannelBotProvider,
   channel: ChannelBotChannel

@@ -237,13 +237,36 @@ describe("PlatformSlackAppSettings", () => {
     ).toBeNull()
   })
 
-  it("collapses once distribution is on, without the optional icon", async () => {
+  it("keeps the optional icon step open once distribution is on", async () => {
     api.get.mockResolvedValue({ ...SAVED, distribution_enabled: true })
+    api.mark.mockResolvedValue({
+      ...SAVED,
+      distribution_enabled: true,
+      icon_uploaded: true,
+    })
     renderSettings()
     expect(
       await screen.findByText("Public distribution on")
     ).toBeInTheDocument()
-    expect(screen.queryByText("Tracecat icon uploaded")).toBeNull()
+    expect(screen.queryByText("Finish in Slack")).toBeNull()
+    expect(
+      screen.queryByRole("group", { name: "Turn on public distribution" })
+    ).toBeNull()
+
+    const icon = screen.getByRole("group", {
+      name: "Upload the Tracecat icon (optional)",
+    })
+    await userEvent.click(
+      within(icon).getByRole("button", { name: "Mark done" })
+    )
+
+    expect(api.mark).toHaveBeenCalledWith({
+      requestBody: { icon_uploaded: true },
+    })
+    expect(
+      await screen.findByText("Tracecat icon uploaded")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Public distribution on")).toBeInTheDocument()
     expect(
       screen.queryByRole("group", {
         name: "Upload the Tracecat icon (optional)",

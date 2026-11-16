@@ -111,6 +111,7 @@ describe("PlatformChannelRoutes", () => {
     expect(api.listRoutableChannels).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
       botId: INSTALL_ID,
+      limit: 200,
       cursor: null,
     })
     expect(api.addRoute).toHaveBeenCalledWith({
@@ -142,6 +143,24 @@ describe("PlatformChannelRoutes", () => {
     ).toBeInTheDocument()
   })
 
+  it("clears the search once a listed channel is picked", async () => {
+    const card = await editor()
+    await openPicker(card)
+    await userEvent.type(
+      screen.getByPlaceholderText("Search channels or paste a channel ID"),
+      "phish"
+    )
+    await userEvent.click(
+      screen.getByRole("option", { name: /phishing-reports/ })
+    )
+
+    await openPicker(card)
+    expect(
+      screen.getByPlaceholderText("Search channels or paste a channel ID")
+    ).toHaveValue("")
+    expect(screen.getAllByRole("option")).toHaveLength(3)
+  })
+
   it("loads more channels, even while searching the loaded ones", async () => {
     const [alerts, phishing, soc] = CHANNELS
     api.listRoutableChannels
@@ -165,6 +184,7 @@ describe("PlatformChannelRoutes", () => {
     expect(api.listRoutableChannels).toHaveBeenLastCalledWith({
       workspaceId: WORKSPACE_ID,
       botId: INSTALL_ID,
+      limit: 200,
       cursor: "next",
     })
     expect(
@@ -340,6 +360,7 @@ describe("PlatformChannelRoutes", () => {
 
   it.each([
     [501, "Slack channels can't be listed here."],
+    [424, "Reinstall Tracecat for Slack to list channels."],
     [400, "Could not load channels."],
   ])(
     "falls back to the channel ID on a %i from the listing",

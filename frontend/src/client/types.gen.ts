@@ -23663,6 +23663,10 @@ export type $OpenApiTs = {
          */
         422: HTTPValidationError
         /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
          * The bot's provider cannot list its channels
          */
         501: unknown

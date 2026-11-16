@@ -1239,6 +1239,14 @@ def test_the_callback_stays_out_of_the_openapi_schema() -> None:
     )
 
 
+@pytest.mark.parametrize("path", ["channels", "routable-channels"])
+def test_channel_listings_declare_their_refusals(path: str) -> None:
+    operation = app.openapi()["paths"][
+        f"/workspaces/{{workspace_id}}/agent/channel-bots/{{bot_id}}/{path}"
+    ]["get"]
+    assert {"424", "501"} <= operation["responses"].keys()
+
+
 def test_slack_oauth_callback_path_is_pinned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

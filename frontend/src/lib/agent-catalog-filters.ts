@@ -2,7 +2,6 @@ import type {
   AgentFolderDirectoryItem,
   AgentPresetDirectoryItem,
   AgentPresetWorkflowReference,
-  ChannelBotChannel,
 } from "@/client"
 
 /** URL params holding the agents catalog filters; each value repeats. */
@@ -16,25 +15,6 @@ export interface AgentCatalogFilters {
   mcpSlugs: string[]
   workflowIds: string[]
 }
-
-/**
- * Where an agent answers in Slack: one channel its bot is in or routes to it,
- * or, when a bot's channels cannot be listed, every channel of its own Slack
- * app or the platform install's channels without a route.
- */
-export type SlackPlacement =
-  | {
-      kind: "workspace_bot"
-      botId: string
-      /** The app lacks the scopes to list its channels until reinstalled. */
-      needsReinstall: boolean
-    }
-  | { kind: "default" }
-  | {
-      kind: "channel"
-      channelId: string
-      channel: ChannelBotChannel
-    }
 
 /** A workflow that runs an agent preset. */
 export interface AgentWorkflowRef {

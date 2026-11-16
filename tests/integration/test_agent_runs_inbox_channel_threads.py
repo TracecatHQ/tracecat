@@ -5,12 +5,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import JsonValue
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.channel_bots import channel_threads
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
@@ -21,10 +23,10 @@ from tracecat.db.models import (
     AgentSession,
     AgentSessionThread,
 )
-from tracecat.inbox.providers import agent_runs
 from tracecat.inbox.providers.agent_runs import AgentRunsInboxProvider
 from tracecat.inbox.schemas import InboxChannelThread, InboxItemRead
 from tracecat.inbox.types import InboxGroup
+from tracecat.tiers.enums import Entitlement
 
 pytestmark = [
     pytest.mark.anyio,
@@ -33,6 +35,14 @@ pytestmark = [
 ]
 
 BASE_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+@pytest.fixture
+def entitled(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Whether the organization has the channel bots preview; it does by default."""
+    is_entitled = AsyncMock(return_value=True)
+    monkeypatch.setattr(channel_threads, "is_org_entitled", is_entitled)
+    return is_entitled
 
 
 class FakeChannelBotAdmin:
@@ -130,13 +140,14 @@ async def test_a_linked_session_names_its_thread_channel_in_one_query(
     svc_role: Role,
     monkeypatch: pytest.MonkeyPatch,
     thread_queries: list[str],
+    entitled: AsyncMock,
 ) -> None:
     assert svc_role.workspace_id is not None
     bot_id, linked, unlinked, unreadable = await _linked_sessions(
         session, svc_role.workspace_id
     )
     monkeypatch.setattr(
-        agent_runs, "get_channel_bot_admin", lambda: FakeChannelBotAdmin()
+        channel_threads, "get_channel_bot_admin", lambda: FakeChannelBotAdmin()
     )
     provider = AgentRunsInboxProvider(session, svc_role)
 
@@ -159,10 +170,11 @@ async def test_without_a_channel_bot_admin_no_session_names_a_channel(
     svc_role: Role,
     monkeypatch: pytest.MonkeyPatch,
     thread_queries: list[str],
+    entitled: AsyncMock,
 ) -> None:
     assert svc_role.workspace_id is not None
     _, linked, _, _ = await _linked_sessions(session, svc_role.workspace_id)
-    monkeypatch.setattr(agent_runs, "get_channel_bot_admin", lambda: None)
+    monkeypatch.setattr(channel_threads, "get_channel_bot_admin", lambda: None)
     thread_queries.clear()
 
     items = _by_id(
@@ -171,3 +183,29 @@ async def test_without_a_channel_bot_admin_no_session_names_a_channel(
 
     assert items[linked.id].channel_thread is None
     assert thread_queries == []
+
+
+async def test_without_the_preview_entitlement_no_session_names_a_channel(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    thread_queries: list[str],
+    entitled: AsyncMock,
+) -> None:
+    assert svc_role.workspace_id is not None
+    _, linked, _, _ = await _linked_sessions(session, svc_role.workspace_id)
+    monkeypatch.setattr(
+        channel_threads, "get_channel_bot_admin", lambda: FakeChannelBotAdmin()
+    )
+    entitled.return_value = False
+    thread_queries.clear()
+
+    items = _by_id(
+        (await AgentRunsInboxProvider(session, svc_role).list_items(limit=20)).items
+    )
+
+    assert items[linked.id].channel_thread is None
+    assert thread_queries == []
+    entitled.assert_awaited_with(
+        session, svc_role.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
+    )

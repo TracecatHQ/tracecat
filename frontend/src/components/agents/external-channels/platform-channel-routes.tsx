@@ -1,11 +1,13 @@
 "use client"
 
-import { ChevronsUpDown, Hash, Lock, Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { type FormEvent, type ReactNode, useId, useState } from "react"
 import type {
   AgentChannelBotRead,
+  AgentChannelRouteRead,
   AgentPresetReadMinimal,
   ChannelBotChannel,
+  ChannelBotProvider,
 } from "@/client"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
@@ -13,23 +15,17 @@ import {
   channelConventions,
   channelLabel,
   channelName,
+  isChannelListingNeedsReinstall,
+  isChannelListingNotSupported,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import {
+  ChannelIcon,
+  ChannelPicker,
+} from "@/components/agents/external-channels/channel-picker"
 import { CopyButton } from "@/components/copy-button"
 import { Button } from "@/components/ui/button"
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -39,7 +35,6 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import {
-  isChannelListingNotSupported,
   useAddChannelBotRoute,
   useChannelBotRoutableChannels,
   useChannelBotRoutes,
@@ -82,168 +77,116 @@ export function AgentSelect({
   )
 }
 
-/** A lock on a private channel, else the provider's public prefix. */
-function ChannelIcon({
-  channel,
-  conventions,
-}: {
-  channel?: ChannelBotChannel
-  conventions: ChannelConventions
-}) {
-  if (channel?.is_private) {
-    return (
-      <Lock
-        role="img"
-        aria-label="Private channel"
-        className="size-3.5 shrink-0 text-muted-foreground"
-      />
-    )
+type RouteMembership = "member" | "not_member" | "unknown"
+
+/** Whether the bot is in a routed channel, as far as the loaded listing tells. */
+function routeMembership(
+  known: ChannelBotChannel | undefined,
+  listing: { channels: unknown[] | undefined; hasMore: boolean; error: unknown }
+): RouteMembership {
+  if (known) {
+    return known.is_member ? "member" : "not_member"
   }
-  return conventions.publicPrefix === "#" ? (
-    <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-  ) : (
-    <span className="size-3.5 shrink-0" aria-hidden />
-  )
+  // Unlisted once every page is loaded means private without the bot.
+  if (listing.channels && !listing.hasMore && !listing.error) {
+    return "not_member"
+  }
+  return "unknown"
 }
 
-/** A note for a listed channel the bot is not in yet, or null when it is. */
-function notMemberNote(channel: ChannelBotChannel): string | null {
-  return channel.is_member ? null : "Tracecat not in channel yet"
+/** Why the channels cannot be picked, or null while the picker works. */
+function listingNote(
+  providerName: string,
+  channels: ChannelBotChannel[] | undefined,
+  error: unknown
+): string | null {
+  // A failed first page falls back to typing the ID; a failed later page keeps the picker.
+  if (!error || channels) {
+    return null
+  }
+  if (isChannelListingNotSupported(error)) {
+    return `${providerName} channels can't be listed here.`
+  }
+  if (isChannelListingNeedsReinstall(error)) {
+    return `Reinstall Tracecat for ${providerName} to list channels.`
+  }
+  return "Could not load channels."
 }
 
-/** Picks one of the provider tenant's channels by name. */
-function ChannelPicker({
-  id,
+/** One routed channel, its agent, and a hint when the bot is not in it yet. */
+function RouteRow({
+  route,
+  known,
+  membership,
+  provider,
   conventions,
-  channels,
-  value,
-  isLoading,
+  agents,
   disabled,
-  onChange,
-  more,
+  onChangeAgent,
+  onRemove,
 }: {
-  id: string
+  route: AgentChannelRouteRead
+  known: ChannelBotChannel | undefined
+  membership: RouteMembership
+  provider: ChannelBotProvider
   conventions: ChannelConventions
-  channels: ChannelBotChannel[]
-  value: string
-  isLoading: boolean
+  agents: AgentPresetReadMinimal[]
   disabled: boolean
-  onChange: (channelId: string) => void
-  more: {
-    hasMore: boolean
-    loading: boolean
-    failed: boolean
-    load: () => void
-  }
+  onChangeAgent: (agentId: string) => void
+  onRemove: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState("")
-  const selected = channels.find((c) => c.id === value)
-  // Unlisted channels, such as Slack's private ones without the bot, are routed by ID.
-  const typedId = conventions.normalizeId(search)
-  const offerTypedId =
-    conventions.isChannelId(typedId) && !channels.some((c) => c.id === typedId)
+  const providerName = CHANNEL_BOT_PROVIDER_NAMES[provider]
+  const { inviteCommand } = conventions
+  const label = known
+    ? channelLabel(provider, known)
+    : route.provider_channel_id
+  const where = known ? label : "this channel"
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled || isLoading}
-          className="h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal shadow-none"
+    <li className="space-y-1">
+      <div className="flex items-center gap-2">
+        <ChannelIcon channel={known} conventions={conventions} />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs",
+            !known && "font-mono"
+          )}
         >
-          <ChannelIcon channel={selected} conventions={conventions} />
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-left",
-              !selected && value && "font-mono"
-            )}
-          >
-            {(selected && channelName(selected)) ||
-              value ||
-              (isLoading ? "Loading channels…" : "Pick a channel")}
-          </span>
-          <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
+          {known ? channelName(known) : route.provider_channel_id}
+        </span>
+        <AgentSelect
+          label={`Agent for ${label}`}
+          value={route.agent_preset_id}
+          agents={agents}
+          disabled={disabled}
+          onChange={onChangeAgent}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8"
+          aria-label={`Remove ${label}`}
+          disabled={disabled}
+          onClick={onRemove}
+        >
+          <Trash2 className="size-4" />
         </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-[--radix-popover-trigger-width] min-w-64 p-0"
-      >
-        <Command>
-          <CommandInput
-            placeholder="Search channels or paste a channel ID"
-            className="h-8 text-xs"
-            value={search}
-            onValueChange={setSearch}
-          />
-          <CommandList className="max-h-64">
-            <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
-              No channels found. Paste a channel ID to route a private channel.
-            </CommandEmpty>
-            {offerTypedId && (
-              <CommandItem
-                value={`use ${typedId}`}
-                onSelect={() => {
-                  onChange(typedId)
-                  setSearch("")
-                  setOpen(false)
-                }}
-                className="gap-2 text-xs"
-              >
-                <Lock className="size-3.5 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">
-                  Use channel ID <span className="font-mono">{typedId}</span>
-                </span>
-              </CommandItem>
-            )}
-            {channels.map((c) => {
-              const note = notMemberNote(c)
-              return (
-                <CommandItem
-                  key={c.id}
-                  value={`${channelName(c)} ${c.id}`}
-                  onSelect={() => {
-                    onChange(c.id)
-                    setOpen(false)
-                  }}
-                  className="gap-2 text-xs"
-                >
-                  <ChannelIcon channel={c} conventions={conventions} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {channelName(c)}
-                  </span>
-                  {note && (
-                    <span className="text-[11px] text-muted-foreground">
-                      {note}
-                    </span>
-                  )}
-                </CommandItem>
-              )
-            })}
-            {more.hasMore && (
-              // Search covers loaded pages only, so this stays while searching.
-              <CommandItem
-                forceMount
-                value="load more channels"
-                disabled={more.loading}
-                onSelect={more.load}
-                className="text-xs text-muted-foreground"
-              >
-                {more.loading
-                  ? "Loading…"
-                  : more.failed
-                    ? "Could not load more channels. Try again"
-                    : "Load more channels"}
-              </CommandItem>
-            )}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+      </div>
+      {membership === "not_member" && (
+        <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
+          {inviteCommand
+            ? `Tracecat isn't in ${where} yet. Invite @Tracecat to start answering there.`
+            : `Tracecat isn't in ${where} yet. Add it in ${providerName} to start answering there.`}
+          {inviteCommand && (
+            <CopyButton
+              value={inviteCommand}
+              toastMessage="Invite command copied"
+              tooltipMessage={`Copy ${inviteCommand}`}
+            />
+          )}
+        </p>
+      )}
+    </li>
   )
 }
 
@@ -294,7 +237,6 @@ export function PlatformChannelRoutes({
   const agents = presets ?? []
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[install.provider]
   const conventions = channelConventions(install.provider)
-  const { inviteCommand } = conventions
 
   const newChannel = conventions.normalizeId(channel)
   // A hint over the loaded pages; the API refuses a channel that already has a route.
@@ -303,13 +245,7 @@ export function PlatformChannelRoutes({
   const unrouted = (channels ?? []).filter(
     (c) => !routes?.some((r) => r.provider_channel_id === c.id)
   )
-  // A failed first page falls back to typing the ID; a failed later page keeps the picker.
-  const listingNote =
-    channelsError && !channels
-      ? isChannelListingNotSupported(channelsError)
-        ? `${providerName} channels can't be listed here.`
-        : "Could not load channels."
-      : null
+  const note = listingNote(providerName, channels, channelsError)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
@@ -365,66 +301,30 @@ export function PlatformChannelRoutes({
       <ul className="space-y-2" aria-label="Channels">
         {routes.map((r) => {
           const known = channelsById.get(r.provider_channel_id)
-          const label = known
-            ? channelLabel(install.provider, known)
-            : r.provider_channel_id
-          const where = known ? label : "this channel"
           return (
-            <li key={r.provider_channel_id} className="space-y-1">
-              <div className="flex items-center gap-2">
-                <ChannelIcon channel={known} conventions={conventions} />
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-xs",
-                    !known && "font-mono"
-                  )}
-                >
-                  {known ? channelName(known) : r.provider_channel_id}
-                </span>
-                <AgentSelect
-                  label={`Agent for ${label}`}
-                  value={r.agent_preset_id}
-                  agents={agents}
-                  disabled={disabled}
-                  onChange={(agentId) =>
-                    changeRoute(r.provider_channel_id, agentId)
-                  }
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  aria-label={`Remove ${label}`}
-                  disabled={disabled}
-                  onClick={() =>
-                    deleteRoute({
-                      botId: install.id,
-                      providerChannelId: r.provider_channel_id,
-                    })
-                  }
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-              {/* Unlisted once every page is loaded means private without the bot. */}
-              {(known
-                ? !known.is_member
-                : channels && !hasMoreChannels && !channelsError) && (
-                <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
-                  {inviteCommand
-                    ? `Tracecat isn't in ${where} yet. Invite @Tracecat to start answering there.`
-                    : `Tracecat isn't in ${where} yet. Add it in ${providerName} to start answering there.`}
-                  {inviteCommand && (
-                    <CopyButton
-                      value={inviteCommand}
-                      toastMessage="Invite command copied"
-                      tooltipMessage={`Copy ${inviteCommand}`}
-                    />
-                  )}
-                </p>
-              )}
-            </li>
+            <RouteRow
+              key={r.provider_channel_id}
+              route={r}
+              known={known}
+              membership={routeMembership(known, {
+                channels,
+                hasMore: hasMoreChannels,
+                error: channelsError,
+              })}
+              provider={install.provider}
+              conventions={conventions}
+              agents={agents}
+              disabled={disabled}
+              onChangeAgent={(agentId) =>
+                changeRoute(r.provider_channel_id, agentId)
+              }
+              onRemove={() =>
+                deleteRoute({
+                  botId: install.id,
+                  providerChannelId: r.provider_channel_id,
+                })
+              }
+            />
           )
         })}
         {hasMoreRoutes ? (
@@ -481,9 +381,9 @@ export function PlatformChannelRoutes({
         <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">
-              {listingNote ? "Channel ID" : "Channel"}
+              {note ? "Channel ID" : "Channel"}
             </Label>
-            {listingNote ? (
+            {note ? (
               <Input
                 id={channelInputId}
                 value={channel}
@@ -528,8 +428,8 @@ export function PlatformChannelRoutes({
           </Button>
         </form>
         <p className="text-xs text-muted-foreground">
-          {listingNote
-            ? `${listingNote} Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`
+          {note
+            ? `${note} Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`
             : "Threads already started keep their agent."}
         </p>
       </div>

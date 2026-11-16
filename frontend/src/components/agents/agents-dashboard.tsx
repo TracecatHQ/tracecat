@@ -161,9 +161,9 @@ import {
   type AgentWorkflowRef,
   hasAgentCatalogFilters,
   matchesAgentCatalogFilters,
-  type SlackPlacement,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
+import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
   compareAgentStatusPriority,
@@ -2119,7 +2119,6 @@ export function AgentsDashboard() {
     [buildRoute, router]
   )
   const { filters, setFilters, canReadWorkflows } = useAgentCatalogFilterState({
-    workspaceId,
     searchParams,
     replaceParams,
   })

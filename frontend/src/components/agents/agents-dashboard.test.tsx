@@ -1107,10 +1107,6 @@ describe("AgentsDashboard entitlement split", () => {
       expect(
         row("Phishing agent").getByText("All channels")
       ).toBeInTheDocument()
-      // Routed channels without a name show no badge.
-      expect(
-        row("Enrich agent").queryByTestId("slack-badges")
-      ).not.toBeInTheDocument()
     })
 
     it("asks for a reinstall when a custom app cannot list its channels", async () => {

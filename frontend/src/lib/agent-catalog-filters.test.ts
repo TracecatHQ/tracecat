@@ -46,10 +46,7 @@ function filters(partial: Partial<AgentCatalogFilters>): AgentCatalogFilters {
 it("round-trips filters through URL params, keeping other params", () => {
   const params = writeAgentCatalogFilters(
     new URLSearchParams("view=list&mcp=stale"),
-    filters({
-      mcpSlugs: ["github", "jira"],
-      workflowIds: ["wf_a"],
-    })
+    filters({ mcpSlugs: ["github", "jira"], workflowIds: ["wf_a"] })
   )
   expect(params.toString()).toBe("view=list&mcp=github&mcp=jira&workflow=wf_a")
   expect(parseAgentCatalogFilters(params)).toEqual({

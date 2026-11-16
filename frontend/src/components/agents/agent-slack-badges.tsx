@@ -12,7 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { SlackPlacement } from "@/lib/agent-catalog-filters"
+import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import { cn } from "@/lib/utils"
 
 const SLACK_BADGE_CAP = 2

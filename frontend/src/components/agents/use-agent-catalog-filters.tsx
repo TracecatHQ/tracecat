@@ -18,11 +18,9 @@ import type { TracecatApiError } from "@/lib/errors"
 
 /** URL-backed agents catalog filters, scoped to what the viewer can read. */
 export function useAgentCatalogFilterState({
-  workspaceId,
   searchParams,
   replaceParams,
 }: {
-  workspaceId: string
   searchParams: URLSearchParams | null
   replaceParams: (params: URLSearchParams) => void
 }): {
@@ -35,13 +33,10 @@ export function useAgentCatalogFilterState({
   const canReadWorkflows =
     useScopeCheck("workflow:read") === true && canReadAgents
 
-  // A hidden filter's URL value cannot apply.
+  // Without workflow access the filter is hidden, so a URL value cannot apply.
   const filters = useMemo(() => {
     const parsed = parseAgentCatalogFilters(searchParams)
-    return {
-      ...parsed,
-      workflowIds: canReadWorkflows ? parsed.workflowIds : [],
-    }
+    return canReadWorkflows ? parsed : { ...parsed, workflowIds: [] }
   }, [canReadWorkflows, searchParams])
   const setFilters = useCallback(
     (next: AgentCatalogFilters) =>
@@ -49,11 +44,7 @@ export function useAgentCatalogFilterState({
     [replaceParams, searchParams]
   )
 
-  return {
-    filters,
-    setFilters,
-    canReadWorkflows,
-  }
+  return { filters, setFilters, canReadWorkflows }
 }
 
 /** Filter options and the workflow references behind the workflow facet. */

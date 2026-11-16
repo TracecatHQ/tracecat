@@ -159,7 +159,8 @@ class ChannelBotAdmin(Protocol):
 
         Raise `TracecatValidationError` unless the bot is a platform install, installed
         and running, `ChannelListingNotSupported` when its provider cannot list
-        channels, and ``PaginationError`` for a malformed cursor.
+        channels, `ChannelListingNeedsReinstall` when its app lacks the scopes to, and
+        ``PaginationError`` for a malformed cursor.
         """
         ...
 

@@ -16,29 +16,21 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
-from tracecat.agent.channel_bots.provider import get_channel_bot_admin
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channel_bots.channel_threads import channel_threads_by_session
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.chat.enums import MessageKind
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
-    AgentChannelBot,
     AgentSession,
     AgentSessionHistory,
-    AgentSessionThread,
     Approval,
     CaseAgentSessionInteraction,
     User,
     Workflow,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.inbox.schemas import (
-    InboxChannelThread,
-    InboxItemRead,
-    UserSummary,
-    WorkflowSummary,
-)
+from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
@@ -818,42 +810,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         count = await self.session.scalar(stmt)
         return int(count or 0)
 
-    async def _fetch_channel_threads(
-        self,
-        sessions: Sequence[AgentSession],
-    ) -> dict[uuid.UUID, InboxChannelThread]:
-        """The channel each external-channel session's linked thread is in."""
-        session_ids = [
-            s.id
-            for s in sessions
-            if s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
-        ]
-        if not session_ids or (admin := get_channel_bot_admin()) is None:
-            return {}
-        stmt = (
-            select(
-                AgentSessionThread.session_id,
-                AgentSessionThread.bot_id,
-                AgentSessionThread.provider_thread_id,
-                AgentChannelBot.provider,
-            )
-            .join(AgentChannelBot, AgentChannelBot.id == AgentSessionThread.bot_id)
-            .where(
-                AgentSessionThread.workspace_id == self.workspace_id,
-                AgentSessionThread.session_id.in_(session_ids),
-            )
-        )
-        result = await self.session.execute(stmt)
-        threads: dict[uuid.UUID, InboxChannelThread] = {}
-        for session_id, bot_id, provider_thread_id, provider_name in result.tuples():
-            provider = ChannelBotProvider(provider_name)
-            channel_id = admin.thread_channel_id(provider, provider_thread_id)
-            if channel_id is not None:
-                threads[session_id] = InboxChannelThread(
-                    bot_id=bot_id, provider=provider, provider_channel_id=channel_id
-                )
-        return threads
-
     async def _enrich_sessions(
         self,
         sessions: Sequence[AgentSession],
@@ -883,7 +839,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         cancelled_session_ids = await self._fetch_cancelled_session_ids(
             approval_session_ids
         )
-        channel_threads = await self._fetch_channel_threads(sessions)
+        channel_threads = await channel_threads_by_session(
+            self.session, self.role, sessions
+        )
 
         if workflow_ids:
             workflow_stmt = select(Workflow).where(
