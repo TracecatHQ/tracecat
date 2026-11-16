@@ -7,7 +7,7 @@ from typing import Literal
 
 from tracecat.cases.enums import CaseStatus
 from tracecat.cases.search_schemas import CaseCriteria, CaseSearchOrder
-from tracecat.cases.views.types import BuiltinCaseViewId
+from tracecat_ee.cases.views.types import BuiltinCaseViewId
 
 OPEN_CASE_STATUSES: tuple[CaseStatus, ...] = tuple(
     status

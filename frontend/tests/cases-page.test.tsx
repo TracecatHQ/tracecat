@@ -2,11 +2,13 @@
  * @jest-environment jsdom
  */
 
-import { render } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
 import CasesPage from "@/app/workspaces/[workspaceId]/cases/page"
 
 const mockUseCaseColumnVisibility = jest.fn()
 const mockUseCases = jest.fn()
+const mockUseActiveCaseView = jest.fn()
+const mockCasesLayout = jest.fn()
 
 let mockEntitlementsLoaded = true
 let mockCaseAddonsEnabled = true
@@ -79,14 +81,17 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/hooks/use-case-view-state", () => ({
   VIEW_PARAM: "view",
   // No saved view is open: the page uses the personal column selection.
-  useActiveCaseView: () => ({
-    viewId: null,
-    view: null,
-    mapped: null,
-    isLoading: false,
-    isError: false,
-    selectView: jest.fn(),
-  }),
+  useActiveCaseView: (...args: unknown[]) => {
+    mockUseActiveCaseView(...args)
+    return {
+      viewId: null,
+      view: null,
+      mapped: null,
+      isLoading: false,
+      isError: false,
+      selectView: jest.fn(),
+    }
+  },
   useViewColumns: ({
     personalColumns,
     togglePersonalColumn,
@@ -109,12 +114,20 @@ jest.mock("@/components/cases/case-view-switcher", () => ({
   CaseViewActions: () => null,
   CaseViewChips: () => null,
   CaseViewEditorPanel: () => null,
-  CaseViewMenu: () => null,
+  CaseViewMenu: () => <div data-testid="case-view-menu" />,
   useCaseViewEditor: () => ({ mode: null, open: jest.fn(), close: jest.fn() }),
 }))
 
+jest.mock("@/components/cases/case-view-header-slot", () => ({
+  CaseViewHeaderPortal: ({ children }: { children: React.ReactNode }) =>
+    children,
+}))
+
 jest.mock("@/components/cases/cases-layout", () => ({
-  CasesLayout: () => null,
+  CasesLayout: (props: { viewBar?: unknown }) => {
+    mockCasesLayout(props)
+    return null
+  },
 }))
 
 describe("CasesPage", () => {
@@ -233,5 +246,25 @@ describe("CasesPage", () => {
         "duration:fresh-duration",
       ])
     )
+  })
+
+  it("offers case views only with the case add-ons entitlement", () => {
+    mockEntitlementsLoaded = true
+    mockCaseAddonsEnabled = false
+
+    const { rerender } = render(<CasesPage />)
+
+    expect(mockUseActiveCaseView).toHaveBeenLastCalledWith("workspace-1", false)
+    expect(screen.queryByTestId("case-view-menu")).not.toBeInTheDocument()
+    expect(mockCasesLayout).toHaveBeenLastCalledWith(
+      expect.objectContaining({ viewBar: undefined })
+    )
+
+    mockCaseAddonsEnabled = true
+    rerender(<CasesPage />)
+
+    expect(mockUseActiveCaseView).toHaveBeenLastCalledWith("workspace-1", true)
+    expect(screen.getByTestId("case-view-menu")).toBeInTheDocument()
+    expect(mockCasesLayout.mock.lastCall?.[0].viewBar).toBeDefined()
   })
 })

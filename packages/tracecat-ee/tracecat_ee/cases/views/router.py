@@ -6,16 +6,16 @@ from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.errors import CASE_REQUEST_ERRORS, case_http_error
-from tracecat.cases.views.schemas import (
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.pagination import CursorPaginatedResponse, PageParams
+from tracecat_ee.cases.views.schemas import (
     CaseViewCreate,
     CaseViewDetail,
     CaseViewPinUpdate,
     CaseViewRead,
     CaseViewUpdate,
 )
-from tracecat.cases.views.service import CaseViewsService
-from tracecat.db.dependencies import AsyncDBSession
-from tracecat.pagination import CursorPaginatedResponse, PageParams
+from tracecat_ee.cases.views.service import CaseViewsService
 
 router = APIRouter(prefix="/case-views", tags=["case-views"])
 

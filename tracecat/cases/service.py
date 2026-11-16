@@ -16,6 +16,7 @@ from sqlalchemy.orm import aliased, raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
+from tracecat_ee.cases.views.service import CaseViewsService
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
@@ -122,7 +123,6 @@ from tracecat.cases.triggers.audit import audit_comment_workflow_execution
 from tracecat.cases.triggers.types import CaseCommentWorkflowTrigger
 from tracecat.cases.versions.schemas import CaseVersionRestoreRead
 from tracecat.cases.versions.service import CaseVersionsService
-from tracecat.cases.views.service import CaseViewsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate

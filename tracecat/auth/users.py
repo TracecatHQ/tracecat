@@ -37,6 +37,7 @@ from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDataba
 from pydantic import EmailStr
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from tracecat import config
 from tracecat.audit.service import AuditService
@@ -52,7 +53,6 @@ from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.authz.enums import ScimConnectionStatus
-from tracecat.cases.views.ownership import delete_personal_case_views
 from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import (
     SupportsExecute,

@@ -27,17 +27,6 @@ from tracecat.cases.search_schemas import (
     CaseSearchRequest,
 )
 from tracecat.cases.tags.search import split_case_tag_filters
-from tracecat.cases.views.builtins import BUILTIN_CASE_VIEWS
-from tracecat.cases.views.schemas import (
-    CaseViewCreate,
-    CaseViewDetail,
-    CaseViewEmptyRules,
-    CaseViewRead,
-    CaseViewStaleRef,
-    CaseViewUpdate,
-    validate_view_order,
-)
-from tracecat.cases.views.types import BUILTIN_CASE_VIEW_IDS, BuiltinCaseViewId
 from tracecat.db.models import (
     CaseDropdownDefinition,
     CaseDropdownOption,
@@ -52,7 +41,19 @@ from tracecat.exceptions import (
 )
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.query.filters import AndClause
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tiers.enums import Entitlement
+from tracecat_ee.cases.views.builtins import BUILTIN_CASE_VIEWS
+from tracecat_ee.cases.views.schemas import (
+    CaseViewCreate,
+    CaseViewDetail,
+    CaseViewEmptyRules,
+    CaseViewRead,
+    CaseViewStaleRef,
+    CaseViewUpdate,
+    validate_view_order,
+)
+from tracecat_ee.cases.views.types import BUILTIN_CASE_VIEW_IDS, BuiltinCaseViewId
 
 CASE_VIEW_QUERY_VERSION = 1
 SHARED_VIEW_SCOPE = "case:update"
@@ -101,7 +102,11 @@ def parse_view_id(view_id: str | uuid.UUID) -> uuid.UUID | BuiltinCaseViewId:
 
 
 class CaseViewsService(BaseWorkspaceService):
-    """Manage saved case views for the requesting user and workspace."""
+    """Manage saved case views for the requesting user and workspace.
+
+    Case views are an enterprise feature: every method needs the case add-ons
+    entitlement, except a search that names no view.
+    """
 
     service_name = "case_views"
 
@@ -136,6 +141,7 @@ class CaseViewsService(BaseWorkspaceService):
 
     # Reads
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_builtins(self, *, pinned_only: bool = False) -> list[CaseViewRead]:
         """Return the views every workspace has, with the user's pins.
 
@@ -152,6 +158,7 @@ class CaseViewsService(BaseWorkspaceService):
         pinned = [view for view in views if view.pin_position is not None]
         return sorted(pinned, key=lambda view: view.pin_position or 0)
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_views(
         self, page: PageParams, *, pinned_only: bool = False
     ) -> CursorPaginatedResponse[CaseViewRead]:
@@ -189,6 +196,7 @@ class CaseViewsService(BaseWorkspaceService):
             has_previous=result.has_previous,
         )
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_view(self, view_id: str | uuid.UUID) -> CaseViewDetail:
         """Return one view in the form it runs in.
 
@@ -217,6 +225,7 @@ class CaseViewsService(BaseWorkspaceService):
 
     # Writes
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_view(self, params: CaseViewCreate) -> CaseViewRead:
         """Save a new view owned by the requesting user."""
         owner_id = self._require_user()
@@ -243,6 +252,7 @@ class CaseViewsService(BaseWorkspaceService):
         await self.session.refresh(view)
         return self._custom_read(view, None)
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_view(
         self, view_id: str | uuid.UUID, params: CaseViewUpdate
     ) -> CaseViewRead:
@@ -271,12 +281,14 @@ class CaseViewsService(BaseWorkspaceService):
         await self.session.refresh(view)
         return self._custom_read(view, await self._pin_position(view.id))
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_view(self, view_id: str | uuid.UUID) -> None:
         """Delete a view the requesting user may edit. Pins go with it."""
         view = await self._get_editable(view_id)
         await self.session.delete(view)
         await self.session.commit()
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def pin_view(
         self, view_id: str | uuid.UUID, *, position: int | None = None
     ) -> CaseViewRead:
@@ -311,6 +323,7 @@ class CaseViewsService(BaseWorkspaceService):
         await self.session.refresh(view)
         return self._custom_read(view, await self._pin_position(view.id))
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def unpin_view(self, view_id: str | uuid.UUID) -> None:
         """Remove a saved or built-in view from the requesting user's sidebar."""
         user_id = self._require_user()
@@ -348,6 +361,9 @@ class CaseViewsService(BaseWorkspaceService):
         """
         if request.view_id is None:
             return request
+        # Plain searches stay open to every tier; only running a view needs
+        # the case add-ons entitlement.
+        await self.require_entitlement(Entitlement.CASE_ADDONS)
         defaults = CaseCriteria()
         # Field names come from the model, so dynamic attribute access is the
         # only way to compare every matching field without listing them.

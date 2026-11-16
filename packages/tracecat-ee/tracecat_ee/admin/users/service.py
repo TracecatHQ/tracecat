@@ -11,7 +11,6 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
-from tracecat.cases.views.ownership import delete_personal_case_views
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import (
@@ -26,6 +25,7 @@ from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
 )
 from tracecat.service import BasePlatformService
+from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from .schemas import AdminUserCreate, AdminUserRead
 

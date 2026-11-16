@@ -155,8 +155,9 @@ jest.mock("@/hooks/use-entitlements", () => ({
 }))
 
 jest.mock("@/hooks/use-case-views", () => ({
-  useCaseViews: () => ({
-    ...mockCaseViews,
+  // Like the real hook, return nothing when disabled.
+  useCaseViews: (_workspaceId: string, enabled: boolean) => ({
+    ...(enabled ? mockCaseViews : { builtins: [], pinned: [] }),
     personal: [],
     shared: [],
     isLoading: false,
@@ -330,6 +331,7 @@ describe("AppSidebar", () => {
     mockPathname = "/workspaces/workspace-1/cases"
     mockSearchParams = new URLSearchParams({ view: pinnedId })
     mockScopes = { "case:read": true }
+    mockEntitlements = { case_addons: true }
     mockCaseViews = {
       builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
       // The hook's pinned list holds pinned built-ins too.
@@ -364,6 +366,7 @@ describe("AppSidebar", () => {
     mockPathname = "/workspaces/workspace-1/cases"
     mockSearchParams = new URLSearchParams({ view: "deleted-view" })
     mockScopes = { "case:read": true }
+    mockEntitlements = { case_addons: true }
     mockCaseViews = {
       builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
       pinned: [],
@@ -379,6 +382,7 @@ describe("AppSidebar", () => {
   it("leaves unpinned built-in views out of the sidebar", () => {
     mockPathname = "/workspaces/workspace-1/cases"
     mockScopes = { "case:read": true }
+    mockEntitlements = { case_addons: true }
     mockCaseViews = {
       builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
       pinned: [],
@@ -388,6 +392,24 @@ describe("AppSidebar", () => {
 
     expect(
       screen.queryByRole("link", { name: "Assigned to me" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides pinned case views without the case add-ons entitlement", () => {
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockScopes = { "case:read": true }
+    mockEntitlements = {}
+    mockCaseViews = {
+      builtins: [],
+      pinned: [
+        { id: "00000000-0000-4000-8000-000000000001", name: "Open phishing" },
+      ],
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Open phishing" })
     ).not.toBeInTheDocument()
   })
 })

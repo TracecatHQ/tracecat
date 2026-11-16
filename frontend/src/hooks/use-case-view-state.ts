@@ -36,12 +36,18 @@ export interface ActiveCaseView {
  * The cases page mounts its list once per view (keyed by `viewId`) with the
  * view's filters as the starting state, so nothing here has to be applied
  * or undone later.
+ *
+ * @param enabled - Whether views are available (the case add-ons
+ *   entitlement). When false, `?view=` is ignored and nothing is fetched.
  */
-export function useActiveCaseView(workspaceId: string): ActiveCaseView {
+export function useActiveCaseView(
+  workspaceId: string,
+  enabled = true
+): ActiveCaseView {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
-  const viewId = searchParams?.get(VIEW_PARAM) ?? null
+  const viewId = enabled ? (searchParams?.get(VIEW_PARAM) ?? null) : null
   const { data, isLoading, isError } = useCaseView(workspaceId, viewId)
   const view = viewId !== null && data?.id === viewId ? data : null
   const mapped = useMemo(() => (view ? viewToFilters(view) : null), [view])

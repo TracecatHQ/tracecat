@@ -158,6 +158,8 @@ Notes:
 
 ## Case view tools
 
+Case views are an enterprise feature: these tools, and `search_cases(view_id=...)`, need the case add-ons entitlement.
+
 - `list_case_views(workspace_id, limit=..., cursor=None, pinned=False, include_builtins=True)` lists the built-in views separately from a page of saved views
 - `search_cases(workspace_id, view_id=...)` runs a saved or built-in view. The view supplies the matching criteria: a `filters` tree narrows it further, and any other matching argument (such as `status` or `tags`) is rejected. Paging and result options still apply, and `order_by`/`sort` override the view's saved order
 - `create_case_view(workspace_id, name, query=None, visibility="personal", order_by=None, sort=None, columns=None)` saves a case search as a view

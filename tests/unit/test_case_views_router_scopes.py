@@ -12,17 +12,17 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views import router as views_router
+from tracecat_ee.cases.views.schemas import (
+    CaseViewDetail,
+    CaseViewEmptyRules,
+    CaseViewRead,
+)
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseViewVisibility
 from tracecat.cases.search_schemas import CaseCriteria
-from tracecat.cases.views import router as views_router
-from tracecat.cases.views.schemas import (
-    CaseViewDetail,
-    CaseViewEmptyRules,
-    CaseViewRead,
-)
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.pagination import CursorPaginatedResponse

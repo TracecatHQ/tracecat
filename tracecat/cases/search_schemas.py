@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from tracecat_ee.cases.views.types import BuiltinCaseViewId
 
 from tracecat.cases.constants import (
     MAX_PAYLOAD_FIELDS,
@@ -15,7 +16,6 @@ from tracecat.cases.constants import (
     MAX_PAYLOAD_PATHS,
 )
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.views.types import BuiltinCaseViewId
 from tracecat.pagination import CursorPaginationParams
 from tracecat.query.filters import (
     MAX_FILTER_CONDITIONS,

@@ -1,5 +1,6 @@
 "use client"
 
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo } from "react"
 import type {
   CaseDropdownDefinitionRead,
@@ -16,6 +17,7 @@ import {
   CaseViewMenu,
   useCaseViewEditor,
 } from "@/components/cases/case-view-switcher"
+import type { CasesViewBar } from "@/components/cases/cases-header"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -25,6 +27,7 @@ import {
   useActiveCaseView,
   useCaseViewControls,
   useViewColumns,
+  VIEW_PARAM,
 } from "@/hooks/use-case-view-state"
 import { useCases } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -102,7 +105,11 @@ export default function CasesPage() {
     visibleColumnIds: personalColumnIds,
     toggleColumn: togglePersonalColumn,
   } = useCaseColumnVisibility(workspaceId, knownColumnIds)
-  const activeView = useActiveCaseView(workspaceId)
+  // Case views are an enterprise feature (case add-ons).
+  const viewsEnabled = caseAddonsEnabled
+  const activeView = useActiveCaseView(workspaceId, viewsEnabled)
+  const searchParams = useSearchParams()
+  const hasViewParam = Boolean(searchParams?.get(VIEW_PARAM))
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -112,6 +119,10 @@ export default function CasesPage() {
 
   // A ?view= link waits for its view before mounting the list, so the list
   // starts from the view's filters and never shows another search first.
+  // Until entitlements load, it is not yet known whether the link applies.
+  if (hasViewParam && !hasEntitlementData) {
+    return <CenteredSpinner />
+  }
   if (activeView.viewId !== null && !activeView.mapped) {
     return (
       <div className="flex size-full items-center justify-center">
@@ -139,6 +150,7 @@ export default function CasesPage() {
       // filters, and closing a view starts again from the user's own.
       key={activeView.viewId ?? "personal"}
       workspaceId={workspaceId}
+      viewsEnabled={viewsEnabled}
       activeView={activeView}
       caseAddonsEnabled={caseAddonsEnabled}
       members={members}
@@ -155,6 +167,8 @@ export default function CasesPage() {
 
 interface CasesPageBodyProps {
   workspaceId: string
+  /** Whether case views are available (the case add-ons entitlement). */
+  viewsEnabled: boolean
   activeView: ActiveCaseView
   caseAddonsEnabled: boolean
   members: WorkspaceMember[] | undefined
@@ -170,6 +184,7 @@ interface CasesPageBodyProps {
 /** The case list for one view, or for the user's own filters. */
 function CasesPageBody({
   workspaceId,
+  viewsEnabled,
   activeView,
   caseAddonsEnabled,
   members,
@@ -265,15 +280,38 @@ function CasesPageBody({
     fetchNextPage,
   } = casesResult
 
+  const viewBar: CasesViewBar = {
+    panel: viewEditor.mode && (
+      <CaseViewEditorPanel
+        key={viewEditor.mode.kind}
+        workspaceId={workspaceId}
+        controls={viewControls}
+        editor={viewEditor}
+        mode={viewEditor.mode}
+      />
+    ),
+    chips: <CaseViewChips controls={viewControls} />,
+    renderActions: ({ hasFilters, clearFilters }) => (
+      <CaseViewActions
+        controls={viewControls}
+        editor={viewEditor}
+        hasFilters={hasFilters}
+        clearFilters={clearFilters}
+      />
+    ),
+  }
+
   return (
     <div className="size-full overflow-hidden">
-      <CaseViewHeaderPortal>
-        <CaseViewMenu
-          workspaceId={workspaceId}
-          controls={viewControls}
-          editor={viewEditor}
-        />
-      </CaseViewHeaderPortal>
+      {viewsEnabled && (
+        <CaseViewHeaderPortal>
+          <CaseViewMenu
+            workspaceId={workspaceId}
+            controls={viewControls}
+            editor={viewEditor}
+          />
+        </CaseViewHeaderPortal>
+      )}
       <CasesLayout
         cases={cases}
         isLoading={isLoading}
@@ -326,26 +364,7 @@ function CasesPageBody({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}
-        viewBar={{
-          panel: viewEditor.mode && (
-            <CaseViewEditorPanel
-              key={viewEditor.mode.kind}
-              workspaceId={workspaceId}
-              controls={viewControls}
-              editor={viewEditor}
-              mode={viewEditor.mode}
-            />
-          ),
-          chips: <CaseViewChips controls={viewControls} />,
-          renderActions: ({ hasFilters, clearFilters }) => (
-            <CaseViewActions
-              controls={viewControls}
-              editor={viewEditor}
-              hasFilters={hasFilters}
-              clearFilters={clearFilters}
-            />
-          ),
-        }}
+        viewBar={viewsEnabled ? viewBar : undefined}
       />
     </div>
   )

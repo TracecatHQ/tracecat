@@ -137,6 +137,10 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
 
 def _include_internal_routers(app: FastAPI) -> None:
     """Mount the API's executor-facing internal routers onto the action gateway."""
+    from tracecat_ee.cases.views.internal_router import (
+        router as internal_case_views_router,
+    )
+
     from tracecat.agent.preset.internal_router import (
         router as internal_agent_preset_router,
     )
@@ -158,9 +162,6 @@ def _include_internal_routers(app: FastAPI) -> None:
         router as internal_case_tag_definitions_router,
     )
     from tracecat.cases.tags.internal_router import router as internal_case_tags_router
-    from tracecat.cases.views.internal_router import (
-        router as internal_case_views_router,
-    )
     from tracecat.deduplicate.internal_router import (
         router as internal_deduplicate_router,
     )

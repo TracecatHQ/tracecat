@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.cases.views.router import router as case_views_router
 from tracecat_ee.scim.protocol import (
     is_scim_path,
     scim_error_response,
@@ -143,7 +144,6 @@ from tracecat.cases.tag_definitions.router import (
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.cases.versions.router import router as case_versions_router
-from tracecat.cases.views.router import router as case_views_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (

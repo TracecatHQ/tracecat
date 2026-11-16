@@ -222,20 +222,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
-  const caseViews = useCaseViews(workspaceId, canViewCases === true)
-  const activeCaseViewId = pathname?.startsWith(`${basePath}/cases`)
-    ? (searchParams?.get(VIEW_PARAM) ?? null)
-    : null
-  // Only pinned views appear under Cases, built-in ones included.
-  const caseViewItems = useMemo(
-    () =>
-      caseViews.pinned.map((view) => ({
-        title: view.name,
-        url: `${basePath}/cases?${new URLSearchParams({ [VIEW_PARAM]: view.id })}`,
-        isActive: activeCaseViewId === view.id,
-      })),
-    [caseViews.pinned, basePath, activeCaseViewId]
-  )
   // The builder pages need one of these on top of `form:read`; a requester
   // who can only fill in forms has no use for the list.
   const canReadForms = useScopeCheck("form:read")
@@ -260,7 +246,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true ||
-    canOpenGitSync === true
+    canOpenGitSync === true ||
+    canViewCases === true
   const {
     hasEntitlement,
     hasEntitlementData,
@@ -272,6 +259,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const gitSyncEnabled = hasEntitlement("git_sync")
+  // Case views are an enterprise feature (case add-ons).
+  const caseViews = useCaseViews(
+    workspaceId,
+    canViewCases === true && hasEntitlement("case_addons")
+  )
+  const activeCaseViewId = pathname?.startsWith(`${basePath}/cases`)
+    ? (searchParams?.get(VIEW_PARAM) ?? null)
+    : null
+  // Only pinned views appear under Cases, built-in ones included.
+  const caseViewItems = useMemo(
+    () =>
+      caseViews.pinned.map((view) => ({
+        title: view.name,
+        url: `${basePath}/cases?${new URLSearchParams({ [VIEW_PARAM]: view.id })}`,
+        isActive: activeCaseViewId === view.id,
+      })),
+    [caseViews.pinned, basePath, activeCaseViewId]
+  )
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
     {

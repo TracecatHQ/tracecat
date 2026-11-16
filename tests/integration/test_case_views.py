@@ -9,6 +9,15 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views.schemas import (
+    CaseViewCreate,
+    CaseViewUpdate,
+)
+from tracecat_ee.cases.views.service import (
+    CaseViewNotFoundError,
+    CaseViewPermissionError,
+    CaseViewsService,
+)
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import (
@@ -21,15 +30,6 @@ from tracecat.cases.enums import (
 from tracecat.cases.search_adapters import CurrentUserRequiredError
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
 from tracecat.cases.service import CasesService
-from tracecat.cases.views.schemas import (
-    CaseViewCreate,
-    CaseViewUpdate,
-)
-from tracecat.cases.views.service import (
-    CaseViewNotFoundError,
-    CaseViewPermissionError,
-    CaseViewsService,
-)
 from tracecat.db.models import (
     Case,
     CaseDropdownDefinition,
@@ -38,8 +38,9 @@ from tracecat.db.models import (
     CaseView,
     User,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import PageParams
+from tracecat.tiers.enums import Entitlement
 
 pytestmark = [pytest.mark.anyio, pytest.mark.integration, pytest.mark.usefixtures("db")]
 
@@ -256,6 +257,31 @@ async def test_shared_view_edit_rights(
     workflow_list = await _views(session, actors.workflow).list_views(PageParams())
     assert [view.id for view in workflow_list.items] == [view_id]
     assert await _run_view(session, actors.workflow, view_id) == {seeded.phishing_open}
+
+
+async def test_views_need_case_addons(
+    session: AsyncSession,
+    actors: Actors,
+    seeded: Seeded,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view_id = await _create(session, actors.owner)
+
+    async def has_entitlement(self: CaseViewsService, entitlement: Entitlement) -> bool:
+        return entitlement != Entitlement.CASE_ADDONS
+
+    monkeypatch.setattr(CaseViewsService, "has_entitlement", has_entitlement)
+    views = _views(session, actors.owner)
+
+    with pytest.raises(EntitlementRequired):
+        await views.list_views(PageParams())
+    with pytest.raises(EntitlementRequired):
+        await views.pin_view("assigned_to_me")
+    with pytest.raises(EntitlementRequired):
+        await _run_view(session, actors.owner, view_id)
+    # A search that names no view still runs on every tier.
+    request = CaseSearchRequest.model_validate({"tags": ["phishing"]})
+    assert await views.apply_to_query(request) == request
 
 
 async def test_builtin_views_are_read_only_and_run(

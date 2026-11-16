@@ -23,6 +23,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
+from tracecat_ee.cases.views.schemas import CaseViewCreate, CaseViewRead, CaseViewUpdate
+from tracecat_ee.cases.views.service import CaseViewPermissionError
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
@@ -48,8 +50,6 @@ from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseViewVisibility
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
-from tracecat.cases.views.schemas import CaseViewCreate, CaseViewRead, CaseViewUpdate
-from tracecat.cases.views.service import CaseViewPermissionError
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
@@ -4369,6 +4369,19 @@ async def test_pin_case_view_rejects_an_out_of_range_position(
             workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=3_000_000_000
         )
     pin_view.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_case_view_tools_report_a_missing_entitlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pin_view = AsyncMock(side_effect=EntitlementRequired("case_addons"))
+    workspace_id = _case_view_tool_env(monkeypatch, SimpleNamespace(pin_view=pin_view))
+
+    with pytest.raises(ToolError, match="case add-ons entitlement"):
+        await _tool(mcp_server.pin_case_view)(
+            workspace_id=workspace_id, view_id=_TOOL_VIEW.id
+        )
 
 
 @pytest.mark.anyio

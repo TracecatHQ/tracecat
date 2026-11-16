@@ -57,6 +57,15 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views.schemas import (
+    CaseViewCreate,
+    CaseViewListRead,
+    CaseViewPinUpdate,
+    CaseViewRead,
+    CaseViewSort,
+    CaseViewUpdate,
+)
+from tracecat_ee.cases.views.service import CaseViewsService
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -171,15 +180,6 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.cases.views.schemas import (
-    CaseViewCreate,
-    CaseViewListRead,
-    CaseViewPinUpdate,
-    CaseViewRead,
-    CaseViewSort,
-    CaseViewUpdate,
-)
-from tracecat.cases.views.service import CaseViewsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -7270,6 +7270,11 @@ def _case_view_tool_error(exc: Exception, action: str) -> ToolError:
         case ScopeDeniedError():
             return ToolError(
                 f"Missing required scope: {', '.join(exc.required_scopes)}"
+            )
+        case EntitlementRequired():
+            return ToolError(
+                "Case views need the case add-ons entitlement on this "
+                "organization's plan"
             )
         case (
             TracecatNotFoundError()
