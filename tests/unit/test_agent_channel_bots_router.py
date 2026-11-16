@@ -718,6 +718,25 @@ def test_callback_redirects_to_the_return_url_on_the_app_host(
     )
 
 
+def test_callback_keeps_the_error_code_the_admin_put_in_the_return_url(
+    admin: AsyncMock,
+) -> None:
+    # The UI recognizes a claimed provider workspace by this code, not the message.
+    admin.complete_oauth.return_value = ChannelBotOAuthResult(
+        return_url=f"{APP_URL}/agents/channels?channel_bot_error=workspace_claimed",
+        ok=False,
+        message="Reworded refusal",
+    )
+
+    response = get_callback("state=s&code=c")
+
+    assert location_query(response.headers["location"]) == {
+        "channel_bot_error": ["workspace_claimed"],
+        "channel_bot_install": ["error"],
+        "channel_bot_message": ["Reworded refusal"],
+    }
+
+
 def test_callback_passes_the_browsers_signed_in_user(admin: AsyncMock) -> None:
     user_id = uuid.uuid4()
     admin.complete_oauth.return_value = ChannelBotOAuthResult(

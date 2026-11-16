@@ -3322,6 +3322,8 @@ class TestAgentPresetService:
             # The browser never came back from Slack: nothing is installed.
             ("platform", "needs_reconnect", None, False),
             ("platform", "disconnected", None, False),
+            # A disconnected install no longer answers, whatever it kept.
+            ("platform", "disconnected", "T1", False),
             ("customer", "active", "T1", False),
         ],
     )
