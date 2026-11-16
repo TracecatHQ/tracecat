@@ -207,6 +207,20 @@ def test_action_env_injects_nproc_limit(tmp_path: Path) -> None:
     assert env_map[NPROC_ENV_VAR] == "77"
 
 
+def test_action_env_injects_memory_budget(tmp_path: Path) -> None:
+    """Action sandboxes pass the memory budget, which the jail's cgroup hides."""
+    executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
+    config = ActionSandboxConfig(
+        registry_paths=[tmp_path / "registry"],
+        tracecat_app_dir=tmp_path / "app",
+        resources=ResourceLimits(memory_mb=1024),
+    )
+
+    env_map = executor._build_action_env_map(config)
+
+    assert env_map["TRACECAT__SANDBOX_MEMORY_MB"] == "1024"
+
+
 def test_agent_env_map_injects_nproc_limit(tmp_path: Path) -> None:
     """Agent sandboxes must inject the process cap for the jailed shim."""
     config = AgentSandboxConfig(resources=AgentResourceLimits(max_processes=123))
