@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 
 from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppRead,
+    SlackPlatformAppSetup,
     SlackPlatformAppSetupStepsUpdate,
     SlackPlatformAppUpdate,
 )
@@ -20,7 +21,6 @@ from tracecat.agent.channel_bots.platform_app import (
     write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
-    ChannelBotPlatformAppSetup,
     ChannelBotProvider,
     ChannelBotTransport,
 )
@@ -47,7 +47,7 @@ class SlackPlatformAppService(BasePlatformService):
 
     service_name = "slack_platform_app"
 
-    async def get(self, setup: ChannelBotPlatformAppSetup) -> SlackPlatformAppRead:
+    async def get(self, setup: SlackPlatformAppSetup) -> SlackPlatformAppRead:
         try:
             app = await read_slack_platform_app(self.session)
         except UnreadableSlackPlatformApp:
@@ -56,7 +56,7 @@ class SlackPlatformAppService(BasePlatformService):
 
     @audit_log(resource_type="platform_setting", action="update")
     async def save(
-        self, params: SlackPlatformAppUpdate, setup: ChannelBotPlatformAppSetup
+        self, params: SlackPlatformAppUpdate, setup: SlackPlatformAppSetup
     ) -> SlackPlatformAppRead:
         """Refuses a registration the deployment cannot serve."""
         try:
@@ -115,7 +115,7 @@ class SlackPlatformAppService(BasePlatformService):
     async def mark_setup_steps(
         self,
         params: SlackPlatformAppSetupStepsUpdate,
-        setup: ChannelBotPlatformAppSetup,
+        setup: SlackPlatformAppSetup,
     ) -> SlackPlatformAppRead:
         try:
             stored = await read_slack_platform_app(self.session, for_update=True)
@@ -162,7 +162,7 @@ class SlackPlatformAppService(BasePlatformService):
 
 def _read(
     app: SlackPlatformApp | None,
-    setup: ChannelBotPlatformAppSetup,
+    setup: SlackPlatformAppSetup,
     *,
     unreadable: bool,
 ) -> SlackPlatformAppRead:

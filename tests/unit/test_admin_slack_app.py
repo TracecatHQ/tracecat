@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
@@ -52,6 +53,8 @@ HTTP_SETUP = ChannelBotPlatformAppSetup(
 SOCKET_SETUP = HTTP_SETUP.model_copy(
     update={"transport": ChannelBotTransport.SOCKET, "request_url": None}
 )
+# Keys out of sorted order, so a test sees the order kept.
+MANIFEST = {"settings": {"socket_mode_enabled": False}, "oauth_config": {"scopes": {}}}
 SECRETS = {
     "client_secret": "synthetic-client-secret",
     "signing_secret": "synthetic-signing-secret",
@@ -73,6 +76,10 @@ class ChannelBotAdmin:
     ) -> ChannelBotPlatformAppSetup:
         self.asked.append(provider)
         return self.setup
+
+    def platform_app_manifest(self, provider: ChannelBotProvider) -> dict[str, Any]:
+        self.asked.append(provider)
+        return MANIFEST
 
 
 @pytest.fixture
@@ -203,8 +210,9 @@ async def test_a_saved_app_is_stored_encrypted_and_never_returns_its_secrets(
         "icon_uploaded": False,
         "distribution_enabled": False,
         "unreadable": False,
-        "setup": HTTP_SETUP.model_dump(mode="json"),
+        "setup": {**HTTP_SETUP.model_dump(mode="json"), "manifest": MANIFEST},
     }
+    assert list(read.json()["setup"]["manifest"]) == ["settings", "oauth_config"]
     row = await stored_row(session)
     assert row is not None and row.is_encrypted
     assert not any(secret.encode() in row.value for secret in SECRETS.values())

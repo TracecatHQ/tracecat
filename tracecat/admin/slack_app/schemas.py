@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from tracecat.agent.channel_bots.schemas import (
     ChannelBotPlatformAppSetup,
     check_slack_app_refresh_token,
 )
+
+
+class SlackPlatformAppSetup(ChannelBotPlatformAppSetup):
+    """The deployment's setup, and the app manifest it fills in."""
+
+    manifest: dict[str, JsonValue]
 
 
 class SlackPlatformAppRead(BaseModel):
@@ -24,7 +30,7 @@ class SlackPlatformAppRead(BaseModel):
     distribution_enabled: bool
     # A stored registration that no longer decrypts; saving replaces it.
     unreadable: bool
-    setup: ChannelBotPlatformAppSetup
+    setup: SlackPlatformAppSetup
 
 
 class SlackPlatformAppUpdate(BaseModel):

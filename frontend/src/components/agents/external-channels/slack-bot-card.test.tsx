@@ -8,6 +8,7 @@ import {
   reservedSlackBot,
   SLACK_ENDPOINT,
   SLACK_REDIRECT,
+  serveAppManifest,
   serveBots,
   serveEntitlements,
   slackBot,
@@ -42,6 +43,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   serveEntitlements()
   serveBots([])
+  serveAppManifest()
 })
 
 async function openDialog(action: "Connect" | "Manage"): Promise<void> {
@@ -361,28 +363,15 @@ describe("SlackBotCard", () => {
   })
 })
 
-// The manifest fields these tests read.
-type SlackManifestFields = {
-  display_information: { name: string }
-  oauth_config: { redirect_urls: string[] }
-  settings: {
-    socket_mode_enabled: boolean
-    token_rotation_enabled: boolean
-    app_level_token_rotation_enabled?: boolean
-    interactivity: { request_url?: string }
-    event_subscriptions: { request_url?: string }
-  }
-}
-
 describe("Creating the custom Slack app", () => {
-  function manifestOf(link: HTMLElement): SlackManifestFields {
+  function manifestOf(link: HTMLElement): Record<string, unknown> {
     const url = new URL(link.getAttribute("href") ?? "")
     expect(url.origin + url.pathname).toBe("https://api.slack.com/apps")
     expect(url.searchParams.get("new_app")).toBe("1")
     return JSON.parse(url.searchParams.get("manifest_json") ?? "")
   }
 
-  it("names the bot, then opens Slack with its manifest filled in", async () => {
+  it("names the bot, then opens Slack with the served manifest", async () => {
     serveBots([reservedSlackBot()])
     renderPanel()
     await openDialog("Connect")
@@ -392,15 +381,17 @@ describe("Creating the custom Slack app", () => {
     expect(name).toHaveValue("Triage")
     await userEvent.clear(name)
     await userEvent.type(name, "SOC bot")
-    const link = screen.getByRole("link", { name: "Create in Slack" })
-    const manifest = manifestOf(link)
-    expect(manifest.display_information.name).toBe("SOC bot")
-    expect(manifest.settings.event_subscriptions.request_url).toBe(
-      SLACK_ENDPOINT
-    )
-    expect(manifest.settings.interactivity.request_url).toBe(SLACK_ENDPOINT)
-    expect(manifest.settings.token_rotation_enabled).toBe(true)
-    expect(manifest.oauth_config.redirect_urls).toEqual([SLACK_REDIRECT])
+    // The link waits for the manifest of the name as typed, not a prefix of it.
+    const link = await screen.findByRole("link", { name: "Create in Slack" })
+    expect(manifestOf(link)).toEqual({
+      display_information: { name: "SOC bot" },
+      bot: "bot-1",
+    })
+    expect(api.appManifest).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "bot-1",
+      appName: "SOC bot",
+    })
 
     await userEvent.click(link)
     expect(screen.getByText("Slack app ready")).toBeInTheDocument()
@@ -409,19 +400,15 @@ describe("Creating the custom Slack app", () => {
     )
   })
 
-  it("fills in Socket Mode for a Socket Mode bot", async () => {
-    serveBots([
-      reservedSlackBot({ endpoint_url: null }, { transport: "socket" }),
-    ])
+  it("cannot open Slack without a bot name", async () => {
+    serveBots([reservedSlackBot()])
     renderPanel()
     await openDialog("Connect")
 
-    const manifest = manifestOf(
-      screen.getByRole("link", { name: "Create in Slack" })
-    )
-    expect(manifest.settings.socket_mode_enabled).toBe(true)
-    expect(manifest.settings.app_level_token_rotation_enabled).toBe(true)
-    expect(manifest.settings.event_subscriptions.request_url).toBeUndefined()
+    await userEvent.clear(screen.getByLabelText("Bot name"))
+    expect(
+      screen.queryByRole("link", { name: "Create in Slack" })
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the request and redirect URLs in a collapsed manual section", async () => {

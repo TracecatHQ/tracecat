@@ -9,6 +9,7 @@ import {
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
+  agentChannelBotsGetBotAppManifest,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
   agentChannelBotsListBotChannels,
@@ -39,6 +40,7 @@ import {
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
+import { useDebounce } from "@/hooks/use-debounce"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   type BotChannels,
@@ -73,6 +75,8 @@ const ROUTE_PAGE_LIMIT = 200
 const MAX_ROUTE_PAGES = 50
 // Channel listings call Slack per bot, so mounts and focus reuse them briefly.
 const CHANNEL_LIST_STALE_TIME = 60_000
+// The app name is typed live; the manifest refetches once it settles.
+const APP_NAME_DEBOUNCE_MS = 300
 
 /** What an OAuth return needs the Channels tab to show beside the cards. */
 export type ChannelBotInstallFailure = "slack_workspace_claimed"
@@ -165,6 +169,34 @@ export function useChannelBotPlatformApps(
     meta: { suppressErrorToast: true },
   })
   return { platformApps, platformAppsIsLoading, platformAppsError }
+}
+
+/** The manifest that creates the bot's own provider app named `appName`, or null until it loads. */
+export function useChannelBotAppManifest(
+  bot: AgentChannelBotRead,
+  appName: string
+): Record<string, unknown> | null {
+  const [settledName] = useDebounce(appName, APP_NAME_DEBOUNCE_MS)
+  const { data } = useQuery<Record<string, unknown>, TracecatApiError>({
+    queryKey: [
+      CHANNEL_BOTS_QUERY_KEY,
+      bot.workspace_id,
+      bot.id,
+      "app-manifest",
+      settledName,
+    ],
+    queryFn: async () =>
+      await agentChannelBotsGetBotAppManifest({
+        workspaceId: bot.workspace_id,
+        botId: bot.id,
+        appName: settledName,
+      }),
+    enabled: settledName !== "",
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  // Until the name settles, the manifest still carries the previous one.
+  return settledName === appName ? (data ?? null) : null
 }
 
 /**

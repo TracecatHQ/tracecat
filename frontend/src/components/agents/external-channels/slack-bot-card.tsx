@@ -30,7 +30,6 @@ import {
   goToChannelBotAuthorization,
   httpsUrlOrNull,
 } from "@/components/agents/external-channels/channel-bot-utils"
-import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
 import {
   CreateInSlackButton,
   CustomSlackAppDocsLink,
@@ -43,6 +42,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
+  useChannelBotAppManifest,
   useChannelBotChannels,
   useChannelBotsBusy,
   useInstallAgentChannelBot,
@@ -423,7 +423,7 @@ function SlackAppCreateStep({
   onCreated: () => void
   disabled: boolean
 }) {
-  const manifest = slackBotManifest(bot, details, botName.trim())
+  const manifest = useChannelBotAppManifest(bot, botName.trim())
   if (created) {
     return (
       <div className="space-y-4">
@@ -475,23 +475,6 @@ function SlackAppCreateStep({
   )
 }
 
-/** The bot's manifest, or null without a name or an HTTP endpoint to send events to. */
-function slackBotManifest(
-  bot: AgentChannelBotRead,
-  details: ChannelBotDetailsOf<"slack">,
-  appName: string
-): Record<string, unknown> | null {
-  const socket = details.transport === "socket"
-  if (!appName || (!socket && !bot.endpoint_url)) {
-    return null
-  }
-  return buildSlackManifest({
-    endpointUrl: socket ? null : bot.endpoint_url,
-    oauthRedirectUrl: details.oauth_redirect_url,
-    appName,
-  })
-}
-
 /** The request and redirect URLs and the manifest, collapsed. */
 function SlackBotManualSetup({
   bot,
@@ -505,12 +488,13 @@ function SlackBotManualSetup({
   summary: string
 }) {
   const socket = details.transport === "socket"
+  const manifest = useChannelBotAppManifest(bot, appName || TITLE)
   return (
     <SlackManualSetup
       summary={summary}
       requestUrl={socket ? null : bot.endpoint_url}
       oauthRedirectUrl={details.oauth_redirect_url}
-      manifest={slackBotManifest(bot, details, appName || TITLE)}
+      manifest={manifest}
     />
   )
 }

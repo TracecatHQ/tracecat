@@ -1,40 +1,3 @@
-// Must match mist's SLACK_SCOPES. Scopes added after install make every workspace re-approve.
-const BOT_SCOPES = [
-  "app_mentions:read",
-  // Agent label, and `assistant.threads.setStatus`.
-  "assistant:write",
-  "bookmarks:read",
-  "bookmarks:write",
-  "canvases:read",
-  "canvases:write",
-  "channels:history",
-  "channels:manage",
-  // Lists the channels the bot is in.
-  "channels:read",
-  "chat:write",
-  "chat:write.customize",
-  "groups:history",
-  "groups:read",
-  "groups:write",
-  "im:history",
-  "im:read",
-  "im:write",
-  "links:read",
-  "links:write",
-  "mpim:history",
-  "mpim:read",
-  "pins:read",
-  "pins:write",
-  "reactions:read",
-  "reactions:write",
-  "search:read.files",
-  "search:read.public",
-  "search:read.users",
-  "users.profile:read",
-  "users:read",
-  "users:read.email",
-] as const
-
 // The legacy channel token path's scopes; matches SLACK_OAUTH_SCOPES in tracecat/agent/channels/service.py. Frozen.
 const LEGACY_BOT_SCOPES = [
   "app_mentions:read",
@@ -50,35 +13,17 @@ const LEGACY_BOT_SCOPES = [
   "users:read.email",
 ] as const
 
-/** The Slack app manifest for a bot; a null endpoint means Socket Mode. */
-export function buildSlackManifest({
+/** The legacy channel token path's Slack app manifest: mentions only, no agent_view. Frozen. */
+export function buildLegacySlackManifest({
   endpointUrl,
   oauthRedirectUrl,
   appName,
-  legacy = false,
 }: {
-  /** Where Slack posts events and interactions, or null over Socket Mode. */
-  endpointUrl: string | null
+  /** Where Slack posts events and interactions. */
+  endpointUrl: string
   oauthRedirectUrl: string
   appName: string
-  /** The legacy channel token path: mentions only, and no agent_view (one-way per app). */
-  legacy?: boolean
 }): Record<string, unknown> {
-  const socket = endpointUrl === null
-  const requestUrl = socket ? {} : { request_url: endpointUrl }
-  const settings = {
-    interactivity: { is_enabled: true, ...requestUrl },
-    org_deploy_enabled: false,
-    socket_mode_enabled: socket,
-    // Slack cannot turn rotation off again; the legacy path cannot refresh tokens.
-    token_rotation_enabled: !legacy,
-    ...(socket ? { app_level_token_rotation_enabled: true } : {}),
-    event_subscriptions: {
-      ...requestUrl,
-      bot_events: legacy ? ["app_mention"] : ["app_mention", "message.im"],
-    },
-  }
-
   return {
     display_information: {
       name: appName,
@@ -89,40 +34,29 @@ export function buildSlackManifest({
       app_home: {
         home_tab_enabled: false,
         messages_tab_enabled: true,
-        messages_tab_read_only_enabled: legacy,
+        messages_tab_read_only_enabled: true,
       },
       bot_user: {
         display_name: appName,
         always_online: true,
       },
-      // Slack labels the app an agent. One-way: an app on agent_view cannot go back.
-      ...(legacy
-        ? {}
-        : { agent_view: { agent_description: "Tracecat agent" } }),
     },
     oauth_config: {
-      scopes: {
-        bot: legacy ? LEGACY_BOT_SCOPES : BOT_SCOPES,
-      },
+      scopes: { bot: LEGACY_BOT_SCOPES },
       redirect_urls: [oauthRedirectUrl],
     },
-    settings,
+    settings: {
+      interactivity: { is_enabled: true, request_url: endpointUrl },
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      // Slack cannot turn rotation off again, and the legacy path cannot refresh tokens.
+      token_rotation_enabled: false,
+      event_subscriptions: {
+        request_url: endpointUrl,
+        bot_events: ["app_mention"],
+      },
+    },
   }
-}
-
-/** The manifest for the Tracecat app that every organization installs. */
-export function buildSlackPlatformManifest({
-  endpointUrl,
-  oauthRedirectUrl,
-}: {
-  endpointUrl: string | null
-  oauthRedirectUrl: string
-}): Record<string, unknown> {
-  return buildSlackManifest({
-    endpointUrl,
-    oauthRedirectUrl,
-    appName: "Tracecat",
-  })
 }
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"

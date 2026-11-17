@@ -7,6 +7,7 @@ import {
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
+  agentChannelBotsGetBotAppManifest,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
   agentChannelBotsListBotChannels,
@@ -33,6 +34,7 @@ export const api = {
   installBot: jest.mocked(agentChannelBotsInstallBot),
   updateBot: jest.mocked(agentChannelBotsUpdateBot),
   disconnectBot: jest.mocked(agentChannelBotsDisconnectBot),
+  appManifest: jest.mocked(agentChannelBotsGetBotAppManifest),
   listPlatformApps: jest.mocked(agentChannelBotsListPlatformApps),
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
   listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
@@ -115,6 +117,16 @@ export function reservedSlackBot(
       has_client_secret: false,
       ...details,
     }
+  )
+}
+
+/** Serves an app manifest naming the app it was asked for. */
+export function serveAppManifest(): void {
+  api.appManifest.mockImplementation(
+    ({ botId, appName }) =>
+      new CancelablePromise((resolve) =>
+        resolve({ display_information: { name: appName }, bot: botId })
+      )
   )
 }
 

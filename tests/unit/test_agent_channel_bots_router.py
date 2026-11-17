@@ -296,6 +296,13 @@ WORKSPACE_ROUTES = [
         "agent:update",
         id="install_platform",
     ),
+    pytest.param(
+        "GET",
+        f"/{uuid.uuid4()}/app-manifest?app_name=Triage",
+        None,
+        "agent:read",
+        id="app_manifest",
+    ),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
     pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
     pytest.param(
@@ -328,6 +335,7 @@ ADMIN_METHODS = (
     "install",
     "list_platform_apps",
     "install_platform",
+    "app_manifest",
     "list_routes",
     "add_route",
     "list_channels",
@@ -589,6 +597,51 @@ def test_platform_routes_hand_the_request_to_the_admin(
         SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
     )
     admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, "C1")
+
+
+def test_a_bots_app_manifest_comes_from_the_admin_as_is(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    bot_id = uuid.uuid4()
+    # Keys out of sorted order, so the test sees the order kept.
+    manifest = {"settings": {"socket_mode_enabled": True}, "display_information": {}}
+    admin.app_manifest.return_value = manifest
+
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/app-manifest", params={"app_name": "SOC bot"}
+    )
+
+    assert response.status_code == 200
+    assert list(response.json()) == ["settings", "display_information"]
+    assert response.json() == manifest
+    admin.app_manifest.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, app_name="SOC bot"
+    )
+
+
+@pytest.mark.parametrize("params", [{}, {"app_name": ""}, {"app_name": "x" * 256}])
+def test_an_app_manifest_needs_a_name(
+    client: TestClient, admin: AsyncMock, params: dict[str, str]
+) -> None:
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/app-manifest", params=params
+    )
+
+    assert response.status_code == 422
+    admin.app_manifest.assert_not_awaited()
+
+
+def test_a_platform_install_has_no_app_manifest(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    admin.app_manifest.side_effect = TracecatValidationError("no app of its own")
+
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/app-manifest", params={"app_name": "X"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "no app of its own"}
 
 
 def test_a_platform_reconnect_can_replace_the_default_agent(

@@ -3893,15 +3893,6 @@ export type ChannelBotPlatformApp = {
 }
 
 /**
- * What a platform admin pastes into the deployment's own provider app.
- */
-export type ChannelBotPlatformAppSetup = {
-  transport: ChannelBotTransport
-  oauth_redirect_url: string
-  request_url: string | null
-}
-
-/**
  * Install the platform app, which the deployment registers, over OAuth; or reconnect.
  */
 export type ChannelBotPlatformInstall = {
@@ -11753,7 +11744,19 @@ export type SlackPlatformAppRead = {
   icon_uploaded: boolean
   distribution_enabled: boolean
   unreadable: boolean
-  setup: ChannelBotPlatformAppSetup
+  setup: SlackPlatformAppSetup
+}
+
+/**
+ * The deployment's setup, and the app manifest it fills in.
+ */
+export type SlackPlatformAppSetup = {
+  transport: ChannelBotTransport
+  oauth_redirect_url: string
+  request_url: string | null
+  manifest: {
+    [key: string]: JsonValue
+  }
 }
 
 /**
@@ -16999,6 +17002,16 @@ export type AgentChannelBotsInstallPlatformBotData = {
 }
 
 export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsGetBotAppManifestData = {
+  appName: string
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsGetBotAppManifestResponse = {
+  [key: string]: JsonValue
+}
 
 export type AgentChannelBotsListBotRoutesData = {
   agentPresetId?: string | null
@@ -24021,6 +24034,23 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/app-manifest": {
+    get: {
+      req: AgentChannelBotsGetBotAppManifestData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: JsonValue
+        }
         /**
          * Validation Error
          */
