@@ -140,7 +140,7 @@ describe("organizationTier", () => {
 })
 
 describe("Git sync category", () => {
-  // Upgraded databases keep the deprecated `workspace_sync:sync` row.
+  // Upgraded databases keep the deprecated sync rows.
   const toScope = (id: string) => ({
     ...integrationReadScope,
     id,
@@ -152,37 +152,33 @@ describe("Git sync category", () => {
     "workspace_sync:push",
     "workspace_sync:pull",
     "workspace_sync:sync",
+    "workflow:sync",
+    "workflow:read",
   ].map(toScope)
   const { resources } = RESOURCE_CATEGORIES.gitSync
+  const workflows = RESOURCE_CATEGORIES.workflows.resources
 
-  it("lists the deprecated scope so setting a level removes it", () => {
-    expect(getCategoryScopes(resources, scopes)).toEqual(scopes)
+  it("lists both deprecated scopes so setting a level removes them", () => {
+    expect(getCategoryScopes(resources, scopes).map((s) => s.id)).toEqual([
+      "workspace_sync:push",
+      "workspace_sync:pull",
+      "workspace_sync:sync",
+      "workflow:sync",
+    ])
+    expect(getCategoryScopes(workflows, scopes).map((s) => s.id)).toEqual([
+      "workflow:read",
+    ])
   })
 
-  it("ignores the deprecated scope when reading the level", () => {
+  it("ignores deprecated scopes when push or pull is selected", () => {
     const migrated = new Set(scopes.map((s) => s.id))
     expect(getCategoryPermissionLevel(resources, scopes, migrated)).toBe(
       "admin"
     )
-    // On its own it still grants access on older app versions.
+    // On their own they still grant access on older app versions.
     expect(
-      getCategoryPermissionLevel(
-        resources,
-        scopes,
-        new Set(["workspace_sync:sync"])
-      )
+      getCategoryPermissionLevel(resources, scopes, new Set(["workflow:sync"]))
     ).toBe("mixed")
-    expect(
-      getCategoryPermissionLevel(
-        RESOURCE_CATEGORIES.workflows.resources,
-        [
-          toScope("workflow:read"),
-          toScope("workflow:update"),
-          toScope("workflow:sync"),
-        ],
-        new Set(["workflow:read", "workflow:sync"])
-      )
-    ).toBe("read")
   })
 
   it.each([

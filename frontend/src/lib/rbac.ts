@@ -183,11 +183,14 @@ export function getCategoryScopes(
   categoryResources: string[],
   scopes: ScopeRead[]
 ): ScopeRead[] {
-  return scopes.filter((s) =>
-    categoryResources.some(
-      (r) => s.resource === r || s.resource.startsWith(`${r}:`)
+  return scopes.filter((s) => {
+    // `workflow:sync` granted Git sync, so it lives with the Git sync scopes,
+    // where setting a level removes it.
+    const resource = s.name === "workflow:sync" ? "workspace_sync" : s.resource
+    return categoryResources.some(
+      (r) => resource === r || resource.startsWith(`${r}:`)
     )
-  )
+  })
 }
 
 /**
