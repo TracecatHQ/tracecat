@@ -314,7 +314,11 @@ export function EditVariableDialog({
             </DialogBody>
             <DialogFooter>
               {/* Wait for the managed lookup so locked fields are known. */}
-              <Button size="sm" type="submit" disabled={managedLoading}>
+              <Button
+                size="sm"
+                type="submit"
+                disabled={managedLoading || methods.formState.isSubmitting}
+              >
                 <SaveIcon className="mr-2 size-4" />
                 Save
               </Button>

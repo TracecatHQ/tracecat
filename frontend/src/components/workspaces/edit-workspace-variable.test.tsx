@@ -83,3 +83,25 @@ test("shows an inline error for an empty value key", async () => {
   expect(screen.getByRole("dialog")).toBeVisible()
   expect(mockUpdateVariableById).not.toHaveBeenCalled()
 })
+
+test("disables Save while an update is pending", async () => {
+  let resolveUpdate: () => void = () => {}
+  mockUpdateVariableById.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveUpdate = resolve
+      })
+  )
+  const user = await openDialog()
+  const save = screen.getByRole("button", { name: /Save/ })
+
+  await user.click(save)
+  await waitFor(() => expect(save).toBeDisabled())
+  await user.click(save)
+  expect(mockUpdateVariableById).toHaveBeenCalledTimes(1)
+
+  resolveUpdate()
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+})

@@ -264,7 +264,11 @@ export function NewVariableDialog({
               />
             </DialogBody>
             <DialogFooter>
-              <Button size="sm" type="submit">
+              <Button
+                size="sm"
+                type="submit"
+                disabled={methods.formState.isSubmitting}
+              >
                 <BracketsIcon className="mr-2 size-4" />
                 Create variable
               </Button>

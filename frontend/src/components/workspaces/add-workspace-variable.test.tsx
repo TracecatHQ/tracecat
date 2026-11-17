@@ -89,3 +89,29 @@ test("shows an inline error for an empty value key", async () => {
   expect(screen.getByRole("dialog")).toBeVisible()
   expect(mockCreateVariable).not.toHaveBeenCalled()
 })
+
+test("disables Create variable while the request is pending", async () => {
+  let resolveCreate: () => void = () => {}
+  mockCreateVariable.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveCreate = resolve
+      })
+  )
+  const user = await openDialog()
+  await user.type(
+    screen.getByPlaceholderText("Name (lowercase snake case)"),
+    "api_config"
+  )
+  const create = screen.getByRole("button", { name: /Create variable/ })
+
+  await user.click(create)
+  await waitFor(() => expect(create).toBeDisabled())
+  await user.click(create)
+  expect(mockCreateVariable).toHaveBeenCalledTimes(1)
+
+  resolveCreate()
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+})
