@@ -128,7 +128,7 @@ describe("useTypeToFocus", () => {
     let pendingAt: number | null
     // Mirrors the `cc` chat toggle in `ControlsHeader`.
     function toggleOnDoubleTap(event: KeyboardEvent) {
-      if (event.key !== "c") {
+      if (event.key.toLowerCase() !== "c") {
         pendingAt = null
         return
       }
@@ -166,6 +166,44 @@ describe("useTypeToFocus", () => {
       expect(toggles).toBe(1)
       expect(textarea.value).toBe("")
       expect(textarea).not.toHaveFocus()
+    })
+
+    it("lets the shortcut fire with Caps Lock on", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("C")
+      typeOnBody("C")
+
+      expect(toggles).toBe(1)
+      expect(textarea.value).toBe("")
+    })
+
+    it("does not hold keys while a dialog covers the composer", () => {
+      render(<Composer label="chat" />)
+      const dialog = document.createElement("div")
+      dialog.setAttribute("role", "dialog")
+      dialog.setAttribute("data-state", "open")
+      const save = document.createElement("button")
+      dialog.appendChild(save)
+      document.body.appendChild(dialog)
+
+      act(() => {
+        fireEvent.keyDown(save, { key: "c" })
+        jest.advanceTimersByTime(0)
+      })
+      let spaceEvent: KeyboardEvent | undefined
+      function capture(event: KeyboardEvent) {
+        spaceEvent = event
+      }
+      window.addEventListener("keydown", capture)
+      act(() => {
+        fireEvent.keyDown(save, { key: " " })
+      })
+      window.removeEventListener("keydown", capture)
+      dialog.remove()
+
+      expect(spaceEvent?.defaultPrevented).toBe(false)
     })
 
     it("types the held key ahead of the next one", () => {

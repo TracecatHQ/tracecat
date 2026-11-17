@@ -187,15 +187,19 @@ function handleKeyDown(event: KeyboardEvent): void {
     if (event.defaultPrevented) {
       // A shortcut claimed this key. The held tap belonged to it only if
       // this was its second tap; otherwise it is still text.
-      if (held && held !== key) {
+      if (held && held.toLowerCase() !== key.toLowerCase()) {
         routeText(held, eventTarget)
       }
       return
     }
-    const doubleTap = doubleTapKeys.find((entry) => entry.key === key)
-    if (!held && doubleTap) {
+    // Shortcuts match case-insensitively, so Caps Lock still toggles.
+    const doubleTap = doubleTapKeys.find(
+      (entry) => entry.key === key.toLowerCase()
+    )
+    if (!held && doubleTap && pickTarget(eventTarget)) {
       // Hold the first tap: typing it now would move focus into the
-      // composer and swallow the second tap of the shortcut.
+      // composer and swallow the second tap of the shortcut. Only hold it
+      // when a composer would take it, so nothing else loses keys.
       heldKey = {
         key,
         timer: window.setTimeout(() => {
