@@ -235,6 +235,11 @@ describe("PlatformChannelRoutes", () => {
       name: "Channel agents",
     })
     expect(await within(list).findByText("C9")).toBeInTheDocument()
+    // Page 1 has loaded with more pending, so the hold is what hides the hint.
+    await openPicker(card)
+    expect(
+      await screen.findByRole("option", { name: "Load more channels" })
+    ).toBeInTheDocument()
     expect(inviteHints(card)).toHaveLength(0)
   })
 

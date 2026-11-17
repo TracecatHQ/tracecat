@@ -177,7 +177,7 @@ describe("Channels page", () => {
     })
   })
 
-  it("manages a connected install: routes, then pause and disconnect from its menu", async () => {
+  it("manages a connected install: routes, then pauses it from a menu that offers Disconnect", async () => {
     servePlatform()
     api.updateBot.mockResolvedValue(platformSlackBot({ status: "paused" }))
     renderChannelsPage()

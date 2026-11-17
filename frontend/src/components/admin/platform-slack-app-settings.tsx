@@ -260,7 +260,9 @@ function FinishInSlack({
           aria-label="Turn on public distribution"
         >
           <div className="min-w-48 flex-1 space-y-0.5">
-            <h4 className="text-sm font-medium">Turn on public distribution</h4>
+            <h4 className="text-sm font-medium">
+              Turn on public distribution (optional)
+            </h4>
             <p className="text-xs text-muted-foreground">
               Until it&apos;s on, workspaces outside the one the app was created
               in can&apos;t add Tracecat. Slack doesn&apos;t report this, so
