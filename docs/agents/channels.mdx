@@ -31,13 +31,13 @@ Each custom app has its own bot name and icon and counts toward [Slack's install
 
 1. Open the preset's `Channels` tab. Under `Custom Slack app`, click `Connect`.
 2. Choose a bot name, click `Create in Slack`, and create the app.
-3. From Slack's `Basic Information → App Credentials`, copy the client ID, client secret, and signing secret into Tracecat. Enter any Socket Mode tokens the form requests.
+3. From Slack's `Basic Information → App Credentials`, copy the client ID, client secret, and signing secret into Tracecat.
 4. Click `Connect to Slack` and approve. Invite the bot by name with `/invite`.
 
-<Accordion title="Custom app credentials and manifest">
-  ![Custom Slack app credential fields](/img/agents/slack-custom-app.png)
-
+<Accordion title="Socket Mode tokens and manual app setup">
   For Socket Mode, generate an app-level token with `connections:write` and enter its access and refresh tokens.
+
+  ![Custom Slack app credential fields](/img/agents/slack-custom-app.png)
 
   To use an unused app dedicated to this preset, copy the manifest under `Create the app by hand instead`, apply it in Slack, and select `I already have the app` in Tracecat. See [Slack's manifest guide](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/).
 </Accordion>
