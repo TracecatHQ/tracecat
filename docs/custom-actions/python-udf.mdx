@@ -107,6 +107,39 @@ api_secret = RegistrySecret(
 
 <RegistrySecretsAndOAuth />
 
+## Call Tracecat from a UDF
+
+Import `ctx` from `tracecat_registry` to read and write Tracecat data, such as tables, cases, and variables, from inside a UDF.
+SDK calls use the workflow's internal authenticated execution context, so you do not need an API key or a `RegistrySecret`.
+
+Use clients such as `ctx.cases`, `ctx.tables`, `ctx.variables`, and `ctx.workflows`.
+In an `async def` UDF, call the async variant under `.aio`, such as `ctx.tables.aio`. The synchronous clients raise an error inside async code.
+
+```python
+from typing import Annotated, Any
+from typing_extensions import Doc
+
+from tracecat_registry import ctx, registry
+
+
+@registry.register(
+    default_title="Look up asset owner",
+    description="Return the owner of an asset from the assets table.",
+    display_group="Assets",
+    namespace="tools.assets",
+)
+async def lookup_asset_owner(
+    hostname: Annotated[str, Doc("The hostname to look up.")],
+) -> dict[str, Any] | None:
+    row = await ctx.tables.aio.lookup(
+        table="assets", column="hostname", value=hostname
+    )
+    return {"owner": row["owner"]} if row else None
+```
+
+You can also import a built-in Python action and call it like a regular function, for example `from tracecat_registry.core.table import lookup`.
+`@registry.register` returns the original function, so the call runs in the same process with the same context.
+
 ## Private network access
 
 Python UDFs can call hosts on a private or on-premises network through a [tunnel](/manage-platform/tunnels). The tunnel reaches your action as the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables, which `httpx`, `requests`, and most SDKs read by default. Keep that default: do not set `trust_env=False` or open raw sockets, or the request bypasses the tunnel and fails.
