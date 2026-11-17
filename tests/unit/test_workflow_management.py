@@ -926,6 +926,31 @@ async def test_publish_workflow_invalid_draft_returns_errors(
     session.commit.assert_not_awaited()
 
 
+@pytest.mark.anyio
+async def test_publish_workflow_dsl_error_keeps_action_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DSL error naming an action is returned with its ref for the canvas."""
+    from tracecat.exceptions import TracecatDSLError
+    from tracecat.identifiers.workflow import WorkflowUUID
+
+    role = _role()
+    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    service = WorkflowsManagementService(cast(Any, session), role=role)
+    service.get_workflow = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))  # type: ignore[method-assign]
+
+    async def fail_build(_workflow: Any) -> Any:
+        raise TracecatDSLError("Invalid expression", ref="build_payload")
+
+    monkeypatch.setattr(service, "build_dsl_from_workflow", fail_build)
+
+    result = await service.publish_workflow(WorkflowUUID.new(uuid.uuid4()))
+
+    assert [error.root.ref for error in result.errors] == ["build_payload"]
+    assert result.errors[0].root.msg == "Invalid expression"
+    session.commit.assert_not_awaited()
+
+
 def test_normalize_persisted_revision_adds_missing_layout_entries() -> None:
     """A definition action without a layout entry must not desync dry-run revision.
 

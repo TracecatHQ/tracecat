@@ -1029,7 +1029,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 version=None,
                 errors=[
                     ValidationResult.new(
-                        DSLValidationResult(status="error", msg=str(e), detail=e.detail)
+                        DSLValidationResult(
+                            status="error", msg=str(e), detail=e.detail, ref=e.ref
+                        )
                     )
                 ],
             )

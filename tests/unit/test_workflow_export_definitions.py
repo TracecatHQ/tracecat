@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatDSLError, TracecatValidationError
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
 from tracecat.workspace_sync.schemas import (
@@ -187,3 +187,19 @@ async def test_export_diagnostics_name_safe_definition_and_resource_fields(
     )
     assert "synthetic-private-input" not in str(error)
     assert "private" not in str(error)
+
+
+@pytest.mark.anyio
+async def test_export_diagnostics_name_the_failing_action(svc_role: Role) -> None:
+    workflow = Workflow(id=uuid.uuid4(), title="Synthetic invalid expression")
+    error = WorkflowExportDiagnosticsService(
+        session=AsyncMock(spec=AsyncSession), role=svc_role
+    ).validation_error(
+        workflow,
+        error=TracecatDSLError("synthetic-private-input", ref="build_payload"),
+    )
+    assert (
+        error.diagnostics[0].message
+        == "Check the 'build_payload' action before pushing."
+    )
+    assert "synthetic-private-input" not in str(error)

@@ -271,7 +271,10 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
         exc if isinstance(exc, TracecatException) else TracecatException(str(exc))
     )
     msg = str(tracecat_exc)
+    # Pass msg as an argument: loguru formats the message with kwargs, so a
+    # literal brace in it (e.g. from user input) would raise.
     logger.error(
+        "{}",
         msg,
         role=ctx_role.get(),
         params=request.query_params,

@@ -34,7 +34,9 @@ class WorkflowExportDiagnosticsService(BaseWorkspaceService):
             "missing_child_workflow": "A referenced child workflow could not be found. Check the child workflow reference.",
         }
         message = messages[code]
-        if isinstance(error, ValidationError):
+        if isinstance(error, TracecatValidationError) and error.ref:
+            message = f"Check the '{error.ref}' action before pushing."
+        elif isinstance(error, ValidationError):
             # Validator messages and input values can include credentials.
             # Only expose top-level schema field names from a fixed allowlist.
             fields = sorted(
