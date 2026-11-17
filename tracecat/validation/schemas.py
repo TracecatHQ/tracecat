@@ -170,5 +170,7 @@ class ValidationResult(RootModel):
     @classmethod
     def from_dsl_error(cls, err: TracecatValidationError) -> ValidationResult:
         return cls(
-            root=DSLValidationResult(status="error", msg=str(err), detail=err.detail)
+            root=DSLValidationResult(
+                status="error", msg=str(err), detail=err.detail, ref=err.ref
+            )
         )

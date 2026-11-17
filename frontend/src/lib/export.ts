@@ -83,6 +83,11 @@ export function handleExportError(error: Error) {
     toastData.title = "No workflow version found"
     toastData.description =
       "Cannot export uncommitted workflow. Please commit changes to create a versioned workflow."
+  } else if (
+    error instanceof AxiosError &&
+    typeof error.response?.data?.detail === "string"
+  ) {
+    toastData.description = error.response.data.detail
   } else {
     toastData.description += ` ${error.message}`
   }

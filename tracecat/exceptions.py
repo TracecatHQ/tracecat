@@ -35,6 +35,10 @@ class TracecatException(Exception):
 class TracecatValidationError(TracecatException):
     """Tracecat user-facing validation error"""
 
+    def __init__(self, *args, ref: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ref = ref
+
 
 class TracecatConflictError(TracecatException):
     """Tracecat user-facing resource conflict error"""

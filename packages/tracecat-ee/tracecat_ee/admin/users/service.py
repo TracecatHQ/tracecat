@@ -66,7 +66,7 @@ class AdminUserService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            if not is_unique_violation(e, "ix_user_email"):
+            if not is_unique_violation(e, "ix_user_email", "ix_user_email_lower"):
                 raise
             raise ValueError(f"User with email {params.email} already exists") from e
 

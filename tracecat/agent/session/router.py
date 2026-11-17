@@ -44,8 +44,9 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     TurnLifecycle,
-    is_ownerless_channel_session,
-    is_session_readonly,
+    can_act_on_session,
+    can_decide_on_session,
+    is_session_owner,
 )
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -109,19 +110,35 @@ def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | No
     return f"{session_id}:{curr_run_id}" if curr_run_id else None
 
 
-def _require_session_write_access(
+def _require_session_access(
+    allowed: bool, message: str = "Teammate sessions are read-only."
+) -> None:
+    """Reject an action the actor may not take on this session."""
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "session_read_only", "message": message},
+        )
+
+
+def _require_session_owner(
     role: WorkspaceActorRouteRole,
     agent_session: AgentSession,
 ) -> None:
-    """Reject writes to sessions owned by another workspace actor."""
-    if not is_session_readonly(role, agent_session.created_by):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={
-            "code": "session_read_only",
-            "message": "Teammate sessions are read-only.",
-        },
+    """Reject managing sessions owned by another workspace actor."""
+    _require_session_access(
+        is_session_owner(role, agent_session.created_by),
+        "Only the session's creator can change it.",
+    )
+
+
+def _require_session_act_access(
+    role: WorkspaceActorRouteRole,
+    agent_session: AgentSession,
+) -> None:
+    """Reject acting on a session the workspace does not share with the actor."""
+    _require_session_access(
+        can_act_on_session(role, agent_session.entity_type, agent_session.created_by)
     )
 
 
@@ -236,7 +253,7 @@ async def create_session(
             parent = await svc.get_session(request.spawned_by_session_id)
             if parent is None:
                 raise TracecatNotFoundError("Parent session not found in workspace")
-            _require_session_write_access(role, parent)
+            _require_session_owner(role, parent)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc, session=session, role=role, agent_session=parent
             )
@@ -466,7 +483,7 @@ async def update_session(
             detail="Session not found",
         )
 
-    _require_session_write_access(role, agent_session)
+    _require_session_owner(role, agent_session)
     _require_builder_edit_access(role, agent_session.entity_type)
 
     await _require_workspace_chat_entitlement_for_session_tree(
@@ -507,7 +524,7 @@ async def remove_session_artifact(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session {session_id} not found")
-        _require_session_write_access(role, agent_session)
+        _require_session_owner(role, agent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             session=session,
             role=role,
@@ -552,7 +569,7 @@ async def delete_session(
             detail="Session not found",
         )
 
-    _require_session_write_access(role, agent_session)
+    _require_session_owner(role, agent_session)
 
     await _require_workspace_chat_entitlement_for_session_tree(
         session=session,
@@ -608,14 +625,14 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
-            # Workspace members may decide approvals on a channel's session.
-            if not (
-                isinstance(request, ContinueRunRequest)
-                and is_ownerless_channel_session(
-                    agent_session.entity_type, agent_session.created_by
-                )
-            ):
-                _require_session_write_access(role, agent_session)
+            access_check = (
+                can_decide_on_session
+                if isinstance(request, ContinueRunRequest)
+                else can_act_on_session
+            )
+            _require_session_access(
+                access_check(role, agent_session.entity_type, agent_session.created_by)
+            )
             _require_builder_edit_access(role, agent_session.entity_type)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc,
@@ -938,15 +955,14 @@ async def list_pending_messages(
 
     Covers steers waiting to join the running turn and messages queued for a
     later turn. The list is short-lived and small, so it is not paginated. Only
-    the session's owner sees it: the messages are theirs until the model reads
-    them.
+    actors who may act on the session see it.
     """
     svc = AgentSessionService(session, role)
     try:
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_session_write_access(role, agent_session)
+        _require_session_act_access(role, agent_session)
         return await svc.list_pending(session_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -982,7 +998,8 @@ async def fork_session(
             raise TracecatNotFoundError(
                 f"Parent session with ID {session_id} not found"
             )
-        _require_session_write_access(role, parent_session)
+        # The inbox follows up on a workflow session by forking it.
+        _require_session_act_access(role, parent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -1003,7 +1020,7 @@ async def fork_session(
             spawning_parent = await svc.get_session(spawning_parent_id)
             if spawning_parent is None:
                 raise TracecatNotFoundError("Parent session not found in workspace")
-            _require_session_write_access(role, spawning_parent)
+            _require_session_owner(role, spawning_parent)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc, session=session, role=role, agent_session=spawning_parent
             )
@@ -1043,7 +1060,7 @@ async def cancel_session(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_session_write_access(role, agent_session)
+        _require_session_act_access(role, agent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -1088,8 +1105,8 @@ async def control_session(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_session_write_access(role, agent_session)
-        # Cancelling stays open to the owner, so a revoked scope can still stop a run.
+        _require_session_act_access(role, agent_session)
+        # Cancelling skips agent:update, so a revoked scope can still stop a run.
         if request.type != "cancel":
             _require_builder_edit_access(role, agent_session.entity_type)
         await _require_workspace_chat_entitlement_for_session_tree(

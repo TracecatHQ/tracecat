@@ -59,21 +59,22 @@ async def dataset(session: AsyncSession, svc_workspace: Workspace) -> SortDatase
         for email in (
             "Zulu@sorting.example.com",
             "Alpha@sorting.example.com",
-            "alpha@sorting.example.com",
             "bravo@sorting.example.com",
             "former@sorting.example.com",
         )
     ]
     session.add_all([other_workspace, *users])
     await session.flush()
+    # Emails are unique case-insensitively, so duplicate keys come from one
+    # user assigned to two cases.
     assignees = [
         users[0].id,
         users[1].id,
+        users[1].id,
         users[2].id,
+        None,
+        None,
         users[3].id,
-        None,
-        None,
-        users[4].id,
     ]
     cases = [
         Case(
