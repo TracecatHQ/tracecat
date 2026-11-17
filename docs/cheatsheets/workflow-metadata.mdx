@@ -1,6 +1,6 @@
 ---
 title: "Workflow metadata"
-description: "Quick reference for the ENV fields available in Tracecat expressions: workflow run identifiers, timestamps, trigger type, and Workflow environment."
+description: "Quick reference for the ENV fields available in Tracecat expressions: workflow run identifiers, timestamps, trigger type, Workflow environment, and workspace ID."
 ---
 
 ## Fields
@@ -17,7 +17,7 @@ Wrap a field in `${{ ... }}` to use it in an expression.
 | `ENV.workflow.trigger_type` | `manual`, `scheduled`, `webhook`, `case`, or `form` |
 | `ENV.workflow.logical_time` | Logical timestamp of the current action; `FN.now()` returns it. A `run_if` evaluated before any action has run sees `None` |
 | `ENV.environment` | The [Workflow environment](/automations/workflows#environments) the run executes in |
-| `ENV.workspace_id` | ID of the workspace the run executes in. A subflow sees its own workspace |
+| `ENV.workspace_id` | ID of the workspace the run executes in. Subflows run in the same workspace |
 
 Every `ENV.*` expression resolves to `None` in an action invoked as an agent tool.
 
