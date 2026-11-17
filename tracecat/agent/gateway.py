@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
@@ -539,11 +540,18 @@ def _provider_rate_limit(error: Exception) -> Exception | None:
     return None
 
 
-def _anthropic_error_message(error_type: str, message: str) -> str:
-    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
-    return orjson.dumps(
-        {"type": "error", "error": {"type": error_type, "message": message}}
-    ).decode()
+def _anthropic_error_message(
+    error_type: str, message: str, retry_after: int | None = None
+) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer.
+
+    LiteLLM's ``/v1/messages`` error path drops upstream response headers, so a
+    provider's wait hint reaches the LLM socket proxy as ``error.retry_after``.
+    """
+    error: dict[str, str | int] = {"type": error_type, "message": message}
+    if retry_after is not None:
+        error["retry_after"] = retry_after
+    return orjson.dumps({"type": "error", "error": error}).decode()
 
 
 def _trace_request_id(data: dict[str, Any]) -> str | None:
@@ -555,6 +563,36 @@ def _trace_request_id(data: dict[str, Any]) -> str | None:
             return trace_request_id[:128]
         case _:
             return None
+
+
+# Bounds a provider-supplied wait hint; the LLM socket proxy applies its own cap.
+_MAX_RETRY_AFTER_SECONDS = 300
+
+
+def _numeric_seconds(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    return seconds if math.isfinite(seconds) else None
+
+
+def _retry_after_seconds(rate_limit: Exception) -> int | None:
+    """Whole seconds from the provider's numeric wait headers; never other text."""
+    # LiteLLM exception types share no typed response interface, and some
+    # (e.g. a wrapped stream APIError) carry no response at all.
+    headers = getattr(getattr(rate_limit, "response", None), "headers", None)
+    if headers is None:
+        return None
+    if (millis := _numeric_seconds(headers.get("retry-after-ms"))) is not None:
+        seconds = millis / 1000
+    else:
+        seconds = _numeric_seconds(headers.get("retry-after"))
+    if seconds is None or seconds <= 0:
+        return None
+    return min(math.ceil(seconds), _MAX_RETRY_AFTER_SECONDS)
 
 
 class TracecatCallbackHandler(CustomLogger):
@@ -586,6 +624,7 @@ class TracecatCallbackHandler(CustomLogger):
                     original_exception.type, original_exception.message
                 )
             return None
+        retry_after: int | None = None
         if isinstance(original_exception, RouterRateLimitError):
             # LiteLLM otherwise serializes this ValueError as a 429. Its
             # deployment-scoped cooldown state is shared across credentials;
@@ -612,17 +651,17 @@ class TracecatCallbackHandler(CustomLogger):
                 detail="The LLM provider rejected authentication or access",
             )
         elif (rate_limit := _provider_rate_limit(original_exception)) is not None:
-            replacement = (
-                _ProviderQuotaHTTPException(
+            if _is_provider_quota_exceeded(rate_limit):
+                replacement = _ProviderQuotaHTTPException(
                     status_code=429,
                     detail="LLM provider quota exhausted; check billing or usage limits",
                 )
-                if _is_provider_quota_exceeded(rate_limit)
-                else _ProviderRateLimitHTTPException(
+            else:
+                replacement = _ProviderRateLimitHTTPException(
                     status_code=429,
                     detail="LLM provider rate limit exceeded; retry later",
                 )
-            )
+                retry_after = _retry_after_seconds(rate_limit)
         elif isinstance(
             original_exception,
             APIConnectionError
@@ -656,7 +695,9 @@ class TracecatCallbackHandler(CustomLogger):
         # LiteLLM's duck-typed endpoint serializer.
         original_exception.__dict__.update(
             type=replacement.type,
-            message=_anthropic_error_message(replacement.type, str(replacement.detail)),
+            message=_anthropic_error_message(
+                replacement.type, str(replacement.detail), retry_after
+            ),
             status_code=replacement.status_code,
         )
         return replacement
