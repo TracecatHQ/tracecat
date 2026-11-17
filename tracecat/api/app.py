@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
+from temporalio.service import RPCError
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
 from tracecat_ee.cases.views.router import router as case_views_router
@@ -91,6 +92,7 @@ from tracecat.api.common import (
     query_timeout_exception_handler,
     serialize_validation_errors,
     table_row_exception_handler,
+    temporal_rpc_exception_handler,
     tracecat_exception_handler,
     without_inputs,
 )
@@ -959,6 +961,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,
