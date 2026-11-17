@@ -121,9 +121,17 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 # Headroom reserved for session-envelope metadata when checking whether a
 # serialized session line still fits inside a MAX_PAYLOAD_SIZE socket frame.
 _SESSION_FRAME_MARGIN = 4096
+MODEL_REQUEST_FAILED_MESSAGE = (
+    "The model request failed after retries. Please retry the agent execution."
+)
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
+# The approval hook may wait ROOT_MESSAGE_DONE_TIMEOUT_SECONDS for the root
+# message to finish, then interrupt (an SDK control request with its own 60 s
+# timeout), before it denies the call. The hook must outlive both: the CLI's
+# default hook timeout (60 s) would otherwise give up before the deny.
+PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS = ROOT_MESSAGE_DONE_TIMEOUT_SECONDS + 90.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -1700,7 +1708,12 @@ class ClaudeAgentRuntime:
             stderr=stderr,
             sandbox=self._sandbox_settings(),
             hooks={
-                "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
+                "PreToolUse": [
+                    HookMatcher(
+                        hooks=[self._pre_tool_use_hook],
+                        timeout=PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS,
+                    )
+                ],
                 "Stop": [HookMatcher(hooks=[self._stop_hook])],
             },
             cwd=self._cwd,
@@ -1742,6 +1755,58 @@ class ClaudeAgentRuntime:
                 )
             )
             self._session_flush_event.set()
+
+        # api_retry: the CLI is retrying a failed model request itself, for
+        # example after the LLM proxy ended an interrupted stream.
+        elif message.subtype == "api_retry":
+            await self._event_writer.send_log(
+                "warning",
+                "Claude SDK retrying model request",
+                attempt=message.data.get("attempt"),
+                max_retries=message.data.get("max_retries"),
+                retry_delay_ms=message.data.get("retry_delay_ms"),
+                error_status=message.data.get("error_status"),
+                error=message.data.get("error"),
+            )
+
+    async def _handle_result_message(self, message: ResultMessage) -> None:
+        """Send the turn's final result, or fail the turn on a model API error."""
+        await self._event_writer.send_log(
+            "info",
+            "Agent turn completed",
+            num_turns=message.num_turns,
+            duration_ms=message.duration_ms,
+            usage=message.usage,
+        )
+        # An "api_error" terminal reason means the CLI's last model request
+        # failed after its own retries, for example a gateway that keeps
+        # cutting streams. The result text is that API error, not an answer.
+        # Keep the usage, drop the text, and fail the turn. Refusals and other
+        # error results keep their existing handling.
+        model_request_failed = (
+            message.is_error
+            and message.subtype == "success"
+            and message.terminal_reason == "api_error"
+        )
+        if model_request_failed:
+            result_output = None
+        elif message.structured_output is not None:
+            result_output = message.structured_output
+        else:
+            result_output = message.result
+        await self._event_writer.send_result(
+            usage=message.usage,
+            num_turns=message.num_turns,
+            duration_ms=message.duration_ms,
+            output=result_output,
+        )
+        if model_request_failed:
+            await self._event_writer.send_log(
+                "error",
+                "Claude SDK model request failed after retries",
+                api_error_status=message.api_error_status,
+            )
+            await self._event_writer.send_error(MODEL_REQUEST_FAILED_MESSAGE)
 
     async def _emit_user_tool_results(self, message: UserMessage) -> None:
         """Stream non-approval tool results from SDK user messages."""
@@ -1963,29 +2028,12 @@ class ClaudeAgentRuntime:
                             self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):
-                            await self._event_writer.send_log(
-                                "info",
-                                "Agent turn completed",
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                usage=message.usage,
-                            )
                             log_benchmark_phase(
                                 "runtime_result_received",
                                 duration_ms=message.duration_ms,
                                 num_turns=message.num_turns,
                             )
-                            result_output = (
-                                message.structured_output
-                                if message.structured_output is not None
-                                else message.result
-                            )
-                            await self._event_writer.send_result(
-                                usage=message.usage,
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                output=result_output,
-                            )
+                            await self._handle_result_message(message)
 
                         elif isinstance(message, SystemMessage):
                             await self._handle_system_message(message)
