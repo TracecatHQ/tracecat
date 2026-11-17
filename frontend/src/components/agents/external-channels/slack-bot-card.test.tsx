@@ -385,7 +385,6 @@ describe("Creating the custom Slack app", () => {
     const link = await screen.findByRole("link", { name: "Create in Slack" })
     expect(manifestOf(link)).toEqual({
       display_information: { name: "SOC bot" },
-      bot: "bot-1",
     })
     expect(api.appManifest).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
@@ -404,11 +403,33 @@ describe("Creating the custom Slack app", () => {
     serveBots([reservedSlackBot()])
     renderPanel()
     await openDialog("Connect")
+    await screen.findByRole("link", { name: "Create in Slack" })
 
     await userEvent.clear(screen.getByLabelText("Bot name"))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("link", { name: "Create in Slack" })
+      ).not.toBeInTheDocument()
+    )
+    // Settled on the empty name, the card still shows no link.
+    await new Promise((resolve) => setTimeout(resolve, 400))
     expect(
       screen.queryByRole("link", { name: "Create in Slack" })
     ).not.toBeInTheDocument()
+  })
+
+  it("says why Slack cannot open when the manifest fails to load", async () => {
+    api.appManifest.mockRejectedValue(
+      apiError(400, { detail: "No app manifest" })
+    )
+    serveBots([reservedSlackBot()])
+    renderPanel()
+    await openDialog("Connect")
+
+    expect(await screen.findByText("No app manifest")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Create in Slack" })
+    ).toBeDisabled()
   })
 
   it("keeps the request and redirect URLs in a collapsed manual section", async () => {

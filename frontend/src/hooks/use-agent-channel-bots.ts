@@ -171,13 +171,13 @@ export function useChannelBotPlatformApps(
   return { platformApps, platformAppsIsLoading, platformAppsError }
 }
 
-/** The manifest that creates the bot's own provider app named `appName`, or null until it loads. */
+/** The manifest that creates the bot's own provider app named `appName`; null until it loads. */
 export function useChannelBotAppManifest(
   bot: AgentChannelBotRead,
   appName: string
-): Record<string, unknown> | null {
+) {
   const [settledName] = useDebounce(appName, APP_NAME_DEBOUNCE_MS)
-  const { data } = useQuery<Record<string, unknown>, TracecatApiError>({
+  const { data, error } = useQuery<Record<string, unknown>, TracecatApiError>({
     queryKey: [
       CHANNEL_BOTS_QUERY_KEY,
       bot.workspace_id,
@@ -196,7 +196,11 @@ export function useChannelBotAppManifest(
     meta: { suppressErrorToast: true },
   })
   // Until the name settles, the manifest still carries the previous one.
-  return settledName === appName ? (data ?? null) : null
+  const settled = settledName === appName
+  return {
+    appManifest: settled ? (data ?? null) : null,
+    appManifestError: settled ? error : null,
+  }
 }
 
 /**

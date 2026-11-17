@@ -29,7 +29,7 @@ const REQUEST_URL = "https://api.example.com/platform-events"
 // The API builds the manifest; the page passes it on as served.
 const MANIFEST = {
   display_information: { name: "Tracecat" },
-  settings: { request_url: REQUEST_URL },
+  settings: { event_subscriptions: { request_url: REQUEST_URL } },
 }
 
 function slackApp(

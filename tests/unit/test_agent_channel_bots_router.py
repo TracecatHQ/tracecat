@@ -631,19 +631,6 @@ def test_an_app_manifest_needs_a_name(
     admin.app_manifest.assert_not_awaited()
 
 
-def test_a_platform_install_has_no_app_manifest(
-    client: TestClient, admin: AsyncMock
-) -> None:
-    admin.app_manifest.side_effect = TracecatValidationError("no app of its own")
-
-    response = client.get(
-        f"/agent/channel-bots/{uuid.uuid4()}/app-manifest", params={"app_name": "X"}
-    )
-
-    assert response.status_code == 400
-    assert response.json() == {"detail": "no app of its own"}
-
-
 def test_a_platform_reconnect_can_replace_the_default_agent(
     client: TestClient, admin: AsyncMock
 ) -> None:

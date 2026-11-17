@@ -123,9 +123,9 @@ export function reservedSlackBot(
 /** Serves an app manifest naming the app it was asked for. */
 export function serveAppManifest(): void {
   api.appManifest.mockImplementation(
-    ({ botId, appName }) =>
+    ({ appName }) =>
       new CancelablePromise((resolve) =>
-        resolve({ display_information: { name: appName }, bot: botId })
+        resolve({ display_information: { name: appName } })
       )
   )
 }

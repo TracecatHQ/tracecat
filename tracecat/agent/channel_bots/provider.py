@@ -86,6 +86,15 @@ class ChannelBotAdmin(Protocol):
         self, session: AsyncSession, role: Role, params: ChannelBotInstall
     ) -> ChannelBotInstallResult: ...
 
+    async def app_manifest(
+        self, session: AsyncSession, role: Role, bot_id: uuid.UUID, *, app_name: str
+    ) -> dict[str, JsonValue]:
+        """The app manifest that creates the bot's own app, named `app_name`.
+
+        Raise `TracecatValidationError` for a platform install, which has none.
+        """
+        ...
+
     async def list_platform_apps(
         self, session: AsyncSession, role: Role
     ) -> list[ChannelBotPlatformApp]:
@@ -102,15 +111,6 @@ class ChannelBotAdmin(Protocol):
         self, provider: ChannelBotProvider
     ) -> dict[str, JsonValue]:
         """The app manifest that creates the deployment's own app in `provider`."""
-        ...
-
-    async def app_manifest(
-        self, session: AsyncSession, role: Role, bot_id: uuid.UUID, *, app_name: str
-    ) -> dict[str, JsonValue]:
-        """The app manifest that creates the bot's own app, named `app_name`.
-
-        Raise `TracecatValidationError` for a platform install, which has none.
-        """
         ...
 
     async def install_platform(
