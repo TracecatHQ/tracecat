@@ -15,7 +15,7 @@ function axiosError(status: number, data: unknown): AxiosError {
 describe("handleExportError", () => {
   it("shows the server's detail when it is a message", () => {
     const detail =
-      "Cannot export draft: Action 'build_payload' has an invalid expression in field 'inputs'."
+      "Cannot export draft: Action 'build_payload' has an expression in field 'inputs' that could not be parsed"
     expect(handleExportError(axiosError(400, { detail })).description).toBe(
       detail
     )

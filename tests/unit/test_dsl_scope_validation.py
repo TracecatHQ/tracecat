@@ -1164,7 +1164,7 @@ def test_unparseable_expression_names_the_action() -> None:
     """A parse error becomes a DSL error that names the action and field."""
     with pytest.raises(
         TracecatDSLError,
-        match="Action 'build_payload' has an invalid expression in field 'inputs'",
+        match="Action 'build_payload' has an expression in field 'inputs' that could not be parsed",
     ) as exc_info:
         DSLInput(
             title="Nested template",
@@ -1187,4 +1187,4 @@ def test_unparseable_expression_names_the_action() -> None:
             ],
         )
     assert exc_info.value.ref == "build_payload"
-    assert "Previous tokens" not in str(exc_info.value)
+    assert "ACTIONS.upload" not in str(exc_info.value)

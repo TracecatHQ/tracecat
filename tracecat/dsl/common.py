@@ -277,9 +277,10 @@ class DSLInput(BaseModel):
                 try:
                     expr_ctxs = extract_expressions(value)
                 except TracecatExpressionError as e:
-                    reason = str(e).split("\n\nPrevious tokens", 1)[0]
+                    # The parser's diagnostic quotes the expression source, which
+                    # can hold literal credentials, so name only the action+field.
                     raise TracecatDSLError(
-                        f"Action '{action.ref}' has an invalid expression in field '{key2loc(key)}'. {reason}",
+                        f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that could not be parsed",
                         ref=action.ref,
                     ) from e
                 for dep in expr_ctxs[ExprContext.ACTIONS]:
