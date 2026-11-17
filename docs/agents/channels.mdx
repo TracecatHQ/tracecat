@@ -6,11 +6,19 @@ icon: "lock"
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Your organization needs the Agent Channels preview entitlement (`agent_channels_preview`) to [install the shared Slack app](/agents/ai-slackbot) or use the new custom app setup.
+Your organization needs the Agent Channels preview entitlement (`agent_channels_preview`) to [add Tracecat to Slack](/agents/ai-slackbot) or connect a custom Slack app.
+
+## Capabilities
+
+- Direct messages: the agent answers every message.
+- Channels: the agent answers messages that mention it, in channels you invited it to.
+- Threads: each thread is one agent session, so the agent remembers earlier turns in that thread.
+- Channel routing: each channel can have its own agent. The default agent answers direct messages and channels without a route.
+- Tool approvals: approve or deny a tool call from the thread. The card then shows who decided.
 
 ## Choose which agent answers
 
-In `Agents → # (Channels)`, the `Default agent` answers DMs and channels without a route. Add a route for any channel that needs a different agent.
+In `Agents → # (Channels)`, the `Default agent` answers direct messages and channels without a route. Add a route for any channel that needs a different agent.
 
 1. Select `Pick a channel`. Search by name or paste the channel ID from Slack.
 2. Choose the agent and click `Add`. In Slack, run `/invite @Tracecat` in that channel.
@@ -20,9 +28,9 @@ In `Agents → # (Channels)`, the `Default agent` answers DMs and channels witho
 Change the agent on a row to reroute new threads. Remove the row to use the default. Existing threads keep their agent.
 
 <Accordion title="Pause, reconnect, or move the app">
-  Open `More actions` to pause replies. Click `Resume` to restart them. If you see `Needs reconnect`, click `Reconnect` and approve the app in Slack.
+  Select `More actions → Pause` to stop replies and `More actions → Resume` to restart them. If you see `Needs reconnect` or `Update needed`, click `Reconnect` and approve the app in Slack.
 
-  To move the app, ask the current Tracecat workspace admin to select `More actions → Disconnect`.
+  To connect the Slack workspace to a different Tracecat workspace, first select `More actions → Disconnect` in the current one.
 </Accordion>
 
 ## Connect a Slack app
@@ -51,16 +59,14 @@ Each custom app has its own bot name and icon and counts toward [Slack's install
   Enter the credentials and click `Connect to Slack`. If you rotate the endpoint later, update both request URLs in Slack.
 </Accordion>
 
-## Capabilities
-
-- Mention the app in a channel you’ve invited it to, or send it a direct message.
-- Each thread has one agent session. Reply in the thread to continue your earlier conversation with the agent.
-- Route a channel to its own agent. The default agent answers DMs and channels without a route.
-- Choose `Approve` or `Deny` on a tool call. The thread card previews up to 2,000 characters of arguments, then shows who decided. Open the session for the full arguments.
-
 ## Limitations
 
-- Mention the app again for each follow-up in a channel thread.
-- The agent receives message text only. It doesn’t read attached files.
-- If you send a message while approval is pending, the agent asks you to decide first. To edit the arguments, open the session in the [agent inbox](/agents/human-in-the-loop#review-tool-calls-in-the-inbox).
-- Each Slack workspace can connect to one Tracecat workspace through the platform app.
+- In a channel thread, mention the agent in every message you want it to answer. The agent doesn't receive messages that don't mention it.
+- The agent reads message text only, not files or attachments.
+- While a tool call awaits approval, the agent doesn't accept new messages in that thread.
+- To edit a tool call's arguments before you approve it, use the [agent inbox](/agents/human-in-the-loop#review-tool-calls-in-the-inbox).
+- Each Slack workspace connects to one Tracecat workspace through the platform app.
+
+## Microsoft Teams
+
+Coming soon.
