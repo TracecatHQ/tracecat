@@ -122,6 +122,7 @@ class AgentPresetExecutionConfig(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     library_skills: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
@@ -142,6 +143,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
@@ -187,6 +189,7 @@ class AgentPresetUpdate(BaseModel):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
@@ -261,6 +264,10 @@ class AgentPresetReadMinimal(Schema):
     current_version_id: uuid.UUID | None = None
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
     tool_summary: AgentPresetToolSummary = Field(default_factory=AgentPresetToolSummary)
+    skill_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="Workspace skills bound to the preset head.",
+    )
     current_version_subagent_eligibility: AgentPresetSubagentEligibility = Field(
         default_factory=AgentPresetSubagentEligibility
     )
@@ -436,6 +443,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
+            tool_tunnels=self.tool_tunnels,
             agents=self.agents,
             retries=self.retries,
             enable_thinking=self.enable_thinking,
@@ -517,6 +525,14 @@ class ToolApprovalFieldChange(BaseModel):
     new_value: bool | None = None
 
 
+class ToolTunnelFieldChange(BaseModel):
+    """Tunnel routing diff for a single tool."""
+
+    tool: str
+    old_value: str | None = None
+    new_value: str | None = None
+
+
 class AgentPresetVersionDiff(BaseModel):
     """Structured diff between two preset versions."""
 
@@ -530,5 +546,6 @@ class AgentPresetVersionDiff(BaseModel):
     scalar_changes: list[ScalarFieldChange] = Field(default_factory=list)
     list_changes: list[StringListFieldChange] = Field(default_factory=list)
     tool_approval_changes: list[ToolApprovalFieldChange] = Field(default_factory=list)
+    tool_tunnel_changes: list[ToolTunnelFieldChange] = Field(default_factory=list)
     skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0

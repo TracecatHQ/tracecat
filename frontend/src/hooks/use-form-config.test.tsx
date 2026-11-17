@@ -1,6 +1,10 @@
 import { act, renderHook } from "@testing-library/react"
-import type { FormRead } from "@/client"
-import { useFormConfigDraft } from "@/hooks/use-form-config"
+import type { FormPreview, FormRead } from "@/client"
+import {
+  scaffoldFromPreview,
+  useFormConfigDraft,
+} from "@/hooks/use-form-config"
+import { fieldBlock } from "@/lib/forms/test-fixtures"
 
 const SENT = "title: Sent\n"
 
@@ -55,5 +59,62 @@ describe("useFormConfigDraft markSaved", () => {
     expect(sessionStorage.getItem("tracecat:form-config-draft:form-1")).toBe(
       null
     )
+  })
+})
+
+describe("useFormConfigDraft scaffold", () => {
+  const SCAFFOLD = "layout:\n  - field: model\n"
+
+  it("shows the scaffold for an empty config as clean text", () => {
+    const { result, rerender } = renderHook(
+      ({ scaffold }: { scaffold: string }) =>
+        useFormConfigDraft(formRead({}, "v1"), scaffold),
+      { initialProps: { scaffold: "" } }
+    )
+    rerender({ scaffold: SCAFFOLD })
+
+    expect(result.current.text).toBe(SCAFFOLD)
+    expect(result.current.isDirty).toBe(false)
+  })
+
+  it("does not flag a remote change when the scaffold loads under edits", () => {
+    const { result, rerender } = renderHook(
+      ({ scaffold }: { scaffold: string }) =>
+        useFormConfigDraft(formRead({}, "v1"), scaffold),
+      { initialProps: { scaffold: "" } }
+    )
+    act(() => result.current.setText("title: Mine\n"))
+    rerender({ scaffold: SCAFFOLD })
+
+    expect(result.current.text).toBe("title: Mine\n")
+    expect(result.current.hasRemoteChange).toBe(false)
+  })
+
+  it("ignores the scaffold once a config is saved", () => {
+    const { result } = renderHook(() =>
+      useFormConfigDraft(formRead({ title: "Saved" }, "v1"), SCAFFOLD)
+    )
+    expect(result.current.text).toBe("title: Saved\n")
+  })
+})
+
+describe("scaffoldFromPreview", () => {
+  it("lists each rendered input as a field entry", () => {
+    const scaffold = scaffoldFromPreview({
+      title: "Laptop",
+      blocks: [
+        fieldBlock({ name: "model" }),
+        { type: "divider" },
+        fieldBlock({ name: "reason" }),
+      ],
+    } as FormPreview)
+    expect(scaffold.fields).toEqual(["model", "reason"])
+    expect(scaffold.text).toContain(
+      "layout:\n  - field: model\n  - field: reason\n"
+    )
+  })
+
+  it("is empty when the form renders no inputs", () => {
+    expect(scaffoldFromPreview(null)).toEqual({ text: "", fields: [] })
   })
 })

@@ -1,0 +1,73 @@
+---
+title: Get support
+description: Information to collect before you ask the Tracecat team to help debug a self-hosted deployment.
+---
+
+Collect the details below before you contact us on [Discord](https://discord.gg/n3GF4qxFU8), open a [GitHub issue](https://github.com/TracecatHQ/tracecat/issues/new?template=bug_report.md), or email [founders@tracecat.com](mailto:founders@tracecat.com).
+We need your Tracecat version, and your Helm chart version if you deploy with Helm, before we can start debugging.
+
+## Required information
+
+### Tracecat version
+
+Get the version from the running API:
+
+```bash
+curl -s https://<your-domain>/api/info | jq -r .version
+```
+
+You can also read it from your deployment configuration:
+
+- Docker Compose: use the `/api/info` command above, or run `docker compose images api ui`.
+- Kubernetes: run the command below. `image.tag` and `uiImage.tag` override the chart's `appVersion`, so check the running images rather than the `APP VERSION` column in `helm list`.
+
+  ```bash
+  kubectl get deploy -n tracecat \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
+  ```
+
+- AWS ECS Fargate: check the `tracecat_image_tag` Terraform variable.
+
+### Helm chart version
+
+If you deploy with Helm, send the chart version from the `CHART` column:
+
+```bash
+helm list -n tracecat
+```
+
+`tracecat-0.6.0` means chart version `0.6.0`. Also tell us which values you changed from the defaults, with secrets removed.
+
+### Latest release
+
+Check the [changelog](https://www.tracecat.com/changelog) for a fix to your issue, then update to the latest Tracecat image, Helm chart, or Docker Compose files:
+
+- Docker Compose: follow [Updating Tracecat](/self-hosting/docker-compose#updating-tracecat).
+- Kubernetes: follow [Upgrade the Helm chart](/self-hosting/kubernetes#upgrade-the-helm-chart).
+- AWS ECS Fargate: follow [Updating Tracecat](/self-hosting/aws-fargate#updating-tracecat).
+
+Tell us whether you updated and whether the issue still happens on the latest release.
+If you can't update yet, say so and include the version you plan to move to.
+
+## Details that speed up debugging
+
+- Exact error: the full message and where it appeared (UI, workflow run event, agent chat, API response, or service log). Add a screenshot for UI issues.
+- Time: when the issue happened, with timezone, so we can match it to logs.
+- Reproduction steps: the smallest workflow, agent preset, or API call that reproduces the issue. Export the workflow definition as YAML and remove secrets.
+- Regression: whether this worked on an earlier Tracecat version, and which one.
+- Recent changes: upgrades, environment variable or Helm value changes, infrastructure, proxy, or network changes made before the issue started.
+- Scope: whether the issue affects every workflow, user, and workspace, or only some.
+- Service health: output of `docker compose ps` or `kubectl get pods -n tracecat`, including restart counts.
+- Logs: logs from `api`, `worker`, `executor`, `agent-worker`, and `agent-executor` around the time of the issue. For UI issues, add errors from the browser console.
+
+  ```bash
+  # Docker Compose
+  docker compose logs --since 1h api worker executor agent-worker agent-executor
+
+  # Kubernetes
+  kubectl logs -n tracecat deploy/tracecat-api --since=1h
+  ```
+
+- Deployment setup: your execution backend (`TRACECAT__EXECUTOR_BACKEND`), Temporal (bundled, self-hosted, or Temporal Cloud), PostgreSQL (bundled or external), authentication type, and whether you run behind a reverse proxy, a custom CA, or in an [air-gapped](/self-hosting/air-gapped) environment.
+
+Remove secrets, API keys, tokens, and customer data from everything you send. Never share your `.env` file or `TRACECAT__DB_ENCRYPTION_KEY`.

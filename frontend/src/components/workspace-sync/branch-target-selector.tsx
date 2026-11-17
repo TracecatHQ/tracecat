@@ -221,7 +221,7 @@ export function WorkspaceSyncBranchSelector({
           {hasBranches ? (
             <>
               <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
-                Create new branch...
+                Create branch...
               </SelectItem>
               <SelectSeparator />
               {(branches ?? []).map((candidate) => (

@@ -23,6 +23,7 @@ from tracecat.agent.catalog.schemas import (
 from tracecat.agent.default_model import resolve_org_default_model
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentCatalog,
     AgentCustomProvider,
@@ -71,12 +72,14 @@ class AgentModelAccessService(BaseOrgService):
 
         if workspace_id is not None:
             workspace_exists = await self.session.scalar(
-                select(
-                    exists().where(
-                        Workspace.id == workspace_id,
-                        Workspace.organization_id == self.organization_id,
-                    )
+                select(Workspace.id)
+                .where(
+                    Workspace.id == workspace_id,
+                    Workspace.organization_id == self.organization_id,
                 )
+                # Serialize first-override insertion with sync confirmation and
+                # the existing workspace-access replacement path.
+                .with_for_update(key_share=True)
             )
             if not workspace_exists:
                 raise TracecatNotFoundError(f"Workspace {workspace_id} not found")
@@ -91,11 +94,13 @@ class AgentModelAccessService(BaseOrgService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
-            if pgcode == "23505":
+            if is_unique_violation(
+                err, "uq_agent_model_access_organization_workspace_catalog"
+            ):
                 raise TracecatValidationError(
                     f"Model access for catalog {catalog_id} already enabled"
                 ) from err
+            pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
             if pgcode == "23503":
                 raise TracecatNotFoundError(
                     f"Catalog {catalog_id} or workspace {workspace_id} not found"

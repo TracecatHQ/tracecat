@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from "react"
 import type { OAuthGrantType } from "@/client"
 import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
+import { CopyButton } from "@/components/copy-button"
 import { ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -349,6 +350,23 @@ export function OAuthIntegrationDetailsDialog({
                             "Not configured"}
                         </span>
                       </div>
+                      {provider.redirect_uri && (
+                        <div className="col-span-2 flex flex-col gap-1.5">
+                          <span className="font-medium text-muted-foreground">
+                            Redirect URI
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs text-foreground break-all">
+                              {provider.redirect_uri}
+                            </span>
+                            <CopyButton
+                              value={provider.redirect_uri}
+                              toastMessage="Redirect URI copied"
+                              tooltipMessage="Copy redirect URI"
+                            />
+                          </div>
+                        </div>
+                      )}
                       {tokenExpires && (
                         <div className="flex flex-col gap-1.5">
                           <span className="font-medium text-muted-foreground">
@@ -418,14 +436,10 @@ export function OAuthIntegrationDetailsDialog({
           <ConfirmDestructiveDialog
             open={confirmDisconnectOpen}
             onOpenChange={setConfirmDisconnectOpen}
+            identifier={{ label: "Provider name", value: providerName }}
             confirmPhrase={providerName}
             title="Disconnect integration"
-            description={
-              <>
-                Are you sure you want to disconnect from{" "}
-                <span className="font-medium">{providerName}</span>?
-              </>
-            }
+            description="Are you sure you want to disconnect this integration?"
             confirmLabel="Disconnect"
             isPending={disconnectMutation.isPending}
             onConfirm={async () => {
@@ -438,16 +452,10 @@ export function OAuthIntegrationDetailsDialog({
           <ConfirmDestructiveDialog
             open={confirmDeleteOpen}
             onOpenChange={setConfirmDeleteOpen}
+            identifier={{ label: "Provider name", value: providerName }}
             confirmPhrase={providerName}
             title="Delete custom provider"
-            description={
-              <>
-                Are you sure you want to delete{" "}
-                <span className="font-medium">{providerName}</span>? This
-                removes the provider definition and any stored credentials or
-                connections.
-              </>
-            }
+            description="Are you sure you want to delete this provider? This removes the provider definition and any stored credentials or connections."
             confirmLabel="Delete"
             isPending={deleteMutation.isPending}
             onConfirm={async () => {

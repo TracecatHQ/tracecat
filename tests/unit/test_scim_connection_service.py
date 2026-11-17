@@ -6,17 +6,23 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.scim.connections import ScimConnectionService
+from tracecat_ee.scim.connections import (
+    ScimConnectionService,
+    ScimTokenOwnerRequiredError,
+)
 
+from tests.support.membership import grant_org_membership
 from tracecat.auth.api_keys import (
     SCIM_API_KEY_PREFIX,
     parse_managed_api_key,
     verify_api_key,
 )
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_OWNER_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import Organization, ScimConnection, User
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 
@@ -37,22 +43,27 @@ async def org(session: AsyncSession) -> Organization:
 
 
 @pytest.fixture
-async def admin_user(session: AsyncSession, org: Organization) -> User:
+async def owner_user(session: AsyncSession, org: Organization) -> User:
     user = User(
         id=uuid.uuid4(),
-        email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+        email=f"owner-{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="x",
     )
     session.add(user)
     await session.flush()
+    # Token issuance reads the caller's scopes live, so the owner must exist.
+    await seed_system_scopes(session)
+    await grant_org_membership(
+        session, user_id=user.id, organization_id=org.id, slug="organization-owner"
+    )
     return user
 
 
 @pytest.fixture
-def admin_role(org: Organization, admin_user: User) -> Role:
+def owner_role(org: Organization, owner_user: User) -> Role:
     return Role(
         type="user",
-        user_id=admin_user.id,
+        user_id=owner_user.id,
         organization_id=org.id,
         service_id="tracecat-api",
         scopes=frozenset({"org:scim:manage"}),
@@ -61,10 +72,10 @@ def admin_role(org: Organization, admin_user: User) -> Role:
 
 @pytest.mark.anyio
 async def test_issue_token_returns_verifiable_token(
-    session: AsyncSession, org: Organization, admin_role: Role
+    session: AsyncSession, org: Organization, owner_role: Role
 ) -> None:
     """The raw token verifies against the stored hash and salt."""
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
     issued = await service.issue_token()
 
     assert issued.token.startswith(SCIM_API_KEY_PREFIX)
@@ -81,10 +92,10 @@ async def test_issue_token_returns_verifiable_token(
 
 @pytest.mark.anyio
 async def test_rotation_invalidates_the_previous_token(
-    session: AsyncSession, org: Organization, admin_role: Role
+    session: AsyncSession, org: Organization, owner_role: Role
 ) -> None:
     """Rotating reuses the row, so the old token stops verifying."""
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
     first = await service.issue_token()
     first_token = first.token
     first_key_id = first.connection.key_id
@@ -117,19 +128,19 @@ async def test_rotation_invalidates_the_previous_token(
 
 @pytest.mark.anyio
 async def test_get_connection_without_one_raises(
-    session: AsyncSession, org: Organization, admin_role: Role
+    session: AsyncSession, org: Organization, owner_role: Role
 ) -> None:
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
     with pytest.raises(TracecatNotFoundError):
         await service.get_connection()
 
 
 @pytest.mark.anyio
 async def test_one_connection_per_organization(
-    session: AsyncSession, org: Organization, admin_role: Role
+    session: AsyncSession, org: Organization, owner_role: Role
 ) -> None:
     """The unique constraint refuses a second connection for the same org."""
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
     await service.issue_token()
 
     session.add(
@@ -180,3 +191,111 @@ async def test_connection_management_requires_explicit_scim_permission(
 
     with pytest.raises(ScopeDeniedError):
         await service.get_connection()
+
+
+async def _admin_role(
+    session: AsyncSession, org: Organization, scopes: frozenset[str]
+) -> Role:
+    """A caller whose live org-wide role is organization-admin."""
+    user = User(
+        id=uuid.uuid4(),
+        email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="x",
+    )
+    session.add(user)
+    await session.flush()
+    await seed_system_scopes(session)
+    await grant_org_membership(
+        session, user_id=user.id, organization_id=org.id, slug="organization-admin"
+    )
+    return Role(
+        type="user",
+        user_id=user.id,
+        organization_id=org.id,
+        service_id="tracecat-api",
+        scopes=scopes,
+    )
+
+
+async def _connection_exists(session: AsyncSession, org: Organization) -> bool:
+    stmt = select(ScimConnection.id).where(ScimConnection.organization_id == org.id)
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
+@pytest.mark.anyio
+async def test_admin_cannot_issue_the_token(
+    session: AsyncSession, org: Organization
+) -> None:
+    """SCIM management alone does not let an admin issue the token."""
+    admin = await _admin_role(session, org, ORG_ADMIN_SCOPES)
+    service = ScimConnectionService(session, role=admin)
+
+    with pytest.raises(ScimTokenOwnerRequiredError, match="Only organization owners"):
+        await service.issue_token()
+
+    assert not await _connection_exists(session, org)
+
+
+@pytest.mark.anyio
+async def test_admin_cannot_rotate_the_token(
+    session: AsyncSession, org: Organization, owner_role: Role
+) -> None:
+    """Rotation is issuance, so an owner's token survives an admin's attempt."""
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
+    admin = await _admin_role(session, org, ORG_ADMIN_SCOPES)
+
+    with pytest.raises(ScimTokenOwnerRequiredError):
+        await ScimConnectionService(session, role=admin).issue_token()
+
+    key_id = await session.scalar(
+        select(ScimConnection.key_id).where(ScimConnection.organization_id == org.id)
+    )
+    assert key_id == issued.connection.key_id
+
+
+@pytest.mark.anyio
+async def test_demoted_owner_cannot_issue_from_cached_scopes(
+    session: AsyncSession, org: Organization
+) -> None:
+    """The owner check reads live state, not the request's scope snapshot."""
+    demoted = await _admin_role(session, org, ORG_OWNER_SCOPES)
+
+    with pytest.raises(ScimTokenOwnerRequiredError):
+        await ScimConnectionService(session, role=demoted).issue_token()
+
+    assert not await _connection_exists(session, org)
+
+
+@pytest.mark.anyio
+async def test_issue_token_locks_role_changes_before_reading_scopes(
+    session: AsyncSession, owner_role: Role
+) -> None:
+    """The owner check runs under the org lock that role changes take."""
+    statements: list[str] = []
+
+    def capture(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        await ScimConnectionService(session, role=owner_role).issue_token()
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    lock = next(
+        i
+        for i, statement in enumerate(statements)
+        if "FROM organization " in statement and "FOR NO KEY UPDATE" in statement
+    )
+    scope_read = next(
+        i for i, statement in enumerate(statements) if "FROM scope" in statement
+    )
+    assert lock < scope_read

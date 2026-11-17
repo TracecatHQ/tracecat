@@ -55,9 +55,10 @@ describe("getPostAuthDecisionPath", () => {
   })
 
   it.each([undefined, null, "https://example.com/workspaces", "/auth/error"])(
-    "falls back to the app root for unsafe return URLs: %s",
+    "routes missing or unsafe return URLs through sign-in without one: %s",
     (returnUrl) => {
-      expect(getPostAuthDecisionPath(returnUrl)).toBe("/")
+      // Sign-in, not the app root, so an MFA-pending session reaches /mfa.
+      expect(getPostAuthDecisionPath(returnUrl)).toBe("/sign-in")
     }
   )
 })

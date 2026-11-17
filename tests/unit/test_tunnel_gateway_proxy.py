@@ -108,7 +108,7 @@ def _token(**overrides: object) -> str:
         "gateway_key": KEY,
         "tunnel_id": TUNNEL_ID,
         "workspace_id": WORKSPACE_ID,
-        "wf_exec_id": "wf-exec-1",
+        "subject": "wf-exec-1",
     }
     params.update(overrides)
     return mint_tunnel_token(**params)  # pyright: ignore[reportArgumentType]

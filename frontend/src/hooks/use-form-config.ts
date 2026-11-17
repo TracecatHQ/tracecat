@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { type FormPreview, type FormRead, formsValidateForm } from "@/client"
 import { useDebounce } from "@/hooks/use-debounce"
-import type { FormScope } from "@/hooks/use-forms"
+import { type FormScope, formKeys } from "@/hooks/use-forms"
 import { getFormConfigIssues } from "@/lib/forms/errors"
 import {
   type FormConfigProblem,
@@ -9,6 +9,7 @@ import {
   parseFormConfigYaml,
   serializeFormConfig,
 } from "@/lib/forms/yaml-diagnostics"
+import { useQuery } from "@/lib/query"
 
 /** How long the editor has to be idle before its text is checked. */
 const FORM_CONFIG_CHECK_DELAY_MS = 500
@@ -81,11 +82,16 @@ function writeStoredDraft(formId: string, draft: StoredDraft | null): void {
  * In-app navigation does not: the buffer is kept in `sessionStorage` per
  * form and restored, flagged, when the form is opened again in the same tab.
  */
-export function useFormConfigDraft(form: FormRead): FormConfigDraft {
-  const serverText = useMemo(
+export function useFormConfigDraft(
+  form: FormRead,
+  /** Starting text shown, unsaved and clean, while the saved config is empty. */
+  scaffold = ""
+): FormConfigDraft {
+  const savedText = useMemo(
     () => serializeFormConfig(form.config),
     [form.config]
   )
+  const serverText = savedText || scaffold
   const [stored] = useState(() => readStoredDraft(form.id))
   const [text, setText] = useState(stored?.text ?? serverText)
   // The serialized config the buffer was last in sync with. A restored draft
@@ -133,7 +139,12 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
     setText,
     isDirty,
     baseVersion,
-    hasRemoteChange: isDirty && isBehind,
+    // A scaffold that loads under edits to an empty config is not a change.
+    hasRemoteChange:
+      isDirty &&
+      (form.config_version !== baseVersion ||
+        (savedText !== baseText &&
+          !(savedText === "" && (baseText === "" || baseText === scaffold)))),
     isRestored: isRestored && isDirty,
     reload: () => adopt(serverText, form.config_version),
     markSaved: (saved, submitted) => {
@@ -223,4 +234,60 @@ export function useFormConfigCheck(
     ...state,
     hasErrors: state.problems.some((problem) => problem.severity === "error"),
   }
+}
+
+/** The editor scaffold for an empty config and the inputs a form can show. */
+export interface FormConfigScaffold {
+  /** Every input the empty config renders, as an editable layout. */
+  text: string
+  /** Names of the inputs the empty config renders, in schema order. */
+  fields: string[]
+}
+
+const EMPTY_SCAFFOLD: FormConfigScaffold = { text: "", fields: [] }
+
+export function scaffoldFromPreview(
+  preview: FormPreview | null | undefined
+): FormConfigScaffold {
+  const fields = (preview?.blocks ?? []).flatMap((block) =>
+    block.type === "field" ? [block.name] : []
+  )
+  if (fields.length === 0) {
+    return EMPTY_SCAFFOLD
+  }
+  const text = [
+    "# Generated from the workflow inputs. Edit and save to customize.",
+    "# Title and description default to the workflow's.",
+    "layout:",
+    ...fields.map((name) => `  - field: ${name}`),
+    "",
+  ].join("\n")
+  return { text, fields }
+}
+
+/**
+ * Resolve an empty config against the form's workflow inputs, so the editor
+ * can show what the form renders by default instead of a blank buffer, and
+ * the slash menu can offer each input as a field block.
+ */
+export function useFormConfigScaffold(form: FormRead): FormConfigScaffold {
+  const { data } = useQuery<FormPreview | null>({
+    queryKey: [
+      ...formKeys.detail(form.workspace_id, form.id),
+      "scaffold",
+      form.workflow_version ?? null,
+    ],
+    queryFn: async () => {
+      const result = await formsValidateForm({
+        workspaceId: form.workspace_id,
+        formId: form.id,
+        requestBody: { config: {} },
+      })
+      return result.preview ?? null
+    },
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    meta: { suppressErrorToast: true },
+  })
+  return useMemo(() => scaffoldFromPreview(data), [data])
 }

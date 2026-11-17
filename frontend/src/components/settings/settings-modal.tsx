@@ -3,15 +3,18 @@
 import {
   Cpu,
   FileIcon,
+  LayersIcon,
   LogOut,
   Palette,
   Settings2,
+  ShieldCheck,
   UserIcon,
   WorkflowIcon,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { ProfileSettings } from "@/components/settings/profile-settings"
+import { SecuritySettings } from "@/components/settings/security-settings"
 import {
   type SettingsSection,
   useSettingsModal,
@@ -163,7 +166,9 @@ function SettingsModalContent() {
 
   const showWorkspaceNav = !!workspaceId && canAdministerWorkspace
   const isAccountSection =
-    activeSection === "profile" || activeSection === "appearance"
+    activeSection === "profile" ||
+    activeSection === "appearance" ||
+    activeSection === "security"
   const canDisplaySection = isAccountSection || canAdministerWorkspace
   const displayedSection =
     isAccountSection || (showWorkspaceNav && canDisplaySection)
@@ -176,6 +181,9 @@ function SettingsModalContent() {
     }
     if (displayedSection === "appearance") {
       return <AppearanceSettings />
+    }
+    if (displayedSection === "security") {
+      return <SecuritySettings />
     }
     if (workspaceId) {
       return (
@@ -218,6 +226,13 @@ function SettingsModalContent() {
                 activeSection={displayedSection}
                 onSelect={setActiveSection}
               />
+              <NavItem
+                icon={ShieldCheck}
+                label="Security"
+                section="security"
+                activeSection={displayedSection}
+                onSelect={setActiveSection}
+              />
 
               {showWorkspaceNav && (
                 <>
@@ -237,6 +252,13 @@ function SettingsModalContent() {
                         icon={WorkflowIcon}
                         label="Workflows"
                         section="workspace-runtime"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={LayersIcon}
+                        label="Cases"
+                        section="workspace-cases"
                         activeSection={displayedSection}
                         onSelect={setActiveSection}
                       />

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import Field, ValidationError
 from sqlalchemy.exc import DBAPIError, NoResultFound
 from starlette.status import (
     HTTP_200_OK,
@@ -13,6 +14,7 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
     HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
@@ -22,16 +24,23 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
-from tracecat.cases.dependencies import ExecutorCaseIDPath, PayloadPathsQuery
+from tracecat.cases.dependencies import (
+    ExecutorCaseIDPath,
+    PayloadPathsQuery,
+    resolve_case_refs,
+)
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.errors import CASE_REQUEST_ERRORS, case_http_error
 from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
     CaseEventRead,
     CaseEventsWithUsers,
+    CommentDeletedEventRead,
+    CommentReplyDeletedEventRead,
     TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
@@ -45,6 +54,7 @@ from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     CaseAggregateRequest,
     CaseAggregateResponse,
+    CaseBatchResponse,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -72,10 +82,17 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_data_error
 from tracecat.db.models import Case
+from tracecat.dsl.common import DSLInput
+from tracecat.dsl.validation import (
+    format_input_schema_validation_error,
+    normalize_trigger_inputs,
+)
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -84,7 +101,12 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
 from tracecat.query.lexical_types import LexicalSearchError, SearchMode
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.tiers.enums import Entitlement
+from tracecat.validation.schemas import ValidationDetail
+from tracecat.workflow.executions.correlation import build_case_task_correlation_id
+from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 
 router = APIRouter(
     prefix="/internal/cases", tags=["internal-cases"], include_in_schema=False
@@ -101,6 +123,19 @@ def _raise_comment_http_error(
     if isinstance(exc, TracecatValidationError):
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+def _raise_case_http_error(
+    exc: TracecatNotFoundError | TracecatValidationError | TracecatConflictError,
+) -> NoReturn:
+    """Map a case write error, such as a missing or nested parent, to HTTP."""
+    if isinstance(exc, TracecatNotFoundError):
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if isinstance(exc, TracecatValidationError):
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(
+        status_code=HTTP_409_CONFLICT, detail=exc.detail or str(exc)
+    ) from exc
 
 
 async def _list_case_dropdown_values(
@@ -167,8 +202,8 @@ async def aggregate_cases(
         return await service.aggregate_cases(params)
     except TracecatQueryOverflowError:
         raise
-    except (ValueError, TracecatValidationError) as exc:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.get("")
@@ -266,8 +301,8 @@ async def query_cases(
         return await CasesService(session, role).query_cases(params)
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
-    except (ValueError, TracecatValidationError) as exc:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.post("/search/aggregate")
@@ -280,8 +315,8 @@ async def query_case_aggregates(
         return await CasesService(session, role).query_case_aggregates(params)
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
-    except (ValueError, TracecatValidationError) as exc:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @router.get("/search")
@@ -523,7 +558,7 @@ async def create_case(
     service = CasesService(session, role)
     try:
         case = await service.create_case(params)
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -591,12 +626,18 @@ async def update_case(
         )
     try:
         updated_case = await service.update_case(case, params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except DBAPIError as e:
+        if is_data_error(e):
+            raise
         logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
@@ -895,6 +936,11 @@ async def list_events_with_users(
                 user_ids.add(root_evt.old)
             if root_evt.new is not None:
                 user_ids.add(root_evt.new)
+        if (
+            isinstance(root_evt, CommentDeletedEventRead | CommentReplyDeletedEventRead)
+            and root_evt.author_id is not None
+        ):
+            user_ids.add(root_evt.author_id)
         if root_evt.user_id is not None:
             user_ids.add(root_evt.user_id)
         events.append(evt)
@@ -1149,6 +1195,105 @@ async def delete_task(
         ) from e
 
 
+class CaseTaskRunRequest(Schema):
+    """Request body for running a case task's workflow."""
+
+    inputs: dict[str, Any] | None = None
+
+
+class CaseTaskRunResponse(Schema):
+    """A started case task workflow run."""
+
+    task_id: uuid.UUID
+    workflow_id: str
+    workflow_execution_id: str
+    message: str
+
+
+@task_router.post("/{case_id}/tasks/{task_id}/run", status_code=HTTP_201_CREATED)
+@require_scope("case:read", "workflow:execute")
+async def run_task(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    case_id: ExecutorCaseIDPath,
+    task_id: uuid.UUID,
+    params: CaseTaskRunRequest,
+) -> CaseTaskRunResponse:
+    """Run a case task's workflow, linked to the task like a run from the UI."""
+    service = CaseTasksService(session, role)
+    try:
+        task = await service.get_task(task_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND, detail="Task not found"
+        ) from e
+    if task.case_id != case_id:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
+    if task.workflow_id is None:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Task has no associated workflow. Set a workflow on the task first.",
+        )
+
+    wf_id = WorkflowUUID.new(task.workflow_id)
+    defn = await WorkflowDefinitionsService(
+        session, role=role
+    ).get_definition_by_workflow_id(wf_id, load_relationships=False)
+    if defn is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Workflow {wf_id.short()} has no published definition. "
+            "Publish the workflow first.",
+        )
+    dsl = DSLInput(**defn.content)
+
+    inputs: dict[str, Any] = {
+        **(task.default_trigger_values or {}),
+        **(params.inputs or {}),
+        "case_id": str(case_id),
+        "task_id": str(task_id),
+    }
+    if expects := dsl.entrypoint.expects:
+        try:
+            normalize_trigger_inputs(expects, inputs)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=format_input_schema_validation_error(
+                    ValidationDetail.list_from_pydantic(e)
+                ),
+            ) from e
+
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        response = await exec_service.create_workflow_execution_wait_for_start(
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=inputs,
+            registry_lock=(
+                RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None
+            ),
+            correlation_id=build_case_task_correlation_id(task_id),
+        )
+    except TracecatValidationError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    logger.info(
+        "Case task workflow run started via internal API",
+        task_id=task_id,
+        workflow_id=wf_id,
+        workflow_execution_id=response["wf_exec_id"],
+    )
+    return CaseTaskRunResponse(
+        task_id=task_id,
+        workflow_id=WorkflowUUID.new(response["wf_id"]).short(),
+        workflow_execution_id=response["wf_exec_id"],
+        message=response["message"],
+    )
+
+
 @task_router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
 @require_scope("case:read")
 async def get_task_by_id(
@@ -1259,10 +1404,20 @@ async def delete_task_by_id(
 
 
 class CaseCreateWithTags(CaseCreate):
-    """Extended case create request with tags support for UDFs."""
+    """Extended case create request with tags support for UDFs.
+
+    The inherited UUID-only ``parent_id`` is ignored; use ``parent_case_id``.
+    """
 
     tags: list[str] | None = None
     create_missing_tags: bool = False
+    parent_case_id: str | None = Field(
+        default=None,
+        description=(
+            "UUID or short ID (e.g. CASE-0042) of a top-level case to create "
+            "this case under."
+        ),
+    )
 
 
 class CaseUpdateWithTags(CaseUpdate):
@@ -1271,6 +1426,19 @@ class CaseUpdateWithTags(CaseUpdate):
     tags: list[str] | None = None
     create_missing_tags: bool = False
     append_description: bool = False
+
+
+class CaseRefsSetParent(Schema):
+    """Group cases, by UUID or short ID, as sub-cases of a parent case."""
+
+    case_ids: list[str] = Field(..., min_length=1, max_length=1000)
+    parent_case_id: str
+
+
+class CaseRefsClearParent(Schema):
+    """Remove cases, by UUID or short ID, from their parent case."""
+
+    case_ids: list[str] = Field(..., min_length=1, max_length=1000)
 
 
 class AssignUserByEmailRequest(Schema):
@@ -1299,6 +1467,9 @@ async def create_case_simple(
     response is not needed.
     """
     service = CasesService(session, role)
+    parent_id = None
+    if params.parent_case_id is not None:
+        (parent_id,) = await resolve_case_refs(service, [params.parent_case_id])
     try:
         case = await service.create_case(
             CaseCreate(
@@ -1311,17 +1482,13 @@ async def create_case_simple(
                 dropdown_values=params.dropdown_values,
                 assignee_id=params.assignee_id,
                 payload=params.payload,
-            )
+                parent_id=parent_id,
+            ),
+            tags=params.tags or (),
+            create_missing_tags=params.create_missing_tags,
         )
-
-        # Add tags if provided
-        if params.tags:
-            for tag in params.tags:
-                await service.tags.add_case_tag(
-                    case.id, tag, create_if_missing=params.create_missing_tags
-                )
-            await session.refresh(case)
-
+    except (TracecatNotFoundError, TracecatValidationError) as e:
+        _raise_case_http_error(e)
     except NoResultFound as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -1334,6 +1501,57 @@ async def create_case_simple(
         ) from e
 
     return InternalCaseData.model_validate(case, from_attributes=True)
+
+
+@router.post("/batch-set-parent", status_code=HTTP_200_OK)
+@require_scope("case:update")
+async def batch_set_parent_simple(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: CaseRefsSetParent,
+) -> CaseBatchResponse:
+    """Group cases as sub-cases of a parent case with per-case results.
+
+    Accepts UUIDs or short IDs. An unknown short ID fails the whole request,
+    since the per-case results can only report UUIDs.
+    """
+    service = CasesService(session, role)
+    parent_id, *case_ids = await resolve_case_refs(
+        service, [params.parent_case_id, *params.case_ids]
+    )
+    try:
+        return await service.batch_set_parent(case_ids, parent_id)
+    except (
+        TracecatNotFoundError,
+        TracecatValidationError,
+        TracecatConflictError,
+    ) as e:
+        _raise_case_http_error(e)
+
+
+@router.post("/batch-clear-parent", status_code=HTTP_200_OK)
+@require_scope("case:update")
+async def batch_clear_parent_simple(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: CaseRefsClearParent,
+) -> CaseBatchResponse:
+    """Remove cases from their parent case with per-case results.
+
+    Accepts UUIDs or short IDs. An unknown short ID fails the whole request.
+    """
+    service = CasesService(session, role)
+    case_ids = await resolve_case_refs(service, params.case_ids)
+    try:
+        return await service.batch_clear_parent(case_ids)
+    except (
+        TracecatNotFoundError,
+        TracecatValidationError,
+        TracecatConflictError,
+    ) as e:
+        _raise_case_http_error(e)
 
 
 @router.patch("/{case_id}/simple", status_code=HTTP_200_OK)
@@ -1412,6 +1630,8 @@ async def update_case_simple(
             detail=str(e),
         ) from e
     except DBAPIError as e:
+        if is_data_error(e):
+            raise
         logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,

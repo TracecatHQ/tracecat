@@ -25,6 +25,7 @@ import type {
   ServiceAccountUpdate,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { AlertNotification } from "@/components/notifications"
 import {
   getScopesForLevel,
@@ -74,11 +75,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useResourceCategories } from "@/hooks/use-resource-categories"
 import { getDisplayName } from "@/lib/auth"
 import type { TracecatApiError } from "@/lib/errors"
 import { useQuery } from "@/lib/query"
-import { getCategoryScopes, type PermissionLevel } from "@/lib/rbac"
+import {
+  getCategoryScopes,
+  type PermissionLevel,
+  RESOURCE_CATEGORIES,
+} from "@/lib/rbac"
 import { cn } from "@/lib/utils"
 
 interface ServiceAccountApiKeysPage {
@@ -623,7 +627,6 @@ export function ServiceAccountsManager({
   onRevokeApiKey,
   listApiKeys,
 }: ServiceAccountsManagerProps) {
-  const resourceCategories = useResourceCategories()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingServiceAccount, setEditingServiceAccount] =
     useState<ServiceAccountRead | null>(null)
@@ -678,7 +681,7 @@ export function ServiceAccountsManager({
 
   const scopeCounts = useMemo(() => {
     let total = 0
-    for (const category of Object.values(resourceCategories)) {
+    for (const category of Object.values(RESOURCE_CATEGORIES)) {
       const categoryScopes = getCategoryScopes(
         category.resources,
         permissionScopes
@@ -688,7 +691,7 @@ export function ServiceAccountsManager({
       ).length
     }
     return total
-  }, [permissionScopes, resourceCategories, selectedScopeIds])
+  }, [permissionScopes, selectedScopeIds])
 
   const isSaving = createPending || updatePending
   const isActionPending =
@@ -894,21 +897,11 @@ export function ServiceAccountsManager({
     <div className="flex size-full flex-col">
       <div className="shrink-0">
         <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-7 shrink-0 items-center justify-center">
-              <SearchIcon className="size-4 text-muted-foreground" />
-            </div>
-            <Input
-              type="text"
-              placeholder={`Search ${kindLabel.toLowerCase()} service accounts...`}
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className={cn(
-                "h-7 w-64 border-none bg-transparent p-0 text-sm shadow-none outline-none",
-                "placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
-              )}
-            />
-          </div>
+          <ListHeaderSearch
+            placeholder={`Search ${kindLabel.toLowerCase()} service accounts...`}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
 
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
@@ -1098,7 +1091,7 @@ export function ServiceAccountsManager({
                         <SquarePenIcon className="size-3.5" />
                       </RowActionButton>
                       <RowActionButton
-                        label="Issue new API key"
+                        label="Create API key"
                         className="size-7"
                         disabled={
                           Boolean(serviceAccount.disabled_at) || !canUpdate
@@ -1253,7 +1246,7 @@ export function ServiceAccountsManager({
                   </div>
                   <div className="h-[400px] overflow-y-auto rounded-md border">
                     <div className="divide-y divide-border/50">
-                      {Object.entries(resourceCategories).map(
+                      {Object.entries(RESOURCE_CATEGORIES).map(
                         ([key, category]) => (
                           <ScopeCategoryRow
                             key={key}
@@ -1333,7 +1326,7 @@ export function ServiceAccountsManager({
       >
         <DialogContent size="sm">
           <DialogHeader>
-            <DialogTitle>Issue new API key</DialogTitle>
+            <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
               {issueTarget?.active_api_key?.name ? (
                 <>

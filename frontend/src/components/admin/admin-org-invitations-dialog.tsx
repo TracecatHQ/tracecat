@@ -255,7 +255,7 @@ export function AdminOrgInvitationsDialog({
                     ) : (
                       <PlusIcon data-icon="inline-start" />
                     )}
-                    Create
+                    Create invitation
                   </Button>
                 </div>
 

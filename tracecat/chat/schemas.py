@@ -15,7 +15,7 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import ClaudeSDKMessageTA, ToolApproved, ToolDenied
+from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
@@ -133,7 +133,6 @@ class ChatCreate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Tools available to the agent for this chat",
-        max_length=50,
     )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
@@ -203,7 +202,7 @@ class ChatUpdate(BaseModel):
     """Request model for updating chat properties."""
 
     tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent", max_length=50
+        default=None, description="Tools available to the agent"
     )
     title: str | None = Field(
         default=None, description="Chat title", min_length=1, max_length=200
@@ -317,17 +316,6 @@ class ApprovalDecision(BaseModel):
         default=None,
         description="Optional metadata captured with the decision (e.g. external actor identity).",
     )
-
-    def to_deferred_result(self) -> bool | ToolApproved | ToolDenied:
-        match self.action:
-            case "approve":
-                return True
-            case "override":
-                return ToolApproved(override_args=self.override_args or {})
-            case "deny":
-                return ToolDenied(message=self.reason or "The tool call was denied.")
-        # Fallback shouldn't be hit due to Literal typing
-        return False
 
 
 class ContinueRunRequest(BaseModel):

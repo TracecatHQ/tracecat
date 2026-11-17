@@ -12,6 +12,7 @@ import shutil
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -44,6 +45,7 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat import config
+from tracecat.agent.channel_notifier import TURN_STARTED_PUSH_BUDGET, TurnStarted
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.exceptions import (
     AgentToolLimitExceededError,
@@ -73,6 +75,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.mcp import user_client
+from tracecat.agent.metrics import TurnOutcome
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
 from tracecat.agent.otel_delivery import OtelDeliveryPool
 from tracecat.agent.preset.service import AgentPresetService
@@ -91,6 +94,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
@@ -100,6 +104,7 @@ from tracecat.agent.tools import BuildToolsResult, create_tool_from_registry
 from tracecat.agent.types import AgentConfig, Tool
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.models import MCPIntegration
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -236,10 +241,17 @@ def _patch_preset_service(
     *,
     policies: dict[uuid.UUID, dict[str, MCPToolSummary]],
     secrets: dict[str, str] | None = None,
+    refs: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     service = MagicMock(spec=AgentPresetService)
-    service.resolve_mcp_integration_tool_policies = AsyncMock(return_value=policies)
-    service.resolve_mcp_integration_secrets = AsyncMock(return_value=secrets or {})
+    service.load_mcp_integrations = AsyncMock(
+        side_effect=lambda ids: {i: MagicMock(spec=MCPIntegration, id=i) for i in ids}
+    )
+    service.mcp_tool_policies = MagicMock(return_value=policies)
+    service.mcp_integration_refs = MagicMock(return_value=refs)
+    service.resolve_loaded_mcp_integration_secrets = AsyncMock(
+        return_value=secrets or {}
+    )
     monkeypatch.setattr(AgentPresetService, "with_session", _async_ctx(service))
     return service
 
@@ -611,6 +623,14 @@ class TestBuildToolDefinitionsActivity:
                 }
             },
             secrets={"authorization": "Bearer test-token"},
+            refs=[
+                {
+                    "type": "http",
+                    "name": "Jira",
+                    "url": "https://mcp.example.com/mcp",
+                    "id": str(integration_id),
+                }
+            ],
         )
         lock_service = _patch_registry(monkeypatch)
         monkeypatch.setattr(
@@ -644,13 +664,460 @@ class TestBuildToolDefinitionsActivity:
         assert result.tool_approvals == {"mcp.Jira.getIssue": True}
         assert result.user_mcp_claims is not None
         assert result.user_mcp_claims[0].id == integration_id
-        preset_service.resolve_mcp_integration_tool_policies.assert_awaited_once_with(
-            [integration_id]
-        )
-        preset_service.resolve_mcp_integration_secrets.assert_awaited_once_with(
-            integration_id
-        )
+        # One workspace-scoped read serves policy, address and credentials.
+        preset_service.load_mcp_integrations.assert_awaited_once_with({integration_id})
+        preset_service.resolve_loaded_mcp_integration_secrets.assert_awaited_once()
+        (row,) = preset_service.resolve_loaded_mcp_integration_secrets.await_args.args
+        assert row.id == integration_id
         lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
+
+    @staticmethod
+    def _stdio_server(integration_id: uuid.UUID, **extra: Any) -> dict[str, Any]:
+        return {
+            "type": "stdio",
+            "name": "files",
+            "command": "npx",
+            "args": ["-y", "example-files-server"],
+            "id": str(integration_id),
+            **extra,
+        }
+
+    @pytest.mark.anyio
+    async def test_stdio_servers_are_not_compiled_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Runtimes that start stdio servers themselves get no gateway copy."""
+        integration_id = uuid.uuid4()
+        preset_service = _patch_preset_service(
+            monkeypatch,
+            policies={integration_id: {"read": MCPToolSummary(name="read")}},
+            refs=[self._stdio_server(integration_id)],
+        )
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[cast(Any, self._stdio_server(integration_id))],
+            )
+        )
+
+        assert result.tool_definitions == {}
+        assert not result.user_mcp_claims
+        preset_service.load_mcp_integrations.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_stdio_servers_compile_from_saved_tools_when_enabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Saved tools become definitions and claims; nothing is started."""
+        integration_id = uuid.uuid4()
+        read_schema = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }
+        preset_service = _patch_preset_service(
+            monkeypatch,
+            policies={
+                integration_id: {
+                    "read": MCPToolSummary(
+                        name="read", description="Read", input_schema=read_schema
+                    ),
+                    "write": MCPToolSummary(name="write", requires_approval=True),
+                    "delete": MCPToolSummary(name="delete", enabled=False),
+                    "gone": MCPToolSummary(name="gone", status="missing"),
+                    "unselected": MCPToolSummary(name="unselected"),
+                }
+            },
+            refs=[self._stdio_server(integration_id)],
+        )
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        selected = [{"name": name} for name in ("read", "write", "delete", "gone")]
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(Any, self._stdio_server(integration_id, tools=selected))
+                ],
+                include_stdio_mcp_servers=True,
+            )
+        )
+
+        assert result.tool_definitions == {
+            "mcp__files__read": MCPToolDefinition(
+                name="mcp__files__read",
+                description="Read",
+                parameters_json_schema=read_schema,
+            ),
+            "mcp__files__write": MCPToolDefinition(
+                name="mcp__files__write",
+                description="Tool from files",
+                parameters_json_schema={
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+            ),
+        }
+        assert result.tool_approvals == {"mcp.files.write": True}
+        assert result.user_mcp_claims is not None
+        assert [(c.name, c.id, c.url) for c in result.user_mcp_claims] == [
+            ("files", integration_id, None)
+        ]
+        preset_service.resolve_loaded_mcp_integration_secrets.assert_not_awaited()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("strict", [False, True])
+    async def test_stdio_server_without_workspace_row_is_skipped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        strict: bool,
+    ) -> None:
+        """A stdio id that doesn't resolve in the role's workspace gets no claim."""
+        integration_id = uuid.uuid4()
+        _patch_preset_service(
+            monkeypatch,
+            policies={integration_id: {"read": MCPToolSummary(name="read")}},
+            refs=None,
+        )
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(
+            user_client, "discover_user_mcp_tools", AsyncMock(return_value={})
+        )
+        args = BuildToolDefsArgs(
+            role=mock_role,
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[cast(Any, self._stdio_server(integration_id))],
+            include_stdio_mcp_servers=True,
+            fail_on_mcp_discovery_error=strict,
+        )
+
+        if strict:
+            with pytest.raises(ApplicationError):
+                await AgentActivities().build_tool_definitions(args)
+            return
+        result = await AgentActivities().build_tool_definitions(args)
+        assert result.tool_definitions == {}
+        assert not result.user_mcp_claims
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "payload_tunnel_id", [None, "33333333-3333-3333-3333-333333333333"]
+    )
+    async def test_mcp_discovery_routes_by_integration_row_tunnel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        payload_tunnel_id: str | None,
+    ) -> None:
+        from tracecat.integrations import mcp_tunnel
+
+        integration_id = uuid.uuid4()
+        tunnel_id = str(uuid.uuid4())
+        server: dict[str, Any] = {
+            "type": "http",
+            "name": "Private",
+            "url": "https://mcp.internal.example/mcp",
+            "id": str(integration_id),
+        }
+        _patch_preset_service(
+            monkeypatch,
+            policies={integration_id: {"search": MCPToolSummary(name="search")}},
+            refs=[{**server, "tunnel_id": tunnel_id}],
+        )
+        _patch_registry(monkeypatch)
+        resolve_proxy = AsyncMock(return_value="http://token@gateway:8080")
+        monkeypatch.setattr(mcp_tunnel, "resolve_mcp_tunnel_proxy", resolve_proxy)
+        discovered: list[dict[str, Any]] = []
+
+        async def mock_discover_user_mcp_tools(
+            configs: list[dict[str, Any]], *, fail_on_error: bool = False
+        ) -> dict[str, MCPToolDefinition]:
+            discovered.extend(configs)
+            return _mcp_tools("Private", "search")
+
+        monkeypatch.setattr(
+            user_client, "discover_user_mcp_tools", mock_discover_user_mcp_tools
+        )
+        if payload_tunnel_id is not None:
+            server["tunnel_id"] = payload_tunnel_id
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[cast(Any, server)],
+            )
+        )
+
+        assert resolve_proxy.await_args is not None
+        assert resolve_proxy.await_args.kwargs["tunnel_id"] == uuid.UUID(tunnel_id)
+        assert discovered[0]["tunnel_proxy"] == "http://token@gateway:8080"
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("strict", [False, True])
+    async def test_mcp_discovery_skips_server_without_integration_row(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        strict: bool,
+    ) -> None:
+        integration_id = uuid.uuid4()
+        server: dict[str, Any] = {
+            "type": "http",
+            "name": "Private",
+            "url": "https://mcp.internal.example/mcp",
+            "id": str(integration_id),
+        }
+        _patch_preset_service(monkeypatch, policies={}, refs=None)
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        args = BuildToolDefsArgs(
+            role=mock_role,
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[cast(Any, server)],
+            fail_on_mcp_discovery_error=strict,
+        )
+
+        if strict:
+            with pytest.raises(Exception, match="was not found in this workspace"):
+                await AgentActivities().build_tool_definitions(args)
+            discover.assert_not_awaited()
+        else:
+            await AgentActivities().build_tool_definitions(args)
+            assert discover.await_args is not None
+            assert discover.await_args.args[0] == []
+
+    @pytest.mark.anyio
+    async def test_mcp_discovery_drops_caller_supplied_tunnel_proxy(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """A proxy URL in the incoming config is never used: it would bypass
+        the tunnel's ownership and allowed-target checks."""
+        integration_id = uuid.uuid4()
+        backed: dict[str, Any] = {
+            "type": "http",
+            "name": "Backed",
+            "url": "https://mcp.example.com/mcp",
+            "id": str(integration_id),
+        }
+        _patch_preset_service(monkeypatch, policies={}, refs=[dict(backed)])
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        inline = {
+            "type": "http",
+            "name": "Inline",
+            "url": "https://mcp.other.example/mcp",
+        }
+        attacker_proxy = "http://attacker.example:8080"
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(Any, {**backed, "tunnel_proxy": attacker_proxy}),
+                    cast(Any, {**inline, "tunnel_proxy": attacker_proxy}),
+                ],
+            )
+        )
+
+        assert discover.await_args is not None
+        configs = discover.await_args.args[0]
+        assert [cfg["name"] for cfg in configs] == ["Backed", "Inline"]
+        assert all("tunnel_proxy" not in cfg for cfg in configs)
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("strict", [False, True])
+    async def test_mcp_discovery_refuses_inline_server_with_tunnel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        strict: bool,
+    ) -> None:
+        """An inline server can't carry its tunnel into tool calls, so it is
+        never discovered rather than having its calls go direct."""
+        from tracecat.integrations import mcp_tunnel
+
+        _patch_registry(monkeypatch)
+        resolve_proxy = AsyncMock(return_value="http://token@gateway:8080")
+        monkeypatch.setattr(mcp_tunnel, "resolve_mcp_tunnel_proxy", resolve_proxy)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        args = BuildToolDefsArgs(
+            role=mock_role,
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[
+                cast(
+                    Any,
+                    {
+                        "type": "http",
+                        "name": "Inline",
+                        "url": "https://mcp.internal.example/mcp",
+                        "tunnel_id": str(uuid.uuid4()),
+                    },
+                )
+            ],
+            fail_on_mcp_discovery_error=strict,
+        )
+
+        if strict:
+            with pytest.raises(Exception, match="only supported on MCP integrations"):
+                await AgentActivities().build_tool_definitions(args)
+            discover.assert_not_awaited()
+        else:
+            await AgentActivities().build_tool_definitions(args)
+            assert discover.await_args is not None
+            assert discover.await_args.args[0] == []
+        resolve_proxy.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_mcp_discovery_uses_integration_row_address(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """URL, timeout and tunnel all come from the integration row, so
+        fresh credentials never reach an address from a stale payload."""
+        from tracecat.integrations import mcp_tunnel
+
+        integration_id = uuid.uuid4()
+        tunnel_id = str(uuid.uuid4())
+        _patch_preset_service(
+            monkeypatch,
+            policies={},
+            secrets={"authorization": "Bearer fresh"},
+            refs=[
+                {
+                    "type": "http",
+                    "name": "Private",
+                    "url": "https://mcp.current.example/mcp",
+                    "id": str(integration_id),
+                    "timeout": 30,
+                    "tunnel_id": tunnel_id,
+                }
+            ],
+        )
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(
+            mcp_tunnel,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(return_value="http://token@gateway:8080"),
+        )
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(
+                        Any,
+                        {
+                            "type": "http",
+                            "name": "Private",
+                            "url": "https://mcp.former.example/mcp",
+                            "transport": "sse",
+                            "timeout": 5,
+                            "id": str(integration_id),
+                        },
+                    )
+                ],
+            )
+        )
+
+        assert discover.await_args is not None
+        [config] = discover.await_args.args[0]
+        assert config["url"] == "https://mcp.current.example/mcp"
+        assert config["timeout"] == 30
+        assert "transport" not in config
+        assert config["tunnel_id"] == tunnel_id
+        assert config["headers"] == {"authorization": "Bearer fresh"}
+        assert config["tunnel_proxy"] == "http://token@gateway:8080"
+
+    @pytest.mark.anyio
+    async def test_mcp_discovery_drops_payload_headers_for_integrations(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Stale headers in an integration-backed payload never reach the
+        integration's current URL, even when it now resolves no credentials."""
+        integration_id = uuid.uuid4()
+        _patch_preset_service(
+            monkeypatch,
+            policies={},
+            secrets={},
+            refs=[
+                {
+                    "type": "http",
+                    "name": "Private",
+                    "url": "https://mcp.current.example/mcp",
+                    "id": str(integration_id),
+                }
+            ],
+        )
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(
+                        Any,
+                        {
+                            "type": "http",
+                            "name": "Private",
+                            "url": "https://mcp.former.example/mcp",
+                            "headers": {"authorization": "Bearer stale"},
+                            "id": str(integration_id),
+                        },
+                    )
+                ],
+            )
+        )
+
+        assert discover.await_args is not None
+        [config] = discover.await_args.args[0]
+        assert config["url"] == "https://mcp.current.example/mcp"
+        assert "headers" not in config
+
+    @pytest.mark.anyio
+    async def test_rejects_tool_tunnels_for_tools_the_agent_lacks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        _patch_registry(monkeypatch)
+
+        with pytest.raises(ApplicationError, match="tools.sublime.serch"):
+            await AgentActivities().build_tool_definitions(
+                BuildToolDefsArgs(
+                    role=mock_role,
+                    tool_filters=ToolFilters(actions=[]),
+                    tool_tunnels={"tools.sublime.serch": "onprem"},
+                )
+            )
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
@@ -863,6 +1330,63 @@ class TestCreateSessionActivity:
         session_service.session.add.assert_called_once_with(mock_agent_session)
         session_service.session.commit.assert_awaited_once()
 
+    @pytest.mark.anyio
+    async def test_announces_the_run_once_the_workflow_owns_it(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+    ):
+        """Runs started without the API, like case comments, reach open tabs."""
+        assert mock_role.workspace_id is not None
+        workspace_id = mock_role.workspace_id
+        run_id, stream_id = uuid.uuid4(), uuid.uuid4()
+        mock_agent_session = _agent_session(
+            id=mock_session_id, workspace_id=workspace_id, active_stream_id=stream_id
+        )
+        session_service.get_or_create_session.return_value = (
+            mock_agent_session,
+            False,
+        )
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
+        stream = MagicMock()
+        stream.clear_buffer = AsyncMock()
+        publish = AsyncMock()
+        calls = MagicMock()
+        calls.attach_mock(session_service.session.commit, "commit")
+        calls.attach_mock(stream.clear_buffer, "clear_buffer")
+        calls.attach_mock(publish, "publish")
+
+        with (
+            patch(
+                "tracecat.agent.session.activities.AgentStream.new",
+                AsyncMock(return_value=stream),
+            ),
+            patch("tracecat.agent.session.activities.publish_session_event", publish),
+        ):
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    entity_type=AgentSessionEntity.AGENT_PRESET,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                )
+            )
+
+        assert result.success is True
+        publish.assert_awaited_once_with(
+            workspace_id=workspace_id,
+            session_id=mock_session_id,
+            type=SessionFeedEventType.RUN_STARTED,
+            run_id=run_id,
+            stream_id=stream_id,
+        )
+        # Announced only once the row is committed and the old buffer is gone.
+        order = [name for name, *_ in calls.mock_calls if not name.startswith("_")]
+        assert order == ["commit", "clear_buffer", "publish"]
+
     @pytest.mark.parametrize(
         (
             "incoming_agents_binding",
@@ -1033,6 +1557,51 @@ class TestCreateSessionActivity:
         assert result.success is True
         session_service.get_session.assert_awaited_once_with(mock_session_id)
         session_service.get_or_create_session.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("linked", [True, False])
+    async def test_announces_the_run_to_a_linked_thread(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        linked: bool,
+    ):
+        run_id = uuid.uuid4()
+        session_service.get_session.return_value = _agent_session()
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
+        push = AsyncMock(return_value=[None])
+        with (
+            patch(
+                "tracecat.agent.session.activities.publish_session_event", AsyncMock()
+            ),
+            patch(
+                "tracecat.agent.session.activities.is_channel_linked",
+                AsyncMock(return_value=linked),
+            ),
+            patch("tracecat.agent.session.activities.push_updates", push),
+        ):
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    require_existing=True,
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                )
+            )
+
+        assert result.channel_linked is linked
+        if linked:
+            push.assert_awaited_once_with(
+                mock_role,
+                [TurnStarted(session_id=mock_session_id, run_id=run_id)],
+                budget=TURN_STARTED_PUSH_BUDGET,
+            )
+        else:
+            push.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_fails_when_required_session_is_missing(
@@ -1218,7 +1787,7 @@ class TestRunAgentActivity:
         expected_result = AgentExecutorResult(success=True)
         monkeypatch.setattr(
             "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
-            7200,
+            21600,
         )
 
         with (
@@ -1240,7 +1809,7 @@ class TestRunAgentActivity:
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
-                timeout_seconds=1800,
+                timeout_seconds=7200,
             )
             set_span_attributes.assert_called_once_with(
                 {
@@ -1390,6 +1959,84 @@ class TestRunAgentActivity:
         assert runtime_span.attributes["tracecat.agent.outcome"] == expected_outcome
         assert runtime_span.status.status_code is expected_status
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("error", "timed_out", "expected"),
+        [
+            (asyncio.CancelledError(), False, TurnOutcome.CANCELLED),
+            (asyncio.CancelledError(), True, TurnOutcome.UNSETTLED),
+            (RuntimeError("synthetic"), False, TurnOutcome.FAILED),
+        ],
+    )
+    async def test_turn_metrics_count_turns_that_raise(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        error: BaseException,
+        timed_out: bool,
+        expected: TurnOutcome,
+    ) -> None:
+        """A turn cancelled or failed before any result still counts once."""
+        outcomes: list[TurnOutcome] = []
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity._hydrate_sdk_session_history",
+                AsyncMock(side_effect=error),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.record_turn",
+                side_effect=lambda **kwargs: outcomes.append(kwargs["outcome"]),
+            ),
+        ):
+            mock_activity.cancellation_details.return_value = SimpleNamespace(
+                timed_out=timed_out
+            )
+            with pytest.raises(type(error)):
+                await run_agent_activity(
+                    mock_executor_input.model_copy(
+                        update={"turn_started_at": datetime.now(UTC)}
+                    )
+                )
+
+        assert outcomes == [expected]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("timed_out", "expected"),
+        [(False, TurnOutcome.CANCELLED), (True, TurnOutcome.UNSETTLED)],
+    )
+    async def test_turn_metrics_split_returned_cancellations_by_cause(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        timed_out: bool,
+        expected: TurnOutcome,
+    ) -> None:
+        """The executor returns a cancelled result for a Temporal timeout too."""
+        outcomes: list[TurnOutcome] = []
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.record_turn",
+                side_effect=lambda **kwargs: outcomes.append(kwargs["outcome"]),
+            ),
+        ):
+            mock_activity.cancellation_details.return_value = SimpleNamespace(
+                timed_out=timed_out
+            )
+            mock_executor_cls.return_value.run = AsyncMock(
+                return_value=AgentExecutorResult(success=True, cancelled=True)
+            )
+            await run_agent_activity(
+                mock_executor_input.model_copy(
+                    update={"turn_started_at": datetime.now(UTC)}
+                )
+            )
+
+        assert outcomes == [expected]
+
 
 def _loopback_handler(executor: SandboxedAgentExecutor) -> LoopbackHandler:
     return LoopbackHandler(
@@ -1521,8 +2168,11 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
         concurrent: bool = False,
         cancel_fails: bool = False,
+        first_token_at: datetime | None = None,
     ) -> AgentExecutorResult:
         handler = _loopback_handler(executor)
+        # Model output the runtime streamed before the turn failed.
+        handler._result.first_token_at = first_token_at
         monkeypatch.setattr(
             handler,
             "emit_terminal_error",
@@ -1723,11 +2373,13 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input, timeout_seconds=0)
+        first_token_at = datetime.now(UTC)
 
         result = await self._run_broker_leaf(
             executor=executor,
             monkeypatch=monkeypatch,
             tmp_path=tmp_path,
+            first_token_at=first_token_at,
         )
 
         assert result.classification is not None
@@ -1735,6 +2387,8 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
+        # Output streamed before the deadline still counts toward first-token time.
+        assert result.first_token_at == first_token_at
 
     @pytest.mark.anyio
     async def test_concurrent_turn_is_platform_unavailable(

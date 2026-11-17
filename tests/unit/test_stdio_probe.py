@@ -158,7 +158,16 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
     ):
         fallback.return_value = MagicMock(
             success=True,
-            output={"tools": [{"name": "echo", "description": "Echo"}]},
+            output={
+                "tools": [
+                    {
+                        "name": "echo",
+                        "description": "Echo",
+                        "input_schema": {"type": "object"},
+                    },
+                    {"name": "bad_schema", "input_schema": "not a schema"},
+                ]
+            },
             error=None,
             stderr="",
         )
@@ -170,7 +179,10 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
         )
 
     assert result.success is True
-    assert [tool.name for tool in result.tools] == ["echo"]
+    assert [(tool.name, tool.input_schema) for tool in result.tools] == [
+        ("echo", {"type": "object"}),
+        ("bad_schema", None),
+    ]
     executor_cls.assert_not_called()
     fallback.assert_awaited_once()
 
@@ -183,13 +195,13 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
         "expected_memory_mb",
         "expected_address_space_mb",
     ),
-    [(4096, None, 1024, 2048), (512, None, 512, 1024), (4096, 8192, 1024, 8192)],
+    [(4096, None, 1024, None), (512, None, 512, None), (4096, 8192, 1024, 8192)],
 )
 async def test_probe_runs_in_sandbox_when_nsjail_enabled(
     memory_mb: int,
     address_space_mb: int | None,
     expected_memory_mb: int,
-    expected_address_space_mb: int,
+    expected_address_space_mb: int | None,
 ) -> None:
     """With nsjail available, the probe executes inside the sandbox."""
     sandbox_result = MagicMock(
@@ -238,7 +250,7 @@ async def test_probe_runs_in_sandbox_when_nsjail_enabled(
     executor.execute.assert_awaited_once()
     config = executor.execute.await_args.args[1]
     assert config.resources.memory_mb == expected_memory_mb
-    assert config.resources.address_space_limit_mb == expected_address_space_mb
+    assert config.resources.address_space_mb == expected_address_space_mb
     assert config.network is not None
     assert config.network.purpose is SandboxNetworkPurpose.AGENT
     assert config.network.policy is None

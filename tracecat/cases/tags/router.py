@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
@@ -51,10 +51,6 @@ async def add_tag(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
         ) from err
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Tag operation failed"
-        ) from e
 
 
 @router.delete(

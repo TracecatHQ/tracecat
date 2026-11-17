@@ -1,5 +1,6 @@
 "use client"
 
+import { TimerOffIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -8,7 +9,6 @@ import type {
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
-  CaseQuery,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseSeverity,
@@ -29,7 +29,7 @@ import {
   CasesAccordion,
   orderCasesForDisplay,
 } from "@/components/cases/cases-accordion"
-import { CasesHeader } from "@/components/cases/cases-header"
+import { CasesHeader, type CasesViewBar } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import type {
   FilterMode,
@@ -37,13 +37,20 @@ import type {
 } from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { useToast } from "@/components/ui/use-toast"
-import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import type { CaseDateFilterValue, UseCasesFilters } from "@/lib/case-query"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorDetail, isQueryTimeoutError } from "@/lib/errors"
 import {
   useBatchChangeCaseParent,
   useBatchDeleteCases,
@@ -87,7 +94,6 @@ interface CasesLayoutProps {
   durationDefinitions?: CaseDurationDefinitionRead[]
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
-  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -99,6 +105,8 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
+  /** Saved-view controls for the header. */
+  viewBar?: CasesViewBar
 }
 
 /** Workspace case list with a promoted exact match and filtered results. */
@@ -137,7 +145,6 @@ export function CasesLayout({
   durationDefinitions,
   visibleColumnIds,
   onToggleColumn,
-  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -149,6 +156,7 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  viewBar,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -460,11 +468,10 @@ export function CasesLayout({
     visibleColumnIds,
     onToggleColumn,
     dropdownFilters: filters.dropdownFilters,
-    structuredFilters: filters.structuredFilters,
-    onStructuredFiltersChange,
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
+    viewBar,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
     isCountsError,
@@ -512,40 +519,6 @@ export function CasesLayout({
     setSidePanelCaseId(null)
   }, [])
 
-  if (isLoading) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <CenteredSpinner />
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
-  if (error) {
-    return (
-      <DeleteCaseAlertDialog
-        selectedCase={caseToDelete}
-        setSelectedCase={setCaseToDelete}
-      >
-        <div className="flex size-full flex-col">
-          <CasesHeader {...headerProps} />
-          <div className="flex flex-1 items-center justify-center">
-            <span className="text-sm text-red-500">
-              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
-            </span>
-          </div>
-        </div>
-      </DeleteCaseAlertDialog>
-    )
-  }
-
   return (
     <DeleteCaseAlertDialog
       selectedCase={caseToDelete}
@@ -553,7 +526,32 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        {cases.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <CenteredSpinner />
+          </div>
+        ) : isQueryTimeoutError(error) ? (
+          <div className="flex flex-1 p-6">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <TimerOffIcon className="size-5 text-muted-foreground/60" />
+                </EmptyMedia>
+                <EmptyTitle>Search took too long</EmptyTitle>
+                <EmptyDescription>
+                  Try a more specific search term or narrow the filters. Or
+                  contact the Tracecat team for support.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </div>
+        ) : error ? (
+          <div className="flex flex-1 items-center justify-center">
+            <span className="text-sm text-red-500">
+              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
+            </span>
+          </div>
+        ) : cases.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
             <p className="text-sm text-muted-foreground">
               {hasNextPage
@@ -635,7 +633,7 @@ export function CasesLayout({
           </div>
         )}
       </div>
-      {workspaceId && (
+      {workspaceId && !isLoading && !error && (
         <CaseSidePanel
           caseId={sidePanelCaseId}
           cases={displayOrderedCases}

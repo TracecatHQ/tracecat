@@ -8,11 +8,14 @@ import re
 import uuid
 
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
+from tracecat.process_env import LOADER_ENV_VAR_ERROR, is_loader_env_var
 
 # Allowlist of commands that can be used for MCP servers
 ALLOWED_MCP_COMMANDS = frozenset({"npx", "uvx", "python", "python3", "node"})
 
-# Environment variables that cannot be overridden
+# Environment variables that cannot be overridden. All loader variables are also
+# refused through is_loader_env_var; the classic two stay listed so this set
+# alone still covers them.
 PROTECTED_ENV_VARS = AGENT_RUNTIME_PROTECTED_ENV_VARS | frozenset(
     {
         "PATH",
@@ -297,6 +300,9 @@ def validate_mcp_env_key(key: str) -> None:
         raise MCPValidationError(
             "Invalid env var name: must match [A-Za-z_][A-Za-z0-9_]*"
         )
+
+    if is_loader_env_var(key):
+        raise MCPValidationError(LOADER_ENV_VAR_ERROR)
 
     # Cannot override protected variables. Safe to name: this key matched the
     # POSIX pattern above and equals a known constant.

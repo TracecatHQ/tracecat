@@ -352,7 +352,7 @@ function RoleListItem({
                       className="text-rose-500 focus:text-rose-600"
                       onClick={onDelete}
                     >
-                      Delete role
+                      Delete
                     </DropdownMenuItem>
                   </AlertDialogTrigger>
                 )}

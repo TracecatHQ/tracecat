@@ -360,7 +360,7 @@ export function AddCustomFieldDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add custom field</DialogTitle>
+          <DialogTitle>Create field</DialogTitle>
           <DialogDescription>
             Create a new custom field for cases.
           </DialogDescription>
@@ -516,7 +516,7 @@ export function AddCustomFieldDialog({
             </DialogBody>
             <DialogFooter>
               <Button size="sm" type="submit" disabled={isSubmitting}>
-                Add field
+                Create field
               </Button>
             </DialogFooter>
           </form>

@@ -6,6 +6,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.identifiers import CaseTagID
 from tracecat.tags.schemas import TagCreate, TagUpdate
 
@@ -63,6 +64,12 @@ async def create_case_tag(
             detail=str(err),
         ) from err
     except IntegrityError as err:
+        if not is_unique_violation(
+            err,
+            "uq_case_tag_name_workspace",
+            "uq_case_tag_ref_workspace",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Case tag already exists",
@@ -96,6 +103,12 @@ async def update_case_tag(
             detail=str(err),
         ) from err
     except IntegrityError as err:
+        if not is_unique_violation(
+            err,
+            "uq_case_tag_name_workspace",
+            "uq_case_tag_ref_workspace",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Case tag already exists",

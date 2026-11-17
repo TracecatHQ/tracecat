@@ -47,11 +47,8 @@ import {
 } from "@/components/cases/case-categories"
 import { CaseUserAvatar } from "@/components/cases/case-panel-common"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import {
-  EventCreatedAt,
-  EventUpdatedAt,
-} from "@/components/cases/cases-feed-event"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { RowTimestamps } from "@/components/timestamps"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   ContextMenu,
@@ -669,10 +666,10 @@ export function CaseItem({
               )}
 
               {/* Timestamps */}
-              <div className="flex shrink-0 items-center gap-2">
-                <EventCreatedAt createdAt={caseData.created_at} />
-                <EventUpdatedAt updatedAt={caseData.updated_at} />
-              </div>
+              <RowTimestamps
+                createdAt={caseData.created_at}
+                updatedAt={caseData.updated_at}
+              />
             </button>
           </TooltipProvider>
         </div>

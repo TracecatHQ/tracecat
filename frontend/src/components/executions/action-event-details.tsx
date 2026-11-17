@@ -12,6 +12,10 @@ import { useEffect, useMemo, useState } from "react"
 import type { EventFailure } from "@/client"
 import { CodeBlock } from "@/components/code-block"
 import { getWorkflowEventIcon } from "@/components/events/workflow-event-status"
+import {
+  AgentPresetEventLink,
+  getAgentPresetRef,
+} from "@/components/executions/agent-preset-event-link"
 import { CollectionObjectResult } from "@/components/executions/collection-object-result"
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -404,19 +408,34 @@ function ActionSessionCarousel({
   )
 }
 
-function ActionEventContent({
-  actionEvent,
-  executionId,
-  type,
-  eventRef,
-  showStreamDetails = true,
-}: {
+type ActionEventContentProps = {
   actionEvent: WorkflowExecutionEventCompact
   executionId: string
   type: ActionEventPayloadType
   eventRef: string
   showStreamDetails?: boolean
-}) {
+}
+
+function ActionEventContent(props: ActionEventContentProps) {
+  const presetRef = getAgentPresetRef(props.actionEvent)
+  if (!presetRef) {
+    return <ActionEventBody {...props} />
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <AgentPresetEventLink presetRef={presetRef} />
+      <ActionEventBody {...props} />
+    </div>
+  )
+}
+
+function ActionEventBody({
+  actionEvent,
+  executionId,
+  type,
+  eventRef,
+  showStreamDetails = true,
+}: ActionEventContentProps) {
   const { status, session, stream_id, action_error } = actionEvent
 
   if (type === "result") {

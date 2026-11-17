@@ -685,16 +685,13 @@ export default function IntegrationsPage() {
         onOpenChange={(next) => {
           if (!next) setDisconnectTarget(null)
         }}
+        identifier={{
+          label: "Provider name",
+          value: disconnectTarget?.name ?? "",
+        }}
         confirmPhrase={disconnectTarget?.name ?? ""}
         title="Disconnect integration"
-        description={
-          disconnectTarget ? (
-            <>
-              Are you sure you want to disconnect from{" "}
-              <span className="font-medium">{disconnectTarget.name}</span>?
-            </>
-          ) : null
-        }
+        description="Are you sure you want to disconnect this integration?"
         confirmLabel="Disconnect"
         isPending={disconnectProviderMutation.isPending}
         onConfirm={async () => {
@@ -711,18 +708,10 @@ export default function IntegrationsPage() {
         onOpenChange={(next) => {
           if (!next) setDeleteTarget(null)
         }}
+        identifier={{ label: "Provider name", value: deleteTarget?.name ?? "" }}
         confirmPhrase={deleteTarget?.name ?? ""}
         title="Delete custom provider"
-        description={
-          deleteTarget ? (
-            <>
-              Are you sure you want to delete{" "}
-              <span className="font-medium">{deleteTarget.name}</span>? This
-              removes the provider definition and any stored credentials or
-              connections.
-            </>
-          ) : null
-        }
+        description="Are you sure you want to delete this provider? This removes the provider definition and any stored credentials or connections."
         confirmLabel="Delete"
         isPending={deleteProviderMutation.isPending}
         onConfirm={async () => {

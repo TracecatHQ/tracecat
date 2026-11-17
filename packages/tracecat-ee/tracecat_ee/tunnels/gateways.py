@@ -10,9 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.secrets import get_db_encryption_key
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.locks import pg_advisory_unlock, try_pg_advisory_lock
+from tracecat.db.engine import (
+    get_async_engine,
+    get_async_session_bypass_rls_context_manager,
+)
+from tracecat.db.locks import hold_pg_advisory_xact_lock
 from tracecat.db.models import Workspace, WorkspaceTunnel
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value
@@ -32,8 +36,23 @@ from tracecat_ee.tunnels.k8s import (
 _RECONCILE_LOCK_KEY = 0x7472_6163_7475_6E6C
 
 
+TUNNELS_REQUIRE_KUBERNETES = (
+    "Tunnels require Tracecat on Kubernetes with tunnel gateways enabled "
+    "(TRACECAT__TUNNEL_GATEWAY_BACKEND=kubernetes)"
+)
+
+
+class TunnelGatewayUnavailableError(TracecatValidationError):
+    """No gateway backend is configured, so tunnels cannot be used."""
+
+
 def kubernetes_enabled() -> bool:
     return gateway_backend() is TunnelGatewayBackend.KUBERNETES
+
+
+def require_kubernetes_gateways() -> None:
+    if not kubernetes_enabled():
+        raise TunnelGatewayUnavailableError(TUNNELS_REQUIRE_KUBERNETES)
 
 
 def _decrypt(value: bytes) -> str:
@@ -128,19 +147,18 @@ async def desired_gateway_specs(session: AsyncSession) -> list[GatewaySpec]:
 
 async def reconcile_gateways_once() -> None:
     """Reconcile gateway objects if this process holds the leader lock."""
-    async with get_async_session_bypass_rls_context_manager() as session:
-        if not await try_pg_advisory_lock(session, _RECONCILE_LOCK_KEY):
+    # The lock spans the Kubernetes calls, so it lives on its own connection.
+    async with hold_pg_advisory_xact_lock(
+        get_async_engine(), _RECONCILE_LOCK_KEY, wait=False
+    ) as holder:
+        if holder is None:
             return
-        try:
+        async with get_async_session_bypass_rls_context_manager() as session:
             specs = await desired_gateway_specs(session)
-            async with KubernetesClient() as client:
-                applied, deleted = await KubernetesGateways(client).reconcile(specs)
-            if deleted:
-                logger.info(
-                    "Reconciled tunnel gateways", applied=applied, deleted=deleted
-                )
-        finally:
-            await pg_advisory_unlock(session, _RECONCILE_LOCK_KEY)
+        async with KubernetesClient() as client:
+            applied, deleted = await KubernetesGateways(client).reconcile(specs)
+        if deleted:
+            logger.info("Reconciled tunnel gateways", applied=applied, deleted=deleted)
 
 
 async def start_tunnel_gateway_reconciler(

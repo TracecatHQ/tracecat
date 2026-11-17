@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+from importlib.metadata import entry_points
 
+from tracecat.agent.backends.constants import AGENT_BACKEND_ENTRY_POINT_GROUP
 from tracecat.tiers.schemas import EffectiveEntitlements, EffectiveLimits
 
 DEFAULT_TIER_DISPLAY_NAME = "Default"
@@ -28,6 +30,15 @@ def get_legacy_feature_flags_env() -> str | None:
     return os.environ.get("TRACECAT__FEATURE_FLAGS")
 
 
+def has_installed_agent_backend() -> bool:
+    """Whether a package registers an agent backend besides the built-in one.
+
+    The built-in backend is not an entry point, so any registration is extra.
+    Entry points are read without loading them to keep this import cheap.
+    """
+    return bool(entry_points(group=AGENT_BACKEND_ENTRY_POINT_GROUP))
+
+
 def _parse_feature_flags(feature_flags_env: str) -> set[str]:
     return {
         raw_flag.strip().lower().replace("_", "-")
@@ -39,6 +50,8 @@ def _parse_feature_flags(feature_flags_env: str) -> set[str]:
 # Default entitlements for OSS/single-tenant deployments.
 def resolve_oss_default_entitlements(
     feature_flags_env: str | None,
+    *,
+    agent_backend_installed: bool = False,
 ) -> EffectiveEntitlements:
     """Resolve OSS default entitlements from legacy feature flags.
 
@@ -51,9 +64,12 @@ def resolve_oss_default_entitlements(
     case agent runs. Agent channels (Slack and Microsoft Teams, including approvals
     from those channels) are closed source and gated by ``agent_channels``; the
     legacy ``agent-channels`` feature flag maps to it. Semantic table search is
-    closed source and gated by ``semantic_search``. Forms are gated by ``forms``;
-    the ``forms`` feature flag maps to it, so one token turns on both the flag
-    and the entitlement on single-tenant deployments.
+    closed source and gated by ``semantic_search``. Forms are gated by ``forms``.
+    Non-default agent backends are gated by ``agent_runtime_preview``, and
+    workflow agent actions on them also by ``agent_runtime_workflows``. Both are
+    on whenever a backend is
+    installed, since installing a backend is how a deployment opts in. The
+    channel bot API also needs ``agent_channels_preview``, off on both paths.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -75,6 +91,9 @@ def resolve_oss_default_entitlements(
             semantic_search=False,
             forms=False,
             tunnels=False,
+            agent_runtime_preview=agent_backend_installed,
+            agent_runtime_workflows=agent_backend_installed,
+            agent_channels_preview=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -94,7 +113,6 @@ def resolve_oss_default_entitlements(
             break
 
     agent_channels_enabled = "agent-channels" in normalized_flags
-    forms_enabled = "forms" in normalized_flags
 
     rbac_enabled = False
     for flag in _RBAC_FLAGS:
@@ -115,9 +133,15 @@ def resolve_oss_default_entitlements(
         external_secret_stores=False,
         agent_channels=agent_channels_enabled,
         semantic_search=False,
-        forms=forms_enabled,
+        forms=False,
         tunnels=False,
+        agent_runtime_preview=agent_backend_installed,
+        agent_runtime_workflows=agent_backend_installed,
+        agent_channels_preview=False,
     )
 
 
-DEFAULT_ENTITLEMENTS = resolve_oss_default_entitlements(get_legacy_feature_flags_env())
+DEFAULT_ENTITLEMENTS = resolve_oss_default_entitlements(
+    get_legacy_feature_flags_env(),
+    agent_backend_installed=has_installed_agent_backend(),
+)

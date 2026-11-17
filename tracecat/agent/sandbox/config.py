@@ -52,6 +52,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_WORK_DIR,
     job_uv_state_dir,
 )
+from tracecat.process_env import LOADER_ENV_VAR_ERROR, is_loader_env_var
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -103,7 +104,8 @@ class AgentResourceLimits:
     Attributes:
         memory_mb: Aggregate cgroup memory budget in MiB.
         address_space_mb: Per-process virtual address-space cap in MiB.
-            Defaults to twice memory_mb when no deployment override is set.
+            Unset means uncapped under a cgroup memory limit, otherwise twice
+            memory_mb.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -130,14 +132,16 @@ class AgentResourceLimits:
         if self.address_space_mb is not None and self.address_space_mb <= 0:
             raise ValueError("address_space_mb must be positive")
 
-    @property
-    def address_space_limit_mb(self) -> int:
-        """Resolve the independent per-process virtual address-space guard."""
-        return (
-            self.address_space_mb
-            if self.address_space_mb is not None
-            else 2 * self.memory_mb
-        )
+    def address_space_limit_mb(self, *, cgroup_memory_limit: bool) -> int | None:
+        """Resolve the per-process address-space cap; None means uncapped.
+
+        rlimit_as bounds virtual reservations, not RAM. Under a cgroup memory
+        limit the cgroup bounds RAM, so an unset cap stays uncapped. Without the
+        cgroup, rlimit_as is the only memory guard, so keep a finite fallback.
+        """
+        if self.address_space_mb is not None:
+            return self.address_space_mb
+        return None if cgroup_memory_limit else 2 * self.memory_mb
 
 
 @dataclass
@@ -300,6 +304,7 @@ def build_agent_nsjail_config(
     # the full tracecat.sandbox package to be mounted inside the jail.
     from tracecat.sandbox.networking import resolve_sandbox_network_plan
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+    from tracecat.sandbox.types import nsjail_rlimit_as
 
     if cgroup_mount is not None:
         _validate_path(cgroup_mount, "cgroup_mount")
@@ -525,7 +530,11 @@ def build_agent_nsjail_config(
         [
             "",
             "# Resource limits",
-            f"rlimit_as: {config.resources.address_space_limit_mb}",
+            nsjail_rlimit_as(
+                config.resources.address_space_limit_mb(
+                    cgroup_memory_limit=cgroup_mount is not None
+                )
+            ),
             f"rlimit_cpu: {config.resources.cpu_seconds}",
             f"rlimit_fsize: {config.resources.max_file_size_mb}",
             f"rlimit_nofile: {config.resources.max_open_files}",
@@ -549,7 +558,10 @@ def build_agent_nsjail_config(
             "",
             f'cwd: "{JAILED_AGENT_JOB_DIR}"',
             "# Execution - standalone shim script",
-            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
+            # The shim is stdlib-only. Isolated mode (-I -S) keeps PYTHONPATH and
+            # the persistent home's user site-packages from running code before
+            # its process cap; -B and -u replace the PYTHON* variables -I ignores.
+            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-I" arg: "-S" arg: "-B" arg: "-u" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
         ]
     )
 
@@ -579,6 +591,8 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
     for key, value in config.env_vars.items():
         _validate_env_key(key)
         _validate_env_value(key, value)
+        if is_loader_env_var(key):
+            raise AgentSandboxValidationError(LOADER_ENV_VAR_ERROR)
         if key in AGENT_SANDBOX_BASE_ENV or key in AGENT_RUNTIME_PROTECTED_ENV_VARS:
             raise AgentSandboxValidationError(
                 f"Cannot override protected env var: {key}"

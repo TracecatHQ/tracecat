@@ -64,17 +64,66 @@ class SearchMigration(Protocol):
     def downgrade(self) -> None: ...
 
 
-def load_search_migration() -> SearchMigration:
-    """Load the unmerged revision for disposable migration/transport fixtures."""
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "alembic/versions/e2018a1b2c3d_add_case_text_search_indexes.py"
-    )
-    spec = importlib.util.spec_from_file_location("case_text_search_migration", path)
+class VectorMigration(Protocol):
+    _BACKFILL_BATCH: int
+    _TRIGGER_FUNCTION_SQL: str
+    _TRIGGER_SQL: str
+    _VECTOR_INDEXES: tuple[tuple[str, str], ...]
+
+    def upgrade(self) -> None: ...
+    def downgrade(self) -> None: ...
+
+
+class WordMigration(Protocol):
+    _BACKFILL_BATCH: int
+    _WORDS_FUNCTION_SQL: str
+    _TRIGGER_FUNCTION_SQL: str
+    _TRIGGER_SQL: str
+    _TABLE_INDEXES: tuple[tuple[str, str], ...]
+    _WORD_INDEXES: tuple[tuple[str, str], ...]
+
+    def upgrade(self) -> None: ...
+    def downgrade(self) -> None: ...
+
+
+def _load_revision(filename: str, name: str) -> object:
+    path = Path(__file__).resolve().parents[2] / "alembic/versions" / filename
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return cast(SearchMigration, module)
+    return module
+
+
+def load_search_migration() -> SearchMigration:
+    """Load the unmerged revision for disposable migration/transport fixtures."""
+    return cast(
+        SearchMigration,
+        _load_revision(
+            "e2018a1b2c3d_add_case_text_search_indexes.py",
+            "case_text_search_migration",
+        ),
+    )
+
+
+def load_vector_migration() -> VectorMigration:
+    """Load the stored-vector revision that follows the search revision."""
+    return cast(
+        VectorMigration,
+        _load_revision(
+            "5ca140c06ec2_store_case_search_vectors.py", "case_search_vector_migration"
+        ),
+    )
+
+
+def load_word_migration() -> WordMigration:
+    """Load the stored word-list revision that follows the vector revision."""
+    return cast(
+        WordMigration,
+        _load_revision(
+            "e4fd31674ae9_store_case_search_words.py", "case_search_word_migration"
+        ),
+    )
 
 
 def apply_search_migration(
@@ -94,6 +143,59 @@ def apply_search_migration(
                 migration.downgrade()
             else:
                 migration.upgrade()
+
+
+def apply_vector_migration(
+    engine: Engine, *, downgrade: bool = False, backfill_batch: int | None = None
+) -> None:
+    """Apply only the stored-vector revision; it requires the search revision."""
+    migration = load_vector_migration()
+    if backfill_batch is not None:
+        migration._BACKFILL_BATCH = backfill_batch
+    with engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        with context.begin_transaction(), Operations.context(context):
+            if downgrade:
+                migration.downgrade()
+            else:
+                migration.upgrade()
+
+
+def apply_word_migration(
+    engine: Engine,
+    *,
+    downgrade: bool = False,
+    backfill_batch: int | None = None,
+    search_path: str | None = None,
+) -> None:
+    """Apply only the stored word-list revision; it requires the vector revision."""
+    migration = load_word_migration()
+    if backfill_batch is not None:
+        migration._BACKFILL_BATCH = backfill_batch
+    with engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        with context.begin_transaction(), Operations.context(context):
+            if search_path is not None:
+                conn.execute(
+                    sa.text("SELECT set_config('search_path', :search_path, false)"),
+                    {"search_path": search_path},
+                )
+            if downgrade:
+                migration.downgrade()
+            else:
+                migration.upgrade()
+
+
+def apply_case_search_migrations(engine: Engine, *, downgrade: bool = False) -> None:
+    """Apply every case search revision in dependency order."""
+    if downgrade:
+        apply_word_migration(engine, downgrade=True)
+        apply_vector_migration(engine, downgrade=True)
+        apply_search_migration(engine, downgrade=True)
+    else:
+        apply_search_migration(engine)
+        apply_vector_migration(engine)
+        apply_word_migration(engine)
 
 
 @pytest.fixture
@@ -121,6 +223,12 @@ def search_database() -> Iterator[Engine]:
                 )
                 is False
             )
+            # The word vocabulary references workspaces; cases here do not.
+            conn.execute(sa.text("CREATE TABLE workspace (id uuid PRIMARY KEY)"))
+            conn.execute(
+                sa.text("INSERT INTO workspace (id) VALUES (:first), (:second)"),
+                {"first": WORKSPACE, "second": OTHER_WORKSPACE},
+            )
             conn.execute(
                 sa.text("""CREATE TABLE "case" (
                 id uuid PRIMARY KEY, workspace_id uuid NOT NULL, case_number integer NOT NULL,
@@ -133,7 +241,7 @@ def search_database() -> Iterator[Engine]:
             )
         with engine.begin() as conn:
             conn.execute(sa.text("CREATE EXTENSION pg_trgm WITH SCHEMA public"))
-        apply_search_migration(engine)
+        apply_case_search_migrations(engine)
         yield engine
     finally:
         engine.dispose()
@@ -187,7 +295,7 @@ def search_statement(
     limit: int = 50,
 ) -> sa.Select[tuple[uuid.UUID, int, bool, bool]]:
     """Compose all filters before LIMIT and preserve a case-ID tie-breaker."""
-    expressions = build_case_text_expressions(parse_fixture_query(query))
+    expressions = build_case_text_expressions(parse_fixture_query(query), workspace)
     return (
         sa.select(
             Case.id,
@@ -432,7 +540,9 @@ def test_filters_precede_pagination_and_integer_score_seeks_are_stable(
             .all()
         )
         assert [row[0] for row in first] == list(reversed(expected))[:3]
-        expressions = build_case_text_expressions(parse_case_text_query("powershell"))
+        expressions = build_case_text_expressions(
+            parse_case_text_query("powershell"), WORKSPACE
+        )
         cursor = first[-1]
         seek = sa.tuple_(expressions.score, Case.id) < sa.tuple_(
             sa.literal(cursor[1]), sa.literal(cursor[0])
@@ -444,8 +554,8 @@ def test_filters_precede_pagination_and_integer_score_seeks_are_stable(
 @pytest.mark.parametrize(
     ("query", "index"),
     [
-        ('"powershell"', "ix_case_summary_fts"),
-        ("powershel", "ix_case_summary_trgm"),
+        ('"powershell"', "ix_case_summary_tsv"),
+        ("powershel", "ix_case_summary_words"),
         ("literal:PowerShell", "ix_case_summary_trgm"),
     ],
 )
@@ -459,7 +569,7 @@ def test_candidate_predicates_can_use_the_declared_indexes(
         conn.execute(
             sa.text("SET LOCAL pg_trgm.strict_word_similarity_threshold = 0.65")
         )
-        expressions = build_case_text_expressions(parse_fixture_query(query))
+        expressions = build_case_text_expressions(parse_fixture_query(query), WORKSPACE)
         compiled = (
             sa.select(Case.id)
             .where(expressions.predicate)
@@ -518,6 +628,10 @@ async def test_migration_is_retryable_and_downgrade_preserves_source_and_extensi
             assert all(
                 value.startswith("public.tracecat_case_safe_vector_v1(")
                 for value in expressions
+            )
+            # Search resolves pg_trgm through the search_path, like tables.
+            await session.execute(
+                sa.text("SELECT set_config('search_path', 'pg_catalog, public', true)")
             )
             await ensure_case_text_indexes(session)
     finally:
@@ -593,7 +707,7 @@ def test_migration_rebuilds_an_invalid_concurrent_index(
 def test_incompatible_index_collisions_fail_without_adopting_or_dropping_them(
     search_database: Engine, collision: str
 ) -> None:
-    apply_search_migration(search_database, downgrade=True)
+    apply_case_search_migrations(search_database, downgrade=True)
     with search_database.begin() as conn:
         seed_case(conn, 1, "preserved synthetic source")
         if collision == "target":
@@ -637,7 +751,7 @@ def test_incompatible_index_collisions_fail_without_adopting_or_dropping_them(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("kind", ["fts", "text_fallback"])
-async def test_private_same_named_helper_indexes_cannot_spoof_readiness(
+async def test_spoofed_legacy_expression_index_blocks_migration_not_readiness(
     search_database: Engine, kind: str
 ) -> None:
     name = f"ix_case_summary_{kind}"
@@ -676,16 +790,16 @@ async def test_private_same_named_helper_indexes_cannot_spoof_readiness(
         connect_args={
             "server_settings": {
                 "role": role,
-                "search_path": "synthetic_search,pg_catalog",
+                # public keeps pg_trgm resolvable; only the helpers are spoofed.
+                "search_path": "synthetic_search,pg_catalog,public",
             }
         },
     )
     try:
         async with AsyncSession(engine) as session:
-            with pytest.raises(LexicalSearchError) as error:
-                await ensure_case_text_indexes(session)
-            assert error.value.code == LexicalSearchErrorCode.CONFIGURATION_CHANGED
-            assert await session.scalar(sa.select(sa.literal(1))) == 1
+            # Search reads the stored vector columns, so a spoofed legacy
+            # expression index cannot change readiness.
+            await ensure_case_text_indexes(session)
     finally:
         await engine.dispose()
     with pytest.raises(RuntimeError, match="incompatible existing definition"):
@@ -708,9 +822,13 @@ async def test_private_same_named_helper_indexes_cannot_spoof_readiness(
         )
 
 
-def test_wrong_extension_schema_fails_before_index_creation(
+@pytest.mark.anyio
+async def test_extension_outside_public_is_used_in_place(
     search_database: Engine,
 ) -> None:
+    """IBM Cloud keeps extensions in its read-only ibm_extension schema."""
+    # The vocabulary's trigram index and word-list helper also use pg_trgm.
+    apply_word_migration(search_database, downgrade=True)
     apply_search_migration(search_database, downgrade=True)
     # Relocation touches extension objects owned by the bootstrap superuser,
     # so it is an operator task even when a normal role installed pg_trgm.
@@ -718,32 +836,77 @@ def test_wrong_extension_schema_fails_before_index_creation(
     operator = sa.create_engine(search_database.url, poolclass=NullPool)
     try:
         with operator.begin() as conn:
-            conn.execute(sa.text("CREATE SCHEMA synthetic_trgm"))
-            conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA synthetic_trgm"))
-        with pytest.raises(DBAPIError, match="requires pg_trgm in the public schema"):
-            apply_search_migration(search_database)
+            conn.execute(sa.text("CREATE SCHEMA ibm_extension"))
+            # IBM's schema is read-only: usable by every role, writable by none.
+            conn.execute(sa.text("GRANT USAGE ON SCHEMA ibm_extension TO PUBLIC"))
+            conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA ibm_extension"))
+        apply_search_migration(search_database)
+        apply_word_migration(search_database)
         with operator.begin() as conn:
-            indexes = set(
+            opclass_schemas = set(
                 conn.execute(
-                    sa.text("SELECT indexname FROM pg_indexes WHERE tablename = 'case'")
+                    sa.text("""SELECT n.nspname FROM pg_index i
+                    JOIN pg_opclass o ON o.oid = i.indclass[0]
+                    JOIN pg_namespace n ON n.oid = o.opcnamespace
+                    WHERE i.indexrelid IN ('public.ix_case_summary_trgm'::regclass,
+                        'public.ix_case_description_trgm'::regclass,
+                        'public.ix_case_search_word_word_trgm'::regclass)""")
                 ).scalars()
             )
-            assert not INDEX_NAMES & indexes
-            conn.execute(sa.text("ALTER EXTENSION pg_trgm SET SCHEMA public"))
-        apply_search_migration(search_database)
+            assert opclass_schemas == {"ibm_extension"}
+            assert "ibm_extension.show_trgm(" in conn.scalar(
+                sa.text(
+                    "SELECT prosrc FROM pg_proc WHERE oid = 'public.tracecat_case_words_v1(text)'::regprocedure"
+                )
+            )
+            assert (
+                conn.scalar(
+                    sa.text(
+                        "SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'pg_trgm'"
+                    )
+                )
+                == "ibm_extension"
+            )
     finally:
         operator.dispose()
+
+    with search_database.begin() as conn:
+        role = conn.scalar(sa.text("SELECT current_user"))
+        typo = seed_case(conn, 1, "Powershel detected")
+        conn.execute(sa.text("SET LOCAL search_path = public, ibm_extension"))
+        assert search_ids(conn, "powershell") == [typo]
+
+    for search_path, ready in (("public, ibm_extension", True), ("public", False)):
+        engine = create_async_engine(
+            search_database.url.set(drivername="postgresql+asyncpg"),
+            poolclass=NullPool,
+            connect_args={
+                "server_settings": {"role": role, "search_path": search_path}
+            },
+        )
+        try:
+            async with AsyncSession(engine) as session:
+                if ready:
+                    await ensure_case_text_indexes(session)
+                else:
+                    with pytest.raises(LexicalSearchError) as error:
+                        await ensure_case_text_indexes(session)
+                    assert error.value.code == LexicalSearchErrorCode.UNAVAILABLE
+        finally:
+            await engine.dispose()
 
 
 def test_migration_checks_extension_without_installation(
     search_database: Engine,
 ) -> None:
+    # The vocabulary's trigram index also depends on pg_trgm.
+    apply_word_migration(search_database, downgrade=True)
     apply_search_migration(search_database, downgrade=True)
     operator = sa.create_engine(search_database.url, poolclass=NullPool)
     try:
         with operator.begin() as conn:
             conn.execute(sa.text("DROP EXTENSION pg_trgm"))
-        with pytest.raises(DBAPIError, match="requires pg_trgm in the public schema"):
+        with pytest.raises(DBAPIError, match="requires pg_trgm to be enabled"):
             apply_search_migration(search_database)
         with operator.begin() as conn:
             assert not conn.scalar(
@@ -761,13 +924,13 @@ def test_model_maximum_unicode_documents_survive_old_writes_and_migration(
     search_database: Engine,
 ) -> None:
     """Exercise the model's5000-character bound without any new writer code."""
-    apply_search_migration(search_database, downgrade=True)
+    apply_case_search_migrations(search_database, downgrade=True)
     suffix = " café encoded-command 完了"
     source = ("a-b 中文 " * 800)[: 5000 - len(suffix)] + suffix
     assert len(source) == 5000
     with search_database.begin() as conn:
         expected = seed_case(conn, 1, "Résumé & synthetic-alert " + "é" * 220, source)
-    apply_search_migration(search_database)
+    apply_case_search_migrations(search_database)
     with search_database.begin() as conn:
         assert search_ids(conn, '"café encoded-command"') == [expected]
         assert search_ids(conn, "完了") == [expected]
@@ -822,7 +985,7 @@ def test_native_stream_matches_supported_parser_positions(
 def test_guarded_old_writes_migration_and_full_source_recall(
     search_database: Engine,
 ) -> None:
-    apply_search_migration(search_database, downgrade=True)
+    apply_case_search_migrations(search_database, downgrade=True)
     large = (
         " ".join(f"synthetic{number:06d}" for number in range(90000)) + " alpha beta"
     )
@@ -832,7 +995,7 @@ def test_guarded_old_writes_migration_and_full_source_recall(
         huge_id = seed_case(conn, 1, "synthetic large", large)
         overflow_id = seed_case(conn, 2, "synthetic normalized", normalized_overflow)
         repeated_id = seed_case(conn, 3, "synthetic repeated", repeated)
-    apply_search_migration(search_database)
+    apply_case_search_migrations(search_database)
     with search_database.begin() as conn:
         assert (
             conn.scalar(
@@ -932,3 +1095,37 @@ def test_safe_vector_exception_boundary_disables_parallel_operations(
             )
             == "u"
         )
+
+
+def test_typo_matching_uses_complete_words_and_over_budget_fallback(
+    search_database: Engine,
+) -> None:
+    with search_database.begin() as conn:
+        listed = seed_case(conn, 1, "synthetic alert", "ran powershel encoded")
+        # Over the byte budget, so it has no stored word list.
+        large = seed_case(conn, 2, "synthetic large", "word " * 2000 + "powershel")
+        # Similar only across a word boundary: no complete word matches.
+        seed_case(conn, 3, "synthetic split", "power shell")
+        other = seed_case(
+            conn, 4, "synthetic other", "powershel", workspace=OTHER_WORKSPACE
+        )
+        assert (
+            conn.scalar(
+                sa.text('SELECT description_words IS NULL FROM "case" WHERE id=:id'),
+                {"id": large},
+            )
+            is True
+        )
+        assert set(search_ids(conn, "powershell")) == {listed, large}
+        assert search_ids(conn, "powershell", workspace=OTHER_WORKSPACE) == [other]
+        # A duplicate vocabulary word from a concurrent insert is harmless.
+        conn.execute(
+            sa.text(
+                "INSERT INTO case_search_word (workspace_id, word) VALUES (:ws, 'powershel')"
+            ),
+            {"ws": WORKSPACE},
+        )
+        assert set(search_ids(conn, "powershell")) == {listed, large}
+        # Words of deleted cases stay in the vocabulary without matching.
+        conn.execute(sa.text('DELETE FROM "case" WHERE id=:id'), {"id": listed})
+        assert search_ids(conn, "powershell") == [large]

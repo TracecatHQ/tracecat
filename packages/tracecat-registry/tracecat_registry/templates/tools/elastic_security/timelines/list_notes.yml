@@ -1,0 +1,99 @@
+type: action
+definition:
+  title: List notes
+  description: "List Elastic Security notes, or get the notes attached to specific alerts/events or Timelines."
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-getnotes
+  namespace: tools.elastic_security
+  name: list_notes
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    document_ids:
+      type: list[str] | None
+      description: "Event/alert document `_id` values whose notes to return."
+      default: null
+    saved_object_ids:
+      type: list[str] | None
+      description: "Timeline `savedObjectId` values whose notes to return."
+      default: null
+    page:
+      type: int | None
+      description: "Page number (list mode only)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Page size (list mode only)."
+      default: null
+    search:
+      type: str | None
+      description: "Search string (list mode only)."
+      default: null
+    sort_field:
+      type: str | None
+      description: "Field to sort by (list mode only)."
+      default: null
+    sort_order:
+      type: str | None
+      description: "Possible values: asc, desc (list mode only)."
+      default: null
+    filter:
+      type: str | None
+      description: "KQL filter string (list mode only)."
+      default: null
+    created_by_filter:
+      type: str | None
+      description: "Kibana user profile UID of the note author (list mode only)."
+      default: null
+    associated_filter:
+      type: str | None
+      description: "How notes relate to a Timeline and/or event (list mode only). Possible values: all, document_only, saved_object_only, document_and_saved_object, orphan."
+      default: null
+    base_url:
+      type: str | None
+      description: "Kibana base URL (e.g. https://localhost:5601)."
+      default: null
+    space_id:
+      type: str | None
+      description: "Optional Kibana space ID. Omit for the default space."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "Whether to verify SSL certificates."
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          space_id: ${{ inputs.space_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(space_id):
+              path = f"/api/note"
+              if space_id:
+                  return f"/s/{quote(space_id, safe='')}{path}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
+        method: GET
+        params:
+          documentIds: ${{ inputs.document_ids }}
+          savedObjectIds: ${{ inputs.saved_object_ids }}
+          page: ${{ inputs.page }}
+          perPage: ${{ inputs.per_page }}
+          search: ${{ inputs.search }}
+          sortField: ${{ inputs.sort_field }}
+          sortOrder: ${{ inputs.sort_order }}
+          filter: ${{ inputs.filter }}
+          createdByFilter: ${{ inputs.created_by_filter }}
+          associatedFilter: ${{ inputs.associated_filter }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+          kbn-xsrf: tracecat
+  returns: ${{ steps.request.result }}

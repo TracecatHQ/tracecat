@@ -118,6 +118,7 @@ def test_build_action_statements_preserves_date_like_string_input() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             ref="date_like_string",
+            description="",
             type=template.definition.action,
             inputs="""
 api_version: 2025-09-01

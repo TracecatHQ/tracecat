@@ -493,7 +493,7 @@ class TunnelGateway:
                 ) from exc
             log = log.bind(
                 method=request.method,
-                wf_exec_id=claims.wf_exec_id,
+                subject=claims.subject,
                 action_ref=claims.action_ref,
                 target_host=host,
                 target_port=port,

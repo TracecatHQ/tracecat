@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote
 
 import httpx
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -23,12 +23,20 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.git.types import GitUrl
+from tracecat.logger import logger
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.sync import PushStatus
-from tracecat.vcs.gitlab.app import GITLAB_TOKEN_SECRET_NAME, GitLabTokenService
+from tracecat.vcs.gitlab.app import (
+    GITLAB_TOKEN_SECRET_NAME,
+    GitLabApiError,
+    GitLabError,
+    GitLabTokenService,
+)
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
+from tracecat.vcs.gitlab.types import GitLabBranch
 from tracecat.workspace_sync.schemas import MANIFEST_FILENAME, WorkspaceManifest
 from tracecat.workspace_sync.serialization import canonical_json_text
+from tracecat.workspace_sync.tags import encode_tag_cursor
 from tracecat.workspace_sync.transport import GitLabWorkspaceSyncTransport
 
 type _FileContent = str | bytes
@@ -61,6 +69,14 @@ class _MockGitLabApi:
         self._counter = 0
         self._commits: dict[str, _Commit] = {}
         self._branches: dict[str, str] = {}
+        self._tags: dict[str, str] = {}
+        self.tag_created_at: dict[str, str] = {}
+        """Annotated tag dates; lightweight tags are absent."""
+        self.tree_tags: set[str] = set()
+        """Tags GitLab reports without a commit (they point at a tree or blob)."""
+        self.malformed_tags: set[str] = set()
+        """Tags whose payload fails validation."""
+        self.tag_list_params: list[dict[str, str]] = []
         self._commit_branches: dict[str, str] = {}
         self._blobs: dict[str, _FileContent] = {}
         self._merge_requests: list[dict[str, Any]] = []
@@ -201,6 +217,8 @@ class _MockGitLabApi:
                     title=payload["title"],
                 )
                 return self._json(mr, status_code=201)
+            if request.method == "GET" and subpath == "/repository/tags":
+                return self._tag_page(request)
         except KeyError as e:
             return httpx.Response(404, json={"message": f"Not Found: {str(e)}"})
 
@@ -208,6 +226,42 @@ class _MockGitLabApi:
 
     def create_branch(self, branch: str, ref: str) -> None:
         self._branches[branch] = self._commit_at_ref(ref).sha
+
+    def create_tag(self, tag: str, ref: str, *, created_at: str | None = None) -> str:
+        sha = self._commit_at_ref(ref).sha
+        self._tags[tag] = sha
+        if created_at is not None:
+            self.tag_created_at[tag] = created_at
+        return sha
+
+    @staticmethod
+    def commit_date(sha: str) -> str:
+        """Deterministic authored date: later commits get later days."""
+        return f"2026-01-{int(sha, 16):02d}T00:00:00Z"
+
+    def _tag_json(self, name: str) -> dict[str, Any]:
+        sha = self._tags[name]
+        if name in self.malformed_tags:
+            return {"name": name, "commit": "not-an-object"}
+        commit = {"id": sha, "authored_date": self.commit_date(sha)}
+        return {
+            "name": name,
+            "created_at": self.tag_created_at.get(name),
+            "commit": None if name in self.tree_tags else commit,
+        }
+
+    def _tag_page(self, request: httpx.Request) -> httpx.Response:
+        """Page tags newest commit first, like ``order_by=updated&sort=desc``."""
+        self.tag_list_params.append(dict(request.url.params))
+        page = int(request.url.params["page"])
+        per_page = int(request.url.params["per_page"])
+        names = sorted(self._tags, key=lambda n: (self._tags[n], n), reverse=True)
+        start = (page - 1) * per_page
+        end = start + per_page
+        return self._json(
+            [self._tag_json(name) for name in names[start:end]],
+            headers={"x-next-page": str(page + 1) if end < len(names) else ""},
+        )
 
     def commit_actions(
         self,
@@ -256,7 +310,11 @@ class _MockGitLabApi:
         return dict(self._commit_at_ref(ref).files)
 
     def _commit_at_ref(self, ref: str) -> _Commit:
-        sha = self._branches.get(ref, ref)
+        sha = (
+            self._branches[ref.removeprefix("refs/heads/")]
+            if ref.startswith("refs/heads/")
+            else self._tags.get(ref, self._branches.get(ref, ref))
+        )
         return self._commits[sha]
 
     def _new_commit(
@@ -368,6 +426,24 @@ def _gitlab_settings_role(*scopes: str) -> Role:
 
 
 @pytest.mark.anyio
+async def test_gitlab_exact_branch_lookup(monkeypatch) -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    api.create_branch("sync/example", "main")
+    transport = _MockGitLabTransport(api=api)
+    assert await transport.branch_exists(url=_git_url(), branch="sync/example")
+    assert not await transport.branch_exists(url=_git_url(), branch="missing")
+    monkeypatch.setattr(
+        transport,
+        "_get_branch",
+        AsyncMock(side_effect=GitLabApiError("Synthetic denial", status_code=403)),
+    )
+    with pytest.raises(GitLabApiError):
+        await transport.branch_exists(url=_git_url(), branch="sync/example")
+
+
+@pytest.mark.anyio
 async def test_gitlab_transport_encodes_nested_project_path_and_lists_refs() -> None:
     api = _MockGitLabApi(
         project_path="group/subgroup/project",
@@ -389,6 +465,124 @@ async def test_gitlab_transport_encodes_nested_project_path_and_lists_refs() -> 
         "/api/v4/projects/group%2Fsubgroup%2Fproject/repository/branches"
         in api.raw_paths
     )
+
+
+def _tagged_gitlab_api() -> _MockGitLabApi:
+    """v1..v4 on successive commits; v3 is annotated.
+
+    tree-tag has no commit and broken has a malformed payload; both are skipped.
+    """
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    for version in range(1, 5):
+        api.commit_actions(
+            branch="main",
+            message=f"Release {version}",
+            actions=[
+                {"action": "create", "file_path": f"v{version}.yml", "content": "x"}
+            ],
+        )
+        api.create_tag(
+            f"v{version}",
+            "main",
+            created_at="2026-02-01T00:00:00Z" if version == 3 else None,
+        )
+    api._tags["tree-tag"] = api._tags["v2"]
+    api.tree_tags.add("tree-tag")
+    api._tags["broken"] = api._tags["v1"]
+    api.malformed_tags.add("broken")
+    return api
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_tags_pages_newest_first() -> None:
+    api = _tagged_gitlab_api()
+    transport = _MockGitLabTransport(api=api)
+
+    pages: list[list[tuple[str, str]]] = []
+    cursor: str | None = None
+    while True:
+        tags, cursor = await transport.list_tags(url=_git_url(), limit=2, cursor=cursor)
+        pages.append([(t.name, t.date) for t in tags])
+        if cursor is None:
+            break
+
+    sha = api._tags
+    assert pages == [
+        # v3 is annotated, so it carries the tag date instead of the commit's.
+        [("v4", api.commit_date(sha["v4"])), ("v3", "2026-02-01T00:00:00Z")],
+        # tree-tag points at no commit and broken is malformed: both are
+        # skipped without failing their page.
+        [("v2", api.commit_date(sha["v2"]))],
+        [("v1", api.commit_date(sha["v1"]))],
+    ]
+    assert [p["page"] for p in api.tag_list_params] == ["1", "2", "3"]
+    assert {(p["order_by"], p["sort"], p["per_page"]) for p in api.tag_list_params} == {
+        ("updated", "desc", "2")
+    }
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_tags_rejects_foreign_cursors() -> None:
+    transport = _MockGitLabTransport(api=_tagged_gitlab_api())
+    _tags, cursor = await transport.list_tags(url=_git_url(), limit=2)
+    assert cursor is not None
+
+    # A page number only means something at the page size that issued it.
+    with pytest.raises(TracecatValidationError, match="different page size"):
+        await transport.list_tags(url=_git_url(), limit=3, cursor=cursor)
+    with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
+        await transport.list_tags(url=_git_url(), limit=2, cursor="not-a-cursor")
+    assert await transport.list_tags(url=_git_url(), limit=0) == ([], None)
+    # The effective page size is min(limit, 100), so any limit over 100 can
+    # follow a cursor issued at 100.
+    issued_at_100 = encode_tag_cursor(2, 100)
+    assert await transport.list_tags(
+        url=_git_url(), limit=150, cursor=issued_at_100
+    ) == ([], None)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("header", ["-1", "0", str(2**40)])
+async def test_gitlab_list_tags_rejects_out_of_range_next_page(
+    monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    api = _tagged_gitlab_api()
+    monkeypatch.setattr(
+        api,
+        "_tag_page",
+        lambda request: httpx.Response(200, json=[], headers={"x-next-page": header}),
+    )
+    transport = _MockGitLabTransport(api=api)
+    with pytest.raises(GitLabError, match="pagination"):
+        await transport.list_tags(url=_git_url(), limit=2)
+
+
+@pytest.mark.anyio
+async def test_gitlab_list_ignores_next_page_header_once_limit_is_met() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"name": "main", "default": True}],
+            headers={"x-next-page": "not-a-number"},
+        )
+
+    transport = _MockGitLabTransport(api=_tagged_gitlab_api())
+    async with httpx.AsyncClient(
+        base_url="https://gitlab.example.test/api/v4",
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        # Limit met: the malformed header is never parsed.
+        branches = await transport._gitlab_list(
+            client, "/projects/x/repository/branches", model=GitLabBranch, limit=1
+        )
+        assert [b.name for b in branches] == ["main"]
+        # Another page needed: the malformed header is an error.
+        with pytest.raises(GitLabError, match="pagination"):
+            await transport._gitlab_list(
+                client, "/projects/x/repository/branches", model=GitLabBranch
+            )
 
 
 @pytest.mark.anyio
@@ -830,6 +1024,60 @@ async def test_gitlab_token_save_updates_org_secret_with_settings_scope() -> Non
 
 
 @pytest.mark.anyio
+async def test_gitlab_invalid_stored_credentials_do_not_leak_values() -> None:
+    """Invalid decrypted credentials never reach logs or validation error text."""
+    base_url = "ftp://bu-leak"
+    token = "gl-leak"
+
+    with pytest.raises(ValidationError) as validation_exc:
+        GitLabTokenCredentials.model_validate({"base_url": base_url, "token": token})
+    assert base_url not in str(validation_exc.value)
+
+    class FakeSecretsService:
+        def __init__(self, *, session: Any, role: Role) -> None:
+            del session, role
+
+        async def _get_org_secret_by_name(
+            self, secret_name: str, environment: str | None = None
+        ) -> Any:
+            del secret_name, environment
+            return SimpleNamespace(
+                id=uuid.uuid4(), encrypted_keys=b"encrypted", created_at=None
+            )
+
+        def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]:
+            del encrypted_keys
+            return [
+                SecretKeyValue(key="base_url", value=SecretStr(base_url)),
+                SecretKeyValue(key="token", value=SecretStr(token)),
+            ]
+
+    service = GitLabTokenService(
+        session=AsyncMock(),
+        role=_gitlab_settings_role("org:settings:read"),
+    )
+
+    records: list[str] = []
+    sink_id = logger.add(records.append, format="{message} | {extra}")
+    try:
+        with (
+            patch.object(service, "require_entitlement", new=AsyncMock()),
+            patch("tracecat.vcs.gitlab.app.SecretsService", FakeSecretsService),
+        ):
+            status = await service.get_gitlab_token_credentials_status()
+    finally:
+        logger.remove(sink_id)
+
+    assert status["is_corrupted"] is True
+    log_text = "\n".join(records)
+    assert "Stored GitLab token credentials are corrupted" in log_text
+    assert "ValidationError" in log_text
+    assert "GitLab base URL must start" not in log_text
+    for value in (base_url, token):
+        assert value not in log_text
+
+
+@pytest.mark.anyio
 async def test_gitlab_token_status_requires_settings_read_scope() -> None:
     service = GitLabTokenService(
         session=AsyncMock(),
@@ -841,3 +1089,184 @@ async def test_gitlab_token_status_requires_settings_read_scope() -> None:
             await service.get_gitlab_token_credentials_status()
 
     assert "org:settings:read" in exc_info.value.missing_scopes
+
+
+@pytest.mark.anyio
+async def test_gitlab_durable_write_uses_whole_branch_lease() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={
+            MANIFEST_FILENAME: _manifest(),
+            "workflows/existing.yml": "before",
+            "workflows/deleted.yml": "removed",
+        },
+    )
+    transport = _MockGitLabTransport(api=api)
+    snapshot = await transport.read_files(url=_git_url(), ref="main")
+    operation_id = uuid.uuid4()
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        result = await transport.write_files(
+            url=_git_url(),
+            files={
+                MANIFEST_FILENAME: _manifest(),
+                "workflows/existing.yml": "after",
+                "workflows/added.yml": "new",
+            },
+            message="Sync prepared files",
+            branch="main",
+            create_pr=False,
+            delete_missing_paths_under=("workflows",),
+            expected_commit_sha=snapshot.commit_sha,
+            operation_id=operation_id,
+        )
+    assert result.sha == "new-sha"
+    write.assert_awaited_once_with(
+        url=_git_url(),
+        parent=snapshot.commit_sha,
+        branch="main",
+        expected_head=snapshot.commit_sha,
+        files={"workflows/existing.yml": "after", "workflows/added.yml": "new"},
+        deleted={"workflows/deleted.yml"},
+        message=f"Sync prepared files\n\nTracecat-Sync-Operation: {operation_id}",
+    )
+    assert api.commit_payloads == []
+
+
+@pytest.mark.anyio
+async def test_gitlab_missing_branch_uses_reviewed_base_without_premature_creation() -> (
+    None
+):
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    api.create_branch("reviewed-base", "main")
+    reviewed = api.commit_actions(
+        branch="reviewed-base",
+        message="Separate base",
+        actions=[
+            {
+                "action": "create",
+                "file_path": "workflows/old.yml",
+                "content": "reviewed",
+            }
+        ],
+    )
+    transport = _MockGitLabTransport(api=api)
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest(), "workflows/new.yml": "new"},
+            message="Sync",
+            branch="sync/new",
+            create_pr=False,
+            branch_start_ref="reviewed-base",
+            expected_commit_sha=reviewed.sha,
+        )
+    assert write.await_args is not None
+    assert write.await_args.kwargs["parent"] == reviewed.sha
+    assert write.await_args.kwargs["expected_head"] is None
+    assert "sync/new" not in api._branches
+    assert not any(method == "POST" for method, _ in api.requests)
+
+
+@pytest.mark.anyio
+async def test_gitlab_stale_missing_branch_does_not_create_branch() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    transport = _MockGitLabTransport(api=api)
+    reviewed = api._branches["main"]
+    api.commit_actions(
+        branch="main",
+        message="Concurrent write",
+        actions=[
+            {
+                "action": "create",
+                "file_path": "workflows/concurrent.yml",
+                "content": "new",
+            }
+        ],
+    )
+    with pytest.raises(TracecatValidationError, match="Target branch changed"):
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest()},
+            message="Sync",
+            branch="sync/new",
+            create_pr=False,
+            expected_commit_sha=reviewed,
+        )
+    assert "sync/new" not in api._branches
+    assert not any(method == "POST" for method, _ in api.requests)
+
+
+@pytest.mark.anyio
+async def test_gitlab_branch_hint_ignores_same_name_tag() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "tag"},
+    )
+    tag_sha = api._branches["main"]
+    api._tags["main"] = tag_sha
+    branch_commit = api._new_commit(
+        branch="main",
+        message="Branch advances",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "branch"},
+    )
+    api._branches["main"] = branch_commit.sha
+    transport = _MockGitLabTransport(api=api)
+    branch = await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")
+    assert branch.commit_sha == branch_commit.sha
+    assert branch.files["workflows/example.yml"] == "branch"
+    commit = await transport.read_files(url=_git_url(), ref=tag_sha, ref_kind="commit")
+    assert commit.files["workflows/example.yml"] == "tag"
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "updated"},
+            message="Sync",
+            branch="main",
+            create_pr=False,
+            expected_commit_sha=branch.commit_sha,
+        )
+    assert write.await_args is not None
+    assert write.await_args.kwargs["parent"] == branch_commit.sha
+    del api._branches["main"]
+    with pytest.raises(GitLabApiError):
+        await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("repository_status", [200, 403, 404])
+async def test_gitlab_branch_absence_requires_repository_access(
+    monkeypatch: pytest.MonkeyPatch, repository_status: int
+) -> None:
+    api = _MockGitLabApi(project_path="group/subgroup/project", files={})
+    response = api.response
+    probes: list[httpx.Request] = []
+
+    def repository_access(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/repository/branches"):
+            probes.append(request)
+            return httpx.Response(repository_status, json=[])
+        return response(request)
+
+    monkeypatch.setattr(api, "response", repository_access)
+    transport = _MockGitLabTransport(api=api)
+    # Metadata is readable even when the repository is hidden.
+    async with transport._authed_client(_git_url()) as client:
+        await transport._get_project(client=client, project_id=api.encoded_project_path)
+    if repository_status == 200:
+        assert not await transport.branch_exists(url=_git_url(), branch="missing")
+    else:
+        with pytest.raises(GitLabApiError) as caught:
+            await transport.branch_exists(url=_git_url(), branch="missing")
+        assert caught.value.status_code == repository_status
+    assert len(probes) == 1
+    assert probes[0].url.params["per_page"] == "1"

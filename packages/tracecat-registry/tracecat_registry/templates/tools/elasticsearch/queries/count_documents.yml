@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Count documents
+  description: "Count documents matching an optional Query DSL query."
+  display_group: Elasticsearch
+  doc_url: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-count
+  namespace: tools.elasticsearch
+  name: count_documents
+  secrets:
+    - name: elasticsearch
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    index:
+      type: str
+      description: "Comma-separated index, data stream, or alias names. Use `_all` or `*` for all."
+    payload:
+      # Free-form: the body is Elasticsearch Query DSL / API-native JSON.
+      type: dict[str, Any] | None
+      description: "Optional JSON request body, e.g. `{\"query\": {...}}`."
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: "Optional native Elasticsearch query parameters."
+      default: null
+    base_url:
+      type: str | None
+      description: "Elasticsearch base URL (e.g. https://localhost:9200)."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "Whether to verify SSL certificates."
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}/${{ FN.url_encode(inputs.index) }}/_count
+        method: POST
+        params: ${{ inputs.params }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTIC_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

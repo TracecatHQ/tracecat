@@ -12,6 +12,7 @@ import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
+import { CommandPalette } from "@/components/command-palette/command-palette"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
@@ -130,7 +131,17 @@ export default function WorkspaceLayout({
     router.replace("/admin")
   }, [hasNoOrgMemberships, router, user?.isSuperuser, userIsLoading])
 
-  if (workspacesLoading) {
+  // No usable session, e.g. one still waiting on MFA: sign-in routes it.
+  const signedOut = !userIsLoading && !user
+  useEffect(() => {
+    if (!signedOut) {
+      return
+    }
+    const returnUrl = encodeURIComponent(window.location.pathname)
+    router.replace(`/sign-in?returnUrl=${returnUrl}`)
+  }, [router, signedOut])
+
+  if (signedOut || workspacesLoading) {
     return <CenteredSpinner />
   }
   if (hasNoOrgMemberships) {
@@ -201,6 +212,7 @@ export default function WorkspaceLayout({
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}
         <SettingsModal />
+        <CommandPalette />
       </ScopeProvider>
     </WorkspaceIdProvider>
   )

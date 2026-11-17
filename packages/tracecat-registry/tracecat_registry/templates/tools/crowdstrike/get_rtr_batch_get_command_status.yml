@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Get RTR batch get command status
+  description: >-
+    Get the status of an RTR batch get command, including the session ID and SHA256 of
+    each retrieved file. Requires the Real time response: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchgetcmdstatus
+  namespace: tools.crowdstrike
+  name: get_rtr_batch_get_command_status
+  expects:
+    batch_get_cmd_req_id:
+      type: str
+      description: "Batch get command request ID from `run_rtr_batch_get_command`."
+    timeout:
+      type: int | None
+      description: "Seconds to wait for the request. Defaults to 30, maximum 600."
+      default: null
+    timeout_duration:
+      type: str | None
+      description: "Timeout as a duration, for example `30s`. Maximum `10m`."
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_rtr_batch_get_command_status
+      action: tools.falconpy.call_command
+      args:
+        operation_id: BatchGetCmdStatus
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          batch_get_cmd_req_id: ${{ inputs.batch_get_cmd_req_id }}
+          timeout: ${{ inputs.timeout }}
+          timeout_duration: ${{ inputs.timeout_duration }}
+  returns: ${{ steps.get_rtr_batch_get_command_status.result }}

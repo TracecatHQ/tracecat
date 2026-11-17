@@ -139,7 +139,8 @@ class ResourceLimits:
     Attributes:
         memory_mb: Aggregate cgroup memory budget in MiB (default 2048).
         address_space_mb: Optional per-process virtual-memory cap in MiB.
-            Defaults to twice memory_mb.
+            Unset means uncapped under a cgroup memory limit, otherwise twice
+            memory_mb.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -161,14 +162,26 @@ class ResourceLimits:
         if self.address_space_mb is not None and self.address_space_mb <= 0:
             raise ValueError("address_space_mb must be positive")
 
-    @property
-    def address_space_limit_mb(self) -> int:
-        """Keep virtual address space independent of the resident-memory budget."""
-        return (
-            self.address_space_mb
-            if self.address_space_mb is not None
-            else self.memory_mb * 2
-        )
+    def address_space_limit_mb(self, *, cgroup_memory_limit: bool) -> int | None:
+        """Resolve the per-process address-space cap; None means uncapped.
+
+        rlimit_as bounds virtual reservations, not RAM: runtimes such as DuckDB
+        reserve far more address space than they touch. Under a cgroup memory
+        limit the cgroup bounds RAM, so an unset cap stays uncapped. Without the
+        cgroup, rlimit_as is the only memory guard, so keep a finite fallback.
+        """
+        if self.address_space_mb is not None:
+            return self.address_space_mb
+        return None if cgroup_memory_limit else self.memory_mb * 2
+
+
+def nsjail_rlimit_as(limit_mb: int | None) -> str:
+    """Render an address-space cap as an nsjail config line.
+
+    An omitted rlimit_as falls back to nsjail's 4096 MiB default, so uncapped
+    must be written explicitly as RLIM_INFINITY.
+    """
+    return "rlimit_as_type: INF" if limit_mb is None else f"rlimit_as: {limit_mb}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +223,26 @@ class SandboxConfig:
     action_gateway_socket: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RunnerPhaseMarks:
+    """Wall-clock nanosecond marks a sandboxed action runner reports.
+
+    Written by jailed code, so they are untrusted: use them only for timing
+    telemetry, after checking them against host-measured bounds.
+
+    Attributes:
+        main: The runner's entry point started.
+        input_loaded: The job input was read and decoded.
+        imported: The action's module was imported.
+        called: The action function returned or raised.
+    """
+
+    main: int | None = None
+    input_loaded: int | None = None
+    imported: int | None = None
+    called: int | None = None
+
+
 @dataclass
 class SandboxResult:
     """Result of sandbox execution.
@@ -223,6 +256,7 @@ class SandboxResult:
         error_code: Machine-readable failure reason.
         exit_code: Process exit code.
         execution_time_ms: Execution time in milliseconds.
+        phase_marks: Untrusted runner timing marks, when the runner reported them.
     """
 
     success: bool
@@ -236,3 +270,4 @@ class SandboxResult:
     error_code: SandboxErrorCode | None = None
     exit_code: int | None = None
     execution_time_ms: float | None = None
+    phase_marks: RunnerPhaseMarks | None = None

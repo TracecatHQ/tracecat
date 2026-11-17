@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Create endpoint script
-  description: Create a script in the Elastic Endpoint response script library.
+  description: Create a script in the Elastic Endpoint response script library. Requires Kibana 9.4+.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscriptlibrarycreatescript
   namespace: tools.elastic_security

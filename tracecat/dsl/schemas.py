@@ -299,6 +299,11 @@ class ActionRetryPolicy(BaseModel):
         default=None, description="Retry until a specific condition is met."
     )
 
+    def resolved_agent_timeout(self) -> int:
+        """Agent timeout within deployment bounds; unset inherits the default."""
+        explicit = "timeout" in self.model_fields_set
+        return clamp_agent_timeout_seconds(self.timeout if explicit else None)
+
 
 class ActionStatement(BaseModel):
     id: uuid.UUID | None = Field(
@@ -392,14 +397,9 @@ class ActionStatement(BaseModel):
 
     @model_validator(mode="after")
     def apply_agent_timeout_policy(self) -> Self:
-        # Agent timeouts clamp to [default, deployment ceiling]; unset
-        # inherits the default. Never rejects.
         if not PlatformAction.is_agent(self.action):
             return self
-        explicit = "timeout" in self.retry_policy.model_fields_set
-        self.retry_policy.timeout = clamp_agent_timeout_seconds(
-            self.retry_policy.timeout if explicit else None
-        )
+        self.retry_policy.timeout = self.retry_policy.resolved_agent_timeout()
         return self
 
 

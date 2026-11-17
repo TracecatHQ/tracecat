@@ -123,7 +123,7 @@ export function CreateFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>New form</DialogTitle>
+          <DialogTitle>Create form</DialogTitle>
           <DialogDescription>
             Pick the workflow this form starts. Its inputs become the form's
             fields.

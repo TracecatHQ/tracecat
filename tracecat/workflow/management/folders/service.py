@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from enum import StrEnum
 from typing import Literal
 
@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     CaseTrigger,
     Schedule,
@@ -22,6 +23,12 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_none_managed,
+    ensure_unmanaged,
+    managed_local_ids,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
@@ -34,6 +41,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowTriggerSummary,
 )
 from tracecat.workflow.management.types import build_workflow_trigger_summary
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowFolderErrorCode(StrEnum):
@@ -96,15 +104,20 @@ class WorkflowFolderService(BaseWorkspaceService):
         *,
         conflict_path: str,
         commit: bool,
+        old_path: str | None = None,
     ) -> None:
         """Persist a folder write and translate unique conflicts cleanly."""
         try:
+            if old_path is not None and old_path != conflict_path:
+                await self._update_descendant_paths(old_path, conflict_path)
             if commit:
                 await self.session.commit()
             else:
                 await self.session.flush()
         except IntegrityError as exc:
             await self.session.rollback()
+            if not is_unique_violation(exc, "uq_workflow_folder_path_workspace"):
+                raise
             raise self._folder_validation_error(
                 f"Folder {conflict_path} already exists",
                 code=WorkflowFolderErrorCode.CONFLICT,
@@ -237,6 +250,38 @@ class WorkflowFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("workflow:read")
+    async def get_workflow_titles(
+        self, workflow_ids: Collection[WorkflowUUID]
+    ) -> dict[WorkflowUUID, str]:
+        """Return titles of the given workflows that exist in this workspace."""
+        if not workflow_ids:
+            return {}
+        result = await self.session.execute(
+            select(Workflow.id, Workflow.title).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id.in_(workflow_ids),
+            )
+        )
+        return {
+            WorkflowUUID.new(workflow_id): title
+            for workflow_id, title in result.tuples().all()
+        }
+
+    @require_scope("workflow:read")
+    async def get_managed_workflow_ids(
+        self, workflow_ids: Collection[WorkflowUUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given workflows are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_ids=workflow_ids,
+        )
+
     @require_scope("workflow:update")
     async def move_workflow(
         self, workflow_id: WorkflowID, folder: WorkflowFolder | None = None
@@ -250,6 +295,12 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The updated workflow
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         # Update the workflow
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
@@ -313,10 +364,9 @@ class WorkflowFolderService(BaseWorkspaceService):
         folder.path = new_path
         self.session.add(folder)
 
-        if new_path != old_path:
-            await self._update_descendant_paths(old_path, new_path)
-
-        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
         await self.session.refresh(folder)
         return folder
 
@@ -388,23 +438,28 @@ class WorkflowFolderService(BaseWorkspaceService):
         folder.path = new_path
         self.session.add(folder)
 
-        if new_path != old_path:
-            await self._update_descendant_paths(old_path, new_path)
-
-        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
         await self.session.refresh(folder)
         return folder
 
     @require_scope("workflow:delete")
     async def delete_folder(
-        self, folder_id: uuid.UUID, recursive: bool = False
+        self,
+        folder_id: uuid.UUID,
+        recursive: bool = False,
+        delete_workflows: bool = False,
     ) -> None:
         """Delete a folder.
 
         Args:
             folder_id: ID of the folder to delete
-            recursive: If True, also delete subfolders and contained workflows
-                      If False, will fail if folder has children or workflows
+            recursive: If True, also delete subfolders. Contained workflows are
+                moved to root unless `delete_workflows` is set.
+                If False, will fail if folder has children or workflows
+            delete_workflows: With `recursive`, delete every workflow in the
+                folder subtree, including its schedules.
         """
         folder = await self.get_folder(folder_id)
         if not folder:
@@ -435,6 +490,38 @@ class WorkflowFolderService(BaseWorkspaceService):
                 WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path.startswith(folder.path, autoescape=True),
             )
+            # Moving or deleting the subtree's workflows edits each one, so
+            # a managed workflow anywhere in it blocks the delete.
+            await ensure_none_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.WORKFLOW,
+                local_ids=list(
+                    await self.session.scalars(
+                        select(Workflow.id).where(
+                            Workflow.workspace_id == self.workspace_id,
+                            Workflow.folder_id.in_(folder_ids),
+                        )
+                    )
+                ),
+            )
+            if delete_workflows:
+                await self._delete_workflows_in_folders(folder_ids)
+                # Those deletes commit, which releases the ownership lock the
+                # check above took. Check again so it is held through the move.
+                await ensure_none_managed(
+                    self.session,
+                    workspace_id=self.workspace_id,
+                    resource_type=SyncResourceType.WORKFLOW,
+                    local_ids=list(
+                        await self.session.scalars(
+                            select(Workflow.id).where(
+                                Workflow.workspace_id == self.workspace_id,
+                                Workflow.folder_id.in_(folder_ids),
+                            )
+                        )
+                    ),
+                )
             await self.session.execute(
                 sa.update(Workflow)
                 .where(
@@ -457,6 +544,23 @@ class WorkflowFolderService(BaseWorkspaceService):
         # Delete the folder
         await self.session.delete(folder)
         await self.session.commit()
+
+    async def _delete_workflows_in_folders(
+        self, folder_ids: sa.Select[tuple[uuid.UUID]]
+    ) -> None:
+        # Imported here to avoid a circular import with the management service.
+        from tracecat.workflow.management.management import WorkflowsManagementService
+
+        result = await self.session.execute(
+            select(Workflow.id).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.folder_id.in_(folder_ids),
+            )
+        )
+        workflow_ids = list(result.scalars().all())
+        management = WorkflowsManagementService(self.session, role=self.role)
+        for workflow_id in workflow_ids:
+            await management.delete_workflow(WorkflowUUID.new(workflow_id))
 
     async def get_folder_tree(self, root_path: str = "/") -> Sequence[WorkflowFolder]:
         """Get the full folder tree starting from the given root path.
@@ -766,21 +870,29 @@ class WorkflowFolderService(BaseWorkspaceService):
         # For root path, get workflows with no folder_id
         if path == "/":
             # Get root-level folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                func.length(WorkflowFolder.path)
-                - func.length(func.replace(WorkflowFolder.path, "/", ""))
-                == 2,  # folders with exactly two slashes
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    func.length(WorkflowFolder.path)
+                    - func.length(func.replace(WorkflowFolder.path, "/", ""))
+                    == 2,  # folders with exactly two slashes
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()
         else:
             # Get direct child folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path.startswith(path, autoescape=True),
-                WorkflowFolder.path != path,
-                ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    WorkflowFolder.path.startswith(path, autoescape=True),
+                    WorkflowFolder.path != path,
+                    ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()

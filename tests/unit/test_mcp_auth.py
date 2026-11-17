@@ -1,24 +1,39 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
+import jwt
 import pytest
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, MultiAuth
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.middleware import RequireAuthMiddleware
-from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
+from fastmcp.server.auth.oauth_proxy.models import (
+    ClientCode,
+    OAuthTransaction,
+    ProxyDCRClient,
+)
+from fastmcp.server.auth.ssrf import SSRFFetchResponse
+from jwt.algorithms import RSAAlgorithm
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 from starlette.types import Receive, Scope, Send
@@ -65,12 +80,11 @@ def _build_test_auth(
         lambda: "https://issuer.example.com/.well-known/openid-configuration",
     )
     # Use in-memory store instead of Redis for tests
-    monkeypatch.setattr(mcp_auth, "REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setattr(
         "tracecat.config.TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode() if enable_refresh_tokens else "",
     )
-    monkeypatch.setattr(mcp_auth.AsyncRedis, "from_url", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(mcp_auth, "create_redis_client", lambda *a, **kw: MagicMock())
 
     def _patched_create_oidc_auth(
         _orig=mcp_auth._create_oidc_auth,
@@ -152,7 +166,7 @@ def test_create_mcp_auth_wraps_oidc_with_mcp_pat_verifier(
     )
 
 
-def test_create_mcp_auth_metadata_advertises_public_client_auth(
+def test_metadata_advertises_private_key_jwt_and_public_client_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _build_test_client(monkeypatch)
@@ -170,7 +184,13 @@ def test_create_mcp_auth_metadata_advertises_public_client_auth(
         "email",
         "offline_access",
     ]
-    assert "none" in payload["token_endpoint_auth_methods_supported"]
+    # Pin the exact set so a FastMCP upgrade that adds or drops a method fails CI.
+    assert set(payload["token_endpoint_auth_methods_supported"]) == {
+        "none",
+        "private_key_jwt",
+        "client_secret_post",
+        "client_secret_basic",
+    }
 
 
 def test_create_mcp_auth_metadata_preserves_upstream_fields(
@@ -192,12 +212,7 @@ def test_create_mcp_auth_metadata_preserves_upstream_fields(
     upstream_payload = upstream_metadata.json()
     payload = metadata_response.json()
     assert payload["client_id_metadata_document_supported"] is True
-    assert payload == {
-        **upstream_payload,
-        "token_endpoint_auth_methods_supported": (
-            mcp_auth._MCP_TOKEN_ENDPOINT_AUTH_METHODS
-        ),
-    }
+    assert payload == upstream_payload
 
 
 def test_create_mcp_auth_metadata_omits_refresh_scope_when_disabled(
@@ -386,6 +401,7 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
         "openid",
         "profile",
         "email",
+        "offline_access",
     ]
 
 
@@ -423,7 +439,83 @@ async def test_create_mcp_auth_authorize_merges_required_scopes_into_custom(
     forwarded = captured["params"]
     assert isinstance(forwarded, AuthorizationParams)
     assert forwarded.scopes is not None
-    assert forwarded.scopes == ["custom:scope", "openid", "profile", "email"]
+    assert forwarded.scopes == [
+        "custom:scope",
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("requested_scopes", "enable_refresh_tokens", "expected_scopes"),
+    [
+        pytest.param(
+            None,
+            True,
+            ["openid", "profile", "email", "offline_access"],
+            id="no-scope-refresh-enabled",
+        ),
+        pytest.param(
+            [],
+            True,
+            ["openid", "profile", "email", "offline_access"],
+            id="empty-scope-refresh-enabled",
+        ),
+        pytest.param(
+            ["openid", "offline_access"],
+            True,
+            ["openid", "offline_access", "profile", "email"],
+            id="explicit-offline-access-not-duplicated",
+        ),
+        pytest.param(
+            None,
+            False,
+            ["openid", "profile", "email"],
+            id="no-scope-refresh-disabled",
+        ),
+    ],
+)
+async def test_create_mcp_auth_authorize_requests_offline_access_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    requested_scopes: list[str] | None,
+    enable_refresh_tokens: bool,
+    expected_scopes: list[str],
+) -> None:
+    """Clients that omit ``offline_access`` still get a refresh token upstream."""
+    captured: dict[str, object] = {}
+
+    async def _capture_authorize(self, client, params):
+        captured["params"] = params
+        return "https://issuer.example.com/oauth2/authorize?state=txn"
+
+    with patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize):
+        auth = _build_test_auth(
+            monkeypatch, enable_refresh_tokens=enable_refresh_tokens
+        )
+        client = OAuthClientInformationFull(
+            client_id="scopeless-client",
+            redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="none",
+        )
+        params = AuthorizationParams(
+            state="txn",
+            scopes=requested_scopes,
+            code_challenge="challenge",
+            redirect_uri=AnyUrl("http://localhost:3333/callback"),
+            redirect_uri_provided_explicitly=True,
+            resource="https://mcp.example.com/mcp",
+        )
+
+        await auth.authorize(client, params)
+
+    forwarded = captured["params"]
+    assert isinstance(forwarded, AuthorizationParams)
+    assert forwarded.scopes == expected_scopes
 
 
 @pytest.mark.anyio
@@ -1769,3 +1861,420 @@ async def test_resolve_org_role_superuser_uses_membership_org(
 
     assert role.organization_id == org_id
     assert role.is_platform_superuser is False
+
+
+def _idp_callback_request(query: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/auth/callback",
+            "query_string": query.encode(),
+            "headers": [],
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_idp_callback_forwards_access_denied_to_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    await auth._transaction_store.put(
+        key="txn-denied",
+        value=OAuthTransaction(
+            txn_id="txn-denied",
+            client_id="client-1",
+            client_redirect_uri="http://127.0.0.1:33418/callback?keep=1",
+            client_state="client-state",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            scopes=["openid"],
+            created_at=time.time(),
+        ),
+    )
+
+    response = await auth._handle_idp_callback(
+        _idp_callback_request(
+            "error=access_denied&error_description=User+denied&state=txn-denied"
+        )
+    )
+
+    assert isinstance(response, RedirectResponse)
+    location = urlsplit(response.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == (
+        "http://127.0.0.1:33418/callback"
+    )
+    assert parse_qs(location.query) == {
+        "keep": ["1"],
+        "error": ["access_denied"],
+        "error_description": ["User denied"],
+        "state": ["client-state"],
+    }
+    assert await auth._transaction_store.get(key="txn-denied") is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("error=access_denied&state=unknown-txn", id="unknown-txn"),
+        pytest.param("error=server_error&state=txn", id="other-error"),
+    ],
+)
+async def test_idp_callback_keeps_error_page_when_not_forwardable(
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    response = await auth._handle_idp_callback(_idp_callback_request(query))
+
+    assert isinstance(response, HTMLResponse)
+    assert response.status_code == 400
+
+
+_PRIVATE_KEY_JWT_CLIENT_ID = "https://chatgpt-client.example.test/oauth/client.json"
+_PRIVATE_KEY_JWT_JWKS_URI = "https://chatgpt-client.example.test/oauth/jwks.json"
+_PRIVATE_KEY_JWT_REDIRECT_URI = "https://chatgpt-client.example.test/oauth/callback"
+_PUBLIC_CIMD_CLIENT_ID = "https://claude-client.example.test/oauth/client.json"
+_PUBLIC_CIMD_REDIRECT_URI = "https://claude-client.example.test/oauth/callback"
+_SPOOFED_CIMD_URL = "https://spoofed-client.example.test/oauth/client.json"
+_PRIVATE_JWKS_CIMD_URL = "https://private-jwks-client.example.test/oauth/client.json"
+_JWT_BEARER_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+_TEST_SIGNING_KID = "test-signing-key"
+_PKCE_VERIFIER = "synthetic-pkce-verifier-for-unit-tests-0123456789abcdef"
+_MCP_TOKEN_ENDPOINT = "https://mcp.example.com/token"
+
+
+def _generate_rsa_key() -> rsa.RSAPrivateKey:
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+def _public_jwks(key: rsa.RSAPrivateKey) -> dict[str, object]:
+    public_jwk = RSAAlgorithm.to_jwk(key.public_key(), as_dict=True)
+    public_jwk.update(kid=_TEST_SIGNING_KID, alg="RS256", use="sig")
+    return {"keys": [public_jwk]}
+
+
+def _client_assertion(
+    key: rsa.RSAPrivateKey,
+    *,
+    client_id: str = _PRIVATE_KEY_JWT_CLIENT_ID,
+    audience: str = _MCP_TOKEN_ENDPOINT,
+    issued_at: float | None = None,
+    lifetime_seconds: int = 60,
+) -> str:
+    now = int(issued_at if issued_at is not None else time.time())
+    return jwt.encode(
+        {
+            "iss": client_id,
+            "sub": client_id,
+            "aud": audience,
+            "iat": now,
+            "exp": now + lifetime_seconds,
+            "jti": uuid.uuid4().hex,
+        },
+        key,
+        algorithm="RS256",
+        headers={"kid": _TEST_SIGNING_KID},
+    )
+
+
+def _unsigned_id_token(claims: dict[str, object]) -> str:
+    def _segment(value: dict[str, object]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+    return f"{_segment({'alg': 'none'})}.{_segment(claims)}."
+
+
+async def _seed_authorization_code(
+    auth: mcp_auth.OIDCProxy, *, client_id: str, redirect_uri: str
+) -> str:
+    code = uuid.uuid4().hex
+    now = time.time()
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(_PKCE_VERIFIER.encode()).digest())
+        .decode()
+        .rstrip("=")
+    )
+    await auth._code_store.put(
+        key=code,
+        value=ClientCode(
+            code=code,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=challenge,
+            code_challenge_method="S256",
+            scopes=["openid", "profile", "email"],
+            idp_tokens={
+                "access_token": "synthetic-upstream-access-token",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "id_token": _unsigned_id_token({"email": "user@example.test"}),
+            },
+            expires_at=now + 60,
+            created_at=now,
+        ),
+        ttl=60,
+    )
+    return code
+
+
+def _install_cimd_clients(
+    monkeypatch: pytest.MonkeyPatch,
+    auth: mcp_auth.OIDCProxy,
+    *,
+    jwks: dict[str, object],
+) -> list[str]:
+    """Serve synthetic CIMD documents and a JWKS without network access.
+
+    Only DNS and the HTTP response bytes are replaced. FastMCP's CIMD fetcher
+    (``client_id`` match, ``jwks_uri`` SSRF check), CIMD client resolution,
+    ``PrivateKeyJWTClientAuthenticator``, ``JWTVerifier`` and the token handler
+    run unchanged. Returns the list of fetched JWKS URLs.
+    """
+    private_key_jwt_document: dict[str, object] = {
+        "client_id": _PRIVATE_KEY_JWT_CLIENT_ID,
+        "client_name": "ChatGPT-shaped test client",
+        "redirect_uris": [_PRIVATE_KEY_JWT_REDIRECT_URI],
+        "token_endpoint_auth_method": "private_key_jwt",
+        "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
+        "token_endpoint_auth_signing_alg": "RS256",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "jwks_uri": _PRIVATE_KEY_JWT_JWKS_URI,
+    }
+    documents: dict[str, dict[str, object]] = {
+        _PRIVATE_KEY_JWT_CLIENT_ID: private_key_jwt_document,
+        _PUBLIC_CIMD_CLIENT_ID: {
+            "client_id": _PUBLIC_CIMD_CLIENT_ID,
+            "client_name": "Claude-shaped test client",
+            "redirect_uris": [_PUBLIC_CIMD_REDIRECT_URI],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+        },
+        # Hosted elsewhere but claims to be the ChatGPT-shaped client.
+        _SPOOFED_CIMD_URL: private_key_jwt_document,
+        # Points the JWKS fetch at a host that resolves to a private address.
+        _PRIVATE_JWKS_CIMD_URL: {
+            **private_key_jwt_document,
+            "client_id": _PRIVATE_JWKS_CIMD_URL,
+            "jwks_uri": "https://internal.example.test/jwks.json",
+        },
+    }
+    jwks_fetches: list[str] = []
+
+    async def _resolve_hostname(hostname: str, port: int = 443) -> list[str]:
+        # Public address for synthetic client hosts; never dialled because the
+        # fetches below are stubbed.
+        return ["10.0.0.5"] if hostname.startswith("internal.") else ["1.1.1.1"]
+
+    async def _fetch_cimd_response(url: str, **_kwargs: object) -> SSRFFetchResponse:
+        return SSRFFetchResponse(
+            content=json.dumps(documents[url]).encode(),
+            status_code=200,
+            headers={"content-type": "application/json"},
+        )
+
+    async def _fetch_jwks(url: str, **_kwargs: object) -> bytes:
+        jwks_fetches.append(url)
+        assert url == _PRIVATE_KEY_JWT_JWKS_URI
+        return json.dumps(jwks).encode()
+
+    monkeypatch.setattr("fastmcp.server.auth.ssrf.resolve_hostname", _resolve_hostname)
+    monkeypatch.setattr(
+        "fastmcp.server.auth.cimd.ssrf_safe_fetch_response", _fetch_cimd_response
+    )
+    monkeypatch.setattr(
+        "fastmcp.server.auth.providers.jwt.ssrf_safe_fetch", _fetch_jwks
+    )
+    return jwks_fetches
+
+
+def _token_http_client(auth: mcp_auth.OIDCProxy) -> httpx.AsyncClient:
+    app = FastMCP("test", auth=auth).http_app(path="/mcp", transport="streamable-http")
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://mcp.example.com"
+    )
+
+
+async def _post_private_key_jwt_token_request(
+    auth: mcp_auth.OIDCProxy,
+    *,
+    assertion: str | None,
+    client_id: str = _PRIVATE_KEY_JWT_CLIENT_ID,
+) -> httpx.Response:
+    code = await _seed_authorization_code(
+        auth,
+        client_id=client_id,
+        redirect_uri=_PRIVATE_KEY_JWT_REDIRECT_URI,
+    )
+    form = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code": code,
+        "redirect_uri": _PRIVATE_KEY_JWT_REDIRECT_URI,
+        "code_verifier": _PKCE_VERIFIER,
+    }
+    if assertion is not None:
+        form |= {
+            "client_assertion_type": _JWT_BEARER_ASSERTION_TYPE,
+            "client_assertion": assertion,
+        }
+    async with _token_http_client(auth) as client:
+        return await client.post("/token", data=form)
+
+
+def test_token_endpoint_url_matches_advertised_token_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assertions are checked against the ``token_endpoint`` clients discover."""
+    auth = _build_test_auth(monkeypatch)
+    client = TestClient(
+        FastMCP("test", auth=auth).http_app(path="/mcp", transport="streamable-http")
+    )
+
+    metadata = client.get("/.well-known/oauth-authorization-server").json()
+
+    assert metadata["token_endpoint"] == _MCP_TOKEN_ENDPOINT
+    assert auth.token_endpoint_url == _MCP_TOKEN_ENDPOINT
+
+
+@pytest.mark.anyio
+async def test_private_key_jwt_cimd_client_exchanges_code_with_signed_assertion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    jwks_fetches = _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+
+    response = await _post_private_key_jwt_token_request(
+        auth, assertion=_client_assertion(key)
+    )
+
+    assert response.status_code == 200, response.json()
+    payload = response.json()
+    assert payload["access_token"]
+    assert payload["token_type"].lower() == "bearer"
+    assert jwks_fetches == [_PRIVATE_KEY_JWT_JWKS_URI]
+
+
+@pytest.mark.anyio
+async def test_private_key_jwt_cimd_client_rejects_replayed_assertion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reused ``jti`` is rejected by the same server process.
+
+    FastMCP keeps the ``jti`` cache in process memory, so this does not cover
+    replay across MCP replicas. Codes stay single-use and PKCE-bound there.
+    """
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+    assertion = _client_assertion(key)
+
+    first = await _post_private_key_jwt_token_request(auth, assertion=assertion)
+    replay = await _post_private_key_jwt_token_request(auth, assertion=assertion)
+
+    assert first.status_code == 200, first.json()
+    assert replay.status_code == 401
+    assert "replay" in replay.json()["error_description"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param("bad_signature", id="bad-signature"),
+        pytest.param("wrong_audience", id="wrong-audience"),
+        pytest.param("expired", id="expired"),
+        pytest.param("missing_assertion", id="missing-assertion"),
+    ],
+)
+async def test_private_key_jwt_cimd_client_rejects_invalid_client_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    """Bad assertions, and a ``none``-style request, fail closed."""
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+    match case:
+        case "bad_signature":
+            assertion = _client_assertion(_generate_rsa_key())
+        case "wrong_audience":
+            assertion = _client_assertion(
+                key, audience="https://other-server.example.test/token"
+            )
+        case "expired":
+            assertion = _client_assertion(key, issued_at=time.time() - 600)
+        case _:
+            assertion = None
+
+    response = await _post_private_key_jwt_token_request(auth, assertion=assertion)
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "client_id",
+    [
+        pytest.param(_SPOOFED_CIMD_URL, id="client-id-mismatch"),
+        pytest.param(_PRIVATE_JWKS_CIMD_URL, id="private-jwks-uri"),
+    ],
+)
+async def test_private_key_jwt_rejects_unverifiable_cimd_document(
+    monkeypatch: pytest.MonkeyPatch,
+    client_id: str,
+) -> None:
+    """A CIMD document that fails FastMCP's fetch checks never authenticates.
+
+    The assertion is validly signed for the requested client, so the only
+    thing that can reject it is CIMD client resolution.
+    """
+    auth = _build_test_auth(monkeypatch)
+    key = _generate_rsa_key()
+    jwks_fetches = _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
+
+    response = await _post_private_key_jwt_token_request(
+        auth,
+        assertion=_client_assertion(key, client_id=client_id),
+        client_id=client_id,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+    assert response.json()["error_description"] == "Invalid client_id"
+    assert jwks_fetches == []
+
+
+@pytest.mark.anyio
+async def test_public_cimd_client_exchanges_code_without_client_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    _install_cimd_clients(monkeypatch, auth, jwks={"keys": []})
+    code = await _seed_authorization_code(
+        auth,
+        client_id=_PUBLIC_CIMD_CLIENT_ID,
+        redirect_uri=_PUBLIC_CIMD_REDIRECT_URI,
+    )
+
+    async with _token_http_client(auth) as client:
+        response = await client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": _PUBLIC_CIMD_CLIENT_ID,
+                "code": code,
+                "redirect_uri": _PUBLIC_CIMD_REDIRECT_URI,
+                "code_verifier": _PKCE_VERIFIER,
+            },
+        )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["access_token"]

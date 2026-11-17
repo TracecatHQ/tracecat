@@ -387,7 +387,7 @@ async def download_attachment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e
 
 
@@ -452,5 +452,5 @@ async def delete_attachment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete attachment: {str(e)}",
+            detail="Failed to delete attachment",
         ) from e

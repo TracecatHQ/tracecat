@@ -65,6 +65,12 @@ jest.mock("@/hooks/use-chat", () => ({
     cancelChatTurn: jest.fn(),
     isCancellingChatTurn: false,
   })),
+  // One object for every render, like the real hook's stable empty list.
+  usePendingMessages: jest.fn().mockReturnValue({
+    pending: [],
+    refreshPending: jest.fn(),
+    withdraw: jest.fn(),
+  }),
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   makeContinueMessage: jest.fn(),

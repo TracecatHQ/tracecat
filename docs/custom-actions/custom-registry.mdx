@@ -28,7 +28,15 @@ You must have the "Organization Admin" role to add and manage the custom registr
   </Step>
   <Step title="Add an SSH key">
     Tracecat clones the repository over SSH.
-    Generate an SSH key pair and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
+    Generate an Ed25519 SSH key pair without a passphrase and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
+
+    ```bash
+    ssh-keygen -t ed25519 -N "" -f tracecat-registry
+    ```
+
+    <Note>
+      The custom registry only supports Ed25519 SSH keys. Tracecat rejects RSA, ECDSA, and other key types.
+    </Note>
 
     Go to Organization settings -> Custom registry -> Repository, click "Add SSH key" in the SSH key section, and paste the private key.
     The name is fixed to `github-ssh-key` and the environment to `default`. Tracecat looks the registry key up by this exact name, whichever Git host you use.
@@ -61,6 +69,21 @@ You must have the "Organization Admin" role to add and manage the custom registr
     </Frame>
   </Step>
 </Steps>
+
+## Sync from CI
+
+Use an organization service account with `org:registry:read` and `org:registry:update` to sync from a CI pipeline.
+Copy the repository ID from the Versions page, or list repositories with `GET /api/registry/repos`.
+
+```bash
+curl -X POST https://platform.tracecat.com/api/registry/repos/<REPOSITORY_ID>/sync \
+  --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
+  --header "Content-Type: application/json" \
+  --data '{"target_commit_sha": "<COMMIT_SHA>"}'
+```
+
+Omit the body to sync `HEAD`. The service account does not need `org:secret:read` to use the registry SSH key for the repository URL set on the Repository page.
+Registry scopes do not cover other repository origins; syncing those with the SSH key requires `org:secret:read`.
 
 ## Manage versions
 

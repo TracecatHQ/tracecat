@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: List threat feed indicators
+  description: >-
+    List IoCs from Trend Threat Intelligence Feed. Retrieves a list of IoCs from Trend Threat
+    Intelligence Feed. DISCLAIMER: The Threat Intelligence Feed data (“Data”) is provided "as
+    is" for informational purposes only. Trend Micro Incorporated (Trend Micro) makes no
+    warranties or representations of any kind as to its accuracy or completeness. You agree that
+    access to and use of and reliance on the Data is at your own risk. Calls GET
+    /v3.0/threatintel/feedIndicators.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Trend-Threat-Intelligence-Feed/paths/~1v3.0~1threatintel~1feedIndicators/get
+  namespace: tools.trend_vision_one
+  name: list_feed_indicators
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    startDateTime:
+      type: str | None
+      description: >-
+        The data retrieval timestamp in ISO 8601 format that filters objects to only include
+        objects added after the specified time. The default is the earliest available value
+        for "created".
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        The data retrieval timestamp in ISO 8601 format that filters objects to only include
+        objects added before or at the specified time. The default is the time you make the
+        request.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        The number of IoCs returned by a query (maximum 10,000 IoCs). Allowed values: 1000,
+        5000, 10000. Provider default: 5000.
+      default: null
+    indicatorObjectFormat:
+      type: str | None
+      description: >-
+        The desired format for the query response. Allowed values: stixBundle,
+        taxiiEnvelope. Provider default: stixBundle.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/threatintel/feedIndicators
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          top: ${{ inputs.top }}
+          indicatorObjectFormat: ${{ inputs.indicatorObjectFormat }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

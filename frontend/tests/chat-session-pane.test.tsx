@@ -24,6 +24,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -33,6 +34,17 @@ const mockVerbosity = jest.fn(() => "verbose")
 jest.mock("@/hooks/use-chat-verbosity", () => ({
   ...jest.requireActual("@/hooks/use-chat-verbosity"),
   useChatVerbosityPreference: () => [mockVerbosity(), jest.fn()],
+}))
+
+// Tracecat installs no running composer; tests opt in through this mock.
+const mockUseRunningComposer = jest.fn(
+  (_context: RunningComposerContext): RunningComposer | undefined => undefined
+)
+jest.mock("@/extensions", () => ({
+  extensions: {
+    useRunningComposer: (context: RunningComposerContext) =>
+      mockUseRunningComposer(context),
+  },
 }))
 
 jest.mock("@/hooks/use-chat", () => ({
@@ -46,6 +58,12 @@ jest.mock("@/hooks/use-chat", () => ({
     cancelChatTurn: jest.fn(),
     isCancellingChatTurn: false,
   })),
+  // One object for every render, like the real hook's stable empty list.
+  usePendingMessages: jest.fn().mockReturnValue({
+    pending: [],
+    refreshPending: jest.fn(),
+    withdraw: jest.fn(),
+  }),
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   makeContinueMessage: (decisions: unknown) => ({
@@ -1230,6 +1248,175 @@ describe("ChatSessionPane", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
     expect(sendMessage).toHaveBeenCalledWith({ text: "Queued message" })
+  })
+
+  describe("failed turns", () => {
+    function mockFailedTurn(
+      messages: UIMessage[],
+      lastError: string,
+      lastErrorDisconnected = false,
+      retryError?: Error
+    ) {
+      const retryTurn = retryError
+        ? jest.fn().mockRejectedValue(retryError)
+        : jest.fn().mockResolvedValue(undefined)
+      mockUseVercelChat.mockReturnValue({
+        sendMessage: jest.fn(),
+        setMessages: jest.fn(),
+        regenerate: jest.fn(),
+        messages,
+        status: "error",
+        lastError,
+        lastErrorDisconnected,
+        clearError: jest.fn(),
+        retryTurn,
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+      return { retryTurn }
+    }
+
+    function renderPane() {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              placeholder="Ask about this case..."
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      )
+    }
+
+    it("renders a dropped connection after the failed prompt", async () => {
+      const { retryTurn } = mockFailedTurn(
+        [
+          {
+            id: "msg-user",
+            role: "user",
+            parts: [{ type: "text", text: "Summarize the case" }],
+          },
+        ],
+        "Failed to fetch",
+        true
+      )
+
+      renderPane()
+
+      const alert = screen.getByRole("alert")
+      expect(within(alert).getByText("Connection dropped")).toBeInTheDocument()
+      expect(
+        within(alert).getByText("The reply stopped loading.")
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText("Summarize the case").compareDocumentPosition(alert) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        screen.getByPlaceholderText("Ask about this case...")
+      ).toBeEnabled()
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+      await waitFor(() => expect(retryTurn).toHaveBeenCalledWith("msg-user"))
+    })
+
+    it("offers Retry on a drop before any message is on screen", async () => {
+      // A first turn's prompt stays hidden while its run is live.
+      const { retryTurn } = mockFailedTurn([], "Bad gateway", true)
+
+      renderPane()
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+
+      await waitFor(() => expect(retryTurn).toHaveBeenCalledTimes(1))
+    })
+
+    it("keeps the drop up and retries once when the check fails", async () => {
+      const { retryTurn } = mockFailedTurn(
+        [
+          {
+            id: "msg-user",
+            role: "user",
+            parts: [{ type: "text", text: "Summarize the case" }],
+          },
+        ],
+        "Failed to fetch",
+        true,
+        new TypeError("Failed to fetch")
+      )
+
+      renderPane()
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+
+      await waitFor(() => expect(retryTurn).toHaveBeenCalledTimes(1))
+      expect(screen.getByText("Connection dropped")).toBeInTheDocument()
+    })
+
+    it("names a failed run and its reason", () => {
+      mockFailedTurn(
+        [
+          {
+            id: "msg-user",
+            role: "user",
+            parts: [{ type: "text", text: "Summarize the case" }],
+          },
+        ],
+        "Provider unavailable"
+      )
+
+      renderPane()
+
+      const alert = screen.getByRole("alert")
+      expect(screen.queryByText("Last run failed")).not.toBeInTheDocument()
+      expect(
+        within(alert).getByText("Provider unavailable")
+      ).toBeInTheDocument()
+    })
+
+    it("moves a streamed error into the card and keeps the chat above it", () => {
+      const error = "The agent could not complete the request: boom"
+      mockFailedTurn(
+        [
+          {
+            id: "msg-user-1",
+            role: "user",
+            parts: [{ type: "text", text: "List open cases" }],
+          },
+          {
+            id: "msg-reply-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "There are no open cases." }],
+          },
+          {
+            id: "msg-user-2",
+            role: "user",
+            parts: [{ type: "text", text: "Summarize the case" }],
+          },
+          {
+            id: "msg-reply-2",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Reading the case now." },
+              { type: "text", text: error },
+            ],
+          },
+        ],
+        error
+      )
+
+      renderPane()
+
+      const alert = screen.getByRole("alert")
+      expect(within(alert).getByText(error)).toBeInTheDocument()
+      expect(screen.getAllByText(error)).toHaveLength(1)
+      expect(screen.getByText("There are no open cases.")).toBeInTheDocument()
+      expect(screen.getByText("Reading the case now.")).toBeInTheDocument()
+      expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1)
+    })
   })
 
   it("submits selected approval decisions without requiring the full batch", async () => {
@@ -2438,6 +2625,46 @@ describe("ChatSessionPane", () => {
       expect(sendMessage).not.toHaveBeenCalled()
       expect(onSelect).not.toHaveBeenCalled()
       expect(textarea).toHaveValue("@Triage agent ")
+    })
+
+    it("closes an open mention query when withdrawn text is restored", async () => {
+      // A withdraw is async: the user can open `@tri` before it resolves. The
+      // query's token offsets predate the restored prefix, so picking a
+      // suggestion afterwards would overwrite the restored text.
+      let context: RunningComposerContext | undefined
+      mockUseRunningComposer.mockImplementation((next) => {
+        context = next
+        return { placeholder: "Steer...", submit: async () => true }
+      })
+      mockUseVercelChat.mockReturnValue({
+        sendMessage,
+        setMessages: jest.fn(),
+        regenerate: jest.fn(),
+        messages: [],
+        status: "streaming",
+        lastError: null,
+        clearError: jest.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+      } as any)
+      try {
+        renderPane({ agentMentionsSupported: true })
+
+        const textarea = screen.getByRole("textbox")
+        fireEvent.change(textarea, {
+          target: { value: "@tri", selectionStart: 4 },
+        })
+        await screen.findByText("Triage agent")
+
+        act(() => context?.restoreInput("Check the first host"))
+
+        await waitFor(() =>
+          expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+        )
+        expect(textarea).toHaveValue("Check the first host\n@tri")
+      } finally {
+        mockUseRunningComposer.mockReset()
+        mockUseRunningComposer.mockReturnValue(undefined)
+      }
     })
 
     it("keeps a mention bound when it is picked during a pending write", async () => {

@@ -151,7 +151,11 @@ export function useAgentPresetWorkflowReferences(
 
 export function useAgentPresets(
   workspaceId?: string,
-  { enabled = true, useInChat }: { enabled?: boolean; useInChat?: boolean } = {}
+  {
+    enabled = true,
+    useInChat,
+    staleTime,
+  }: { enabled?: boolean; useInChat?: boolean; staleTime?: number } = {}
 ) {
   const {
     data: presets,
@@ -171,6 +175,7 @@ export function useAgentPresets(
     },
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
+    staleTime,
   })
 
   return {

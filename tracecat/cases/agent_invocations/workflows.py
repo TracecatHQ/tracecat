@@ -34,6 +34,27 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.concurrency import drain_future_through_cancellation
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
+    from tracecat.runtime.errors import (
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
+    from tracecat.temporal.errors import extract_error_classifications
+
+
+def _failure_message(error: BaseException) -> str:
+    """Show a user-owned failure's message instead of Temporal's wrapper text.
+
+    Activity and child failures arrive wrapped (``Activity task failed``). A
+    user-owned classification carries a message written for the comment's
+    reader. Platform diagnostics stay out of case-scoped records.
+    """
+    if classifications := extract_error_classifications(
+        error, include_implicit_context=False
+    ):
+        classification = select_error_classification(classifications)
+        if classification.owner is RuntimeErrorOwner.USER:
+            return classification.message
+    return str(error)
 
 
 @workflow.defn(name=CASE_COMMENT_AGENT_INVOCATION_WORKFLOW)
@@ -56,6 +77,40 @@ class CaseCommentAgentInvocationWorkflow:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_slow"],
             )
+            if (turn := prepared.turn) is not None:
+                stage = "agent_turn"
+                # Started by type name: the selected backend's workflow and
+                # output types are never imported here.
+                result = await workflow.execute_child_workflow(
+                    turn.workflow_type,
+                    turn.args,
+                    id=turn.workflow_id,
+                    task_queue=turn.task_queue,
+                    retry_policy=turn.retry_policy,
+                    # prepare_new_turn reuses a persisted run ID, which may be a
+                    # direct dispatch's that recovery tombstoned. Never run it then.
+                    id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                    priority=turn.priority,
+                )
+                stage = "completion"
+                completed = await workflow.execute_activity(
+                    complete_comment_agent_invocation_activity,
+                    CompleteCommentAgentInvocationInput(
+                        role=input.role,
+                        session_id=turn.session_id,
+                        run_id=turn.run_id,
+                        output=result,
+                        backend_id=turn.backend_id,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=RETRY_POLICIES["activity:fail_slow"],
+                )
+                if completed.turn_error is not None:
+                    stage = "agent_turn"
+                    raise ApplicationError(completed.turn_error, non_retryable=True)
+                return completed
+
+            # Runs recorded before the backend contract replay this path.
             if prepared.workflow_args is None:
                 return CompleteCommentAgentInvocationResult(handled=False)
 
@@ -90,7 +145,7 @@ class CaseCommentAgentInvocationWorkflow:
             )
         except (Exception, asyncio.CancelledError) as exc:
             kind = "cancelled" if is_cancelled_exception(exc) else stage
-            await self._record_failure(input, kind, str(exc))
+            await self._record_failure(input, kind, _failure_message(exc))
             raise
 
     async def _record_failure(

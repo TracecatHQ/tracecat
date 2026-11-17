@@ -33,21 +33,31 @@ def test_temporal_converter_decodes_agent_config_with_mcp_servers() -> None:
 
 
 def test_clamp_agent_timeout_seconds_clamps_to_ceiling() -> None:
-    # Hardcoded default floor 1800; default ceiling 3600.
-    assert clamp_agent_timeout_seconds(None) == 1800
+    # Default 7200, floor 1800, ceiling 10800.
+    assert clamp_agent_timeout_seconds(None) == 7200
     assert clamp_agent_timeout_seconds(900) == 1800
     assert clamp_agent_timeout_seconds(2000) == 2000
-    assert clamp_agent_timeout_seconds(100_000) == 3600
+    assert clamp_agent_timeout_seconds(100_000) == 10800
 
 
 def test_clamp_agent_timeout_seconds_honors_raised_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 7200)
+    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 21600)
 
-    assert clamp_agent_timeout_seconds(None) == 1800
-    assert clamp_agent_timeout_seconds(5000) == 5000
-    assert clamp_agent_timeout_seconds(100_000) == 7200
+    assert clamp_agent_timeout_seconds(None) == 7200
+    assert clamp_agent_timeout_seconds(15000) == 15000
+    assert clamp_agent_timeout_seconds(100_000) == 21600
+
+
+def test_clamp_agent_timeout_seconds_ceiling_below_default_caps_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", 3600)
+
+    assert clamp_agent_timeout_seconds(None) == 3600
+    assert clamp_agent_timeout_seconds(900) == 1800
+    assert clamp_agent_timeout_seconds(2000) == 2000
 
 
 def test_clamp_agent_timeout_seconds_lowered_ceiling_wins_over_default(

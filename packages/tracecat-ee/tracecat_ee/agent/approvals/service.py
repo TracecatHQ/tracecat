@@ -6,18 +6,25 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from sqlalchemy import func, null, select
+from sqlalchemy import and_, case, exists, func, literal_column, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
-from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, WorkflowHandle
 
-from tracecat.agent.aliases import build_agent_alias
+from tracecat.agent.approvals.decisions import decision_outcome
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.channel_notifier import (
+    ApprovalDecided,
+    ApprovalPending,
+    RunUpdate,
+    approval_batch_id,
+    push_budget,
+    push_updates,
+)
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
-from tracecat.agent.schemas import AgentOutput
+from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.agent.types import (
     DeferredToolApprovalResult,
     DeferredToolResults,
@@ -27,13 +34,8 @@ from tracecat.agent.types import (
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.db.models import AgentSession, Approval, User, Workflow
-from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import AgentActionMemo
-from tracecat.identifiers import WorkflowID
-from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.workflow.executions.enums import TemporalSearchAttr
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     ApprovalDecisionPayload,
@@ -45,25 +47,12 @@ from tracecat_ee.agent.approvals.schemas import (
     ApprovalUpdate,
 )
 from tracecat_ee.agent.context import AgentContext
-from tracecat_ee.agent.types import AgentWorkflowID
-
-if TYPE_CHECKING:
-    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 
 @dataclass(slots=True)
 class EnrichedApproval:
     approval: Approval
     approved_by: User | None = None
-
-
-@dataclass(slots=True, kw_only=True)
-class SessionDescription:
-    start_time: datetime
-    parent_workflow_id: WorkflowID | None
-    root_workflow_id: WorkflowID | None
-    action_ref: str | None
-    action_title: str | None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -85,16 +74,6 @@ class SessionInfo:
     root_workflow_id: uuid.UUID | None = None
     action_ref: str | None = None
     action_title: str | None = None
-
-
-@dataclass(slots=True, kw_only=True)
-class SessionHistoryItem:
-    """Represents a single execution in the session history."""
-
-    execution: WorkflowExecution
-    """The workflow execution metadata."""
-    result: AgentOutput
-    """The execution result, if available and successful."""
 
 
 class ApprovalService(BaseWorkspaceService):
@@ -259,135 +238,6 @@ class ApprovalService(BaseWorkspaceService):
 
         return res
 
-    async def handle(
-        self,
-        agent_wf_id: AgentWorkflowID,
-        run_id: str | None = None,
-    ) -> WorkflowHandle[DurableAgentWorkflow, AgentOutput]:
-        """Get a workflow handle for an agent workflow.
-
-        Args:
-            agent_wf_id: The agent workflow ID
-            run_id: Optional run ID for a specific execution. If not provided,
-                    gets the handle for the latest/current workflow execution.
-
-        Returns:
-            A workflow handle for the specified workflow/execution
-        """
-        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
-
-        client = await get_temporal_client()
-        return client.get_workflow_handle_for(
-            DurableAgentWorkflow.run, agent_wf_id, run_id=run_id
-        )
-
-    async def get_session(self, session_id: uuid.UUID) -> SessionDescription | None:
-        """Get a session by ID."""
-
-        # This legacy view parses durable-workflow metadata. Other backends use
-        # the shared session approval API and must never be looked up as oss.
-        backend_id = await self.session.scalar(
-            select(AgentSession.backend_id).where(
-                AgentSession.id == session_id,
-                AgentSession.workspace_id == self.workspace_id,
-            )
-        )
-        if backend_id is not None and backend_id != "oss":
-            return None
-
-        # Query workflow executions using the agent session key
-        agent_wf_id = AgentWorkflowID(session_id)
-
-        handle = await self.handle(agent_wf_id)
-        description = await handle.describe()
-        memo = await description.memo()
-        validated_memo = AgentActionMemo.model_validate(memo)
-        parent_id, root_id = None, None
-        try:
-            if description.parent_id:
-                parent_id, _ = exec_id_to_parts(description.parent_id)
-        except Exception as e:
-            logger.warning("Error parsing parent ID", error=e)
-        try:
-            if description.root_id:
-                root_id, _ = exec_id_to_parts(description.root_id)
-        except Exception as e:
-            logger.warning("Error parsing root ID", error=e)
-        return SessionDescription(
-            start_time=description.start_time,
-            parent_workflow_id=parent_id,
-            root_workflow_id=root_id,
-            action_ref=validated_memo.action_ref,
-            action_title=validated_memo.action_title,
-        )
-
-    async def list_session_history(
-        self,
-        session_id: uuid.UUID,
-        limit: int = 5,
-    ) -> list[SessionHistoryItem]:
-        """Query DurableAgentWorkflow executions sharing the same alias and fetch their results."""
-        if limit <= 0:
-            return []
-        # get the alias for the session
-        session = await self.get_session(session_id)
-        if session is None:
-            return []
-        if session.parent_workflow_id is None or session.action_ref is None:
-            logger.warning(
-                "Session parent workflow ID or action ref is missing",
-                session_id=session_id,
-            )
-            return []
-        alias = build_agent_alias(session.parent_workflow_id, session.action_ref)
-
-        query = " AND ".join(
-            [
-                "WorkflowType = 'DurableAgentWorkflow'",
-                f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{str(self.workspace_id)}'",
-                f"{TemporalSearchAttr.ALIAS.value} = '{alias}'",
-            ]
-        )
-
-        page_size = max(1, min(limit, 50))
-        history_items: list[SessionHistoryItem] = []
-        client = await get_temporal_client()
-        async for execution in client.list_workflows(
-            query=query,
-            page_size=page_size,
-        ):
-            if len(history_items) >= limit:
-                break
-            # Get workflow handle for specific execution run
-            agent_wf_id = AgentWorkflowID.from_workflow_id(execution.id)
-            handle = await self.handle(agent_wf_id, run_id=execution.run_id)
-
-            # Try to fetch the result
-            if execution.status != WorkflowExecutionStatus.COMPLETED:
-                logger.warning(
-                    "Workflow is not completed",
-                    workflow_id=execution.id,
-                    run_id=execution.run_id,
-                )
-                continue
-
-            result = await handle.result()
-            history_items.append(
-                SessionHistoryItem(
-                    execution=execution,
-                    result=result,
-                )
-            )
-
-        logger.info(
-            "Session history fetched",
-            session_id=session_id,
-            n_items=len(history_items),
-            n_with_results=sum(1 for item in history_items if item.result is not None),
-        )
-        # These are the last n=limit DurableAgentWorkflow executions related to the session
-        return history_items
-
     # UPDATE operations
 
     async def update_approval(
@@ -452,6 +302,8 @@ class ApprovalManager:
             raise RuntimeError("Agent context is not set")
         self.session_id = agent_ctx.session_id
         self._expected_tool_calls: dict[str, ToolCallContent] = {}
+        # Edits the pending approval message once the batch is decided.
+        self._unpushed_decision: ApprovalDecided | None = None
 
     @classmethod
     def get_activities(cls) -> list[Callable[..., Any]]:
@@ -478,12 +330,16 @@ class ApprovalManager:
         manager only becomes READY (resuming the run) once every expected
         tool call has a decision.
         """
+        new_ids = approvals.keys() - self._approvals.keys()
+        # Cancellation overwrites outcomes; provenance stays with the first decision.
         self._approvals.update(approvals)
-        if approved_by is not None:
-            for tool_call_id in approvals:
+        for tool_call_id in new_ids:
+            if approved_by is not None:
                 self._approved_by_by_tool_call_id[tool_call_id] = approved_by
-        if decision_metadata:
-            self._decision_metadata_by_tool_call_id.update(decision_metadata)
+            if decision_metadata and tool_call_id in decision_metadata:
+                self._decision_metadata_by_tool_call_id[tool_call_id] = (
+                    decision_metadata[tool_call_id]
+                )
 
         expected_ids = set(self._expected_tool_calls.keys())
         if expected_ids.issubset(self._approvals.keys()):
@@ -504,7 +360,9 @@ class ApprovalManager:
         approvals: list[ToolCallContent],
         *,
         request_metadata: dict[str, dict[str, Any]] | None = None,
+        push_to: uuid.UUID | None = None,
     ) -> None:
+        """Persist the requests, then post them to the run's linked channel, if any."""
         self._approvals.clear()
         self._decision_metadata_by_tool_call_id.clear()
         self._status = ApprovalManagerStatus.IDLE
@@ -522,16 +380,41 @@ class ApprovalManager:
             )
             for approval in approvals
         ]
+        pending = (
+            ApprovalPending(
+                session_id=self.session_id,
+                run_id=push_to,
+                batch_id=approval_batch_id(push_to, [item.id for item in approvals]),
+            )
+            if push_to is not None
+            else None
+        )
+        updates: list[RunUpdate] = [pending] if pending is not None else []
         # Persist the approval state (and chat messages atomically for chat namespace)
-        await workflow.execute_activity(
+        pending_ref = await workflow.execute_activity(
             ApprovalManager.record_approval_requests,
             arg=PersistApprovalsActivityInputs(
                 role=self.role,
                 session_id=self.session_id,
                 approvals=approval_payloads,
+                channel_updates=updates,
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=30) + push_budget(updates),
         )
+        self._unpushed_decision = (
+            ApprovalDecided(
+                session_id=self.session_id,
+                batch_id=pending.batch_id,
+                pending_ref=pending_ref,
+            )
+            if pending is not None
+            else None
+        )
+
+    def take_unpushed_decision(self) -> list[RunUpdate]:
+        """The update closing the open approval message, once; empty when none is open."""
+        decided, self._unpushed_decision = self._unpushed_decision, None
+        return [decided] if decided is not None else []
 
     def get(self) -> DeferredToolResults | None:
         if not self._approvals:
@@ -587,7 +470,20 @@ class ApprovalManager:
                     f"cannot be None. Please provide a valid approval decision."
                 )
 
-    async def handle_decisions(self) -> None:
+        # The run holds the decisions; the first one for a tool call stands.
+        for tool_call_id in sorted(provided_ids & self._approvals.keys()):
+            if decision_outcome(approvals[tool_call_id]) != decision_outcome(
+                self._approvals[tool_call_id]
+            ):
+                raise ValueError(
+                    f"Tool call {tool_call_id} was already decided differently"
+                )
+        # An update must decide something new: each one moves the run's stream.
+        if provided_ids <= self._approvals.keys():
+            raise ValueError("Every tool call in the response was already decided")
+
+    async def handle_decisions(self, *, push: bool = True) -> None:
+        """Record the decisions; ``push=False`` keeps the message open for later."""
         decisions: list[ApprovalDecisionPayload] = []
 
         for tool_call_id, result in self._approvals.items():
@@ -629,15 +525,21 @@ class ApprovalManager:
                 )
             )
         if decisions:
+            decided = self._unpushed_decision
+            updates: list[RunUpdate] = [decided] if push and decided else []
             await workflow.execute_activity(
                 ApprovalManager.apply_approval_decisions,
                 arg=ApplyApprovalResultsActivityInputs(
                     role=self.role,
                     session_id=self.session_id,
                     decisions=decisions,
+                    channel_updates=updates,
                 ),
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=timedelta(seconds=30) + push_budget(updates),
             )
+            # Cleared only once pushed, so a failed apply still closes it at finalize.
+            if updates:
+                self._unpushed_decision = None
         self._approved_by_by_tool_call_id.clear()
         self._decision_metadata_by_tool_call_id.clear()
 
@@ -700,6 +602,8 @@ class ApprovalManager:
                     }
                 )
 
+            # Lock rows in ApprovalSubmissionService's order (tool call id).
+            rows.sort(key=lambda row: row["tool_call_id"])
             stmt = pg_insert(Approval).values(rows)
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_approval_workspace_session_tool",
@@ -707,40 +611,64 @@ class ApprovalManager:
                     "status": stmt.excluded.status,
                     "reason": stmt.excluded.reason,
                     "approved_by": stmt.excluded.approved_by,
-                    "approved_at": stmt.excluded.approved_at,
+                    # Keep when the API recorded the same outcome.
+                    "approved_at": case(
+                        (
+                            Approval.status == stmt.excluded.status,
+                            Approval.approved_at,
+                        ),
+                        else_=stmt.excluded.approved_at,
+                    ),
                     "decision": func.coalesce(
                         stmt.excluded.decision, Approval.decision
                     ),
                     # onupdate does not fire for ON CONFLICT DO UPDATE.
                     "updated_at": func.now(),
                 },
+                # The run holds the accepted decision's approver; the API's record
+                # of a deduplicated retry may name the retrier instead. Never
+                # restore a deleted user or replace an anonymized approver.
+                where=or_(
+                    Approval.status == ApprovalStatus.PENDING,
+                    Approval.status != stmt.excluded.status,
+                    and_(
+                        Approval.approved_by.is_not(None),
+                        Approval.approved_by != stmt.excluded.approved_by,
+                        # Literal: a column of excluded would add it as a FROM.
+                        exists().where(
+                            User.__table__.c.id
+                            == literal_column("excluded.approved_by")
+                        ),
+                    ),
+                ),
             )
             await service.session.execute(stmt)
             await service.session.commit()
+        await push_updates(input.role, input.channel_updates)
 
     @staticmethod
     @activity.defn
     async def record_approval_requests(
         input: PersistApprovalsActivityInputs,
-    ) -> None:
+    ) -> str | None:
         """Persist pending approval records for deferred tool calls.
 
-        Handles business logic:
-        - Upserts approvals (updates existing or creates new)
-        - Resets approval state to PENDING if record already exists
+        The batch is written in one transaction, so its new rows share
+        ``created_at`` (transaction time): ApprovalSubmissionService groups a batch
+        by it. Re-persisting refreshes pending rows only; recorded decisions
+        and approvers stay.
+
+        Returns the posted approval message's ref; None when nothing was
+        pushed, which workflow code from before pushing also decodes.
         """
 
         if not input.approvals:
-            return
+            return None
 
         async with ApprovalService.with_session(role=input.role) as service:
+            # Untyped: SQLAlchemy insert values keyed by column name.
+            rows: dict[str, dict[str, Any]] = {}
             for payload in input.approvals:
-                # Check if approval already exists
-                existing = await service.get_approval_by_session_and_tool(
-                    session_id=input.session_id,
-                    tool_call_id=payload.tool_call_id,
-                )
-
                 # Normalize tool args to a dict
                 approval_args: dict[str, Any] | None = None
                 if payload.args is not None:
@@ -760,29 +688,48 @@ class ApprovalManager:
                     approval_args = approval_args or {}
                     approval_args["_tracecat"] = payload.metadata
 
-                if existing:
-                    # TODO: Do we need this path?
-                    # Update existing record and reset to pending state
-                    await service.update_approval(
-                        existing,
-                        ApprovalUpdate(
-                            status=ApprovalStatus.PENDING,
-                            tool_name=payload.tool_name,
-                            tool_call_args=approval_args,
-                            reason=None,
-                            approved_by=None,
-                            decision=None,
-                        ),
+                rows[payload.tool_call_id] = {
+                    "workspace_id": service.workspace_id,
+                    "session_id": input.session_id,
+                    "tool_call_id": payload.tool_call_id,
+                    "tool_name": payload.tool_name,
+                    "tool_call_args": approval_args,
+                    "status": ApprovalStatus.PENDING,
+                }
+
+            # Lock rows in ApprovalSubmissionService's order (tool call id).
+            stmt = pg_insert(Approval).values([rows[key] for key in sorted(rows)])
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_approval_workspace_session_tool",
+                set_={
+                    "tool_name": stmt.excluded.tool_name,
+                    "tool_call_args": stmt.excluded.tool_call_args,
+                    # onupdate does not fire for ON CONFLICT DO UPDATE.
+                    "updated_at": func.now(),
+                },
+                where=Approval.status == ApprovalStatus.PENDING,
+            )
+            await service.session.execute(stmt)
+            await service.session.commit()
+            owner = (
+                await service.session.execute(
+                    select(
+                        AgentSession.curr_run_id, AgentSession.active_stream_id
+                    ).where(
+                        AgentSession.id == input.session_id,
+                        AgentSession.workspace_id == service.workspace_id,
                     )
-                    # Reset approved_at manually
-                    existing.approved_at = None
-                else:
-                    # Create new approval record
-                    await service.create_approval(
-                        ApprovalCreate(
-                            session_id=input.session_id,
-                            tool_call_id=payload.tool_call_id,
-                            tool_name=payload.tool_name,
-                            tool_call_args=approval_args,
-                        )
-                    )
+                )
+            ).one_or_none()
+
+        if owner is not None and owner.curr_run_id is not None:
+            await publish_session_event(
+                workspace_id=service.workspace_id,
+                session_id=input.session_id,
+                type=SessionFeedEventType.RUN_PAUSED,
+                run_id=owner.curr_run_id,
+                stream_id=owner.active_stream_id,
+            )
+        refs = await push_updates(input.role, input.channel_updates)
+        # At most one update: the batch's ApprovalPending.
+        return refs[0] if refs else None

@@ -159,11 +159,16 @@ async def delete_folder(
     """Delete a folder.
 
     If recursive=true, deletes all subfolders and moves the contained workflows to root.
+    If recursive=true and delete_workflows=true, deletes the contained workflows too.
     If recursive=false (default), fails if the folder contains any subfolders or workflows.
     """
     service = WorkflowFolderService(session, role=role)
     try:
-        await service.delete_folder(folder_id, recursive=params.recursive)
+        await service.delete_folder(
+            folder_id,
+            recursive=params.recursive,
+            delete_workflows=params.delete_workflows,
+        )
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"

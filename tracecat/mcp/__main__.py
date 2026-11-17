@@ -6,10 +6,13 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 import time
 
+from tracecat.db.engine import verify_rls_enforceable_login
+from tracecat.db.roles import UnsafeDatabaseLoginError
 from tracecat.logger import logger
 from tracecat.mcp.config import (
     TRACECAT_MCP__HOST,
@@ -39,8 +42,13 @@ def main() -> None:
     max_attempts = max(TRACECAT_MCP__STARTUP_MAX_ATTEMPTS, 1)
     for attempt in range(1, max_attempts + 1):
         try:
+            asyncio.run(verify_rls_enforceable_login())
             _run_mcp_server()
             return
+        except UnsafeDatabaseLoginError as e:
+            # Misconfiguration, not a transient failure: retrying can't fix it.
+            logger.error("MCP server refused an unsafe database login", error=str(e))
+            raise SystemExit(1) from None
         except KeyboardInterrupt:
             logger.info("MCP server interrupted; shutting down")
             return

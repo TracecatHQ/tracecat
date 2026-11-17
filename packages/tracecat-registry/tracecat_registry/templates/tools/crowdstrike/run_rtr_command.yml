@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Run RTR command
+  description: >-
+    Run a read-only Real Time Response command (for example `ls`, `ps`, `netstat`)
+    on a host in an open session. Returns a `cloud_request_id` to poll for output.
+    Requires the Real time response: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-executecommand
+  namespace: tools.crowdstrike
+  name: run_rtr_command
+  expects:
+    session_id:
+      type: str
+      description: RTR session ID from `tools.crowdstrike.start_rtr_session`.
+    base_command:
+      type: str
+      description: Base command to run, for example `ls`.
+    command_string:
+      type: str
+      description: Full command string, including the base command and its arguments.
+    persist:
+      type: bool
+      description: Run the command when an offline host returns to service.
+      default: false
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: run_rtr_command
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_ExecuteCommand
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            session_id: ${{ inputs.session_id }}
+            base_command: ${{ inputs.base_command }}
+            command_string: ${{ inputs.command_string }}
+            persist: ${{ inputs.persist }}
+  returns: ${{ steps.run_rtr_command.result }}

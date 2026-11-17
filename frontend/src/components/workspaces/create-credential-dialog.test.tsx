@@ -73,7 +73,7 @@ test("submits template keys with their values", async () => {
     await screen.findAllByPlaceholderText("Value")
   await user.type(clientIdValue, "cid")
   await user.type(clientSecretValue, "csecret")
-  await user.click(screen.getByRole("button", { name: /Create secret/ }))
+  await user.click(screen.getByRole("button", { name: /Create credential/ }))
 
   await waitFor(() => expect(mockCreateSecret).toHaveBeenCalledTimes(1))
   expect(mockCreateSecret.mock.calls[0][0].keys).toEqual([

@@ -108,6 +108,12 @@ async def agent(
             "Per-tool approval overrides keyed by action name (e.g. 'core.cases.create_case'). Use true to require approval, false to allow auto-execution."
         ),
     ] = None,
+    tool_tunnels: Annotated[
+        dict[str, str] | None,
+        Doc(
+            "Workspace tunnel name keyed by action name (e.g. 'tools.sublime_security.list_messages'). Calls to that tool go through the tunnel."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     raise ActionIsInterfaceError()
 

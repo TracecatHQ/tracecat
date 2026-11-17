@@ -19,6 +19,7 @@ from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
 from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Invitation,
     Organization,
@@ -106,9 +107,13 @@ class AdminOrgService(BasePlatformService):
             raise ValueError(f"Organization {org_id} not found")
         return OrgRead.model_validate(org)
 
-    async def _require_organization(self, org_id: uuid.UUID) -> None:
+    async def _require_organization(
+        self, org_id: uuid.UUID, *, for_update: bool = False
+    ) -> None:
         """Ensure an organization exists."""
         stmt = select(Organization.id).where(Organization.id == org_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         if await self.session.scalar(stmt) is None:
             raise ValueError(f"Organization {org_id} not found")
 
@@ -130,6 +135,8 @@ class AdminOrgService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(e, "ix_organization_slug"):
+                raise
             raise ValueError(f"Organization slug '{org.slug}' already exists") from e
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
@@ -487,7 +494,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, params: OrgDomainCreate
     ) -> OrgDomainRead:
         """Create and assign a domain to an organization."""
-        await self._require_organization(org_id)
+        await self._require_organization(org_id, for_update=True)
         normalized = normalize_domain(params.domain)
         await self._audit_domain_event(action="create", status=AuditEventStatus.ATTEMPT)
 
@@ -521,9 +528,11 @@ class AdminOrgService(BasePlatformService):
                 action="create",
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(
+            if conflict := self._domain_integrity_error(
                 exc, normalized.normalized_domain
-            ) from exc
+            ):
+                raise conflict from exc
+            raise
 
         await self._audit_domain_event(
             action="create",
@@ -537,6 +546,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, domain_id: uuid.UUID, params: OrgDomainUpdate
     ) -> OrgDomainRead:
         """Update primary/active state for an organization domain."""
+        await self._require_organization(org_id, for_update=True)
         domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
         previous_primary = domain.is_primary
         previous_active = domain.is_active
@@ -563,29 +573,28 @@ class AdminOrgService(BasePlatformService):
         if not next_active:
             next_primary = False
 
-        domain.is_active = next_active
-        domain.is_primary = next_primary
-
-        if next_primary:
-            domain.is_active = True
-            await self._demote_active_primaries(org_id=org_id, keep_domain_id=domain.id)
-
-        if not domain.is_active:
-            domain.is_primary = False
-
-        self.session.add(domain)
-        await self._ensure_primary_invariant(org_id=org_id)
-
+        normalized_domain = domain.normalized_domain
         try:
+            # Demote first: autoflush would otherwise write two active primaries.
+            if next_primary:
+                await self._demote_active_primaries(
+                    org_id=org_id, keep_domain_id=domain.id
+                )
+            domain.is_active = next_active
+            domain.is_primary = next_primary
+            self.session.add(domain)
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
             await self._audit_domain_event(
                 action="update",
-                resource_id=domain.id,
+                resource_id=domain_id,
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(exc, domain.normalized_domain) from exc
+            if conflict := self._domain_integrity_error(exc, normalized_domain):
+                raise conflict from exc
+            raise
 
         await self.session.refresh(domain)
 
@@ -608,6 +617,7 @@ class AdminOrgService(BasePlatformService):
 
     async def delete_org_domain(self, org_id: uuid.UUID, domain_id: uuid.UUID) -> None:
         """Delete an assigned organization domain."""
+        await self._require_organization(org_id, for_update=True)
         domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
         await self._audit_domain_event(
             action="delete",
@@ -615,16 +625,16 @@ class AdminOrgService(BasePlatformService):
             status=AuditEventStatus.ATTEMPT,
         )
 
-        await self.session.delete(domain)
-        await self.session.flush()
-        await self._ensure_primary_invariant(org_id=org_id)
         try:
+            await self.session.delete(domain)
+            await self.session.flush()
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
             await self._audit_domain_event(
                 action="delete",
-                resource_id=domain.id,
+                resource_id=domain_id,
                 status=AuditEventStatus.FAILURE,
             )
             raise ValueError("Failed to delete organization domain") from exc
@@ -667,6 +677,7 @@ class AdminOrgService(BasePlatformService):
         for existing_primary in result.scalars().all():
             existing_primary.is_primary = False
             self.session.add(existing_primary)
+        await self.session.flush()
 
     async def _ensure_primary_invariant(self, *, org_id: uuid.UUID) -> None:
         """Ensure at most one active primary and deterministic fallback promotion."""
@@ -717,18 +728,15 @@ class AdminOrgService(BasePlatformService):
 
     def _domain_integrity_error(
         self, error: IntegrityError, normalized_domain: str
-    ) -> ValueError:
+    ) -> ValueError | None:
         """Translate domain-related integrity errors into user-facing messages."""
-        message = (
-            str(error.orig).lower() if error.orig is not None else str(error).lower()
-        )
-        if "ix_org_domain_normalized_domain_active_unique" in message:
+        if is_unique_violation(error, "ix_org_domain_normalized_domain_active_unique"):
             return ValueError(
                 f"Domain {normalized_domain!r} is already assigned to another organization"
             )
-        if "ix_org_domain_org_primary_active_unique" in message:
+        if is_unique_violation(error, "ix_org_domain_org_primary_active_unique"):
             return ValueError("Organization already has an active primary domain")
-        return ValueError("Organization domain operation failed")
+        return None
 
     # Org Registry Methods
 

@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: List schedules
+  description: >-
+    List configured schedules. Calls GET /v2/schedules directly. Requires API key scope:
+    schedules.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/schedules-v2/list
+  namespace: tools.incident_io
+  name: list_schedules
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    page_size:
+      type: int | None
+      description: >-
+        Note that next_shifts will only be returned when the page size is 25 or lower. Maximum
+        10000.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        A schedule's ID. This endpoint will return a list of schedules after this ID in relation
+        to the API response order.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/schedules
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+  returns: ${{ steps.request.result }}

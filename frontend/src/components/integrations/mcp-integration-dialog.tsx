@@ -38,6 +38,8 @@ import {
   SERVER_TYPES,
   urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
+import { OAuthRedirectUriField } from "@/components/integrations/oauth-redirect-uri-field"
+import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import {
   Accordion,
   AccordionContent,
@@ -515,6 +517,7 @@ export function MCPIntegrationDialog({
         dirtyFields.auth_type ||
         dirtyFields.oauth_setup ||
         dirtyFields.oauth_integration_id ||
+        dirtyFields.tunnel_id ||
         dirtyFields.custom_credentials ||
         dirtyFields.timeout
     )
@@ -539,6 +542,7 @@ export function MCPIntegrationDialog({
         values.oauth_integration_id ||
         mcpIntegration?.oauth_integration_id ||
         null,
+      tunnel_id: values.tunnel_id || null,
       custom_credentials: customCredentials,
       timeout: values.timeout ?? null,
     })
@@ -638,6 +642,7 @@ export function MCPIntegrationDialog({
           ? "existing_integration"
           : "mcp_discovery",
         oauth_integration_id: mcpIntegration.oauth_integration_id || "",
+        tunnel_id: mcpIntegration.tunnel_id || "",
         oauth_client_credentials: "",
         custom_credentials: "", // Don't populate for security
         stdio_command: mcpIntegration.stdio_command || "",
@@ -695,6 +700,7 @@ export function MCPIntegrationDialog({
           ? "existing_integration"
           : "mcp_discovery",
         oauth_integration_id: mcpIntegration.oauth_integration_id || "",
+        tunnel_id: mcpIntegration.tunnel_id || "",
         oauth_client_credentials: "",
         custom_credentials: "",
         stdio_command: mcpIntegration.stdio_command || "",
@@ -791,6 +797,7 @@ export function MCPIntegrationDialog({
                   values.oauth_integration_id
                     ? values.oauth_integration_id
                     : null,
+                tunnel_id: values.tunnel_id || null,
                 custom_credentials: customCredentialsForUpdate,
               }
         hookHandledError = true
@@ -823,6 +830,7 @@ export function MCPIntegrationDialog({
               values.oauth_integration_id
                 ? values.oauth_integration_id
                 : undefined,
+            tunnel_id: values.tunnel_id || undefined,
             custom_credentials: customCredentialsForCreate,
           }
           if (
@@ -1003,7 +1011,7 @@ export function MCPIntegrationDialog({
             {...restTriggerProps}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add MCP Integration
+            Add MCP server
           </Button>
         </DialogTrigger>
       )}
@@ -1269,6 +1277,30 @@ export function MCPIntegrationDialog({
                             <FormDescription className="text-xs">
                               The MCP server endpoint URL. Must use HTTPS
                               (localhost allowed with HTTP).
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="tunnel_id"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Use tunnel (optional)</FormLabel>
+                            <FormControl>
+                              <TunnelSelect
+                                by="id"
+                                value={field.value}
+                                onChange={(next) => field.onChange(next ?? "")}
+                                noneLabel="None (direct connection)"
+                                className="h-9 text-sm"
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs">
+                              Reach a server in your private network. The
+                              server&apos;s host and port must be an allowed
+                              target of the tunnel.
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
@@ -1664,6 +1696,12 @@ export function MCPIntegrationDialog({
                               </FormItem>
                             )}
                           />
+                        ) : null}
+
+                        {serverType === "http" &&
+                        authType === "OAUTH2" &&
+                        oauthSetup === "oauth_client" ? (
+                          <OAuthRedirectUriField help="Add this redirect URI to the provider OAuth app." />
                         ) : null}
 
                         {serverType === "http" &&

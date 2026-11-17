@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -8,12 +10,17 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.settings import service as admin_settings_service_module
-from tracecat_ee.admin.settings.schemas import PlatformAuditSettingsUpdate
+from tracecat_ee.admin.settings.schemas import (
+    PlatformAuditSettingsUpdate,
+    PlatformSecuritySettingsUpdate,
+)
 from tracecat_ee.admin.settings.service import AdminSettingsService
 
 from tracecat.audit.service import AuditService
+from tracecat.auth import ip_allowlist_enforcement
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import PlatformSetting
+from tracecat.db.models import OrganizationSetting, PlatformSetting
+from tracecat.settings.schemas import IPAllowlist
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -25,6 +32,24 @@ def platform_role() -> PlatformRole:
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
+
+
+@pytest.fixture
+def allowlist_loader_uses_test_session(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> Iterator[None]:
+    @asynccontextmanager
+    async def _auth_session() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        ip_allowlist_enforcement,
+        "get_async_session_auth_context_manager",
+        _auth_session,
+    )
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    yield
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -111,3 +136,115 @@ async def test_platform_audit_settings_can_clear(
     )
 
     assert settings.audit_webhook_url is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("allowlist_loader_uses_test_session")
+async def test_platform_security_settings_default_to_not_enforced(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminSettingsService(session, platform_role)
+
+    settings = await service.get_security_settings()
+
+    assert settings.ip_allowlist_enabled is False
+    assert settings.ip_allowlists == []
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    loaded = await ip_allowlist_enforcement.get_platform_admin_ip_allowlist()
+    assert not loaded.enforced
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("allowlist_loader_uses_test_session")
+async def test_platform_security_settings_round_trip_and_enforcement_load(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminSettingsService(session, platform_role)
+
+    settings = await service.update_security_settings(
+        PlatformSecuritySettingsUpdate(
+            ip_allowlist_enabled=True,
+            ip_allowlists=[
+                IPAllowlist(
+                    name="Ops VPN",
+                    description="Platform operators",
+                    cidrs=["203.0.113.77/24"],
+                )
+            ],
+        )
+    )
+
+    assert settings.ip_allowlist_enabled is True
+    assert settings.ip_allowlists == [
+        IPAllowlist(
+            name="Ops VPN", description="Platform operators", cidrs=["203.0.113.0/24"]
+        )
+    ]
+    rows = (await session.execute(select(PlatformSetting))).scalars().all()
+    keys = {row.key for row in rows}
+    assert {
+        "platform_admin_ip_allowlist_enabled",
+        "platform_admin_ip_allowlists",
+    } <= keys
+    org_rows = (
+        (
+            await session.execute(
+                select(OrganizationSetting).where(
+                    OrganizationSetting.key.in_(
+                        ["ip_allowlist_enabled", "ip_allowlists"]
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert org_rows == []
+
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    loaded = await ip_allowlist_enforcement.get_platform_admin_ip_allowlist()
+    assert loaded.enforced
+    assert [n.with_prefixlen for n in loaded.networks] == ["203.0.113.0/24"]
+
+    settings = await service.update_security_settings(
+        PlatformSecuritySettingsUpdate(
+            ip_allowlist_enabled=False, ip_allowlists=settings.ip_allowlists
+        )
+    )
+    assert settings.ip_allowlist_enabled is False
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    assert not (
+        await ip_allowlist_enforcement.get_platform_admin_ip_allowlist()
+    ).enforced
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("allowlist_loader_uses_test_session")
+async def test_platform_admin_allowlist_ignores_malformed_rows(
+    session: AsyncSession,
+) -> None:
+    session.add_all(
+        [
+            PlatformSetting(
+                key="platform_admin_ip_allowlist_enabled",
+                value=orjson.dumps(True),
+                value_type="json",
+                is_encrypted=False,
+            ),
+            PlatformSetting(
+                key="platform_admin_ip_allowlists",
+                value=b"not json",
+                value_type="json",
+                is_encrypted=False,
+            ),
+        ]
+    )
+    await session.commit()
+
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    loaded = await ip_allowlist_enforcement.get_platform_admin_ip_allowlist()
+    assert not loaded.enforced
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()

@@ -8,7 +8,7 @@ import hashlib
 import mimetypes
 import uuid
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Never
@@ -16,8 +16,6 @@ from typing import Literal, Never
 import orjson
 import sqlalchemy as sa
 import yaml
-from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
-from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -77,6 +75,7 @@ from tracecat.agent.skill.validation import (
     get_mcp_grant_support_error,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersionSkill,
@@ -99,6 +98,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -106,6 +106,7 @@ from tracecat.pagination import (
 )
 from tracecat.storage import blob
 from tracecat.tags.schemas import TagRead
+from tracecat.workspace_sync.enums import SyncResourceType
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -124,7 +125,6 @@ SKILL_TOOL_ERROR_CODES = frozenset(
         STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
     }
 )
-POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
 EXPIRED_UPLOAD_REAP_BATCH_SIZE = 64
 # Skill origin is independent of its portable name or lookup slug.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
@@ -297,59 +297,6 @@ type SkillDraftBlobMapFactory = Callable[
     [list[PublishedBlobObject]], Awaitable[dict[str, SkillFileBlobRef]]
 ]
 type SkillBeforeCreateCommit = Callable[[Skill], Awaitable[None]]
-
-
-def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
-    """Yield every exception that may carry driver diagnostics for ``error``.
-
-    The real driver exception can hide behind SQLAlchemy or adapter wrappers,
-    so walk the ``__cause__``/``__context__`` chain of both the wrapper and
-    its DBAPI ``orig`` payload (asyncpg surfaces the violation there).
-    """
-
-    seen: set[int] = set()
-
-    def walk(exc: BaseException) -> Iterator[BaseException]:
-        current: BaseException | None = exc
-        while current is not None and id(current) not in seen:
-            seen.add(id(current))
-            yield current
-            current = current.__cause__ or current.__context__
-
-    yield from walk(error)
-    orig = error.orig
-    yield orig
-    if isinstance(orig, BaseException):
-        yield from walk(orig)
-
-
-def _is_skill_slug_unique_violation(error: IntegrityError) -> bool:
-    """True when ``error`` is a unique violation on the live-slug index.
-
-    Detection is structural (repo rule: never match on error-message strings)
-    and covers both drivers: a unique violation is the driver exception type
-    or SQLSTATE 23505 (asyncpg ``sqlstate`` / psycopg ``pgcode``), and the
-    violated constraint name comes from the exception itself (asyncpg) or its
-    ``diag`` block (psycopg).
-    """
-
-    is_unique = False
-    constraint_name: str | None = None
-    for source in _integrity_error_sources(error):
-        if isinstance(source, (AsyncpgUniqueViolationError, PsycopgUniqueViolation)):
-            is_unique = True
-        elif POSTGRES_UNIQUE_VIOLATION_SQLSTATE in (
-            getattr(source, "sqlstate", None),
-            getattr(source, "pgcode", None),
-        ):
-            is_unique = True
-        if constraint_name is None:
-            name = getattr(source, "constraint_name", None)
-            if not isinstance(name, str):
-                name = getattr(getattr(source, "diag", None), "constraint_name", None)
-            if isinstance(name, str):
-                constraint_name = name
-    return is_unique and constraint_name == SKILL_SLUG_UNIQUE_CONSTRAINT
 
 
 class SkillService(SkillBindingService):
@@ -1851,6 +1798,9 @@ class SkillService(SkillBindingService):
         """Create a skill and draft, then atomically run optional preparation."""
 
         for _ in range(SKILL_SLUG_INSERT_ATTEMPTS):
+            # Every create path comes through here. A failed attempt rolls
+            # back and releases the lock, so take it again on each try.
+            await hold_for_customer_write(self.session, self.workspace_id)
             slug = await self._allocate_skill_slug(name)
             skill = Skill(
                 workspace_id=self.workspace_id,
@@ -1880,7 +1830,7 @@ class SkillService(SkillBindingService):
                 if not committing:
                     await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
-                if not _is_skill_slug_unique_violation(exc):
+                if not is_unique_violation(exc, SKILL_SLUG_UNIQUE_CONSTRAINT):
                     raise
             except BaseException:
                 # BaseException so a CancelledError from the MCP tool timeout
@@ -2048,8 +1998,20 @@ class SkillService(SkillBindingService):
     async def _get_skill_for_update(
         self, skill_id: uuid.UUID, *, include_archived: bool = False
     ) -> Skill | None:
-        """Return and lock a skill row for mutation."""
+        """Return and lock a skill row for mutation.
 
+        Every skill write loads its row here, so this is where a managed
+        skill's content, files, versions and deletion are locked.
+
+        Raises:
+            ManagedResourceLockedError: The skill is managed.
+        """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.SKILL,
+            local_id=skill_id,
+        )
         predicates = [
             Skill.workspace_id == self.workspace_id,
             Skill.id == skill_id,
@@ -2076,6 +2038,7 @@ class SkillService(SkillBindingService):
         Returns:
             The created skill summary.
         """
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         async def default_draft_blob_map(
             published: list[PublishedBlobObject],

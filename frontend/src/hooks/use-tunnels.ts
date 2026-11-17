@@ -3,12 +3,15 @@
 import {
   type ManagedTunnelCreate,
   type ManagedTunnelCreated,
+  type TunnelDetailRead,
   type TunnelGatewayKeyRead,
   type TunnelRead,
   type TunnelStatusRead,
   type TunnelUpdate,
   tunnelsCreateManagedTunnel,
   tunnelsDeleteTunnel,
+  tunnelsGetTunnel,
+  tunnelsGetTunnelAvailability,
   tunnelsGetTunnelStatus,
   tunnelsIssueTunnelGatewayKey,
   tunnelsListTunnels,
@@ -18,6 +21,20 @@ import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function tunnelsQueryKey(workspaceId: string) {
   return ["workspace-tunnels", workspaceId] as const
+}
+
+/** Whether this deployment can run tunnel gateways, which needs Kubernetes. */
+export function useTunnelAvailability(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const { data } = useQuery({
+    queryKey: ["workspace-tunnels-availability", workspaceId] as const,
+    queryFn: async () => await tunnelsGetTunnelAvailability({ workspaceId }),
+    enabled: enabled && Boolean(workspaceId),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+  return data?.available
 }
 
 /** Lists a workspace's tunnels and exposes the tunnel mutations. */
@@ -87,6 +104,20 @@ export function useTunnels(
     issueGatewayKey: issueGatewayKey.mutateAsync,
     issueGatewayKeyPending: issueGatewayKey.isPending,
   }
+}
+
+/** Reads a tunnel and the MCP integrations, agents and workflows using it. */
+export function useTunnelDetail(
+  workspaceId: string,
+  tunnelId: string | null | undefined
+) {
+  return useQuery<TunnelDetailRead, Error>({
+    queryKey: [...tunnelsQueryKey(workspaceId), tunnelId, "detail"],
+    queryFn: async () =>
+      await tunnelsGetTunnel({ workspaceId, tunnelId: tunnelId ?? "" }),
+    enabled: Boolean(workspaceId && tunnelId),
+    staleTime: 0,
+  })
 }
 
 /** Polls the live status of one tunnel's site and gateway. */

@@ -61,7 +61,7 @@ export function FolderPathBreadcrumb({
               </BreadcrumbSeparator>
               <BreadcrumbItem>
                 {shouldRenderAsPage ? (
-                  <BreadcrumbPage className="font-semibold">
+                  <BreadcrumbPage className="font-semibold text-muted-foreground">
                     {segment}
                   </BreadcrumbPage>
                 ) : (
@@ -85,7 +85,7 @@ export function FolderPathBreadcrumb({
             </BreadcrumbSeparator>
             <BreadcrumbItem>
               {currentPage !== undefined && currentPage !== null ? (
-                <BreadcrumbPage className="font-semibold min-w-0">
+                <BreadcrumbPage className="min-w-0 font-semibold text-muted-foreground">
                   {currentPage}
                 </BreadcrumbPage>
               ) : (

@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Start RTR batch session
+  description: >-
+    Start Real Time Response sessions on many hosts at once and return a batch ID for
+    the batch command actions. Keep it alive with `refresh_rtr_batch_session`. Requires
+    the Real time response: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#batchinitsessions
+  namespace: tools.crowdstrike
+  name: start_rtr_batch_session
+  expects:
+    host_ids:
+      type: list[str]
+      description: Host AIDs to start sessions on.
+    existing_batch_id:
+      type: str | None
+      description: Existing batch ID to add the hosts to.
+      default: null
+    queue_offline:
+      type: bool
+      description: Queue commands for hosts that are offline.
+      default: false
+    timeout:
+      type: int | None
+      description: "Seconds to wait for the request. Defaults to 30, maximum 600."
+      default: null
+    timeout_duration:
+      type: str | None
+      description: "Timeout as a duration, for example `30s`. Maximum `10m`."
+      default: null
+    host_timeout_duration:
+      type: str | None
+      description: >-
+        How long each host has to finish, for example `20s`. Must be less than the
+        overall timeout.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: start_rtr_batch_session
+      action: tools.falconpy.call_command
+      args:
+        operation_id: BatchInitSessions
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          timeout: ${{ inputs.timeout }}
+          timeout_duration: ${{ inputs.timeout_duration }}
+          host_timeout_duration: ${{ inputs.host_timeout_duration }}
+          body:
+            host_ids: ${{ inputs.host_ids }}
+            existing_batch_id: ${{ inputs.existing_batch_id }}
+            queue_offline: ${{ inputs.queue_offline }}
+  returns: ${{ steps.start_rtr_batch_session.result }}

@@ -384,9 +384,15 @@ class UnifiedStreamEvent:
         return cls(type=StreamEventType.APPROVAL_REQUEST, approval_items=items)
 
     @classmethod
-    def user_message_event(cls, content: str) -> UnifiedStreamEvent:
-        """Factory method for creating user message events."""
-        return cls(type=StreamEventType.USER_MESSAGE, text=content)
+    def user_message_event(
+        cls, content: str, *, message_id: str | None = None
+    ) -> UnifiedStreamEvent:
+        """A user message that joined the running turn, such as a steering message.
+
+        ``message_id`` is the ID the client submitted it under, if any.
+        """
+        metadata = {"id": message_id} if message_id is not None else None
+        return cls(type=StreamEventType.USER_MESSAGE, text=content, metadata=metadata)
 
     @classmethod
     def compaction_event(

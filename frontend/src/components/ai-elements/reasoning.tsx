@@ -25,6 +25,7 @@ import { Response } from "./response"
 
 type ReasoningContextValue = {
   isStreaming: boolean
+  isEmpty: boolean
   duration: number
 }
 
@@ -40,6 +41,8 @@ const useReasoning = () => {
 
 export type ReasoningProps = ComponentProps<typeof TraceCollapsible> & {
   isStreaming?: boolean
+  /** No thought text yet: the trigger draws as a plain line with no chevron. */
+  isEmpty?: boolean
   duration?: number
 }
 
@@ -51,6 +54,7 @@ export const Reasoning = memo(
   ({
     className,
     isStreaming = false,
+    isEmpty = false,
     defaultOpen = true,
     duration: durationProp,
     children,
@@ -75,7 +79,7 @@ export const Reasoning = memo(
     }, [isStreaming, startTime, setDuration])
 
     return (
-      <ReasoningContext.Provider value={{ isStreaming, duration }}>
+      <ReasoningContext.Provider value={{ isStreaming, isEmpty, duration }}>
         <Trace className={cn("not-prose", className)}>
           <TraceCollapsible defaultOpen={defaultOpen} {...props}>
             {children}
@@ -92,7 +96,8 @@ export type ReasoningTriggerProps = ComponentProps<
 
 function getThoughtTitle(isStreaming: boolean, duration?: number): string {
   if (isStreaming) {
-    return "Thinking"
+    // Matches the chat's running line, which this line replaces.
+    return "Thinking..."
   }
   if (!duration) {
     return "Thought"
@@ -102,15 +107,20 @@ function getThoughtTitle(isStreaming: boolean, duration?: number): string {
 
 export const ReasoningTrigger = memo(
   ({ className, children, ...props }: ReasoningTriggerProps) => {
-    const { isStreaming, duration } = useReasoning()
+    const { isStreaming, isEmpty, duration } = useReasoning()
+    const line = children ?? (
+      <TraceLine status={isStreaming ? "running" : undefined}>
+        <TraceTitle>{getThoughtTitle(isStreaming, duration)}</TraceTitle>
+      </TraceLine>
+    )
 
+    // Nothing to expand into, so no chevron.
+    if (isEmpty) {
+      return <div className={cn("flex w-fit", className)}>{line}</div>
+    }
     return (
       <TraceCollapsibleTrigger className={className} {...props}>
-        {children ?? (
-          <TraceLine status={isStreaming ? "running" : undefined}>
-            <TraceTitle>{getThoughtTitle(isStreaming, duration)}</TraceTitle>
-          </TraceLine>
-        )}
+        {line}
       </TraceCollapsibleTrigger>
     )
   }
@@ -124,7 +134,7 @@ export type ReasoningContentProps = ComponentProps<
 
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => {
-    const { isStreaming } = useReasoning()
+    const { isStreaming, isEmpty } = useReasoning()
     // Reveal reasoning deltas at a steady frame-aligned rate so they don't
     // appear in uneven network-sized bursts while thinking streams in.
     const shownText = useSmoothText(children, isStreaming)
@@ -154,6 +164,9 @@ export const ReasoningContent = memo(
       }
     }, [children, shownText, isStreaming])
 
+    if (isEmpty) {
+      return null
+    }
     return (
       <TraceCollapsibleContent className={cn("text-sm", className)} {...props}>
         <div

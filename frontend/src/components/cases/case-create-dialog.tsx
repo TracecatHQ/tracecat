@@ -120,7 +120,7 @@ export function CreateCaseDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" className="sm:max-w-[625px]">
         <DialogHeader>
-          <DialogTitle>Create new case</DialogTitle>
+          <DialogTitle>Create case</DialogTitle>
           <DialogDescription>
             Create a new case to track and manage incidents and issues.
           </DialogDescription>

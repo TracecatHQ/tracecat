@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Never
+from typing import Any, Never, TypeGuard
 
 from temporalio.exceptions import (
     ApplicationError,
@@ -11,10 +11,12 @@ from temporalio.exceptions import (
 )
 
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
+from tracecat.dsl.schemas import StreamID
 from tracecat.dsl.types import ActionErrorInfo, TaskExceptionInfo
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
+    RuntimeErrorKind,
     select_error_classification,
 )
 from tracecat.temporal.errors import (
@@ -23,6 +25,53 @@ from tracecat.temporal.errors import (
     extract_error_classifications,
     raise_application_error_from_classification,
 )
+
+WORKER_SHUTDOWN_ERROR_TYPE = "WorkerShutdown"
+"""Failure type sdk-core reports for an activity still running when its
+worker's graceful shutdown timeout ends."""
+
+
+def is_worker_shutdown_error(
+    error: BaseException | None,
+) -> TypeGuard[ApplicationError]:
+    """Return whether an activity failure cause is a worker drain timeout."""
+    return (
+        isinstance(error, ApplicationError) and error.type == WORKER_SHUTDOWN_ERROR_TYPE
+    )
+
+
+def worker_shutdown_classification(
+    error: BaseException,
+) -> RuntimeErrorClassification:
+    """Classify an action interrupted by its executor shutting down."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.EXECUTOR_WORKER_SHUTDOWN,
+        message="The action was interrupted because its executor shut down",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def raise_worker_shutdown_error(
+    error: BaseException,
+    *,
+    ref: str,
+    stream_id: StreamID,
+) -> Never:
+    """Raise a worker drain timeout as a classified action failure."""
+    classification = worker_shutdown_classification(error)
+    raise_application_error_from_classification(
+        classification,
+        build_error_transport_detail(
+            classification,
+            ActionErrorInfo(
+                ref=ref,
+                message=classification.message,
+                type=WORKER_SHUTDOWN_ERROR_TYPE,
+                stream_id=stream_id,
+            ),
+        ),
+    )
 
 
 def raise_child_failures_application_error(

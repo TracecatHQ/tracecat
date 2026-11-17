@@ -131,7 +131,7 @@ function AddAttachmentRow({
       <span className="flex size-6 shrink-0 items-center justify-center">
         {isUploading ? <Spinner /> : <Plus className="size-4" />}
       </span>
-      {isUploading ? "Uploading…" : "Add attachment"}
+      {isUploading ? "Uploading…" : "Upload attachment"}
     </button>
   )
 }

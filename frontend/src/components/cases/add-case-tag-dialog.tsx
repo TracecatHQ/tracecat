@@ -29,7 +29,7 @@ export function AddCaseTagDialog({
           requestBody: params,
         })
       }}
-      title="Create new case tag"
+      title="Create tag"
       description="Enter a name for your new case tag."
     />
   )

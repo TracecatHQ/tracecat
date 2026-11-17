@@ -47,7 +47,7 @@ interface CreateSSHKeyDialogProps
     description?: FieldConfig
     environment?: FieldConfig
   }
-  /** Dialog heading. Defaults to "Create new SSH key". */
+  /** Dialog heading. Defaults to "Create SSH key". */
   title?: string
   /** Copy under the heading. */
   description?: string
@@ -76,7 +76,7 @@ export function CreateSSHKeyDialog({
   className,
   handler,
   fieldConfig,
-  title = "Create new SSH key",
+  title = "Create SSH key",
   description = "Create a new SSH key that can be used to authenticate into your private actions registry.",
   submitLabel = "Create SSH key",
   open,

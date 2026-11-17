@@ -91,7 +91,7 @@ async def test_unrecognized_database_errors_are_not_client_errors(
         raise error
 
     with pytest.raises(error_type) as exc:
-        await _execute_row_write(failed_write(), [TableColumn(name="record_key")])
+        await _execute_row_write(failed_write(), ["record_key"])
     assert exc.value is error
 
 

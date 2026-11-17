@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
@@ -53,10 +53,10 @@ async def add_tag(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
         ) from err
-    except IntegrityError as e:
+    except ValueError as err:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Tag operation failed"
-        ) from e
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tag name"
+        ) from err
 
 
 @router.delete(

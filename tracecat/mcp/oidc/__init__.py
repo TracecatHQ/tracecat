@@ -5,7 +5,8 @@ This package implements a minimal OIDC authorization server that FastMCP's
 dependency on an external BYO OIDC IdP.
 
 The issuer authenticates users via existing Tracecat session cookies and
-issues short-lived JWT access tokens scoped to a single organization.
+issues short-lived JWT access tokens scoped to the organizations the user
+granted at sign-in.
 """
 
 from __future__ import annotations

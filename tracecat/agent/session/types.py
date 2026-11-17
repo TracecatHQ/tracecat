@@ -26,6 +26,11 @@ def is_session_readonly(role: Role, created_by: UserID | None) -> bool:
     return False
 
 
+def is_ownerless_channel_session(entity_type: str, created_by: UserID | None) -> bool:
+    """A session started from an external channel: no creator owns it."""
+    return entity_type == AgentSessionEntity.EXTERNAL_CHANNEL and created_by is None
+
+
 class TurnLifecycle(StrEnum):
     """In-memory reconnect decision derived live from Temporal.
 
@@ -104,3 +109,5 @@ class PreparedAgentTurn:
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
+    backend_id: str
+    harness_type: str | None

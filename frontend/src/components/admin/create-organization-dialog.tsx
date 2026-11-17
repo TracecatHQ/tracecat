@@ -111,7 +111,7 @@ export function CreateOrganizationDialog() {
           }
         >
           <PlusIcon className="mr-2 size-4" />
-          New organization
+          Create organization
         </Button>
       </DialogTrigger>
       <DialogContent size="md">
@@ -173,7 +173,7 @@ export function CreateOrganizationDialog() {
                 type="submit"
                 disabled={createPending || createDisabled}
               >
-                {createPending ? "Creating..." : "Create"}
+                {createPending ? "Creating..." : "Create organization"}
               </Button>
             </DialogFooter>
           </form>

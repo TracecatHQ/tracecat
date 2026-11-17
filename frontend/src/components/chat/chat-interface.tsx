@@ -67,7 +67,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   type ChatModelNotice,
   getModelUnavailableMessage,
@@ -135,8 +135,9 @@ export function ChatInterface({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const backendSelectionEnabled = isFeatureEnabled("agent-runtime")
+  // The server rejects non-default backends for orgs without the entitlement.
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const backendSelectionEnabled = hasEntitlement("agent_runtime_preview")
   const {
     backends,
     backendsLoading,
@@ -145,9 +146,9 @@ export function ChatInterface({
     refetchBackends,
   } = useAgentBackends(workspaceId, { enabled: backendSelectionEnabled })
   const backendSelectionLoading =
-    featureFlagsLoading || (backendSelectionEnabled && backendsLoading)
+    entitlementsLoading || (backendSelectionEnabled && backendsLoading)
   const backendSelectionReady =
-    !featureFlagsLoading && (!backendSelectionEnabled || backendsReady)
+    !entitlementsLoading && (!backendSelectionEnabled || backendsReady)
   const hasBackendChoice = backendSelectionEnabled && backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
@@ -187,7 +188,7 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  const { chat, chatLoading, chatError } = useGetChatVercel({
+  const { chat, chatLoading, chatError, refetchChat } = useGetChatVercel({
     chatId: selectedChatId,
     workspaceId,
   })
@@ -605,6 +606,7 @@ export function ChatInterface({
           chat={chat}
           chatLoading={chatLoading}
           chatError={chatError}
+          onRetryChatLoad={() => void refetchChat()}
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
@@ -675,6 +677,7 @@ interface ChatBodyProps {
   chat?: AgentSessionsGetSessionVercelResponse
   chatLoading: boolean
   chatError: unknown
+  onRetryChatLoad: () => void
   selectedPreset?: PresetConfigLike
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
@@ -712,6 +715,7 @@ function ChatBody({
   chat,
   chatLoading,
   chatError,
+  onRetryChatLoad,
   selectedPreset,
   selectedPresetConfigError,
   toolsEnabled,
@@ -747,10 +751,23 @@ function ChatBody({
   )
   const cannotExecuteAgents = useScopeCheck("agent:execute") === false
 
-  if (chatError) {
+  // A failed refetch keeps the loaded transcript; only a session that never
+  // loaded shows the error.
+  if (chatError && !chat) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <span className="text-red-500">Failed to load chat</span>
+      <div className="px-4 pb-2">
+        <Alert variant="destructive">
+          <AlertTitle>Failed to load chat</AlertTitle>
+          <AlertDescription>{parseChatError(chatError)}</AlertDescription>
+          <Button
+            className="mt-2"
+            size="sm"
+            variant="outline"
+            onClick={onRetryChatLoad}
+          >
+            Retry
+          </Button>
+        </Alert>
       </div>
     )
   }

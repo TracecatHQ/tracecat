@@ -7,12 +7,12 @@ import {
   Pyramid,
   Radar,
   ScanSearch,
-  SearchIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { type ComponentType, useMemo, useState } from "react"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { SkillLibraryActionButton } from "@/components/skills/skill-library-action-button"
@@ -26,7 +26,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { Input } from "@/components/ui/input"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { uniqueAgentPresetName } from "@/lib/agent-preset-name"
@@ -41,7 +40,6 @@ import {
   librarySkillCategory,
   librarySkillTitle,
 } from "@/lib/skill-library"
-import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -197,20 +195,11 @@ export function SkillLibraryView() {
   return (
     <div className="flex size-full flex-col overflow-auto">
       <header className="flex h-10 shrink-0 items-center gap-3 border-b pl-3 pr-4">
-        <div className="flex size-7 shrink-0 items-center justify-center">
-          <SearchIcon className="size-4 text-muted-foreground" />
-        </div>
-        <Input
-          type="text"
+        <ListHeaderSearch
           aria-label="Search library skills"
           placeholder="Search library skills..."
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          className={cn(
-            "h-7 w-64 border-none bg-transparent p-0 text-sm shadow-none outline-none",
-            "placeholder:text-muted-foreground",
-            "focus-visible:ring-0 focus-visible:ring-offset-0"
-          )}
         />
         <span className="ml-auto text-xs text-muted-foreground">
           {skillCount === 1 ? "1 skill" : `${skillCount} skills`}

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import orjson
 import pytest
 import sqlalchemy as sa
 from dotenv import dotenv_values
@@ -46,9 +47,12 @@ from tracecat.agent.subagents import (
     has_manual_tool_approvals,
 )
 from tracecat.agent.types import AgentConfig
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelBot,
     AgentChannelToken,
     AgentFolder,
     AgentModelAccess,
@@ -60,6 +64,7 @@ from tracecat.db.models import (
     AgentTagLink,
     MCPIntegration,
     Organization,
+    OrganizationSetting,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
@@ -816,6 +821,79 @@ class TestAgentPresetService:
         assert config.catalog_id == catalog.id
         assert config.model_name == "claude-sonnet-4-5"
         assert config.model_provider == "anthropic"
+
+    async def test_resolve_agent_preset_config_runs_disabled_retired_model_on_replacement(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        retired = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-5.1-codex-max",
+            model_metadata={},
+        )
+        replacement = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-5.6-sol",
+            model_metadata={},
+        )
+        session.add_all([retired, replacement])
+        await session.flush()
+        retired_access = AgentModelAccess(
+            organization_id=svc_organization.id,
+            workspace_id=None,
+            catalog_id=retired.id,
+        )
+        session.add_all(
+            [
+                retired_access,
+                AgentModelAccess(
+                    organization_id=svc_organization.id,
+                    workspace_id=None,
+                    catalog_id=replacement.id,
+                ),
+            ]
+        )
+        session.add(
+            OrganizationSetting(
+                organization_id=svc_organization.id,
+                key="agent_auto_migrate_retired_models",
+                value=orjson.dumps(True),
+                value_type="json",
+                is_encrypted=False,
+            )
+        )
+        await session.commit()
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"catalog_id": retired.id})
+        )
+        # The provider retires the model and an admin disables it afterwards.
+        retired.model_metadata = {
+            "lifecycle": {"retires_on": "2000-01-01", "replacement": "gpt-5.6-sol"}
+        }
+        await session.delete(retired_access)
+        await session.commit()
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=preset.id
+        )
+
+        assert (config.model_name, config.catalog_id) == (
+            "gpt-5.6-sol",
+            replacement.id,
+        )
+        stored = await agent_preset_service.get_preset(preset.id)
+        assert stored is not None
+        assert (stored.model_name, stored.catalog_id) == (
+            "gpt-5.1-codex-max",
+            retired.id,
+        )
 
     async def test_update_preset_rejects_catalog_id_excluded_by_workspace_override(
         self,
@@ -3236,6 +3314,75 @@ class TestAgentPresetService:
         await agent_preset_service.session.refresh(token)
         assert token.is_active is False
 
+    @pytest.mark.parametrize(
+        ("app_owner", "status", "tenant", "refused"),
+        [
+            ("platform", "active", "T1", True),
+            ("platform", "needs_reconnect", "T1", True),
+            # The browser never came back from Slack: nothing is installed.
+            ("platform", "needs_reconnect", None, False),
+            ("platform", "disconnected", None, False),
+            # A disconnected install no longer answers, whatever it kept.
+            ("platform", "disconnected", "T1", False),
+            ("workspace", "active", "T1", False),
+        ],
+    )
+    async def test_delete_preset_refuses_a_platform_installs_default_agent(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        app_owner: str,
+        status: str,
+        tenant: str | None,
+        refused: bool,
+    ) -> None:
+        """Deleting a platform install's default agent would silence the whole install."""
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        agent_preset_service.session.add(
+            AgentChannelBot(
+                workspace_id=agent_preset_service.workspace_id,
+                agent_preset_id=preset.id,
+                provider="slack",
+                app_owner=app_owner,
+                status=status,
+                provider_tenant_id=tenant,
+                granted_scopes=[],
+                manifest_version=0,
+                encrypted_credentials=b"sealed",
+            )
+        )
+        await agent_preset_service.session.commit()
+
+        if refused:
+            with pytest.raises(TracecatValidationError, match="make another agent"):
+                await agent_preset_service.delete_preset(preset)
+            await agent_preset_service.session.rollback()
+            await agent_preset_service.session.refresh(preset)
+            assert preset.deleted_at is None
+        else:
+            await agent_preset_service.delete_preset(preset)
+            assert preset.deleted_at is not None
+
+    async def test_delete_preset_audits_the_preset(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        create_event = AsyncMock()
+        monkeypatch.setattr(AuditService, "create_event", create_event)
+
+        await agent_preset_service.delete_preset(preset)
+
+        assert [
+            (call.kwargs["resource_id"], call.kwargs["status"])
+            for call in create_event.await_args_list
+        ] == [
+            (preset.id, AuditEventStatus.ATTEMPT),
+            (preset.id, AuditEventStatus.SUCCESS),
+        ]
+
     async def test_delete_preset_removes_pending_slack_channel_tokens(
         self,
         agent_preset_service: AgentPresetService,
@@ -4185,6 +4332,47 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
 
 
 @pytest.mark.anyio
+async def test_preset_list_reads_include_head_skill_ids(
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+) -> None:
+    skills = SkillService(session, role=svc_role)
+    skill_ids = []
+    for name in ("first-skill", "second-skill"):
+        skill = await skills.create_skill(SkillCreate(name=name))
+        await skills.publish_skill(skill.id)
+        skill_ids.append(skill.id)
+    bound = await agent_preset_service.create_preset(
+        agent_preset_create_params.model_copy(
+            update={
+                "skills": [
+                    AgentPresetSkillBindingBase(skill_id=skill_id)
+                    for skill_id in skill_ids
+                ]
+            }
+        )
+    )
+    unbound = await agent_preset_service.create_preset(
+        agent_preset_create_params.model_copy(
+            update={"name": "Unbound", "slug": "unbound", "skills": None}
+        )
+    )
+
+    reads = {
+        read.id: read
+        for read in await agent_preset_service.build_preset_list_reads(
+            await agent_preset_service.list_presets()
+        )
+    }
+
+    assert set(reads[bound.id].skill_ids) == set(skill_ids)
+    assert reads[unbound.id].skill_ids == []
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("operation", ["create", "preview", "runtime", "update"])
 async def test_effective_skill_tool_limit_is_checked_before_execution(
     operation: str,
@@ -4399,3 +4587,233 @@ async def test_registry_default_approval_is_shared_by_eligibility_and_attachment
         assert listed.current_version_subagent_eligibility.reasons == ["tool_approvals"]
         with pytest.raises(TracecatValidationError, match="uses manual approvals"):
             await agent_preset_service.create_preset(parent)
+
+
+@pytest.mark.anyio
+async def test_tool_tunnels_follow_effective_tool_policy(
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tunnel keys match the tools the runtime builds: skills grant, namespaces filter."""
+    from tracecat.db.models import WorkspaceTunnel
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.is_org_entitled", AsyncMock(return_value=True)
+    )
+    assert svc_role.workspace_id is not None
+    session.add(
+        WorkspaceTunnel(
+            workspace_id=svc_role.workspace_id,
+            name="onprem",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[],
+        )
+    )
+    skill_service = SkillService(session=session, role=svc_role)
+    skill = await skill_service.create_skill(SkillCreate(name="tunnel-tool"))
+    await skill_service.patch_draft(
+        skill_id=skill.id,
+        params=SkillDraftPatch(
+            base_revision=skill.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content="---\nname: tunnel-tool\nmetadata: {tools: [tools.test.test_action]}\n---\n",
+                )
+            ],
+        ),
+    )
+    await skill_service.publish_skill(skill.id)
+
+    # An authored action the namespace filter removes is not a tool of the
+    # agent, so its tunnel is dropped rather than saved.
+    agent_preset_create_params.actions = ["core.http_request"]
+    agent_preset_create_params.namespaces = ["tools.test"]
+    agent_preset_create_params.tool_tunnels = {"core.http_request": "onprem"}
+    filtered = await agent_preset_service.create_preset(agent_preset_create_params)
+    assert filtered.tool_tunnels is None
+
+    # A skill-granted action can be tunneled.
+    agent_preset_create_params.name = "Skill tunnel preset"
+    agent_preset_create_params.actions = ["tools.test.test_action"]
+    agent_preset_create_params.namespaces = None
+    agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
+    agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    assert preset.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+    # The builder resends the whole map on every save. Removing the explicit
+    # grant keeps the tunnel while the skill still grants the tool.
+    preset = await agent_preset_service.update_preset(
+        preset,
+        AgentPresetUpdate(
+            actions=[], tool_tunnels={"tools.test.test_action": "onprem"}
+        ),
+    )
+    assert preset.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+    # Filtering the skill tool out drops its resent tunnel instead of failing
+    # the save.
+    preset = await agent_preset_service.update_preset(
+        preset,
+        AgentPresetUpdate(
+            namespaces=["core"], tool_tunnels={"tools.test.test_action": "onprem"}
+        ),
+    )
+    assert preset.tool_tunnels is None
+
+    # Tunnels for MCP tools are still rejected: they belong on the integration.
+    with pytest.raises(TracecatValidationError, match="MCP integration"):
+        await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate(tool_tunnels={"mcp__jira__search": "onprem"})
+        )
+
+
+async def _tunneled_preset(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+) -> AgentPreset:
+    from tracecat.db.models import WorkspaceTunnel
+
+    assert svc_role.workspace_id is not None
+    session.add(
+        WorkspaceTunnel(
+            workspace_id=svc_role.workspace_id,
+            name="onprem",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[],
+        )
+    )
+    agent_preset_create_params.actions = ["tools.test.test_action"]
+    agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
+    return await agent_preset_service.create_preset(agent_preset_create_params)
+
+
+@pytest.mark.anyio
+async def test_stale_tool_tunnel_is_left_out_of_run_config(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tunnel for a tool the agent lost after the version was saved (e.g. a
+    republished skill dropped it) doesn't fail the run's tool build."""
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.is_org_entitled", AsyncMock(return_value=True)
+    )
+    preset = await _tunneled_preset(
+        session, svc_role, agent_preset_service, agent_preset_create_params
+    )
+    version = await agent_preset_service.get_current_version_for_preset(preset)
+    version.tool_tunnels = {
+        "tools.test.test_action": "onprem",
+        "core.http_request": "onprem",
+    }
+    session.add(version)
+    await session.commit()
+
+    config = await agent_preset_service.resolve_agent_preset_config(preset_id=preset.id)
+    assert config.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+    # The workflow's root config keeps the whole map and prunes after action
+    # overrides, which can re-add the tool.
+    unpruned = await agent_preset_service.resolve_agent_preset_config(
+        preset_id=preset.id, prune_tool_tunnels=False
+    )
+    assert unpruned.tool_tunnels == {
+        "tools.test.test_action": "onprem",
+        "core.http_request": "onprem",
+    }
+
+
+@pytest.mark.anyio
+async def test_save_without_tunnel_entitlement_prunes_unused_tunnels(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a plan downgrade, removing the tunneled tool still saves although
+    the builder resends the stale map."""
+    entitled = AsyncMock(return_value=True)
+    monkeypatch.setattr("tracecat.agent.preset.service.is_org_entitled", entitled)
+    preset = await _tunneled_preset(
+        session, svc_role, agent_preset_service, agent_preset_create_params
+    )
+    entitled.return_value = False
+
+    preset = await agent_preset_service.update_preset(
+        preset,
+        AgentPresetUpdate(
+            actions=["core.http_request"],
+            tool_tunnels={"tools.test.test_action": "onprem"},
+        ),
+    )
+
+    assert preset.tool_tunnels is None
+
+
+@pytest.mark.anyio
+async def test_compare_versions_reports_tool_tunnel_changes(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A version that only reroutes a tool still shows up in the diff."""
+    from tracecat.db.models import WorkspaceTunnel
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.is_org_entitled", AsyncMock(return_value=True)
+    )
+    assert svc_role.workspace_id is not None
+    for name in ("onprem", "dmz"):
+        session.add(
+            WorkspaceTunnel(
+                workspace_id=svc_role.workspace_id,
+                name=name,
+                endpoint="https://pangolin.example.com",
+                client_id=f"client-{name}",
+                encrypted_client_secret=b"x",
+                allowed_targets=[],
+            )
+        )
+    agent_preset_create_params.actions = ["tools.test.test_action"]
+    agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    version_1 = await agent_preset_service.get_current_version_for_preset(preset)
+
+    await agent_preset_service.update_preset(
+        preset, AgentPresetUpdate(tool_tunnels={"tools.test.test_action": "dmz"})
+    )
+    version_2 = await agent_preset_service.get_current_version_for_preset(preset)
+    await agent_preset_service.update_preset(preset, AgentPresetUpdate(tool_tunnels={}))
+    version_3 = await agent_preset_service.get_current_version_for_preset(preset)
+
+    rerouted = await agent_preset_service.compare_versions(version_1, version_2)
+    assert [
+        (c.tool, c.old_value, c.new_value) for c in rerouted.tool_tunnel_changes
+    ] == [("tools.test.test_action", "onprem", "dmz")]
+    assert rerouted.total_changes == 1
+
+    removed = await agent_preset_service.compare_versions(version_2, version_3)
+    assert [
+        (c.tool, c.old_value, c.new_value) for c in removed.tool_tunnel_changes
+    ] == [("tools.test.test_action", "dmz", None)]

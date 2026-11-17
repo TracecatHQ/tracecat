@@ -12,6 +12,7 @@ from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Invitation,
     Organization,
@@ -88,6 +89,8 @@ async def create_invitation(
         ) from e
     except IntegrityError as e:
         # Race condition: another request created an invitation for same email
+        if not is_unique_violation(e, "ix_invitation_org_email_pending_unique"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
@@ -134,6 +137,14 @@ async def accept_invitation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except IntegrityError as e:
+        if not is_unique_violation(
+            e,
+            "pk_organization_membership",
+            "pk_membership",
+            "uq_user_role_assignment_user_id_workspace_id",
+            "ix_user_role_assignment_user_org_unique",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of this organization",

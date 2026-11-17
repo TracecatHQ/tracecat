@@ -329,10 +329,10 @@ describe("AgentTurn", () => {
       )
     }
     const { rerender } = render(tree(thought("streaming")))
-    expect(screen.getByText("Thinking")).toBeInTheDocument()
+    expect(screen.getByText("Thinking...")).toBeInTheDocument()
 
     rerender(tree(thought("done")))
-    expect(screen.queryByText("Thinking")).not.toBeInTheDocument()
+    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument()
     expect(screen.getByText(/^Thought/)).toBeInTheDocument()
   })
 

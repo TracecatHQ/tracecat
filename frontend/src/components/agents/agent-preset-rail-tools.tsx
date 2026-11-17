@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react"
 import { useMemo, useState } from "react"
+import { useFormContext, useWatch } from "react-hook-form"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import {
   LogoTile,
@@ -14,6 +15,7 @@ import {
 import { usePresetToolFields } from "@/components/agents/agent-preset-tools-list"
 import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { ToolPickerDialog } from "@/components/tools/tool-picker-dialog"
+import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import { Button } from "@/components/ui/button"
 import {
   buildToolIndex,
@@ -29,6 +31,12 @@ import { cn } from "@/lib/utils"
 const APPROVAL_DOT = "size-1.5 shrink-0 rounded-full bg-[#d6a14a]"
 const APPROVAL_TEXT = "text-[#8a5a12] dark:text-[#b58a45]"
 const EMPTY_ACTIONS: RegistryActionReadMinimal[] = []
+const EMPTY_TOOL_TUNNELS: Record<string, string> = {}
+
+/** MCP tools take their tunnel from the MCP integration, not per tool. */
+function isRegistryToolKey(key: string): boolean {
+  return !key.startsWith("mcp.") && !key.startsWith("mcp__")
+}
 
 /** One integration's selected tools, as listed in the rail. */
 type RailToolGroup = {
@@ -491,6 +499,11 @@ export function AgentPresetRailToolGroup({
     useRailToolsData(registryActions, mcpIntegrations, ready)
   const group = groups.find((candidate) => candidate.key === groupKey)
   const isUnavailable = groupKey === UNAVAILABLE_GROUP
+  const { control, setValue } = useFormContext<{
+    toolTunnels: Record<string, string>
+  }>()
+  const toolTunnels =
+    useWatch({ control, name: "toolTunnels" }) ?? EMPTY_TOOL_TUNNELS
   const rows: Array<{ key: string; title: string; ask: boolean }> =
     isUnavailable
       ? unknown.map((key) => ({
@@ -513,6 +526,13 @@ export function AgentPresetRailToolGroup({
     )
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
+  }
+
+  function setTunnel(key: string, tunnel: string | undefined) {
+    const next = { ...toolTunnels }
+    if (tunnel) next[key] = tunnel
+    else delete next[key]
+    setValue("toolTunnels", next, { shouldDirty: true })
   }
 
   function remove(key: string) {
@@ -626,6 +646,15 @@ export function AgentPresetRailToolGroup({
           >
             <X className="size-3" />
           </Button>
+          {isRegistryToolKey(row.key) ? (
+            <TunnelSelect
+              value={toolTunnels[row.key]}
+              onChange={(next) => setTunnel(row.key, next)}
+              noneLabel="No tunnel"
+              disabled={isSaving}
+              className="h-7 w-28 shrink-0 shadow-none"
+            />
+          ) : null}
           <ApprovalButton
             tool={row.key}
             ask={row.ask}

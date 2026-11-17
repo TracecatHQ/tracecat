@@ -24,8 +24,9 @@ def _validate_text(text: str) -> None:
 def parse_full_text_query(text: str) -> tuple[FullTextUnit, ...]:
     """Parse required terms and per-value phrases without interpreting operators.
 
-    Only double quotes and backslashes can be escaped. Other backslashes remain
-    literal. PostgreSQL must parse each unit with ``pg_catalog.simple`` and
+    Units without a letter or number (e.g. ``-``) are skipped. Only double
+    quotes and backslashes can be escaped. Other backslashes remain literal.
+    PostgreSQL must parse each unit with ``pg_catalog.simple`` and
     reject units producing no lexemes; this parser does not predict lexemes.
 
     Args:
@@ -33,6 +34,7 @@ def parse_full_text_query(text: str) -> tuple[FullTextUnit, ...]:
 
     Returns:
         Raw units which must all match; phrases must each match one value.
+        Punctuation-only units are omitted.
 
     Raises:
         ValueError: If input is empty, punctuation-only, malformed, or too large.
@@ -40,6 +42,7 @@ def parse_full_text_query(text: str) -> tuple[FullTextUnit, ...]:
     _validate_text(text)
     units: list[FullTextUnit] = []
     term_count = 0
+    has_input = False
     position = 0
     while position < len(text):
         if text[position].isspace():
@@ -72,15 +75,24 @@ def parse_full_text_query(text: str) -> tuple[FullTextUnit, ...]:
             if is_phrase:
                 raise ValueError("Quoted phrase is missing its closing quote")
         unit_text = "".join(characters)
-        # A cheap empty/punctuation guard, not a replacement for PostgreSQL's
+        if is_phrase and not unit_text:
+            raise ValueError("Quoted phrases cannot be empty")
+        has_input = has_input or bool(unit_text)
+        # PostgreSQL drops punctuation-only words such as "-" from tsqueries, so
+        # skip them here too. This is a cheap guard, not a replacement for the
         # locale-dependent parser or its final empty-tsquery check.
         if not any(character.isalnum() for character in unit_text):
-            raise ValueError("Full-text units must contain a letter or number")
+            continue
         term_count += len(unit_text.split())
         if term_count > MAX_SEARCH_TERMS:
             raise ValueError(f"Search text cannot exceed {MAX_SEARCH_TERMS} terms")
         units.append(FullTextUnit(text=unit_text, is_phrase=is_phrase))
     if not units:
+        if has_input:
+            raise ValueError(
+                "Full-text search must contain a letter or number. "
+                "Use literal search for punctuation."
+            )
         raise ValueError("Full-text search requires nonempty input")
     return tuple(units)
 

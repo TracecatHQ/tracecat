@@ -22,6 +22,7 @@ from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.tunnels.gateways import TUNNELS_REQUIRE_KUBERNETES, kubernetes_enabled
 from tracecat_ee.tunnels.tokens import TUNNEL_TOKEN_MAX_TTL_SECONDS, mint_tunnel_token
 
 PROXY_USERNAME = "tracecat"
@@ -55,6 +56,22 @@ class TunnelRoute:
     proxy_url: str = field(repr=False)
 
 
+@dataclass(frozen=True)
+class TunnelTarget:
+    """A tunnel that passed its checks, ready to mint proxy tokens for.
+
+    Holds the gateway key, so one lookup can serve several actions that each
+    mint their own short-lived token.
+    """
+
+    tunnel_id: uuid.UUID
+    tunnel_name: str
+    workspace_id: WorkspaceID
+    gateway_ip: str
+    gateway_port: int
+    gateway_key: str = field(repr=False)
+
+
 def gateway_host(tunnel_id: uuid.UUID) -> str:
     return config.TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE.format(tunnel_id=tunnel_id)
 
@@ -79,30 +96,66 @@ async def _resolve_gateway_ip(host: str, port: int) -> str:
 
 async def resolve_tunnel_route(
     *,
-    name: str,
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
-    wf_exec_id: str,
-    action_ref: str | None,
+    subject: str,
+    name: str | None = None,
+    tunnel_id: uuid.UUID | None = None,
+    action_ref: str | None = None,
     ttl_seconds: int = TUNNEL_TOKEN_MAX_TTL_SECONDS,
 ) -> TunnelRoute:
     """Check the tunnel can be used now and mint a proxy token for it.
 
-    The lookup is filtered by workspace explicitly; the executor has no
+    Look the tunnel up by exactly one of ``name`` or ``tunnel_id``. Errors
+    never fall back to direct egress.
+    """
+    target = await resolve_tunnel_target(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        name=name,
+        tunnel_id=tunnel_id,
+    )
+    return mint_tunnel_route(
+        target, subject=subject, action_ref=action_ref, ttl_seconds=ttl_seconds
+    )
+
+
+async def resolve_tunnel_target(
+    *,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    name: str | None = None,
+    tunnel_id: uuid.UUID | None = None,
+) -> TunnelTarget:
+    """Check the tunnel can be used now and resolve its gateway.
+
+    Look the tunnel up by exactly one of ``name`` or ``tunnel_id``. The lookup
+    is filtered by workspace explicitly; callers such as the executor have no
     workspace role for RLS. Errors never fall back to direct egress.
     """
+    if (name is None) == (tunnel_id is None):
+        raise ValueError("Pass exactly one of name or tunnel_id")
+    if not kubernetes_enabled():
+        raise TunnelRouteError(TUNNELS_REQUIRE_KUBERNETES)
     async with get_async_session_bypass_rls_context_manager() as session:
         if not await is_org_entitled(session, organization_id, Entitlement.TUNNELS):
             raise TunnelRouteError("Tunnels are not available on your current plan")
-        result = await session.execute(
-            select(WorkspaceTunnel).where(
-                WorkspaceTunnel.workspace_id == workspace_id,
-                WorkspaceTunnel.name == name,
-            )
+        stmt = select(WorkspaceTunnel).where(
+            WorkspaceTunnel.workspace_id == workspace_id
         )
-        tunnel = result.scalar_one_or_none()
+        if tunnel_id is not None:
+            stmt = stmt.where(WorkspaceTunnel.id == tunnel_id)
+        else:
+            stmt = stmt.where(WorkspaceTunnel.name == name)
+        tunnel = (await session.execute(stmt)).scalar_one_or_none()
         if tunnel is None:
-            raise TunnelRouteError(f"Tunnel {name!r} not found in this workspace")
+            raise TunnelRouteError(
+                f"Tunnel {name!r} not found in this workspace. Create it, or "
+                "remove it from the workflow or agent that uses it."
+                if name is not None
+                else "Tunnel not found in this workspace"
+            )
+        name = tunnel.name
         if not tunnel.enabled:
             raise TunnelRouteError(f"Tunnel {name!r} is disabled")
         if tunnel.encrypted_gateway_key is None:
@@ -112,19 +165,38 @@ async def resolve_tunnel_route(
             tunnel.encrypted_gateway_key, key=get_db_encryption_key()
         ).decode("utf-8")
 
-    token = mint_tunnel_token(
-        gateway_key=gateway_key,
+    port = config.TRACECAT__TUNNEL_GATEWAY_PORT
+    ip = await _resolve_gateway_ip(gateway_host(tunnel_id), port)
+    return TunnelTarget(
         tunnel_id=tunnel_id,
+        tunnel_name=name,
         workspace_id=workspace_id,
-        wf_exec_id=wf_exec_id,
+        gateway_ip=ip,
+        gateway_port=port,
+        gateway_key=gateway_key,
+    )
+
+
+def mint_tunnel_route(
+    target: TunnelTarget,
+    *,
+    subject: str,
+    action_ref: str | None = None,
+    ttl_seconds: int = TUNNEL_TOKEN_MAX_TTL_SECONDS,
+) -> TunnelRoute:
+    """Mint a fresh proxy token for one action through a resolved tunnel."""
+    token = mint_tunnel_token(
+        gateway_key=target.gateway_key,
+        tunnel_id=target.tunnel_id,
+        workspace_id=target.workspace_id,
+        subject=subject,
         action_ref=action_ref,
         ttl_seconds=ttl_seconds,
     )
-    port = config.TRACECAT__TUNNEL_GATEWAY_PORT
-    ip = await _resolve_gateway_ip(gateway_host(tunnel_id), port)
+    ip, port = target.gateway_ip, target.gateway_port
     return TunnelRoute(
-        tunnel_id=tunnel_id,
-        tunnel_name=name,
+        tunnel_id=target.tunnel_id,
+        tunnel_name=target.tunnel_name,
         gateway_ip=ip,
         gateway_port=port,
         proxy_url=f"http://{PROXY_USERNAME}:{quote(token, safe='')}@{ip}:{port}",

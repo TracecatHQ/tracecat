@@ -15,6 +15,30 @@ export interface TracecatApiError<T = unknown> extends ApiError {
   }
 }
 
+/** Whether the API error body names `type` as the error type. */
+function hasApiErrorType(error: unknown, type: string): boolean {
+  if (!(error instanceof Error) || !("body" in error)) {
+    return false
+  }
+  const body = error.body
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "type" in body &&
+    body.type === type
+  )
+}
+
+/** Whether the API cancelled a shared query at its statement timeout. */
+export function isQueryTimeoutError(error: unknown): boolean {
+  return hasApiErrorType(error, "TracecatQueryTimeoutError")
+}
+
+/** Whether the API refused a request because the plan lacks the feature. */
+export function isEntitlementRequiredError(error: unknown): boolean {
+  return hasApiErrorType(error, "EntitlementRequired")
+}
+
 export function retryHandler(failureCount: number, error: ApiError) {
   // Check for 4XX errors and terminate
   if (Math.floor(error.status / 100) === 4) {
@@ -105,17 +129,41 @@ export function getApiErrorDetail(error: unknown): string | null {
   return error.message
 }
 
-function getErrorStatus(error: unknown): number | null {
+export function getErrorStatus(error: unknown): number | null {
   if (typeof error !== "object" || error === null || !("status" in error)) {
     return null
   }
   return typeof error.status === "number" ? error.status : null
 }
 
+/**
+ * Whether the API refused a change because the resource is managed by
+ * Tracecat (HTTP 403 with `error.code` set to `managed_resource_locked`).
+ */
+export function isManagedResourceLockedError(error: unknown): boolean {
+  if (getErrorStatus(error) !== 403) {
+    return false
+  }
+  const body = (error as { body?: unknown }).body
+  if (typeof body !== "object" || body === null || !("error" in body)) {
+    return false
+  }
+  const apiError = body.error
+  return (
+    typeof apiError === "object" &&
+    apiError !== null &&
+    "code" in apiError &&
+    apiError.code === "managed_resource_locked"
+  )
+}
+
 const GLOBAL_ERROR_HANDLERS: GlobalErrorHandler[] = [
   // Forbidden responses signal missing scopes or entitlements. The UI gates
-  // those surfaces inline, so they are swallowed rather than toasted.
-  (error) => getErrorStatus(error) === 403,
+  // those surfaces inline, so they are swallowed rather than toasted. A
+  // managed resource lock is the exception: its message tells the user to
+  // detach the resource, so it falls through to the toast.
+  (error) =>
+    getErrorStatus(error) === 403 && !isManagedResourceLockedError(error),
 ]
 
 /**

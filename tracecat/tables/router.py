@@ -28,6 +28,8 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.folders.service import TableFolderService
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
@@ -36,6 +38,7 @@ from tracecat.tables.schemas import (
     TableColumnUpdate,
     TableCreate,
     TableImportResponse,
+    TableMoveToFolder,
     TableRead,
     TableReadMinimal,
     TableRowBatchDelete,
@@ -143,8 +146,19 @@ async def create_table(
 ) -> TableRead:
     """Create a new table."""
     service = TablesService(session, role=role)
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if params.folder_path and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path '{params.folder_path}' not found",
+            )
     try:
-        table = await service.create_table(params)
+        table = await service.create_table(
+            params, folder_id=folder.id if folder is not None else None
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -232,7 +246,7 @@ async def update_table(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected DB error occurred: {e}",
+            detail="An error occurred while updating the table",
         ) from e
     return await _build_table_read(service, table.id)
 
@@ -254,6 +268,32 @@ async def delete_table(
             detail=str(e),
         ) from e
     await service.delete_table(table)
+
+
+@router.post("/{table_id}/move", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("table:update")
+async def move_table(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    table_id: TableID,
+    params: TableMoveToFolder,
+) -> None:
+    """Move a table to a folder or the workspace root."""
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if params.folder_path is not None and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path {params.folder_path} not found",
+            )
+    try:
+        await folder_service.move_table(table_id, folder)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
@@ -292,7 +332,7 @@ async def create_column(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An unexpected error occurred",
         ) from e
     index_columns = await service.get_index(table)
     return _build_column_read(column, index_columns=index_columns)
@@ -342,7 +382,7 @@ async def update_column(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An unexpected error occurred",
         ) from e
     table = await service.get_table(table_id)
     index_columns = await service.get_index(table)
@@ -675,9 +715,19 @@ async def import_table_from_csv(
     session: AsyncDBSession,
     file: UploadFile = File(...),
     table_name: str | None = Form(default=None),
+    folder_path: str | None = Form(default=None),
 ) -> TableImportResponse:
     """Create a new table by importing a CSV file."""
     service = TablesService(session, role=role)
+    folder_service = TableFolderService(session, role=role)
+    folder = None
+    if folder_path and folder_path != "/":
+        folder = await folder_service.get_folder_by_path(folder_path)
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path '{folder_path}' not found",
+            )
 
     try:
         contents = await _read_csv_upload_with_limit(
@@ -687,6 +737,7 @@ async def import_table_from_csv(
             contents=contents,
             filename=file.filename,
             table_name=table_name,
+            folder_id=folder.id if folder is not None else None,
         )
         table_with_columns = await service.get_table(table.id)
         index_columns = await service.get_index(table_with_columns)
@@ -718,7 +769,7 @@ async def import_table_from_csv(
                 for column in inferred_columns
             ],
         )
-    except HTTPException:
+    except (HTTPException, TableRowError):
         raise
     except TracecatImportError as e:
         raise HTTPException(
@@ -728,7 +779,7 @@ async def import_table_from_csv(
         logger.warning(f"Unexpected error during table import: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            detail="Error processing CSV",
         ) from e
 
 
@@ -826,7 +877,7 @@ async def import_csv(
 
         # Process remaining rows
         await importer.process_chunk(current_chunk, service, table)
-    except HTTPException:
+    except (HTTPException, TableRowError):
         raise
     except TracecatImportError as e:
         logger.warning(f"Error during import: {e}")
@@ -838,7 +889,7 @@ async def import_csv(
         logger.warning(f"Unexpected error during import: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            detail="Error processing CSV",
         ) from e
     finally:
         if csv_file is not None:

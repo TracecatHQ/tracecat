@@ -1,13 +1,11 @@
 import {
   BracesIcon,
-  ClockPlusIcon,
   EyeIcon,
   ListTreeIcon,
   type LucideIcon,
   MessageSquareIcon,
   PaperclipIcon,
   PencilIcon,
-  PencilLineIcon,
   PlusIcon,
   TagIcon,
   TrashIcon,
@@ -95,57 +93,6 @@ export function EventActor({ user }: { user: User }) {
         {user.getDisplayName()}
       </span>
     </UserHoverCard>
-  )
-}
-
-function shortTimeAgo(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-  const diffWeeks = Math.floor(diffDays / 7)
-  const diffMonths = Math.floor(diffDays / 30)
-
-  if (diffMins < 1) return "now"
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  if (diffDays < 7) return `${diffDays}d`
-  if (diffDays < 30) return `${diffWeeks}w`
-  return `${diffMonths}mo`
-}
-
-export function EventCreatedAt({ createdAt }: { createdAt: string }) {
-  const date = new Date(createdAt)
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <ClockPlusIcon className="size-3" />
-            {shortTimeAgo(date)}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{date.toLocaleString()}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
-export function EventUpdatedAt({ updatedAt }: { updatedAt: string }) {
-  const date = new Date(updatedAt)
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <PencilLineIcon className="size-3" />
-            {shortTimeAgo(date)}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Updated: {date.toLocaleString()}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   )
 }
 
@@ -535,34 +482,52 @@ export function CommentReplyUpdatedEvent({
 }
 
 export function CommentDeletedEvent({
-  event: _event,
+  event,
   actor,
+  userMap,
 }: {
   event: CommentDeletedEventRead
   actor: User
+  userMap: Record<string, User>
 }) {
+  const author = event.author_id ? userMap[event.author_id] : undefined
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={TrashIcon} />
       <span>
         <EventActor user={actor} /> deleted a comment
+        {author && author.id !== actor.id ? (
+          <>
+            {" "}
+            by <EventActor user={author} />
+          </>
+        ) : null}
       </span>
     </div>
   )
 }
 
 export function CommentReplyDeletedEvent({
-  event: _event,
+  event,
   actor,
+  userMap,
 }: {
   event: CommentReplyDeletedEventRead
   actor: User
+  userMap: Record<string, User>
 }) {
+  const author = event.author_id ? userMap[event.author_id] : undefined
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={TrashIcon} />
       <span>
         <EventActor user={actor} /> deleted a reply
+        {author && author.id !== actor.id ? (
+          <>
+            {" "}
+            by <EventActor user={author} />
+          </>
+        ) : null}
       </span>
     </div>
   )

@@ -90,7 +90,7 @@ export function WorkspaceManagementButton() {
             <DropdownMenuItem
               onClick={async () => await handleCreateWorkflow()}
             >
-              Add Member
+              Add member
               <DropdownMenuShortcut>
                 <UserCircle2Icon className="size-4" />
               </DropdownMenuShortcut>

@@ -924,7 +924,7 @@ export function CreateCredentialDialog({
           <DialogTitle>
             {selectedTool
               ? `Configure ${selectedTool.name}`
-              : "Create new secret"}
+              : "Create credential"}
           </DialogTitle>
         </DialogHeader>
 
@@ -1589,7 +1589,7 @@ export function CreateCredentialDialog({
                             className="space-x-2 text-xs"
                           >
                             <PlusCircle className="mr-2 size-4" />
-                            Add Item
+                            Add item
                           </Button>
                         </div>
                         <FormMessage />
@@ -1628,7 +1628,7 @@ export function CreateCredentialDialog({
               <DialogFooter>
                 <Button size="sm" type="submit">
                   <KeyRoundIcon className="mr-2 size-4" />
-                  Create secret
+                  Create credential
                 </Button>
               </DialogFooter>
             </form>

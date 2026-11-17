@@ -5,13 +5,24 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 
-from sqlalchemy import select
+import sqlalchemy as sa
+import yaml
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
-from tracecat.authz.controls import require_scope
-from tracecat.db.models import Workspace, WorkspaceTunnel
+from tracecat.authz.controls import has_scope, require_scope
+from tracecat.db.models import (
+    Action,
+    AgentPreset,
+    MCPIntegration,
+    Workflow,
+    WorkflowDefinition,
+    Workspace,
+    WorkspaceTunnel,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -21,7 +32,7 @@ from tracecat.tiers.enums import Entitlement
 from tracecat_ee.tunnels.gateways import (
     delete_gateway,
     gateway_ready,
-    kubernetes_enabled,
+    require_kubernetes_gateways,
     sync_gateway,
 )
 from tracecat_ee.tunnels.pangolin import (
@@ -37,6 +48,8 @@ from tracecat_ee.tunnels.schemas import (
     TunnelCreate,
     TunnelGatewayPolicyRead,
     TunnelRead,
+    TunnelReference,
+    TunnelReferenceKind,
     TunnelStatusRead,
     TunnelUpdate,
     serialize_endpoint,
@@ -52,6 +65,14 @@ from tracecat_ee.tunnels.tokens import (
 
 class TunnelDisabledError(Exception):
     """The tunnel is disabled or its organization lost the tunnels entitlement."""
+
+
+class TunnelInUseError(Exception):
+    """The tunnel cannot be deleted or renamed while resources reference it."""
+
+    def __init__(self, message: str, referenced_by: list[TunnelReference]):
+        super().__init__(message)
+        self.referenced_by = referenced_by
 
 
 async def get_gateway_policy(
@@ -88,6 +109,12 @@ async def get_gateway_policy(
         allowed_targets=TunnelRead.from_database(tunnel).allowed_targets,
         managed=tunnel.managed,
     )
+
+
+# Published ``ai.agent`` actions that route a tool through the ``$name`` tunnel.
+_AGENT_TOOL_TUNNELS_PATH = (
+    '$.actions[*] ? (@.action == "ai.agent").args.tool_tunnels.* ? (@ == $name)'
+)
 
 
 class TunnelsService(BaseWorkspaceService):
@@ -140,6 +167,7 @@ class TunnelsService(BaseWorkspaceService):
     @audit_log(resource_type="workspace_tunnel", action="create")
     async def create_tunnel(self, params: TunnelCreate) -> WorkspaceTunnel:
         await self.require_entitlement(Entitlement.TUNNELS)
+        require_kubernetes_gateways()
         tunnel = WorkspaceTunnel(
             workspace_id=self.workspace_id,
             name=params.name,
@@ -153,9 +181,8 @@ class TunnelsService(BaseWorkspaceService):
             allowed_targets=serialize_targets(params.allowed_targets),
             enabled=params.enabled,
         )
-        if kubernetes_enabled():
-            # Tracecat runs the gateway, so it needs a key from the start.
-            tunnel.encrypted_gateway_key = self._encrypt_secret(generate_gateway_key())
+        # Tracecat runs the gateway, so it needs a key from the start.
+        tunnel.encrypted_gateway_key = self._encrypt_secret(generate_gateway_key())
         self.session.add(tunnel)
         await self.session.commit()
         await self.session.refresh(tunnel)
@@ -175,7 +202,19 @@ class TunnelsService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Endpoint, credentials, and targets of a managed tunnel cannot be changed"
             )
-        if "name" in fields and params.name is not None:
+        if "name" in fields and params.name is not None and params.name != tunnel.name:
+            # Agents and workflows reference tunnels by name so they stay portable
+            # across synced workspaces; a rename would silently break them.
+            if referenced_by := [
+                ref
+                for ref in await self.list_tunnel_references(tunnel)
+                if ref.kind.by_name
+            ]:
+                raise TunnelInUseError(
+                    "Tunnel is referenced by name. Remove it from these resources "
+                    "before renaming it.",
+                    referenced_by,
+                )
             tunnel.name = params.name
         if "description" in fields:
             tunnel.description = params.description
@@ -197,11 +236,185 @@ class TunnelsService(BaseWorkspaceService):
         await sync_gateway(tunnel)
         return tunnel
 
+    def readable_references(
+        self, references: list[TunnelReference]
+    ) -> list[TunnelReference]:
+        """Keep only references to resources the caller may read.
+
+        ``tunnel:read`` alone must not reveal workflow, agent or integration
+        names and IDs.
+        """
+        scopes = self.role.scopes or frozenset()
+        return [ref for ref in references if has_scope(scopes, ref.kind.read_scope)]
+
+    @require_scope("tunnel:read")
+    async def list_tunnel_references(
+        self, tunnel: WorkspaceTunnel, *, limit: int = 200
+    ) -> list[TunnelReference]:
+        """List resources that route through the tunnel, by ID or by name.
+
+        Every query is filtered by workspace; MCP integrations use the indexed
+        foreign key. ``limit`` caps each kind so large workspaces stay cheap.
+        Only current preset versions are checked: an older version pinned by a
+        workflow fails that tool call with a "not found" error instead.
+        """
+        self._ensure_owned(tunnel)
+        references: list[TunnelReference] = []
+        mcp_rows = await self.session.execute(
+            select(MCPIntegration.id, MCPIntegration.name)
+            .where(
+                MCPIntegration.workspace_id == self.workspace_id,
+                MCPIntegration.tunnel_id == tunnel.id,
+            )
+            .order_by(MCPIntegration.name)
+            .limit(limit)
+        )
+        references.extend(
+            TunnelReference(
+                kind=TunnelReferenceKind.MCP_INTEGRATION, id=row.id, name=row.name
+            )
+            for row in mcp_rows
+        )
+
+        # ``jsonb_each_text`` raises on a JSON ``null``; expand objects only.
+        tunnel_map = sa.case(
+            (
+                func.jsonb_typeof(AgentPreset.tool_tunnels) == "object",
+                AgentPreset.tool_tunnels,
+            )
+        )
+        tool_tunnels = func.jsonb_each_text(tunnel_map).table_valued("key", "value")
+        preset_tools = (
+            select(func.string_agg(tool_tunnels.c.key, ", "))
+            .where(tool_tunnels.c.value == tunnel.name)
+            .scalar_subquery()
+        )
+        preset_rows = await self.session.execute(
+            select(AgentPreset.id, AgentPreset.name, preset_tools.label("tools"))
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+                AgentPreset.tool_tunnels.is_not(None),
+                preset_tools.is_not(None),
+            )
+            .order_by(AgentPreset.name)
+            .limit(limit)
+        )
+        references.extend(
+            TunnelReference(
+                kind=TunnelReferenceKind.AGENT_PRESET,
+                id=row.id,
+                name=row.name,
+                detail=row.tools,
+            )
+            for row in preset_rows
+        )
+
+        action_titles = (
+            select(func.string_agg(Action.title, ", "))
+            .where(
+                Action.workspace_id == self.workspace_id,
+                Action.workflow_id == Workflow.id,
+                Action.control_flow["tunnel"].astext == tunnel.name,
+            )
+            .scalar_subquery()
+        )
+        # Runs execute the published definition, which can differ from the draft.
+        published = (
+            select(WorkflowDefinition.id)
+            .where(
+                WorkflowDefinition.workspace_id == self.workspace_id,
+                WorkflowDefinition.workflow_id == Workflow.id,
+                WorkflowDefinition.version == Workflow.version,
+                WorkflowDefinition.content.contains({"config": {"tunnel": tunnel.name}})
+                | WorkflowDefinition.content.contains(
+                    {"actions": [{"tunnel": tunnel.name}]}
+                )
+                | func.jsonb_path_exists(
+                    WorkflowDefinition.content,
+                    sa.cast(_AGENT_TOOL_TUNNELS_PATH, JSONPATH),
+                    func.jsonb_build_object("name", tunnel.name),
+                ),
+            )
+            .exists()
+        )
+        agent_actions = await self._agent_actions_with_tool_tunnel(tunnel.name)
+        workflow_rows = await self.session.execute(
+            select(
+                Workflow.id,
+                Workflow.title,
+                Workflow.config["tunnel"].astext.label("default_tunnel"),
+                action_titles.label("actions"),
+                published.label("published"),
+            )
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                (Workflow.config["tunnel"].astext == tunnel.name)
+                | action_titles.is_not(None)
+                | Workflow.id.in_(agent_actions)
+                | published,
+            )
+            .order_by(Workflow.title)
+            .limit(limit)
+        )
+        for row in workflow_rows:
+            parts = []
+            if row.default_tunnel == tunnel.name:
+                parts.append("Workflow default")
+            if row.actions:
+                parts.append(row.actions)
+            if titles := agent_actions.get(row.id):
+                parts.append(", ".join(titles))
+            if row.published:
+                parts.append("Published version")
+            references.append(
+                TunnelReference(
+                    kind=TunnelReferenceKind.WORKFLOW,
+                    id=row.id,
+                    name=row.title,
+                    detail="; ".join(parts) or None,
+                )
+            )
+        return references
+
+    async def _agent_actions_with_tool_tunnel(
+        self, name: str
+    ) -> dict[uuid.UUID, list[str]]:
+        """Draft ``ai.agent`` actions that route a tool through the named tunnel.
+
+        Action inputs are YAML text, so rows are prefiltered by substring and
+        then parsed.
+        """
+        rows = await self.session.execute(
+            select(Action.workflow_id, Action.title, Action.inputs)
+            .where(
+                Action.workspace_id == self.workspace_id,
+                Action.type == "ai.agent",
+                Action.inputs.contains(name, autoescape=True),
+            )
+            .order_by(Action.title)
+        )
+        titles: dict[uuid.UUID, list[str]] = {}
+        for workflow_id, title, inputs in rows.tuples().all():
+            try:
+                args = yaml.safe_load(inputs)
+            except yaml.YAMLError:
+                continue
+            tool_tunnels = args.get("tool_tunnels") if isinstance(args, dict) else None
+            if isinstance(tool_tunnels, dict) and name in tool_tunnels.values():
+                titles.setdefault(workflow_id, []).append(title)
+        return titles
+
     @require_scope("tunnel:delete")
     @audit_log(resource_type="workspace_tunnel", action="delete")
     async def delete_tunnel(self, tunnel: WorkspaceTunnel) -> None:
         await self.require_entitlement(Entitlement.TUNNELS)
         self._ensure_owned(tunnel)
+        if referenced_by := await self.list_tunnel_references(tunnel):
+            raise TunnelInUseError(
+                "Tunnel is in use. Remove it from these resources first.",
+                referenced_by,
+            )
         if tunnel.managed:
             await self._delete_managed_resources(tunnel)
         tunnel_id = tunnel.id
@@ -214,6 +427,7 @@ class TunnelsService(BaseWorkspaceService):
     async def issue_gateway_key(self, tunnel: WorkspaceTunnel) -> str:
         """Issue a new gateway key, revoking any previous one. Returns it once."""
         await self.require_entitlement(Entitlement.TUNNELS)
+        require_kubernetes_gateways()
         self._ensure_owned(tunnel)
         gateway_key = generate_gateway_key()
         tunnel.encrypted_gateway_key = self._encrypt_secret(gateway_key)
@@ -248,6 +462,7 @@ class TunnelsService(BaseWorkspaceService):
         a later step fails.
         """
         await self.require_entitlement(Entitlement.TUNNELS)
+        require_kubernetes_gateways()
         settings = await self._pangolin_settings()
         tunnel_id = uuid.uuid4()
         label = f"tracecat-{self.workspace_id}-{params.name}"

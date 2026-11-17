@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, Self
 
 from tracecat import config
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -161,7 +161,10 @@ class TierPermitService:
         if limits is not None:
             return limits, "cache"
 
-        async with get_async_session_context_manager() as session:
+        # Activities run without a ctx_role; scope the read to the org explicitly.
+        async with get_async_session_tenant_context_manager(
+            organization_id=org_id
+        ) as session:
             service = TierService(session)
             limits = await service.get_effective_limits(org_id)
 

@@ -345,12 +345,48 @@ export function coalesceToolInputDeltas(
  */
 export const CHAT_MESSAGES_THROTTLE_MS = 50
 
+type CoalescingChatTransportOptions = NonNullable<
+  ConstructorParameters<typeof ai.DefaultChatTransport<ai.UIMessage>>[0]
+> & {
+  /** Called when a reconnect streams more than an empty start and finish. */
+  onReconnectContent?: () => void
+}
+
 /** Default transport that merges streamed tool input fragments. */
 export class CoalescingChatTransport extends ai.DefaultChatTransport<ai.UIMessage> {
+  private readonly onReconnectContent?: () => void
+
+  constructor({
+    onReconnectContent,
+    ...options
+  }: CoalescingChatTransportOptions = {}) {
+    super(options)
+    this.onReconnectContent = onReconnectContent
+  }
+
   protected override processResponseStream(stream: ReadableStream<Uint8Array>) {
     return super
       .processResponseStream(stream)
       .pipeThrough(coalesceToolInputDeltas())
+  }
+
+  override async reconnectToStream(
+    options: Parameters<
+      ai.DefaultChatTransport<ai.UIMessage>["reconnectToStream"]
+    >[0]
+  ) {
+    const stream = await super.reconnectToStream(options)
+    const onContent = this.onReconnectContent
+    if (stream === null || !onContent) return stream
+    // A turn that already ended reconnects as a bare start and finish.
+    return stream.pipeThrough(
+      new TransformStream<ai.UIMessageChunk, ai.UIMessageChunk>({
+        transform(chunk, controller) {
+          if (chunk.type !== "start" && chunk.type !== "finish") onContent()
+          controller.enqueue(chunk)
+        },
+      })
+    )
   }
 }
 
@@ -525,6 +561,28 @@ export type ModelInfo = {
   provider: string
   baseUrl?: string | null
   iconId?: string
+}
+
+/**
+ * UI data part identifier for a user message that joined the running turn,
+ * such as a steering message. Reloaded history shows it as a user message.
+ */
+export const USER_MESSAGE_DATA_PART_TYPE = "data-user-message"
+
+/** Payload of a {@link USER_MESSAGE_DATA_PART_TYPE} part. */
+export type UserMessageData = {
+  /** The ID the client sent the message under, if it had one. */
+  id: string | null
+  text: string
+}
+
+/** A `data-user-message` payload, or null if malformed. */
+export function getUserMessageData(data: unknown): UserMessageData | null {
+  if (!data || typeof data !== "object") return null
+  const text = "text" in data ? data.text : undefined
+  const id = "id" in data ? data.id : undefined
+  if (typeof text !== "string") return null
+  return { id: typeof id === "string" ? id : null, text }
 }
 
 /**
@@ -795,6 +853,24 @@ export function isUserPrompt(
     message.role === "user" &&
     message.parts.some((part) => part.type === "text")
   )
+}
+
+/**
+ * vercel.py streams StreamError.format() as reply text and as errorText. The
+ * chat shows it as an error line, so drop the reply copy.
+ */
+export function withoutStreamedError(
+  messages: ai.UIMessage[],
+  error: string | null
+): ai.UIMessage[] {
+  const last = messages.at(-1)
+  if (!error || last?.role !== "assistant") return messages
+  const parts = last.parts.filter(
+    (part) => !(part.type === "text" && part.text.trim() === error)
+  )
+  if (parts.length === last.parts.length) return messages
+  const rest = messages.slice(0, -1)
+  return parts.length > 0 ? [...rest, { ...last, parts }] : rest
 }
 
 /**

@@ -83,7 +83,7 @@ export function AddTaskRow({ onClick }: AddTaskRowProps) {
       <span className="flex size-6 shrink-0 items-center justify-center">
         <Plus className="size-4" />
       </span>
-      Add task
+      Create task
     </button>
   )
 }

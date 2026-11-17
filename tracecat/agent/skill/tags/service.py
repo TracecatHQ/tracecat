@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Skill, SkillTag, SkillTagLink
 from tracecat.exceptions import (
     TracecatConflictError,
@@ -40,6 +41,10 @@ class SkillTagsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(
+                err, "uq_skill_tag_name_workspace", "uq_skill_tag_ref_workspace"
+            ):
+                raise
             raise TracecatConflictError(conflict_message) from err
 
     async def _get_tag(self, tag_id: SkillTagID) -> SkillTag:

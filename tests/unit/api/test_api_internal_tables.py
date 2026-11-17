@@ -342,9 +342,7 @@ async def test_internal_lookup_table_error_returns_detail(
         )
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-    assert response.json()["detail"] == (
-        "Table lookup failed: database temporarily unavailable"
-    )
+    assert response.json()["detail"] == "Table lookup failed"
 
 
 @pytest.mark.anyio

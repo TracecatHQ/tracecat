@@ -697,7 +697,7 @@ describe("CaseLinkedRowsSection", () => {
     const user = userEvent.setup()
     renderSection()
 
-    const [firstAddRow] = screen.getAllByRole("button", { name: "Add row" })
+    const [firstAddRow] = screen.getAllByRole("button", { name: "Insert row" })
     await user.click(firstAddRow)
 
     const insertDialog = screen.getByTestId("insert-row-dialog-table-1")
@@ -713,7 +713,9 @@ describe("CaseLinkedRowsSection", () => {
     renderSection()
 
     // table-2 has no name: its source table is gone, its links remain.
-    expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1)
+    expect(screen.getAllByRole("button", { name: "Insert row" })).toHaveLength(
+      1
+    )
     expect(
       screen.queryByTestId("insert-row-dialog-table-2")
     ).not.toBeInTheDocument()
@@ -723,7 +725,7 @@ describe("CaseLinkedRowsSection", () => {
     renderSection()
 
     const [linkRows] = screen.getAllByRole("button", { name: "Link rows" })
-    const [addRow] = screen.getAllByRole("button", { name: "Add row" })
+    const [addRow] = screen.getAllByRole("button", { name: "Insert row" })
     expect(
       linkRows.compareDocumentPosition(addRow) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -804,11 +806,11 @@ describe("CaseLinkedRowsSection", () => {
       return screen.findByRole("dialog")
     }
 
-    it("puts the expand button after Add row and before the page arrows", () => {
+    it("puts the expand button after Insert row and before the page arrows", () => {
       setPage("table-1", { hasNextPage: true, startItem: 1, endItem: 20 })
       renderSection()
 
-      const [addRow] = screen.getAllByRole("button", { name: "Add row" })
+      const [addRow] = screen.getAllByRole("button", { name: "Insert row" })
       const [expand] = screen.getAllByRole("button", { name: "Expand table" })
       const previous = screen.getByRole("button", { name: "Previous page" })
       expect(
@@ -849,7 +851,7 @@ describe("CaseLinkedRowsSection", () => {
         within(dialog).getByRole("button", { name: "Link rows" })
       ).toBeInTheDocument()
       expect(
-        within(dialog).getByRole("button", { name: "Add row" })
+        within(dialog).getByRole("button", { name: "Insert row" })
       ).toBeInTheDocument()
       expect(
         within(dialog).queryByRole("button", { name: "Expand table" })
@@ -959,7 +961,7 @@ describe("CaseLinkedRowsSection", () => {
         within(dialog).queryByRole("button", { name: "Link rows" })
       ).not.toBeInTheDocument()
       expect(
-        within(dialog).queryByRole("button", { name: "Add row" })
+        within(dialog).queryByRole("button", { name: "Insert row" })
       ).not.toBeInTheDocument()
     })
   })
@@ -980,7 +982,9 @@ describe("CaseLinkedRowsSection", () => {
       expect(
         screen.queryByRole("button", { name: "Edit r1" })
       ).not.toBeInTheDocument()
-      expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1)
+      expect(
+        screen.getAllByRole("button", { name: "Insert row" })
+      ).toHaveLength(1)
     })
   })
 
@@ -998,7 +1002,7 @@ describe("CaseLinkedRowsSection", () => {
         { all: true }
       )
       expect(
-        screen.queryByRole("button", { name: "Add row" })
+        screen.queryByRole("button", { name: "Insert row" })
       ).not.toBeInTheDocument()
       expect(
         screen.queryByTestId("insert-row-dialog-table-1")
@@ -1049,7 +1053,7 @@ describe("CaseLinkedRowsSection", () => {
         screen.queryByRole("button", { name: "Link rows" })
       ).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Add row" })
+        screen.queryByRole("button", { name: "Insert row" })
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Unlink" })
@@ -1093,7 +1097,7 @@ describe("CaseLinkedRowsSection", () => {
         screen.queryByRole("button", { name: "Link rows" })
       ).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Add row" })
+        screen.queryByRole("button", { name: "Insert row" })
       ).not.toBeInTheDocument()
     })
 
@@ -1132,7 +1136,7 @@ describe("CaseLinkedRowsSection", () => {
         screen.queryByRole("button", { name: "Link rows" })
       ).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Add row" })
+        screen.queryByRole("button", { name: "Insert row" })
       ).not.toBeInTheDocument()
       for (const grid of screen.getAllByTestId("rows-grid")) {
         expect(grid).toHaveAttribute("data-editable", "false")

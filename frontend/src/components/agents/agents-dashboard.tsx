@@ -1,6 +1,5 @@
 "use client"
 
-import { format } from "date-fns"
 import {
   AlertTriangleIcon,
   ArrowDownIcon,
@@ -18,7 +17,6 @@ import {
   ListIcon,
   MousePointerClickIcon,
   Pencil,
-  SearchIcon,
   Sparkles,
   StarIcon,
   TagsIcon,
@@ -50,6 +48,8 @@ import {
   agentPresetsRemovePresetTag,
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
+import { AgentDeleteDescription } from "@/components/agents/agent-preset-delete-dialog"
+import { AgentSlackBadges } from "@/components/agents/agent-slack-badges"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import {
@@ -59,6 +59,7 @@ import {
 import { WorkspaceDefaultAgentBadge } from "@/components/agents/workspace-default-agent-badge"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CollapsibleSection } from "@/components/collapsible-section"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CopyButton } from "@/components/copy-button"
 import {
   FileTreeCommand,
@@ -69,6 +70,7 @@ import {
   FilterMultiSelect,
   type FilterOption,
 } from "@/components/filters/filter-multi-select"
+import { FolderNotEmptyDialog } from "@/components/folder-not-empty-dialog"
 import {
   getIcon,
   getIconSource,
@@ -77,18 +79,11 @@ import {
   ProviderIcon,
 } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
+import { RowTimestamps } from "@/components/timestamps"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -145,6 +140,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAgentSlackPlacements } from "@/hooks/use-agent-channel-bots"
 import {
   type AgentDirectoryItem,
   useAgentDirectoryItems,
@@ -158,6 +154,7 @@ import {
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   type AgentCatalogFilters,
@@ -166,6 +163,7 @@ import {
   matchesAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
+import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
   compareAgentStatusPriority,
@@ -839,33 +837,6 @@ function normalizeAgentFolderPath(rawPath: string | null): string {
     : withLeadingSlash
 }
 
-function getAgentRelativeDateLabel(dateValue: string): string {
-  const timestamp = new Date(dateValue).getTime()
-  if (Number.isNaN(timestamp)) {
-    return "0m"
-  }
-  const diffMs = Math.max(0, Date.now() - timestamp)
-  const minuteMs = 60_000
-  const hourMs = 60 * minuteMs
-  const dayMs = 24 * hourMs
-  const monthMs = 30 * dayMs
-  const yearMs = 365 * dayMs
-
-  if (diffMs < hourMs) {
-    return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`
-  }
-  if (diffMs < dayMs) {
-    return `${Math.max(1, Math.floor(diffMs / hourMs))}hr`
-  }
-  if (diffMs < monthMs) {
-    return `${Math.max(1, Math.floor(diffMs / dayMs))}d`
-  }
-  if (diffMs < yearMs) {
-    return `${Math.max(1, Math.floor(diffMs / monthMs))}mo`
-  }
-  return `${Math.max(1, Math.floor(diffMs / yearMs))}y`
-}
-
 function getAgentItemName(item: AgentDirectoryItem): string {
   return item.name
 }
@@ -1016,7 +987,7 @@ export function AgentFolderCreateDialog({
             disabled={createFolderIsPending || !name.trim()}
           >
             {createFolderIsPending ? <Spinner className="mr-2 size-4" /> : null}
-            Create
+            Create folder
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1228,75 +1199,37 @@ function AgentItemDeleteDialog({
   item: AgentDirectoryItem
 }) {
   const workspaceId = useWorkspaceId()
-  const { deleteFolder } = useAgentFolders(workspaceId, {
-    enabled: open && item.type === "folder",
-  })
-  const { deleteAgentPreset } = useDeleteAgentPreset(workspaceId)
-  const [confirmName, setConfirmName] = useState("")
+  const { deleteAgentPreset, deleteAgentPresetIsPending } =
+    useDeleteAgentPreset(workspaceId)
 
-  useEffect(() => {
-    if (open) {
-      setConfirmName("")
-    }
-  }, [open])
-
-  const handleDelete = async () => {
-    try {
-      if (item.type === "folder") {
-        await deleteFolder({ folderId: item.id })
-      } else {
-        await deleteAgentPreset({ presetId: item.id, presetName: item.name })
-      }
-    } catch {
-      // toast handled by hook
-    }
+  if (item.type === "folder") {
+    return (
+      <FolderNotEmptyDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        folderId={item.id}
+        folderName={item.name}
+        numItems={item.num_items}
+        itemNoun="agents and folders"
+      />
+    )
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {item.type === "folder" ? "Delete folder" : "Delete agent"}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {item.type === "folder" ? (
-              <>
-                Are you sure you want to delete the{" "}
-                <span className="font-medium">{item.name}</span> folder? This
-                action cannot be undone. You cannot delete a folder that
-                contains agents or other folders.
-              </>
-            ) : (
-              <>
-                Are you sure you want to delete the{" "}
-                <span className="font-medium">{item.name}</span> agent? It will
-                also be removed as a subagent from every agent that uses it,
-                including saved versions. Restoring an older agent version will
-                not bring this subagent back. This cannot be undone.
-              </>
-            )}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="my-4">
-          <Input
-            placeholder={`Type "${item.name}" to confirm`}
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            disabled={confirmName !== item.name}
-            onClick={handleDelete}
-          >
-            Confirm
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDestructiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete agent"
+      description={<AgentDeleteDescription name={item.name} />}
+      identifier={{ label: "Agent slug", value: item.slug }}
+      confirmPhrase={item.slug}
+      confirmLabel="Delete"
+      isPending={deleteAgentPresetIsPending}
+      onConfirm={async () => {
+        await deleteAgentPreset({ presetId: item.id, presetName: item.name })
+        onOpenChange(false)
+      }}
+    />
   )
 }
 
@@ -1322,6 +1255,8 @@ function AgentFolderContextActions({
   canUpdateAgent: boolean
   canDeleteAgent: boolean
 }) {
+  const workspaceId = useWorkspaceId()
+  const { deleteFolder } = useAgentFolders(workspaceId, { enabled: false })
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -1358,12 +1293,18 @@ function AgentFolderContextActions({
             onClick={(e) => e.stopPropagation()}
             onSelect={(e) => {
               e.stopPropagation()
+              if (item.num_items === 0) {
+                void deleteFolder({ folderId: item.id }).catch(() => {
+                  // The mutation hook reports failures.
+                })
+                return
+              }
               setSelectedItem(item)
               setActiveDialog(AgentActiveDialog.Delete)
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete folder
+            Delete
           </ContextMenuItem>
         </>
       ) : null}
@@ -1379,8 +1320,8 @@ function AgentPresetContextActions({
   areTagsLoading = false,
   onDuplicate,
   duplicateDisabled = false,
-  canUpdateAgent,
-  canDeleteAgent,
+  canUpdateAgent: canUpdateAgentScope,
+  canDeleteAgent: canDeleteAgentScope,
   canDuplicateAgent,
   organizationEnabled = true,
   defaultAgentActions,
@@ -1401,6 +1342,11 @@ function AgentPresetContextActions({
 }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  // Managed presets cannot be changed, moved, retagged or deleted.
+  const { isManaged } = useManagedResources()
+  const isLocked = isManaged("agent_preset", item.id)
+  const canUpdateAgent = canUpdateAgentScope && !isLocked
+  const canDeleteAgent = canDeleteAgentScope && !isLocked
   const canOrganize = canUpdateAgent && organizationEnabled
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
@@ -1601,7 +1547,7 @@ function AgentPresetContextActions({
             }}
           >
             <Trash2 className="mr-2 size-3.5" />
-            Delete agent
+            Delete
           </ContextMenuItem>
         </>
       ) : null}
@@ -1658,6 +1604,7 @@ type McpIntegrationsBySlug = Map<string, MCPIntegrationRead>
 const NO_MCP_INTEGRATIONS: McpIntegrationsBySlug = new Map()
 
 const NO_WORKFLOWS: AgentWorkflowRef[] = []
+const NO_SLACK_PLACEMENTS: SlackPlacement[] = []
 
 function pluralize(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`
@@ -1777,10 +1724,12 @@ function AgentCatalogRow({
   defaultAgentActions,
   mcpBySlug,
   workflows,
+  slackPlacements,
 }: {
   item: AgentDirectoryItem
   mcpBySlug: McpIntegrationsBySlug
   workflows: AgentWorkflowRef[]
+  slackPlacements: SlackPlacement[]
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
   setSelectedItem: (item: AgentDirectoryItem) => void
@@ -1825,20 +1774,11 @@ function AgentCatalogRow({
                     <BoxIcon className="mr-1 size-3" />
                     {item.num_items} {itemCountLabel}
                   </Badge>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="secondary"
-                        className="h-5 shrink-0 cursor-default px-2 text-[10px] font-normal"
-                      >
-                        <Clock3 className="mr-1 size-3" />
-                        {getAgentRelativeDateLabel(item.updated_at)}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {format(new Date(item.updated_at), "PPpp")}
-                    </TooltipContent>
-                  </Tooltip>
+                  <RowTimestamps
+                    className="ml-1"
+                    createdAt={item.created_at}
+                    updatedAt={item.updated_at}
+                  />
                 </div>
               </div>
             </button>
@@ -1875,11 +1815,17 @@ function AgentCatalogRow({
             <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
+              <ManagedResourceStatus
+                resourceType="agent_preset"
+                id={item.id}
+                name={item.slug}
+              />
               <AgentToolSources
                 summary={item.tool_summary}
                 mcpBySlug={mcpBySlug}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
+                <AgentSlackBadges placements={slackPlacements} />
                 <AgentWorkflowBadges workflows={workflows} />
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
@@ -1908,24 +1854,14 @@ function AgentCatalogRow({
                       Default
                     </Badge>
                   ) : null}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="secondary"
-                        className="h-5 shrink-0 cursor-default px-2 text-[10px] font-normal"
-                      >
-                        <Clock3 className="mr-1 size-3" />
-                        {getAgentRelativeDateLabel(item.updated_at)}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {format(new Date(item.updated_at), "PPpp")}
-                    </TooltipContent>
-                  </Tooltip>
                 </div>
                 {organizationEnabled ? (
                   <AgentPresetTagPills tags={item.tags} />
                 ) : null}
+                <RowTimestamps
+                  createdAt={item.created_at}
+                  updatedAt={item.updated_at}
+                />
               </div>
             </div>
           </button>
@@ -2008,25 +1944,12 @@ function AgentsCatalogHeader({
 
   return (
     <div className="shrink-0 border-b">
-      <header className="flex h-10 items-center border-b pl-3 pr-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <SearchIcon className="size-4 text-muted-foreground" />
-          </div>
-          <Input
-            type="text"
-            placeholder="Search agents..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={cn(
-              "h-7 w-56 border-none bg-transparent p-0",
-              "text-sm",
-              "shadow-none outline-none",
-              "placeholder:text-muted-foreground",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
-            )}
-          />
-        </div>
+      <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+        <ListHeaderSearch
+          placeholder="Search agents..."
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {totalCount} agents
@@ -2199,6 +2122,7 @@ export function AgentsDashboard() {
     searchParams,
     replaceParams,
   })
+  const slackPlacementsByPreset = useAgentSlackPlacements(workspaceId)
   // A folder only lists its own children, so an active filter searches the
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
@@ -2503,6 +2427,9 @@ export function AgentsDashboard() {
                   item={item}
                   mcpBySlug={mcpBySlug}
                   workflows={workflowsByPreset.get(item.id) ?? NO_WORKFLOWS}
+                  slackPlacements={
+                    slackPlacementsByPreset.get(item.id) ?? NO_SLACK_PLACEMENTS
+                  }
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
                   setSelectedItem={setSelectedItem}

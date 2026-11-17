@@ -10,28 +10,32 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from tracecat.agent.constants import AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 from tracecat.executor.enums import ExecutorBackendType
+from tracecat.process_env import is_loader_env_var
 
 # === Agent Sandbox Config (read directly from env) === #
 
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT")
+    or AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 )
-"""Ceiling for agent execution timeouts in seconds (default one hour)."""
+"""Ceiling for agent execution timeouts in seconds."""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )
 """Aggregate cgroup memory budget for each agent sandbox in MiB (4 GiB)."""
 
-# Leave unset to derive the address-space guard from each sandbox's memory budget.
+# Leave unset to rely on the cgroup memory budget; without a cgroup the guard
+# falls back to twice that budget.
 _address_space_mb = os.environ.get(
     "TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB", ""
 ).strip()
 TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB = (
     int(_address_space_mb) if _address_space_mb else None
 )
-"""Per-process address-space cap in MiB; defaults to twice the cgroup budget."""
+"""Per-process address-space cap in MiB; unset means uncapped under the cgroup."""
 if (
     TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB is not None
     and TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB <= 0
@@ -61,6 +65,11 @@ AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
     }
 )
 """Environment variables reserved for Tracecat's agent runtime isolation."""
+
+
+def is_agent_runtime_protected_env_var(key: str) -> bool:
+    """Return whether user-supplied agent runtime env must not set ``key``."""
+    return key in AGENT_RUNTIME_PROTECTED_ENV_VARS or is_loader_env_var(key)
 
 
 def build_agent_runtime_uv_env(uv_state_dir: Path) -> dict[str, str]:

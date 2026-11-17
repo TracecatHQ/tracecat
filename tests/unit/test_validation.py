@@ -1,7 +1,9 @@
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
@@ -12,6 +14,7 @@ from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
 from tests.support.executor_backend import TestBackend
+from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -47,8 +50,10 @@ from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.tiers import defaults as tier_defaults
-from tracecat.validation.schemas import ValidationResultType
-from tracecat.validation.service import validate_dsl
+from tracecat.validation.schemas import (
+    ValidationResultType,
+)
+from tracecat.validation.service import validate_dsl, validate_registry_action_args
 
 TEST_VERSION = "test-version"
 
@@ -815,3 +820,48 @@ async def test_agent_tool_approvals_do_not_require_agent_addons(
     ]
 
     assert action_errors == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("interval", "expected"),
+    [
+        ("${{ TRIGGER.delay }}", [("pydantic.float_parsing", ("interval",))]),
+        (
+            "every ${{ TRIGGER.delay }} seconds",
+            [("pydantic.float_parsing", ("interval",))],
+        ),
+        (0.5, []),
+        (None, []),
+    ],
+)
+async def test_scatter_args_validation_matches_runtime_parse(
+    interval: object, expected: list[tuple[str, tuple[str, ...]]]
+) -> None:
+    """The registry schema accepts expressions, but the scheduler parses scatter
+    args before evaluating them, so commit validation must reject them too."""
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    interface = RegistryActionCreate.from_bound(
+        repo.get("core.transform.scatter"), uuid.uuid4()
+    ).interface
+    registry = MagicMock()
+    registry.return_value.get_action_from_index = AsyncMock(
+        return_value=SimpleNamespace(
+            manifest=SimpleNamespace(
+                actions={"core.transform.scatter": SimpleNamespace(interface=interface)}
+            )
+        )
+    )
+
+    with patch("tracecat.validation.service.RegistryActionsService", new=registry):
+        result = await validate_registry_action_args(
+            session=AsyncMock(),
+            role=Role(type="service", service_id="tracecat-runner"),
+            action_name="core.transform.scatter",
+            action_ref="scatter",
+            args={"collection": "${{ [1, 2] }}", "interval": interval},
+        )
+
+    assert result.status == ("error" if expected else "success")
+    assert [(d.type, d.loc) for d in result.detail or []] == expected

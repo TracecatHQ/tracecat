@@ -42,16 +42,34 @@ Path('/work/result.json').write_text(json.dumps(
     {'success': True, 'output': 42, 'result': 42}
 ))
 """
+# With no explicit cap, the cgroup alone bounds RAM. Reserve far more address
+# space than memory.max, the 2x no-cgroup fallback, and nsjail's 4096 MiB
+# default without touching it, as DuckDB does.
+RESERVE_SCRIPT = """
+import json
+import mmap
+import resource
+from pathlib import Path
+assert resource.getrlimit(resource.RLIMIT_AS) == (resource.RLIM_INFINITY,) * 2
+reservation = mmap.mmap(
+    -1, 16 * 1024**3, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS, prot=0
+)
+Path('/work/result.json').write_text(json.dumps(
+    {'success': True, 'output': 42, 'result': 42}
+))
+"""
 
 
 async def main() -> None:
-    """Check aggregate OOM, sibling survival, supervisor survival, and reuse."""
+    """Check aggregate OOM, sibling survival, supervisor survival, reuse, and
+    that an unset address-space cap is uncapped under the cgroup."""
     assert os.getuid() == 1001
     root = sandbox_cgroup()
     parent_group = Path("/proc/self/cgroup").read_text()
     initial_children = set(root.iterdir())
     executor = NsjailExecutor(cgroup_mount=root)
     resources = ResourceLimits(memory_mb=128, address_space_mb=512, timeout_seconds=15)
+    uncapped = ResourceLimits(memory_mb=128, timeout_seconds=15)
 
     def oom_kills() -> int:
         return int(
@@ -61,7 +79,11 @@ async def main() -> None:
             )["oom_kill"]
         )
 
-    async def run(kind: Literal["action", "python"], script: str):
+    async def run(
+        kind: Literal["action", "python"],
+        script: str,
+        limits: ResourceLimits = resources,
+    ):
         with tempfile.TemporaryDirectory() as directory:
             job = Path(directory)
             if kind == "action":
@@ -72,12 +94,12 @@ async def main() -> None:
                         registry_paths=[],
                         tracecat_app_dir=job,
                         network=None,
-                        resources=resources,
+                        resources=limits,
                         timeout_seconds=15,
                     ),
                 )
             (job / "wrapper.py").write_text(script)
-            return await executor.execute(job, SandboxConfig(resources=resources))
+            return await executor.execute(job, SandboxConfig(resources=limits))
 
     for kind in ("action", "python"):
         before = oom_kills()
@@ -89,12 +111,15 @@ async def main() -> None:
         assert oom_kills() > before
         assert sibling.success, sibling
         assert (await run(kind, HEALTHY_SCRIPT)).success
+        reserved = await run(kind, RESERVE_SCRIPT, uncapped)
+        assert reserved.success, reserved
         assert Path("/proc/self/cgroup").read_text() == parent_group
         assert set(root.iterdir()) == initial_children, "nsjail leaked a child cgroup"
         print(
             f"PASS {kind}: aggregate OOM contained, sibling survived, recovery succeeded",
             flush=True,
         )
+        print(f"PASS {kind}: unset address-space cap reserved 16 GiB", flush=True)
 
 
 if __name__ == "__main__":

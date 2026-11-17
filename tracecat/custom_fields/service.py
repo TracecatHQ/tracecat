@@ -10,7 +10,7 @@ from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
-from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_lock
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
@@ -21,6 +21,7 @@ from tracecat.tables.service import (
     RLS_BYPASS_VAR,
     RLS_WORKSPACE_VAR,
     TableEditorService,
+    assign_dynamic_owner,
     is_internal_column_name,
     sanitize_identifier,
     validate_identifier,
@@ -81,12 +82,21 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         await conn.execute(
             sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
         )
+        # FORCE so the policy also applies when the app role owns the table.
         await conn.execute(
-            sa.DDL(
-                f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
-                full_table_name,
-            )
+            sa.DDL("ALTER TABLE %s FORCE ROW LEVEL SECURITY", full_table_name)
         )
+        # Keep an existing policy: the dynamic RLS guard (b4074a0896b5)
+        # rejects the app role dropping it. Policy changes belong in migrations.
+        policy_exists = await conn.scalar(
+            sa.text(
+                "SELECT EXISTS (SELECT 1 FROM pg_policy "
+                "WHERE polrelid = to_regclass(:table_name) AND polname = :policy)"
+            ),
+            {"table_name": full_table_name, "policy": DYNAMIC_WORKSPACE_RLS_POLICY},
+        )
+        if policy_exists:
+            return
         await conn.execute(
             sa.DDL(
                 f"""
@@ -121,14 +131,16 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
             self.service_name,
             self._table,
         )
-        async with pg_advisory_lock(self.session, lock_key):
-            await self.session.execute(
-                CreateSchema(self.schema_name, if_not_exists=True)
-            )
-            await self.session.execute(
-                CreateTable(self._table_definition(), if_not_exists=True)
-            )
-            await self._enable_workspace_rls_for_base_table()
+        # Held until the caller's transaction ends, so a waiter sees committed DDL.
+        await pg_advisory_xact_lock(self.session, lock_key)
+        await self.session.execute(CreateSchema(self.schema_name, if_not_exists=True))
+        conn = await self.session.connection()
+        await assign_dynamic_owner(conn, "SCHEMA", f'"{self.schema_name}"')
+        await self.session.execute(
+            CreateTable(self._table_definition(), if_not_exists=True)
+        )
+        await assign_dynamic_owner(conn, "TABLE", self._full_table_name())
+        await self._enable_workspace_rls_for_base_table()
         self._schema_initialized = True
 
     async def _ensure_schema_ready(self) -> None:

@@ -16,7 +16,10 @@ from tracecat.agent.common.exceptions import (
     UserMCPDiscoveryUnavailableError,
 )
 from tracecat.agent.sandbox.config import AgentResourceLimits
-from tracecat.exceptions import RegistryLockAmbiguousActionError
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    RegistryLockAmbiguousActionError,
+)
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -56,6 +59,23 @@ def invalid_agent_configuration(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_provider_credentials_missing(
+    error: AgentProviderCredentialsNotFoundError,
+) -> RuntimeErrorClassification:
+    """Classify an agent whose model provider has no configured credentials.
+
+    The organization owns the fix, and a retry fails the same way until the
+    credentials exist. The raised message names only the provider and where to
+    add credentials.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING,
+        message=str(error),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
@@ -283,6 +303,26 @@ def user_agent_execution_failed(
     )
 
 
+def agent_backend_turn_failed(error: str) -> RuntimeErrorClassification:
+    """Classify a turn the configured agent backend reported as failed.
+
+    The message keeps a redacted, bounded copy of the backend's reason so a run
+    view shows why the action failed. A turn result carries no owner, so a
+    caller-side reason (a provider rejection, a denied tool call) cannot be told
+    apart from an infrastructure failure the backend returned as a failed turn.
+    The platform owns it, like a failed case-comment turn, so infrastructure
+    failures still alert.
+    """
+    message = "Agent execution failed"
+    if safe_detail := _unclassified_detail(None, error):
+        message = f"{message}: {safe_detail}"
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+        message=message,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_provider_rejected_request(
     *,
     status_code: int,
@@ -310,17 +350,83 @@ def agent_llm_provider_rejected_request(
 
 def agent_llm_read_timeout(
     error: BaseException | None = None,
+    *,
+    user_owned: bool = False,
 ) -> RuntimeErrorClassification:
-    """Assign investigation of an ambiguous upstream read stall to Tracecat.
+    """Classify an upstream read stall past the LLM proxy read timeout.
 
-    Operational ownership is not root-cause attribution: a direct route alone
-    cannot distinguish provider, network, or local proxy failures.
+    Args:
+        error: Transport error that caused the stall, if any.
+        user_owned: Whether the stalled upstream is the caller's own provider
+            or gateway (direct route) rather than the managed gateway.
     """
-    return RuntimeErrorClassification.platform(
+    constructor = (
+        RuntimeErrorClassification.user
+        if user_owned
+        else RuntimeErrorClassification.platform
+    )
+    return constructor(
         kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
         message="Timed out waiting for data from the LLM upstream",
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=error,
+    )
+
+
+def agent_llm_stream_interrupted(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a managed gateway response cut off after headers were sent.
+
+    The runtime already received a partial response, so the proxy cannot retry
+    transparently. A gateway pod rollout or restart is the usual cause.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED,
+        message="The LLM gateway response stream was interrupted before it completed",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_llm_provider_unavailable(*, status_code: int) -> RuntimeErrorClassification:
+    """Classify a managed-route upstream outage the gateway attributed to the provider.
+
+    "Managed" means the request went through Tracecat's LLM gateway, not that
+    Tracecat owns the provider. The gateway calls the provider with the
+    organization's own credentials and deployment, so a provider 5xx or a
+    dropped provider connection is user-owned. Failures of the gateway itself
+    are classified by ``agent_llm_gateway_unavailable`` and stay platform-owned.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
+        message=(
+            f"The LLM provider is temporarily unavailable (HTTP {status_code}); "
+            "retry later"
+        ),
+        retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
+def agent_llm_gateway_unreachable(error: BaseException) -> RuntimeErrorClassification:
+    """Classify a managed gateway the proxy could not open a connection to."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message="Could not connect to the LLM gateway; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_llm_gateway_unavailable(*, status_code: int) -> RuntimeErrorClassification:
+    """Classify a managed gateway with no routable deployment or no healthy backend."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message=(
+            f"The LLM gateway is temporarily unavailable (HTTP {status_code}); "
+            "retry later"
+        ),
+        retry_disposition=RetryDisposition.RETRYABLE,
     )
 
 
@@ -356,6 +462,22 @@ def agent_llm_provider_subscription_required() -> RuntimeErrorClassification:
     )
 
 
+def agent_llm_provider_role_denied() -> RuntimeErrorClassification:
+    """Classify STS refusing the workspace-configured Bedrock role.
+
+    The role's trust policy belongs to the workspace, and a retry fails the same
+    way until it changes. The message omits the role ARN and the STS error body.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message=(
+            "AWS denied assuming the configured Bedrock role; check that the "
+            "role trust policy allows Tracecat and the workspace External ID"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_model_not_enabled() -> RuntimeErrorClassification:
     """Classify a managed-route model that workspace model access disallows."""
     return RuntimeErrorClassification.user(
@@ -377,11 +499,16 @@ def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
     )
 
 
-def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
-    """Classify temporary throttling without assuming that a budget ran out."""
+def agent_llm_rate_limited(*, user_owned: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out.
+
+    Args:
+        user_owned: Whether the throttling is attributable to the caller's
+            own provider credentials rather than shared platform capacity.
+    """
     constructor = (
         RuntimeErrorClassification.user
-        if route_is_direct
+        if user_owned
         else RuntimeErrorClassification.platform
     )
     return constructor(
@@ -441,14 +568,19 @@ def agent_sandbox_resource_limit_exceeded(
     exceeded, and a retry hits the same cap deterministically.
     """
     limits = AgentResourceLimits()
+    address_space = (
+        "uncapped (TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB is unset)"
+        if limits.address_space_mb is None
+        else f"capped at {limits.address_space_mb} MiB "
+        "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB)"
+    )
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
         message=(
             "The sandbox exceeded a resource limit (memory, CPU time, or file size). "
             f"The cgroup memory budget is {limits.memory_mb} MiB "
             "(TRACECAT__AGENT_SANDBOX_MEMORY_MB). "
-            f"Per-process address space is capped at {limits.address_space_limit_mb} MiB "
-            "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB; defaults to twice the memory budget)."
+            f"Per-process address space is {address_space}."
         ),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,

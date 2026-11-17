@@ -103,6 +103,7 @@ function TestForm({
   presets = [preset],
   isSaving = false,
   openIndex: initialOpenIndex = null,
+  lockedSkillIds,
 }: {
   panel: "output" | "skills" | "subagents"
   defaults?: Partial<AgentPresetFormValues>
@@ -110,6 +111,7 @@ function TestForm({
   presets?: AgentPresetReadMinimal[]
   isSaving?: boolean
   openIndex?: number | null
+  lockedSkillIds?: string[]
 }) {
   const [openIndex, setOpenIndex] = useState(initialOpenIndex)
   const form = useForm<AgentPresetFormValues>({
@@ -191,6 +193,7 @@ function TestForm({
                 skill_version: 3,
               },
             ]}
+            lockedSkillIds={lockedSkillIds}
             onAddSkillBinding={skills.append}
             onRemoveSkillBinding={skills.remove}
           />
@@ -284,6 +287,23 @@ it("shows a saved skill without a version badge and removes the binding", async 
   ).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: `Remove ${skill.name}` }))
   expect(values().skills).toEqual([])
+})
+
+it("keeps a managed preset's package skill from being removed", async () => {
+  const user = userEvent.setup()
+  render(
+    <TestForm
+      panel="skills"
+      defaults={{ skills: [{ skillId: skill.id }] }}
+      lockedSkillIds={[skill.id]}
+    />
+  )
+  const locked = screen.getByRole("button", {
+    name: `${skill.name} comes from the package and cannot be removed`,
+  })
+  expect(locked).toBeDisabled()
+  await user.click(locked)
+  expect(values().skills).toEqual([{ skillId: skill.id }])
 })
 
 it("adds an unsaved skill without a version badge", async () => {

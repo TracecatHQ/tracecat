@@ -51,6 +51,7 @@ import {
 } from "@/components/agents/agents-catalog-view-toggle"
 import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
+import { useAgentsChannelsHref } from "@/components/agents/external-channels/agents-channels-href"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -69,6 +70,7 @@ import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
+import { CaseViewHeaderSlot } from "@/components/cases/case-view-header-slot"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -80,9 +82,11 @@ import {
   WorkflowsCatalogViewToggle,
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { FormViewToggle } from "@/components/forms/form-view-toggle"
 import { CreateFormDialog } from "@/components/forms/forms-dashboard"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
 import { SkillLibrarySkillActions } from "@/components/skills/skill-library-skill-view"
@@ -94,6 +98,10 @@ import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import {
+  normalizeTableFolderPath,
+  TableFolderCreateDialog,
+} from "@/components/tables/table-folder-dialogs"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
@@ -259,8 +267,12 @@ function WorkflowsBreadcrumb({
 }
 
 function TablesActions() {
-  const [activeDialog, setActiveDialog] = useState<"create" | "import" | null>(
-    null
+  const searchParams = useSearchParams()
+  const [activeDialog, setActiveDialog] = useState<
+    "create" | "import" | "folder" | null
+  >(null)
+  const currentFolderPath = normalizeTableFolderPath(
+    searchParams?.get("path") ?? null
   )
 
   return (
@@ -274,7 +286,7 @@ function TablesActions() {
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            New table
+            Create
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
@@ -289,7 +301,7 @@ function TablesActions() {
           <DropdownMenuItem onSelect={() => setActiveDialog("create")}>
             <Plus className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Create table</span>
+              <span>Table</span>
               <span className="text-xs text-muted-foreground">
                 Define columns manually
               </span>
@@ -304,15 +316,31 @@ function TablesActions() {
               </span>
             </div>
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("folder")}>
+            <FolderIcon className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Folder</span>
+              <span className="text-xs text-muted-foreground">
+                Organize tables into folders
+              </span>
+            </div>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <CreateTableDialog
         open={activeDialog === "create"}
         onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
+        folderPath={currentFolderPath}
       />
       <TableImportTableDialog
         open={activeDialog === "import"}
         onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
+        folderPath={currentFolderPath}
+      />
+      <TableFolderCreateDialog
+        open={activeDialog === "folder"}
+        onOpenChange={(open) => setActiveDialog(open ? "folder" : null)}
+        parentPath={currentFolderPath}
       />
     </>
   )
@@ -431,6 +459,21 @@ function SkillsActions() {
           ) : null}
         </>
       )
+    } else if (catalogView === SkillsCatalogViewMode.Library) {
+      // Library skills are installed per row; keep a disabled placeholder so
+      // the header doesn't shift when switching tabs.
+      skillActionControls = (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create
+          <ChevronDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      )
     }
   }
 
@@ -482,7 +525,7 @@ function AddSkillTag({
         onCreateTag={async (params) => {
           await createSkillTag(params)
         }}
-        title="Create new skill tag"
+        title="Create tag"
         description="Enter a name for your new skill tag."
       />
     </>
@@ -500,7 +543,11 @@ function BreadcrumbEntityPage({
     return <Skeleton className={skeletonClassName} />
   }
 
-  return <BreadcrumbPage className="font-semibold">{label}</BreadcrumbPage>
+  return (
+    <BreadcrumbPage className="font-semibold text-muted-foreground">
+      {label}
+    </BreadcrumbPage>
+  )
 }
 
 function SkillsBreadcrumb({
@@ -523,11 +570,19 @@ function SkillsBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={skill?.name}
             skeletonClassName="h-4 w-28"
           />
+          {skill && (
+            <ManagedResourceStatus
+              resourceType="skill"
+              id={skill.id}
+              name={skill.slug}
+              showDetach
+            />
+          )}
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -574,7 +629,9 @@ function SkillLibraryProviderBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem className="gap-1.5">
           {providerSlug === undefined ? (
-            <BreadcrumbPage className="font-semibold">Library</BreadcrumbPage>
+            <BreadcrumbPage className="font-semibold text-muted-foreground">
+              Library
+            </BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild className="text-muted-foreground">
               <Link href={`/workspaces/${workspaceId}/skills/library`}>
@@ -615,7 +672,7 @@ function SkillLibraryProviderBreadcrumb({
               <span className="text-muted-foreground">/</span>
             </BreadcrumbSeparator>
             <BreadcrumbItem>
-              <BreadcrumbPage className="font-semibold">
+              <BreadcrumbPage className="font-semibold text-muted-foreground">
                 {skillSlug}
               </BreadcrumbPage>
             </BreadcrumbItem>
@@ -684,9 +741,12 @@ function AgentsActions() {
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
 
+  const channelsHref = useAgentsChannelsHref(workspaceId)
   const catalogView = pathname?.includes("/agents/tags")
     ? AgentsCatalogViewMode.Tags
-    : AgentsCatalogViewMode.Agents
+    : pathname?.includes("/agents/channels")
+      ? AgentsCatalogViewMode.Channels
+      : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
   const isFoldersView =
@@ -707,14 +767,14 @@ function AgentsActions() {
           />
         )
       }
-    } else {
+    } else if (catalogView === AgentsCatalogViewMode.Agents) {
       agentActionControls = (
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-7 bg-background">
                 <Plus className="mr-1 h-3.5 w-3.5" />
-                Create new
+                Create
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
               </Button>
             </DropdownMenuTrigger>
@@ -741,7 +801,7 @@ function AgentsActions() {
                   <div className="flex flex-col text-xs">
                     <span>Folder</span>
                     <span className="text-xs text-muted-foreground">
-                      Create a new folder
+                      Group agents
                     </span>
                   </div>
                 </DropdownMenuItem>
@@ -767,11 +827,12 @@ function AgentsActions() {
 
   return (
     <>
-      {organizationEnabled ? (
+      {organizationEnabled || channelsHref ? (
         <AgentsCatalogViewToggle
           view={catalogView}
           agentsHref={agentsHref}
-          tagsHref={tagsHref}
+          tagsHref={organizationEnabled ? tagsHref : undefined}
+          channelsHref={channelsHref}
         />
       ) : null}
       <WorkspaceResourceSyncActions
@@ -814,7 +875,7 @@ function AddAgentTag({
         onCreateTag={async (params) => {
           await createAgentTag(params)
         }}
-        title="Create new agent tag"
+        title="Create tag"
         description="Enter a name for your new agent tag."
       />
     </>
@@ -887,6 +948,27 @@ function CasesActions() {
         resources={["case_dropdown"]}
       />
     )
+  } else if (view === CasesViewMode.ClosureRequirements) {
+    // Nothing to push or create here; keep disabled placeholders so the
+    // header doesn't shift when switching tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="closure requirements"
+        branchSlug="case-closure-requirements"
+        resources={["case_field", "case_dropdown"]}
+        disabled
+      />
+    )
+  } else {
+    // Cases themselves aren't synced; keep Push aligned with the settings tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="cases"
+        branchSlug="cases"
+        resources={["case_tag", "case_field", "case_dropdown", "case_duration"]}
+        disabled
+      />
+    )
   }
 
   return (
@@ -909,7 +991,17 @@ function CasesActions() {
         <AddCaseTag />
       ) : view === CasesViewMode.Dropdowns ? (
         <AddCaseDropdown />
-      ) : view === CasesViewMode.ClosureRequirements ? null : (
+      ) : view === CasesViewMode.ClosureRequirements ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create
+        </Button>
+      ) : (
         <>
           <Button
             variant="outline"
@@ -1850,7 +1942,7 @@ function CredentialsActions() {
             onClick={() => setDialogOpen(true)}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add credential
+            Create credential
           </Button>
           <CreateCredentialDialog
             open={dialogOpen}
@@ -1963,7 +2055,7 @@ function VariablesActions() {
         <NewVariableDialogTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 bg-background">
             <Plus className="mr-1 h-3.5 w-3.5" />
-            Add variable
+            Create variable
           </Button>
         </NewVariableDialogTrigger>
       </NewVariableDialog>
@@ -2115,7 +2207,7 @@ function CaseDetailActions({
 function FormsListActions() {
   const enabled = useFormsAccess() === "enabled"
   const canCreate = useScopeCheck("form:create") === true
-  // The New form dialog picks from the workflow list.
+  // The Create form dialog picks from the workflow list.
   const canReadWorkflows = useScopeCheck("workflow:read") === true
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -2138,7 +2230,7 @@ function FormsListActions() {
             onClick={() => setCreateOpen(true)}
           >
             <Plus className="mr-1 size-3.5" />
-            New form
+            Create form
           </Button>
           <CreateFormDialog open={createOpen} onOpenChange={setCreateOpen} />
         </>
@@ -2168,7 +2260,9 @@ function FormBreadcrumb({
     })
 
   if (!enabled) {
-    return <h1 className="text-sm font-semibold">Forms</h1>
+    return (
+      <h1 className="text-sm font-semibold text-muted-foreground">Forms</h1>
+    )
   }
 
   async function setOnline(next: boolean) {
@@ -2225,7 +2319,7 @@ function FormBreadcrumb({
   )
 }
 
-/** Form detail action: open the form as a requester, in a new tab. */
+/** Form detail actions: Config / Activity tabs, and open as a requester. */
 function FormDetailActions({
   formId,
   workspaceId,
@@ -2240,17 +2334,20 @@ function FormDetailActions({
     return null
   }
   return (
-    <Button
-      asChild
-      variant="outline"
-      size="sm"
-      className="h-7 gap-1.5 bg-background"
-    >
-      <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
-        <ExternalLinkIcon className="size-3.5" />
-        Open
-      </a>
-    </Button>
+    <>
+      <FormViewToggle workspaceId={workspaceId} formId={form.id} />
+      <Button
+        asChild
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 bg-background"
+      >
+        <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
+          <ExternalLinkIcon className="size-3.5" />
+          Open
+        </a>
+      </Button>
+    </>
   )
 }
 
@@ -2274,11 +2371,19 @@ function TableBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={table?.name}
             skeletonClassName="h-4 w-28"
           />
+          {table && (
+            <ManagedResourceStatus
+              resourceType="table"
+              id={table.id}
+              name={table.name}
+              showDetach
+            />
+          )}
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -2326,7 +2431,19 @@ function AgentPresetBreadcrumb({
       rootLabel={workspace?.name ?? <Skeleton className="h-4 w-20" />}
       rootHref={`/workspaces/${workspaceId}/agents`}
       folderPath={folderPath}
-      currentPage={preset?.name}
+      currentPage={
+        preset ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{preset.name}</span>
+            <ManagedResourceStatus
+              resourceType="agent_preset"
+              id={preset.id}
+              name={preset.slug}
+              showDetach
+            />
+          </span>
+        ) : undefined
+      }
       currentPageFallback={<Skeleton className="h-4 w-32" />}
     />
   )
@@ -2378,6 +2495,19 @@ function getPageConfig(
     if (pagePath === "/agents/tags") {
       return {
         title: "Agents",
+        actions: <AgentsActions />,
+      }
+    }
+
+    if (pagePath === "/agents/channels") {
+      return {
+        title: (
+          <FolderPathBreadcrumb
+            rootLabel="Agents"
+            rootHref={`${basePath}/agents`}
+            currentPage="Channels"
+          />
+        ),
         actions: <AgentsActions />,
       }
     }
@@ -2711,7 +2841,9 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
 
   const titleContent =
     typeof pageConfig.title === "string" ? (
-      <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+      <h1 className="text-sm font-semibold text-muted-foreground">
+        {pageConfig.title}
+      </h1>
     ) : (
       pageConfig.title
     )
@@ -2737,6 +2869,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         ) : (
           titleContent
         )}
+        {isCasesListPage && <CaseViewHeaderSlot />}
       </div>
 
       {/* Middle section: bulk selection actions */}

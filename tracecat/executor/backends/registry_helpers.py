@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import functools
+from typing import Literal
+
 import tracecat_registry
 
 from tracecat import config
@@ -13,6 +16,7 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, set_current_span_attributes
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     PLATFORM_REGISTRY_NAMESPACE,
@@ -33,28 +37,41 @@ async def get_registry_artifact_uris(
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
         return []
 
-    origins = dict(input.registry_lock.origins)
-    artifact_uris: list[str] = []
+    with platform_span("tracecat.action.resolve_registry_artifacts"):
+        origins = dict(input.registry_lock.origins)
+        artifact_uris: list[str] = []
+        builtin_source: Literal["bundled", "artifact", "none"] = (
+            "artifact" if DEFAULT_REGISTRY_ORIGIN in origins else "none"
+        )
 
-    if (
-        origins.get(DEFAULT_REGISTRY_ORIGIN) == tracecat_registry.__version__
-        and (builtin_version := origins.get(DEFAULT_REGISTRY_ORIGIN)) is not None
-        and _bundled_builtin_matches_lock(input.registry_lock, builtin_version)
-    ):
-        del origins[DEFAULT_REGISTRY_ORIGIN]
-        artifact_uris.append(bundled_builtin_registry_uri(builtin_version))
+        if (
+            origins.get(DEFAULT_REGISTRY_ORIGIN) == tracecat_registry.__version__
+            and (builtin_version := origins.get(DEFAULT_REGISTRY_ORIGIN)) is not None
+            and _bundled_builtin_matches_lock(input.registry_lock, builtin_version)
+        ):
+            del origins[DEFAULT_REGISTRY_ORIGIN]
+            artifact_uris.append(bundled_builtin_registry_uri(builtin_version))
+            builtin_source = "bundled"
 
-    if not origins:
-        return artifact_uris
+        set_current_span_attributes(
+            {
+                "tracecat.registry.builtin_source": builtin_source,
+                "tracecat.registry.artifact_origin_count": len(origins),
+            }
+        )
+        if not origins:
+            return artifact_uris
 
-    if role.organization_id is None:
-        raise ValueError("organization_id is required for registry artifacts lookup")
+        if role.organization_id is None:
+            raise ValueError(
+                "organization_id is required for registry artifacts lookup"
+            )
 
-    artifacts = await get_registry_artifacts_for_lock(
-        origins,
-        role.organization_id,
-    )
-    return artifact_uris + sort_registry_artifact_uris(artifacts)
+        artifacts = await get_registry_artifacts_for_lock(
+            origins,
+            role.organization_id,
+        )
+        return artifact_uris + sort_registry_artifact_uris(artifacts)
 
 
 def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
@@ -67,19 +84,16 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
     if expected is None:
         return True
 
-    manifest = load_prebuilt_builtin_registry_manifest(
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        target_version=version,
-        storage_namespace=PLATFORM_REGISTRY_NAMESPACE,
+    actual = _bundled_builtin_fingerprint(
+        config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR, version
     )
-    if manifest is None:
+    if actual is None:
         logger.info(
             "Bundled builtin registry fingerprint unavailable; using artifact lookup",
             registry_version=version,
         )
         return False
 
-    actual = registry_manifest_fingerprint(manifest)
     if actual != expected:
         logger.info(
             "Bundled builtin registry fingerprint mismatch; using artifact lookup",
@@ -90,6 +104,24 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
         return False
 
     return True
+
+
+@functools.cache
+def _bundled_builtin_fingerprint(prebuilt_dir: str, version: str) -> str | None:
+    """Fingerprint the image's prebuilt builtin manifest once per process.
+
+    The manifest is baked into the image and never changes under a running
+    process, so parsing the multi-megabyte file on every action is wasted work.
+    ``prebuilt_dir`` is part of the key because the loader resolves it from config.
+    """
+    manifest = load_prebuilt_builtin_registry_manifest(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        target_version=version,
+        storage_namespace=PLATFORM_REGISTRY_NAMESPACE,
+    )
+    if manifest is None:
+        return None
+    return registry_manifest_fingerprint(manifest)
 
 
 def sort_registry_artifact_uris(

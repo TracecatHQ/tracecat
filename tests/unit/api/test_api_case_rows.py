@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
+from tests._db_error_utils import unique_violation
 from tracecat.auth.types import Role
 from tracecat.cases import search_service
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -52,13 +53,7 @@ def _build_case_read(case_id: uuid.UUID) -> CaseReadMinimal:
 
 
 def _duplicate_case_row_link_error() -> IntegrityError:
-    return IntegrityError(
-        "INSERT INTO case_table_row ...",
-        {},
-        Exception(
-            'duplicate key value violates unique constraint "uq_case_table_row_link"'
-        ),
-    )
+    return unique_violation("uq_case_table_row_link")
 
 
 @pytest.mark.anyio

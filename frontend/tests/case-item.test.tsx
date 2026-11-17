@@ -11,12 +11,18 @@ jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
 
-jest.mock("@/components/cases/cases-feed-event", () => ({
-  EventCreatedAt: ({ createdAt }: { createdAt: string }) => (
-    <span>{`created ${createdAt}`}</span>
-  ),
-  EventUpdatedAt: ({ updatedAt }: { updatedAt: string }) => (
-    <span>{`updated ${updatedAt}`}</span>
+jest.mock("@/components/timestamps", () => ({
+  RowTimestamps: ({
+    createdAt,
+    updatedAt,
+  }: {
+    createdAt: string
+    updatedAt: string
+  }) => (
+    <>
+      <span>{`created ${createdAt}`}</span>
+      <span>{`updated ${updatedAt}`}</span>
+    </>
   ),
 }))
 

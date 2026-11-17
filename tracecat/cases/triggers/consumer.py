@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import socket
 import uuid
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any
+from typing import Any, Final
 
 from pydantic import ValidationError
-from redis.exceptions import ResponseError
+from redis.exceptions import RedisError, ResponseError
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -28,6 +29,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatDSLError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_api_background_task_failure
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tiers.access import is_org_entitled
@@ -35,6 +37,12 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+
+_TAG_EVENT_TYPES = frozenset({CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED})
+
+
+REDIS_RETRY_BACKOFF_BASE_SECONDS: Final = 1.0
+REDIS_RETRY_BACKOFF_MAX_SECONDS: Final = 30.0
 
 
 class CaseTriggerConsumer:
@@ -69,17 +77,28 @@ class CaseTriggerConsumer:
             logger.info("Case triggers disabled; skipping consumer")
             return
 
-        await self._ensure_group()
-        logger.info(
-            "Case trigger consumer started",
-            stream_key=self.stream_key,
-            group=self.group,
-            consumer=self.consumer_name,
-        )
         last_pending_check = monotonic()
+        retry_delay = REDIS_RETRY_BACKOFF_BASE_SECONDS
+        group_ready = False
+        started = False
         try:
             while not self._stop_signalled():
                 try:
+                    if not group_ready:
+                        await self._ensure_group()
+                        group_ready = True
+                        # Group setup can take a while; don't start a blocking
+                        # read if shutdown began meanwhile.
+                        if self._stop_signalled():
+                            break
+                    if not started:
+                        logger.info(
+                            "Case trigger consumer started",
+                            stream_key=self.stream_key,
+                            group=self.group,
+                            consumer=self.consumer_name,
+                        )
+                        started = True
                     messages = await self.client.xreadgroup(
                         group_name=self.group,
                         consumer_name=self.consumer_name,
@@ -87,7 +106,23 @@ class CaseTriggerConsumer:
                         count=self.batch,
                         block=self.block_ms,
                     )
-                except (ResponseError, RetryError) as e:
+                    if messages:
+                        for _stream, entries in messages:
+                            for message_id, fields in entries:
+                                await self._handle_message(message_id, fields)
+                    else:
+                        now = monotonic()
+                        # Do not start pending-message recovery past the stop
+                        # signal: recovery claims fresh work the terminating
+                        # pod never had in flight, and a claimed batch can
+                        # exceed the drain deadline.
+                        if (
+                            not self._stop_signalled()
+                            and now - last_pending_check >= self._pending_check_interval
+                        ):
+                            await self._claim_idle_messages()
+                            last_pending_check = now
+                except (RedisError, RetryError) as e:
                     if self._is_nogroup_error(e):
                         logger.warning(
                             "Redis case trigger stream/group missing; recreating",
@@ -95,25 +130,27 @@ class CaseTriggerConsumer:
                             group=self.group,
                             error=str(e),
                         )
-                        await self._ensure_group()
+                        group_ready = False
                         continue
-                    raise
-                if messages:
-                    for _stream, entries in messages:
-                        for message_id, fields in entries:
-                            await self._handle_message(message_id, fields)
-                else:
-                    now = monotonic()
-                    # Do not start pending-message recovery past the stop
-                    # signal: recovery claims fresh work the terminating pod
-                    # never had in flight, and a claimed batch can exceed the
-                    # drain deadline.
-                    if (
-                        not self._stop_signalled()
-                        and now - last_pending_check >= self._pending_check_interval
-                    ):
-                        await self._claim_idle_messages()
-                        last_pending_check = now
+                    # Redis outage or failover outlasted the client's retries,
+                    # or Redis rejected the login. Unacked messages stay
+                    # pending and are reclaimed later. Report the first failure
+                    # of each streak so a lasting outage still alerts.
+                    log = logger.warning
+                    if retry_delay == REDIS_RETRY_BACKOFF_BASE_SECONDS:
+                        log = logger.error
+                        capture_api_background_task_failure(
+                            e, task_name="case_trigger_consumer"
+                        )
+                    log(
+                        "Case trigger consumer lost Redis; retrying",
+                        error=str(e),
+                        retry_in_seconds=retry_delay,
+                    )
+                    await self._wait_before_retry(retry_delay)
+                    retry_delay = min(retry_delay * 2, REDIS_RETRY_BACKOFF_MAX_SECONDS)
+                    continue
+                retry_delay = REDIS_RETRY_BACKOFF_BASE_SECONDS
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
             logger.info("Case trigger consumer cancelled")
@@ -123,6 +160,14 @@ class CaseTriggerConsumer:
             raise
         else:
             logger.info("Case trigger consumer stopped gracefully")
+
+    async def _wait_before_retry(self, delay: float) -> None:
+        """Back off, but return as soon as shutdown is signalled."""
+        if self._stop_event is None:
+            await asyncio.sleep(delay)
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
 
     def _is_nogroup_error(self, error: Exception) -> bool:
         if isinstance(error, ResponseError):
@@ -227,7 +272,7 @@ class CaseTriggerConsumer:
                 return should_ack
 
             triggers = await self._load_triggers(session, workspace_uuid, event_type)
-            case_tag_refs = {tag.ref for tag in case.tags}
+            filter_tag_refs = self._filter_tag_refs(case, event)
             for trigger in triggers:
                 if (
                     explicit_workflow_id is not None
@@ -235,7 +280,7 @@ class CaseTriggerConsumer:
                 ):
                     continue
                 if trigger.tag_filters:
-                    if not case_tag_refs.intersection(trigger.tag_filters):
+                    if not filter_tag_refs.intersection(trigger.tag_filters):
                         continue
                 done_key = f"case-trigger:done:{event_id}:{trigger.workflow_id}"
                 lock_key = f"case-trigger:lock:{event_id}:{trigger.workflow_id}"
@@ -282,6 +327,19 @@ class CaseTriggerConsumer:
 
             await session.commit()
             return should_ack
+
+    def _filter_tag_refs(self, case: Case, event: CaseEvent) -> set[str]:
+        """Tag refs that a trigger's tag_filters are matched against.
+
+        Tag events match the added or removed tag; other events match the
+        case's current tags.
+        """
+        if event.type in _TAG_EVENT_TYPES:
+            tag_ref = (
+                event.data.get("tag_ref") if isinstance(event.data, dict) else None
+            )
+            return {tag_ref} if tag_ref else set()
+        return {tag.ref for tag in case.tags}
 
     def _parse_optional_uuid(self, value: str | None) -> uuid.UUID | None:
         if not value:
@@ -593,7 +651,9 @@ class CaseTriggerConsumer:
     ) -> bool:
         defn_service = WorkflowDefinitionsService(session, role=role)
         wf_id = WorkflowUUID.new(trigger.workflow_id)
-        defn = await defn_service.get_definition_by_workflow_id(wf_id)
+        defn = await defn_service.get_definition_by_workflow_id(
+            wf_id, load_relationships=False, load_workflow=True
+        )
         if not defn:
             logger.warning(
                 "No workflow definition found for workflow",
@@ -695,7 +755,9 @@ class CaseTriggerConsumer:
     ) -> bool:
         defn_service = WorkflowDefinitionsService(session, role=role)
         wf_id = WorkflowUUID.new(workflow_id)
-        defn = await defn_service.get_definition_by_workflow_id(wf_id)
+        defn = await defn_service.get_definition_by_workflow_id(
+            wf_id, load_relationships=False
+        )
         wf_exec_id = fields.get("wf_exec_id")
         parent_id = self._parse_optional_uuid(fields.get("parent_id"))
         audit_role = self._get_audit_role(

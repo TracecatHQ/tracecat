@@ -27,7 +27,6 @@ import {
   CommentUpdatedEvent,
   DropdownValueChangedEvent,
   EventActor,
-  EventCreatedAt,
   EventIcon,
   FieldsChangedEvent,
   ParentChangedEvent,
@@ -46,6 +45,7 @@ import {
   TaskStatusChangedEvent,
   TaskWorkflowChangedEvent,
 } from "@/components/cases/cases-feed-event"
+import { CreatedAtTimestamp } from "@/components/timestamps"
 import {
   Empty,
   EmptyDescription,
@@ -227,11 +227,15 @@ function CaseFeedEvent({
         )}
 
         {event.type === "comment_deleted" && (
-          <CommentDeletedEvent event={event} actor={actor} />
+          <CommentDeletedEvent event={event} actor={actor} userMap={users} />
         )}
 
         {event.type === "comment_reply_deleted" && (
-          <CommentReplyDeletedEvent event={event} actor={actor} />
+          <CommentReplyDeletedEvent
+            event={event}
+            actor={actor}
+            userMap={users}
+          />
         )}
 
         {event.type === "dropdown_value_changed" && (
@@ -289,7 +293,7 @@ function CaseFeedEvent({
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <EventCreatedAt createdAt={event.created_at} />
+          <CreatedAtTimestamp createdAt={event.created_at} />
           {event.wf_exec_id && (
             <WorkflowExecutionInfo wfExecId={event.wf_exec_id} />
           )}

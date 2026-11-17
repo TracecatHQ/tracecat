@@ -183,13 +183,13 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                       <Plus className="size-4" />
                     </div>
                     <div className="font-medium text-muted-foreground">
-                      Add workspace
+                      Create workspace
                     </div>
                   </DropdownMenuItem>
                 </DialogTrigger>
                 <DialogContent size="sm" className="sm:max-w-[425px]">
                   <DialogHeader>
-                    <DialogTitle>Create a new workspace</DialogTitle>
+                    <DialogTitle>Create workspace</DialogTitle>
                     <DialogDescription>
                       Workspaces are isolated environments where a team can work
                       on cases, automations, and credentials.

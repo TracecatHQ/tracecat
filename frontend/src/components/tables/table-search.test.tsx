@@ -27,6 +27,19 @@ import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts
 import { searchPollInterval, tableSearchKey } from "@/hooks/use-table-search"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
+// Tables are unmanaged unless a test marks one as managed by Tracecat.
+let managedTableIds: Set<string>
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: (resourceType: string, id?: string | null) =>
+      resourceType === "table" && Boolean(id) && managedTableIds.has(id ?? ""),
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/client", () => ({
   searchGetEmbeddingConfiguration: jest.fn(),
   tablesGetTableSearch: jest.fn(),
@@ -147,6 +160,7 @@ function openDetails() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  managedTableIds = new Set()
   mockHasEntitlement.mockImplementation((key) => key === "semantic_search")
   permissions = new Set([
     "workspace:read",
@@ -199,8 +213,21 @@ test("read permissions gate all authenticated status requests", async () => {
   expect(searchGetEmbeddingConfiguration).not.toHaveBeenCalled()
   expect(screen.queryByLabelText(/Semantic search/)).not.toBeInTheDocument()
   openMenu()
-  await screen.findByText("Remove unique index")
+  await screen.findByText("Delete unique index")
   expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
+})
+
+test("a managed table's column menu hides schema changes", async () => {
+  managedTableIds.add("table-synthetic")
+  setup(menus())
+  openMenu()
+  await screen.findByRole("menuitem", { name: "Copy ID" })
+  expect(screen.getByRole("menuitem", { name: "Copy name" })).toBeVisible()
+  expect(screen.queryByText("Delete unique index")).not.toBeInTheDocument()
+  expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("menuitem", { name: "Delete" })
+  ).not.toBeInTheDocument()
 })
 
 test("without the entitlement the badge opens the Enterprise only dialog", async () => {
@@ -279,8 +306,8 @@ test("missing provider disables enabling and keeps existing table controls", asy
     "No embedding provider is configured."
   )
   openMenu()
-  await screen.findByText("Remove unique index")
-  expect(screen.getByText("Delete column")).toBeInTheDocument()
+  await screen.findByText("Delete unique index")
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument()
   const item = screen.getByRole("menuitem", { name: ENABLE })
   expect(item).toHaveAttribute("data-disabled")
   fireEvent.click(item)
@@ -291,7 +318,7 @@ test("non-text columns have no vector search item", async () => {
   setup(menus([{ ...column, type: "INTEGER" }]))
   await waitFor(() => expect(tablesGetTableSearch).toHaveBeenCalled())
   openMenu()
-  await screen.findByText("Remove unique index")
+  await screen.findByText("Delete unique index")
   expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
 })
 
@@ -818,7 +845,7 @@ test("deleting a selected column explains the consequence", async () => {
     ).toEqual(configuration)
   )
   openMenu()
-  fireEvent.click(await screen.findByText("Delete column"))
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }))
   expect(
     await screen.findByText(/Deleting it removes it from search/)
   ).toBeInTheDocument()

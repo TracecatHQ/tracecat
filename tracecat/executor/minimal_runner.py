@@ -28,7 +28,7 @@ import warnings
 from collections.abc import Callable, Coroutine, Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
@@ -69,6 +69,11 @@ except ImportError:
 
     JSON_OUTPUT_IS_BYTES = True
 
+
+# Wall-clock marks for the host's trace spans, written to result.json in the
+# sandbox. The jail shares the host's realtime clock, so the host can place
+# them on its own timeline.
+_phase_ns: dict[str, int] = {}
 
 # Static config (read once at module load, immutable)
 _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
@@ -473,6 +478,7 @@ def _run_udf(
         # Import the module from tracecat_registry
         mod = importlib.import_module(module_path)
         fn = getattr(mod, function_name)
+        _phase_ns["imported"] = time.time_ns()
 
         # Check if async and run appropriately
         if asyncio.iscoroutinefunction(fn):
@@ -480,6 +486,7 @@ def _run_udf(
         else:
             return _call_sync_with_timeout(fn, args, timeout_seconds)
     finally:
+        _phase_ns["called"] = time.time_ns()
         # Reset secrets context
         if registry_secrets is not None and secrets_token is not None:
             registry_secrets.reset_context(secrets_token)
@@ -847,6 +854,15 @@ if __name__ == "__main__":
     """Standalone entry point for subprocess execution."""
     import sys
 
+    _phase_ns["main"] = time.time_ns()
+
+    # httpx imports its optional CLI (httpx._main -> rich, click, pygments)
+    # whenever those packages are installed, ~40 ms per sandbox start. Actions
+    # never use the CLI; a None entry makes that import raise ImportError, so
+    # httpx falls back to its stub `main`. Set only here, never at module
+    # import, because the executor process also imports this module.
+    sys.modules.setdefault("httpx._main", cast(ModuleType, None))
+
     _enforce_nproc_limit()
 
     # Determine input source: file (sandbox) or stdin (direct)
@@ -882,8 +898,13 @@ if __name__ == "__main__":
             sys.stdout.buffer.flush()
         raise SystemExit(1) from None
 
+    _phase_ns["input_loaded"] = time.time_ns()
+
     # Run the action
     result = main_minimal(input_data)
+    if use_file_io:
+        # Only the sandbox host reads the marks; direct stdout stays unchanged.
+        result["phase_ns"] = _phase_ns
 
     # Output result
     result_bytes = serialize_result(result, input_data)

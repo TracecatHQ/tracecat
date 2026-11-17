@@ -142,7 +142,7 @@ describe("CaseInsertRowDialog", () => {
     await user.type(field("note"), "from the SIEM")
     await user.type(field("source"), "siem")
     await user.type(field("score"), "42")
-    await user.click(screen.getByRole("button", { name: "Add row" }))
+    await user.click(screen.getByRole("button", { name: "Insert row" }))
 
     await waitFor(() => {
       expect(mockInsertCaseRow).toHaveBeenCalledWith({
@@ -169,7 +169,7 @@ describe("CaseInsertRowDialog", () => {
     renderDialog()
 
     await user.type(field("title"), "Suspicious login")
-    await user.click(screen.getByRole("button", { name: "Add row" }))
+    await user.click(screen.getByRole("button", { name: "Insert row" }))
 
     await waitFor(() => {
       expect(mockInsertCaseRow).toHaveBeenCalledTimes(1)
@@ -186,7 +186,7 @@ describe("CaseInsertRowDialog", () => {
     const { onOpenChange } = renderDialog()
 
     await user.type(field("note"), "no title given")
-    await user.click(screen.getByRole("button", { name: "Add row" }))
+    await user.click(screen.getByRole("button", { name: "Insert row" }))
 
     expect(await screen.findByText("title is required")).toBeInTheDocument()
     expect(mockInsertCaseRow).not.toHaveBeenCalled()
@@ -199,7 +199,7 @@ describe("CaseInsertRowDialog", () => {
 
     await user.type(field("title"), "Suspicious login")
     await user.type(field("score"), "4.5")
-    await user.click(screen.getByRole("button", { name: "Add row" }))
+    await user.click(screen.getByRole("button", { name: "Insert row" }))
 
     expect(
       await screen.findByText("score must be an integer")
@@ -217,7 +217,7 @@ describe("CaseInsertRowDialog", () => {
     const { onOpenChange } = renderDialog()
 
     await user.type(field("title"), "Suspicious login")
-    await user.click(screen.getByRole("button", { name: "Add row" }))
+    await user.click(screen.getByRole("button", { name: "Insert row" }))
 
     await waitFor(() => {
       expect(mockInsertCaseRow).toHaveBeenCalled()

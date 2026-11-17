@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
+from tests._db_error_utils import unique_violation
 from tracecat.agent.skill.tags.service import SkillTagsService
 from tracecat.auth.types import Role
 from tracecat.db.models import SkillTag, SkillTagLink
@@ -321,11 +321,7 @@ async def test_update_tag_commit_conflict_raises_tracecat_conflict(
     result.one_or_none.return_value = None
     session = AsyncMock()
     session.execute.return_value = result
-    session.commit.side_effect = IntegrityError(
-        statement="UPDATE skill_tag",
-        params={},
-        orig=Exception("duplicate key"),
-    )
+    session.commit.side_effect = unique_violation("uq_skill_tag_name_workspace")
     service = SkillTagsService(
         session=session,
         role=_role_with_scopes(frozenset({"agent:update"})),

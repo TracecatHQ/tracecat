@@ -55,11 +55,21 @@ def test_full_text_escapes_and_unsupported_operators_are_plain_text() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["", " \t", "...", '""', '"unterminated', '"red"fox', 'red"fox"', "a | b"],
+    ["", " \t", "...", "- |", '""', 'a ""', '"unterminated', '"red"fox', 'red"fox"'],
 )
 def test_full_text_rejects_empty_or_malformed_units(text: str) -> None:
     with pytest.raises(ValueError):
         parse_full_text_query(text)
+
+
+def test_full_text_skips_punctuation_only_units() -> None:
+    assert parse_full_text_query('alpha - beta | "--" -gamma') == (
+        FullTextUnit("alpha"),
+        FullTextUnit("beta"),
+        FullTextUnit("-gamma"),
+    )
+    with pytest.raises(ValueError, match="letter or number"):
+        parse_full_text_query("-")
 
 
 def test_query_limits_include_words_inside_phrases() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import contextlib
 from collections.abc import AsyncIterator, Iterator
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, overload
 
 from tracecat.auth.sandbox import AuthSandbox
@@ -17,6 +18,7 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.secrets.types import ActionSecrets
 
 if TYPE_CHECKING:
     from tracecat_registry import RegistrySecretType
@@ -134,6 +136,18 @@ async def get_action_secrets(
     secret_exprs: builtins.set[str],
     action_secrets: builtins.set[RegistrySecretType],
 ) -> dict[str, Any]:
+    """Resolve an action's secrets and OAuth tokens."""
+    resolved = await resolve_action_secrets(
+        secret_exprs=secret_exprs, action_secrets=action_secrets
+    )
+    return resolved.values
+
+
+async def resolve_action_secrets(
+    secret_exprs: builtins.set[str],
+    action_secrets: builtins.set[RegistrySecretType],
+) -> ActionSecrets:
+    """Resolve an action's secrets and OAuth tokens, with the earliest token expiry."""
     # Handle secrets from the task args
     args_secrets = secret_exprs
     # Get oauth integrations from the action secrets
@@ -188,14 +202,19 @@ async def get_action_secrets(
         "Handling secrets",
         required_basic_secrets=required_basic_secrets,
         optional_basic_secrets=optional_basic_secrets,
-        oauth_provider_ids=oauth_secrets,
-        args_oauth_token_names=args_oauth_token_names,
+        # Stringify ProviderKey dict keys: serializing sinks reject non-str keys.
+        oauth_provider_ids=sorted(str(key) for key in oauth_secrets),
+        args_oauth_token_names={
+            str(key): token_name for key, token_name in args_oauth_token_names.items()
+        },
         args_secrets=args_secrets,
         secrets_to_fetch=all_basic_secrets,
     )
 
     # Get all basic secrets in one call
     secrets: dict[str, Any] = {}
+    expires_at: datetime | None = None
+    partial = False
     async with AuthSandbox(
         secrets=all_basic_secrets,
         environment=get_runtime_env(),
@@ -238,7 +257,13 @@ async def get_action_secrets(
                             provider_secrets[token_name] = (
                                 access_token.get_secret_value()
                             )
+                            if integration.expires_at is not None and (
+                                expires_at is None
+                                or integration.expires_at < expires_at
+                            ):
+                                expires_at = integration.expires_at
                     except Exception as e:
+                        partial = True
                         logger.warning(
                             "Could not get oauth secret, skipping",
                             error=e,
@@ -298,8 +323,9 @@ async def get_action_secrets(
         except TracecatCredentialsError:
             raise
         except Exception as e:
+            partial = True
             logger.warning("Could not get oauth secrets", error=e)
-    return secrets
+    return ActionSecrets(values=secrets, expires_at=expires_at, partial=partial)
 
 
 def flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:

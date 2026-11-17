@@ -50,7 +50,10 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.provider.service import discover_openai_compatible_models
+from tracecat.agent.provider.service import (
+    check_provider_key,
+    discover_openai_compatible_models,
+)
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -72,6 +75,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     AgentModelNotEnabledError,
+    AgentProviderCredentialsNotFoundError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
 )
@@ -414,37 +418,31 @@ class AgentManagementService(BaseOrgService):
     ) -> OrganizationSecret:
         """Create or update credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(params.provider)
-
-        # Check if credentials already exist
         try:
-            existing = await self.secrets_service.get_org_secret_by_name(secret_name)
-            # Update existing credentials
-            keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
-            ]
-            update_params = SecretUpdate(keys=keys)
-            await self.secrets_service.update_org_secret(existing, update_params)
-            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
-            await self._auto_grant_provider_access(params.provider)
-            return existing
+            await self.secrets_service.get_org_secret_by_name(secret_name)
         except TracecatNotFoundError:
-            # Create new credentials
-            keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
-            ]
-            create_params = SecretCreate(
-                name=secret_name,
-                type=SecretType.CUSTOM,
-                description=f"Credentials for {params.provider} AI provider",
-                keys=keys,
-                tags={"provider": params.provider, "type": "agent-credentials"},
+            pass
+        else:
+            return await self.update_provider_credentials(
+                params.provider, ModelCredentialUpdate(credentials=params.credentials)
             )
-            await self.secrets_service.create_org_secret(create_params)
-            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
-            await self._auto_grant_provider_access(params.provider)
-            return await self.secrets_service.get_org_secret_by_name(secret_name)
+
+        await check_provider_key(params.provider, params.credentials)
+        keys = [
+            SecretKeyValue(key=k, value=SecretStr(v))
+            for k, v in params.credentials.items()
+        ]
+        create_params = SecretCreate(
+            name=secret_name,
+            type=SecretType.CUSTOM,
+            description=f"Credentials for {params.provider} AI provider",
+            keys=keys,
+            tags={"provider": params.provider, "type": "agent-credentials"},
+        )
+        await self.secrets_service.create_org_secret(create_params)
+        await self._refresh_gateway_provider_catalog_best_effort(params.provider)
+        await self._auto_grant_provider_access(params.provider)
+        return await self.secrets_service.get_org_secret_by_name(secret_name)
 
     @require_scope("agent:update")
     async def update_provider_credentials(
@@ -453,13 +451,17 @@ class AgentManagementService(BaseOrgService):
         """Update existing credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(provider)
         secret = await self.secrets_service.get_org_secret_by_name(secret_name)
-
-        keys = [
-            SecretKeyValue(key=k, value=SecretStr(v))
-            for k, v in params.credentials.items()
-        ]
-        update_params = SecretUpdate(keys=keys)
-        await self.secrets_service.update_org_secret(secret, update_params)
+        keys = self.secrets_service.merge_key_values(
+            secret,
+            [
+                SecretKeyValue(key=k, value=SecretStr(v))
+                for k, v in params.credentials.items()
+            ],
+        )
+        await check_provider_key(
+            provider, {kv.key: kv.value.get_secret_value() for kv in keys}
+        )
+        await self.secrets_service.update_org_secret(secret, SecretUpdate(keys=keys))
         await self._refresh_gateway_provider_catalog_best_effort(provider)
         await self._auto_grant_provider_access(provider)
         return secret
@@ -1199,9 +1201,26 @@ class AgentManagementService(BaseOrgService):
 
         credentials = await self.get_catalog_credentials(catalog_id)
         if not credentials:
-            raise TracecatNotFoundError(
+            # A stale default can point at a deleted catalog row, which also
+            # resolves no credentials; that is a missing model, not missing setup.
+            catalog_row_id = await self.session.scalar(
+                select(AgentCatalog.id).where(
+                    AgentCatalog.id == catalog_id,
+                    sa.or_(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.organization_id == self.organization_id,
+                    ),
+                )
+            )
+            if catalog_row_id is None:
+                raise TracecatNotFoundError(
+                    "The default model is no longer available. Choose another "
+                    "default model in organization settings."
+                )
+            raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
-                "Configure credentials in organization settings first."
+                "An organization admin can add them in organization settings under "
+                "Agent > Configuration."
             )
 
         # Cloud catalog rows store the invocation target inside the encrypted
@@ -1266,6 +1285,7 @@ class AgentManagementService(BaseOrgService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        prune_tool_tunnels: bool = True,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
@@ -1279,6 +1299,9 @@ class AgentManagementService(BaseOrgService):
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Optional preset version ID to pin
             preset_version: Deprecated compatibility input; current head is used
+            prune_tool_tunnels: Drop tool tunnels for tools the version no
+                longer grants. Pass False when the caller overrides actions
+                and prunes afterwards.
         """
         if self.presets is None:
             raise TracecatAuthorizationError(
@@ -1290,6 +1313,7 @@ class AgentManagementService(BaseOrgService):
             slug=slug,
             preset_version_id=preset_version_id,
             preset_version=preset_version,
+            prune_tool_tunnels=prune_tool_tunnels,
         )
 
         credentials: dict[str, str] | None = None
@@ -1337,9 +1361,10 @@ class AgentManagementService(BaseOrgService):
             )
 
         if not credentials:
-            raise TracecatNotFoundError(
+            raise AgentProviderCredentialsNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
-                "Please configure credentials for this provider first."
+                "An organization admin can add them in organization settings under "
+                "Agent > Configuration."
             )
 
         preset_config = self._resolve_custom_provider_config(

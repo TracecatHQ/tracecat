@@ -72,7 +72,7 @@ class S3ObjectStorage(ObjectStorage):
         sha256 = compute_sha256(serialized)
         key = content_addressed_key(key, sha256)
 
-        await blob.ensure_bucket_exists(self.bucket)
+        await blob.ensure_bucket_exists_once(self.bucket)
         await blob.upload_file(
             content=serialized,
             key=key,

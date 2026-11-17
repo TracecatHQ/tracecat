@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 from unittest.mock import patch
 
 import pytest
@@ -55,10 +55,12 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.networking import NSTUN_GATEWAY_IP4, write_sandbox_network_files
+from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
     SandboxEgressRule,
+    SandboxErrorCode,
     SandboxNetworkPolicy,
     SandboxNetworkProtocol,
     SandboxNetworkPurpose,
@@ -87,6 +89,7 @@ class SmokeCase(StrEnum):
     NSJAIL_GATEWAY = "nsjail-gateway"
     NSJAIL_NETWORK_POLICY = "nsjail-network-policy"
     NSJAIL_SOCKET_BUDGET = "nsjail-socket-budget"
+    NSJAIL_FATAL_SIGNAL = "nsjail-fatal-signal"
     NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
 
     @property
@@ -972,7 +975,17 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             ]
         )
     )
+    completed_runs: list[NsjailCompletedProcess] = []
 
+    async def capture_invoke_nsjail(**kwargs: Any) -> NsjailCompletedProcess:
+        completed = await invoke_nsjail(**kwargs)
+        completed_runs.append(completed)
+        return completed
+
+    invoke_patch = patch(
+        "tracecat.sandbox.executor.invoke_nsjail", capture_invoke_nsjail
+    )
+    invoke_patch.start()
     try:
         result = await NsjailExecutor().execute(
             tmp_path,
@@ -1008,18 +1021,71 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
             if data == b"x":
                 received_packets += 1
     finally:
+        invoke_patch.stop()
         for sink in udp_sinks:
             sink.close()
 
     assert result.success, result.error
+    nsjail_log = completed_runs[-1].nsjail_log.decode("utf-8", errors="replace")
     assert received_packets == _NSTUN_UDP_SOCKET_BUDGET, (
         received_packets,
-        result.stderr,
+        nsjail_log,
     )
-    assert "Too many FD handlers in monitor" not in result.stderr, result.stderr
-    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
-    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
-    assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
+    assert "Too many FD handlers in monitor" not in nsjail_log, nsjail_log
+    assert "Maximum number of UDP flows reached" in nsjail_log, nsjail_log
+    assert "UDP/ICMP parent socket budget exhausted" not in nsjail_log
+    assert "UDP/ICMP parent socket accounting underflow" not in nsjail_log
+
+
+async def _run_nsjail_fatal_signal_smoke_case(tmp_path: Path) -> None:
+    """The pinned NsJail still logs the record that marks a drain kill."""
+    smoke_case = SmokeCase.NSJAIL_FATAL_SIGNAL
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    script_name = "wait_for_drain.py"
+    (tmp_path / script_name).write_text(
+        "import pathlib, time\n"
+        'pathlib.Path("/work/started").write_text("1")\n'
+        "time.sleep(60)\n"
+    )
+    real_create_subprocess_exec = asyncio.create_subprocess_exec
+    processes: list[asyncio.subprocess.Process] = []
+
+    async def capture_subprocess(
+        *args: Any, **kwargs: Any
+    ) -> asyncio.subprocess.Process:
+        process = await real_create_subprocess_exec(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    with patch(
+        "tracecat.sandbox.nsjail_protocol.asyncio.create_subprocess_exec",
+        side_effect=capture_subprocess,
+    ):
+        execution = asyncio.create_task(
+            NsjailExecutor().execute(
+                tmp_path,
+                SandboxConfig(resources=ResourceLimits(timeout_seconds=90)),
+                script_name=script_name,
+            )
+        )
+        for _ in range(300):
+            if (tmp_path / "started").exists():
+                break
+            await asyncio.sleep(0.1)
+        else:
+            execution.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await execution
+            pytest.fail("sandbox workload did not start")
+        # A node drain stops the pod scope, which SIGTERMs NsJail itself.
+        processes[-1].send_signal(signal.SIGTERM)
+        result = await execution
+
+    assert result.exit_code == 137, result.stderr
+    assert result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE, result.error
+    assert result.error == "Sandbox host stopped before the workload finished"
 
 
 _CURRENT_BUILTIN_CASES = {
@@ -1139,6 +1205,15 @@ async def test_nstun_bounds_parent_udp_sockets(tmp_path: Path) -> None:
     await _run_nstun_socket_budget_smoke_case(tmp_path)
 
 
+@pytest.mark.anyio
+async def test_nsjail_sigterm_is_attributed_to_the_platform(tmp_path: Path) -> None:
+    smoke_case = SmokeCase.NSJAIL_FATAL_SIGNAL
+    if _missing_prerequisite(smoke_case):
+        _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+        return
+    await _run_nsjail_fatal_signal_smoke_case(tmp_path)
+
+
 @pytest.mark.parametrize(
     "smoke_case",
     [
@@ -1196,6 +1271,8 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
         try:
             if smoke_case is SmokeCase.NSJAIL_SOCKET_BUDGET:
                 await _run_nstun_socket_budget_smoke_case(tmp_path)
+            elif smoke_case is SmokeCase.NSJAIL_FATAL_SIGNAL:
+                await _run_nsjail_fatal_signal_smoke_case(tmp_path)
             elif smoke_case in _CURRENT_BUILTIN_CASES:
                 await _run_current_builtin_smoke_case(
                     smoke_case=smoke_case,

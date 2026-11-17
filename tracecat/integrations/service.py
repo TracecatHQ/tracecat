@@ -6,6 +6,7 @@ import re
 import secrets
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
@@ -21,7 +22,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, delete, or_, select, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
@@ -40,11 +41,12 @@ from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_secret_masks
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersionSkill,
@@ -57,7 +59,11 @@ from tracecat.db.models import (
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -77,6 +83,20 @@ from tracecat.integrations.enums import (
     IntegrationStatus,
     MCPAuthType,
     OAuthGrantType,
+)
+from tracecat.integrations.mcp_headers import (
+    require_header_expression_scope,
+    resolve_mcp_header_values,
+)
+from tracecat.integrations.mcp_tunnel import (
+    create_mcp_oauth_http_client,
+    mcp_oauth_client_transport,
+    mcp_oauth_route,
+    mcp_oauth_route_pinned,
+    mcp_oauth_tunnel,
+    mcp_oauth_tunnel_proxy,
+    resolve_mcp_tunnel_proxy,
+    validate_mcp_tunnel,
 )
 from tracecat.integrations.mcp_validation import (
     ALLOWED_MCP_COMMANDS,
@@ -133,6 +153,7 @@ from tracecat.integrations.types import (
 )
 from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
+from tracecat.secrets.masking import SecretMaskCollector
 from tracecat.service import BaseWorkspaceService
 
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
@@ -180,6 +201,10 @@ class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
 
 
+class IntegrationConflictError(TracecatConflictError):
+    """Raised when a concurrent write already created the integration resource."""
+
+
 class OAuthRefreshBusyError(RuntimeError):
     """Raised when an OAuth integration stays locked past the retry deadline."""
 
@@ -220,6 +245,12 @@ class _AuthorizeUrlKwargs(TypedDict, total=False):
 
 
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
+# Some servers reserve their own name, so DCR identifies the client as Tracecat.
+_MCP_OAUTH_DCR_CLIENT_NAME = "Tracecat"
+_TUNNELED_MCP_OAUTH_PROVIDER_ERROR = (
+    "MCP servers behind a tunnel must be authorized through their own OAuth "
+    "flow. Reconnect the server instead of reusing an existing OAuth connection."
+)
 _MCP_TOKEN_AUTH_METHODS: frozenset[str] = frozenset(
     {"client_secret_basic", "client_secret_post", "none"}
 )
@@ -250,6 +281,22 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
+
+    async def _commit_integration(self) -> None:
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc,
+                "uq_oauth_integration_workspace_provider_user_flow",
+                "uq_oauth_provider_workspace_provider_grant_type",
+                "uq_mcp_integration_workspace_slug",
+            ):
+                raise
+            raise IntegrationConflictError(
+                "Integration resource already exists"
+            ) from exc
 
     @staticmethod
     def _escape_like_pattern(value: str) -> str:
@@ -393,6 +440,7 @@ class IntegrationService(BaseWorkspaceService):
                     if previous is not None
                     else False,
                     status="available",
+                    input_schema=discovered.input_schema,
                 )
             )
             discovered_names.add(discovered.name)
@@ -561,7 +609,7 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         self.session.add(provider)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(provider)
 
         await self.store_provider_config(
@@ -835,10 +883,13 @@ class IntegrationService(BaseWorkspaceService):
             raise InsecureOAuthEndpointError(
                 f"oauth_endpoint must include a hostname: {endpoint}"
             )
+        allow_private_hosts = mcp_oauth_tunnel_proxy() is not None
         if hostname in allowed_hosts:
-            validate_oauth_endpoint(endpoint)
+            validate_oauth_endpoint(endpoint, allow_private_hosts=allow_private_hosts)
             return endpoint
-        validate_oauth_endpoint(endpoint, base_domain=base_domain)
+        validate_oauth_endpoint(
+            endpoint, base_domain=base_domain, allow_private_hosts=allow_private_hosts
+        )
         return endpoint
 
     @staticmethod
@@ -970,11 +1021,79 @@ class IntegrationService(BaseWorkspaceService):
             client_kwargs["response_type"] = "code"
         if token_auth_method:
             client_kwargs["token_endpoint_auth_method"] = token_auth_method
+        client_kwargs.update(mcp_oauth_client_transport())
         return AsyncOAuth2Client(**client_kwargs)
 
-    async def _fetch_oauth_json(self, url: str) -> OAuthServerMetadata | None:
+    @staticmethod
+    async def _validate_mcp_oauth_endpoint_reachable(url: str) -> None:
+        if mcp_oauth_tunnel_proxy() is not None:
+            # Private hosts are expected; the tunnel's allowed targets decide reach.
+            validate_oauth_endpoint(url, allow_private_hosts=True)
+            return
         await validate_oauth_endpoint_resolves_public_async(url)
-        async with httpx.AsyncClient() as client:
+
+    async def _validate_mcp_tunnel(self, tunnel_id: uuid.UUID, server_uri: str) -> None:
+        await validate_mcp_tunnel(
+            self.session,
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            tunnel_id=tunnel_id,
+            server_uri=server_uri,
+        )
+
+    async def _validate_mcp_oauth_connection_route(
+        self,
+        oauth_integration_id: uuid.UUID | None,
+        tunnel_id: uuid.UUID | None,
+        *,
+        exclude_mcp_integration_id: uuid.UUID | None = None,
+    ) -> None:
+        """Check an MCP server's OAuth connection can be refreshed on its route.
+
+        Raises:
+            ValueError: If a tunneled server reuses an OAuth connection made
+                outside the MCP OAuth flow (only that flow routes its token calls
+                through the tunnel), or if MCP servers sharing the connection
+                would use different tunnels (a refresh can serve only one route).
+        """
+        if oauth_integration_id is None:
+            return
+        if tunnel_id is not None:
+            oauth_integration = await self.session.get(
+                OAuthIntegration, oauth_integration_id
+            )
+            if oauth_integration is not None and not self._is_custom_mcp_oauth_provider(
+                oauth_integration.provider_id
+            ):
+                raise ValueError(_TUNNELED_MCP_OAUTH_PROVIDER_ERROR)
+        other_routes = select(MCPIntegration.id).where(
+            MCPIntegration.workspace_id == self.workspace_id,
+            MCPIntegration.oauth_integration_id == oauth_integration_id,
+            MCPIntegration.tunnel_id.is_distinct_from(tunnel_id),
+        )
+        if exclude_mcp_integration_id is not None:
+            other_routes = other_routes.where(
+                MCPIntegration.id != exclude_mcp_integration_id
+            )
+        if await self.session.scalar(other_routes.limit(1)) is not None:
+            raise ValueError(
+                "MCP integrations that share an OAuth connection must use the "
+                "same tunnel"
+            )
+
+    def _mcp_oauth_tunnel(
+        self, mcp_integration: MCPIntegration | None
+    ) -> AbstractAsyncContextManager[None]:
+        return mcp_oauth_tunnel(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            tunnel_id=mcp_integration.tunnel_id if mcp_integration else None,
+            subject=f"mcp_integration:{mcp_integration.id if mcp_integration else ''}",
+        )
+
+    async def _fetch_oauth_json(self, url: str) -> OAuthServerMetadata | None:
+        await self._validate_mcp_oauth_endpoint_reachable(url)
+        async with create_mcp_oauth_http_client() as client:
             response = await client.get(url, timeout=10.0)
         if response.status_code == 404:
             return None
@@ -1081,7 +1200,10 @@ class IntegrationService(BaseWorkspaceService):
                 provider_config.authorization_endpoint,
                 provider_config.token_endpoint,
             ):
-                validate_oauth_endpoint(endpoint)
+                validate_oauth_endpoint(
+                    endpoint,
+                    allow_private_hosts=mcp_oauth_tunnel_proxy() is not None,
+                )
             return MCPOAuthDiscoveryEndpoints(
                 authorization_endpoint=provider_config.authorization_endpoint,
                 token_endpoint=provider_config.token_endpoint,
@@ -1099,6 +1221,38 @@ class IntegrationService(BaseWorkspaceService):
             )
         return await self._discover_mcp_oauth_endpoints(server_uri=server_uri)
 
+    async def _post_mcp_dcr_request(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        registration_endpoint: str,
+        client_name: str,
+        token_auth_method: str | None,
+        requested_scopes: list[str],
+    ) -> httpx.Response:
+        payload = build_dcr_payload(
+            client_name=client_name,
+            redirect_uris=[self._mcp_oauth_redirect_uri()],
+            token_endpoint_auth_method=token_auth_method,
+            requested_scopes=requested_scopes,
+        )
+        return await client.post(
+            registration_endpoint,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10.0,
+        )
+
+    @staticmethod
+    def _is_mcp_dcr_client_metadata_rejection(response: httpx.Response) -> bool:
+        if response.status_code != httpx.codes.BAD_REQUEST:
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        return isinstance(body, dict) and body.get("error") == "invalid_client_metadata"
+
     async def _perform_mcp_dynamic_registration(
         self,
         *,
@@ -1106,22 +1260,37 @@ class IntegrationService(BaseWorkspaceService):
         client_name: str,
         token_auth_method: str | None,
         requested_scopes: list[str],
+        public_client_supported: bool = False,
     ) -> MCPOAuthRegistrationResult:
-        payload = build_dcr_payload(
-            client_name=client_name,
-            redirect_uris=[self._mcp_oauth_redirect_uri()],
-            token_endpoint_auth_method=token_auth_method,
-            requested_scopes=requested_scopes,
-        )
-
-        await validate_oauth_endpoint_resolves_public_async(registration_endpoint)
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                registration_endpoint,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=10.0,
+        await self._validate_mcp_oauth_endpoint_reachable(registration_endpoint)
+        async with create_mcp_oauth_http_client() as client:
+            response = await self._post_mcp_dcr_request(
+                client,
+                registration_endpoint=registration_endpoint,
+                client_name=client_name,
+                token_auth_method=token_auth_method,
+                requested_scopes=requested_scopes,
             )
+            # Some servers advertise confidential token auth methods but only
+            # register public clients (RFC 7591 invalid_client_metadata).
+            if (
+                public_client_supported
+                and token_auth_method not in (None, "none")
+                and self._is_mcp_dcr_client_metadata_rejection(response)
+            ):
+                self.logger.info(
+                    "Retrying custom MCP OAuth registration as a public client",
+                    registration_endpoint_host=urlparse(registration_endpoint).hostname,
+                    rejected_token_auth_method=token_auth_method,
+                )
+                token_auth_method = "none"
+                response = await self._post_mcp_dcr_request(
+                    client,
+                    registration_endpoint=registration_endpoint,
+                    client_name=client_name,
+                    token_auth_method=token_auth_method,
+                    requested_scopes=requested_scopes,
+                )
         response.raise_for_status()
         try:
             registration_response = DCRResponse.model_validate(response.json())
@@ -1283,6 +1452,27 @@ class IntegrationService(BaseWorkspaceService):
         resolved_catalog: ResolvedCatalogConnection | None = None,
         existing_mcp_integration: MCPIntegration | None = None,
     ) -> PlatformMCPCatalogConnectResult:
+        if params.tunnel_id is not None:
+            await self._validate_mcp_tunnel(params.tunnel_id, params.server_uri)
+        async with mcp_oauth_tunnel(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            tunnel_id=params.tunnel_id,
+            subject="mcp_integration:connect",
+        ):
+            return await self._connect_mcp_oauth_discovery(
+                params=params,
+                resolved_catalog=resolved_catalog,
+                existing_mcp_integration=existing_mcp_integration,
+            )
+
+    async def _connect_mcp_oauth_discovery(
+        self,
+        *,
+        params: MCPHttpIntegrationCreate,
+        resolved_catalog: ResolvedCatalogConnection | None,
+        existing_mcp_integration: MCPIntegration | None,
+    ) -> PlatformMCPCatalogConnectResult:
         if params.server_type != "http" or params.auth_type != MCPAuthType.OAUTH2:
             raise ValueError("MCP OAuth discovery requires an HTTP OAuth MCP server")
         # Resolve the catalog binding once per request and thread it onward.
@@ -1391,11 +1581,12 @@ class IntegrationService(BaseWorkspaceService):
                 )
             registration = await self._perform_mcp_dynamic_registration(
                 registration_endpoint=endpoints.registration_endpoint,
-                client_name=params.name,
+                client_name=_MCP_OAUTH_DCR_CLIENT_NAME,
                 token_auth_method=self._select_mcp_registration_auth_method(
                     endpoints.token_methods
                 ),
                 requested_scopes=requested_scopes,
+                public_client_supported="none" in endpoints.token_methods,
             )
         # RFC 7591: a DCR scope echo is the authoritative registered set.
         effective_scopes = (
@@ -1677,15 +1868,53 @@ class IntegrationService(BaseWorkspaceService):
         self, *, oauth_integration_id: uuid.UUID
     ) -> MCPIntegration | None:
         result = await self.session.execute(
-            select(MCPIntegration).where(
+            select(MCPIntegration)
+            .where(
                 MCPIntegration.workspace_id == self.workspace_id,
                 MCPIntegration.oauth_integration_id == oauth_integration_id,
             )
+            .order_by(MCPIntegration.created_at, MCPIntegration.id)
         )
-        return result.scalars().first()
+        rows = result.scalars().all()
+        # OAuth calls for a shared connection can't tell which row they serve,
+        # so they'd pick one row's route for all of them.
+        if len({row.tunnel_id for row in rows}) > 1:
+            raise ValueError(
+                "MCP integrations that share an OAuth connection must use the "
+                "same tunnel"
+            )
+        return rows[0] if rows else None
 
     @require_scope("integration:create", "integration:update", require_all=False)
     async def complete_mcp_oauth_discovery_callback(
+        self,
+        *,
+        provider_id: str,
+        code: str,
+        state: str,
+        code_verifier: str | None,
+    ) -> OAuthIntegration:
+        integration = await self.get_integration(
+            provider_key=ProviderKey(
+                id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
+            )
+        )
+        mcp_integration = (
+            await self._mcp_integration_for_oauth_integration(
+                oauth_integration_id=integration.id
+            )
+            if integration is not None
+            else None
+        )
+        async with self._mcp_oauth_tunnel(mcp_integration):
+            return await self._complete_mcp_oauth_discovery_callback(
+                provider_id=provider_id,
+                code=code,
+                state=state,
+                code_verifier=code_verifier,
+            )
+
+    async def _complete_mcp_oauth_discovery_callback(
         self,
         *,
         provider_id: str,
@@ -1732,7 +1961,7 @@ class IntegrationService(BaseWorkspaceService):
             token_auth_method=token_auth_method,
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
-        await validate_oauth_endpoint_resolves_public_async(token_endpoint)
+        await self._validate_mcp_oauth_endpoint_reachable(token_endpoint)
         try:
             token = TokenResponse.from_oauth_response(
                 await client.fetch_token(
@@ -1776,6 +2005,25 @@ class IntegrationService(BaseWorkspaceService):
         integration: OAuthIntegration,
         refresh_token: str,
     ) -> OAuthIntegration:
+        if mcp_oauth_route_pinned():
+            # The caller chose the route, e.g. verifying an unsaved tunnel.
+            return await self._refresh_custom_mcp_integration_via_tunnel(
+                integration=integration, refresh_token=refresh_token
+            )
+        mcp_integration = await self._mcp_integration_for_oauth_integration(
+            oauth_integration_id=integration.id
+        )
+        async with self._mcp_oauth_tunnel(mcp_integration):
+            return await self._refresh_custom_mcp_integration_via_tunnel(
+                integration=integration, refresh_token=refresh_token
+            )
+
+    async def _refresh_custom_mcp_integration_via_tunnel(
+        self,
+        *,
+        integration: OAuthIntegration,
+        refresh_token: str,
+    ) -> OAuthIntegration:
         provider_config = self.get_provider_config(integration=integration)
         if provider_config is None or not provider_config.client_id:
             return integration
@@ -1809,7 +2057,7 @@ class IntegrationService(BaseWorkspaceService):
             with_redirect=False,
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
-        await validate_oauth_endpoint_resolves_public_async(token_endpoint)
+        await self._validate_mcp_oauth_endpoint_reachable(token_endpoint)
         oauth_response = await client.refresh_token(
             token_endpoint,
             refresh_token=refresh_token,
@@ -1962,7 +2210,7 @@ class IntegrationService(BaseWorkspaceService):
             integration.token_endpoint_auth_method = token_endpoint_auth_method
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2003,7 +2251,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2465,7 +2713,7 @@ class IntegrationService(BaseWorkspaceService):
                 )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2511,7 +2759,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2700,7 +2948,7 @@ class IntegrationService(BaseWorkspaceService):
                 oauth_integration_id=integration.id,
             )
             self.session.add(mcp_integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(mcp_integration)
 
             self.logger.info(
@@ -2711,6 +2959,20 @@ class IntegrationService(BaseWorkspaceService):
             )
         else:
             updated = False
+            if (
+                mcp_integration.tunnel_id is not None
+                and mcp_integration.oauth_integration_id != integration.id
+                and not self._is_custom_mcp_oauth_provider(integration.provider_id)
+            ):
+                # This provider's token calls don't go through the tunnel, so
+                # the tunneled row keeps its own MCP OAuth connection.
+                self.logger.warning(
+                    "Not linking a tunneled MCP integration to a provider OAuth "
+                    "connection",
+                    mcp_integration_id=mcp_integration.id,
+                    oauth_integration_id=integration.id,
+                )
+                return
             # Update existing MCP integration to ensure it references the OAuth integration
             if mcp_integration.oauth_integration_id != integration.id:
                 mcp_integration.oauth_integration_id = integration.id
@@ -3065,6 +3327,7 @@ class IntegrationService(BaseWorkspaceService):
         stdio_command: str | None = None
         stdio_args: list[str] | None = None
         encrypted_stdio_env: bytes | None = None
+        tunnel_id: uuid.UUID | None = None
 
         if params.server_type == "http":
             # Validate OAuth integration if auth_type is oauth2
@@ -3088,12 +3351,20 @@ class IntegrationService(BaseWorkspaceService):
             server_uri = params.server_uri.strip()
             auth_type = params.auth_type
             oauth_integration_id = params.oauth_integration_id
+            if params.tunnel_id is not None:
+                await self._validate_mcp_tunnel(params.tunnel_id, server_uri)
+                tunnel_id = params.tunnel_id
+            if auth_type == MCPAuthType.OAUTH2:
+                await self._validate_mcp_oauth_connection_route(
+                    oauth_integration_id, tunnel_id
+                )
             if (
                 params.auth_type in {MCPAuthType.CUSTOM, MCPAuthType.OAUTH2}
                 and params.custom_credentials
             ):
                 custom_credentials = params.custom_credentials.get_secret_value()
                 if custom_credentials:
+                    require_header_expression_scope(custom_credentials, role=self.role)
                     encrypted_custom_credentials = self._encrypt_token(
                         custom_credentials
                     )
@@ -3125,10 +3396,11 @@ class IntegrationService(BaseWorkspaceService):
             stdio_args=stdio_args,
             encrypted_stdio_env=encrypted_stdio_env,
             timeout=params.timeout,
+            tunnel_id=tunnel_id,
         )
 
         self.session.add(mcp_integration)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(mcp_integration)
 
         self.logger.info(
@@ -3159,6 +3431,14 @@ class IntegrationService(BaseWorkspaceService):
         )
 
     async def _start_existing_custom_mcp_oauth(
+        self, *, mcp_integration: MCPIntegration
+    ) -> PlatformMCPCatalogConnectResult | None:
+        async with self._mcp_oauth_tunnel(mcp_integration):
+            return await self._start_existing_custom_mcp_oauth_via_tunnel(
+                mcp_integration=mcp_integration
+            )
+
+    async def _start_existing_custom_mcp_oauth_via_tunnel(
         self, *, mcp_integration: MCPIntegration
     ) -> PlatformMCPCatalogConnectResult | None:
         if (
@@ -3264,6 +3544,7 @@ class IntegrationService(BaseWorkspaceService):
                             server_type="http",
                             server_uri=existing.server_uri,
                             auth_type=MCPAuthType.OAUTH2,
+                            tunnel_id=existing.tunnel_id,
                         ),
                         resolved_catalog=connection,
                         existing_mcp_integration=existing,
@@ -3837,6 +4118,17 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
+    async def get_mcp_integrations(
+        self, mcp_integration_ids: Iterable[uuid.UUID]
+    ) -> Sequence[MCPIntegration]:
+        """Get the MCP integrations with these IDs in this workspace."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.id.in_(list(mcp_integration_ids)),
+            MCPIntegration.workspace_id == self.workspace_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
     async def _probe_mcp_http_server(
         self, mcp_integration: MCPIntegration
     ) -> list[MCPToolSummary]:
@@ -3853,8 +4145,11 @@ class IntegrationService(BaseWorkspaceService):
         # that import this module (e.g. the executor worker).
         from tracecat.agent.mcp.user_client import list_remote_mcp_tools
 
+        masks = SecretMaskCollector()
+        mask_token = ctx_secret_masks.set(masks)
         try:
             server_config = await self.resolve_mcp_http_server_config(mcp_integration)
+            masks.observe(server_config.get("headers", {}))
             timeout = mcp_integration.timeout or MCP_TEST_CONNECTION_TIMEOUT_CAP
             server_config["timeout"] = min(timeout, MCP_TEST_CONNECTION_TIMEOUT_CAP)
             # The transport timeout only covers reads; the outer timeout guards
@@ -3862,23 +4157,27 @@ class IntegrationService(BaseWorkspaceService):
             async with asyncio.timeout(MCP_TEST_CONNECTION_TIMEOUT_CAP + 5):
                 return await list_remote_mcp_tools(server_config)
         except MCPConfigurationError as e:
-            raise MCPConnectionVerificationError(
+            error = MCPConnectionVerificationError(
                 "MCP integration is not configured correctly",
-                sanitize_urls_in_text(str(e)),
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))),
+            )
         except TimeoutError as e:
-            raise MCPConnectionVerificationError(
+            error = MCPConnectionVerificationError(
                 "Connection to the MCP server timed out",
-                sanitize_urls_in_text(str(e)) or "Timed out",
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))) or "Timed out",
+            )
         except Exception as e:
             # Transport errors can echo the full request URL, including
             # userinfo or query-string secrets — sanitize before this text
-            # reaches logs or API error responses.
-            raise MCPConnectionVerificationError(
+            # reaches logs or API error responses. Mask first: sanitizing can
+            # rewrite a URL-shaped header value so the exact mask misses it.
+            error = MCPConnectionVerificationError(
                 "Failed to connect to the MCP server",
-                sanitize_urls_in_text(str(e)),
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))),
+            )
+        finally:
+            ctx_secret_masks.reset(mask_token)
+        raise error
 
     async def _probe_mcp_stdio_server(
         self, mcp_integration: MCPIntegration
@@ -3949,7 +4248,7 @@ class IntegrationService(BaseWorkspaceService):
             for_update=True,
         )
         if mcp_integration is None:
-            raise ValueError("MCP integration not found")
+            raise TracecatNotFoundError("MCP integration not found")
 
         merge_base_tools = (
             previous_tools if previous_tools is not None else mcp_integration.tools
@@ -4007,6 +4306,8 @@ class IntegrationService(BaseWorkspaceService):
             # (the user cleared the credentials editor) — mirror the update
             # path, which maps "" to no headers rather than back-filling.
             raw_credentials = params.custom_credentials.get_secret_value()
+            if raw_credentials:
+                require_header_expression_scope(raw_credentials, role=self.role)
             encrypted_headers = (
                 self._encrypt_token(raw_credentials) if raw_credentials else None
             )
@@ -4015,6 +4316,16 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration_id = params.oauth_integration_id or (
             reusable.oauth_integration_id if reusable else None
         )
+        if params.tunnel_id is not None:
+            await self._validate_mcp_tunnel(params.tunnel_id, params.server_uri)
+        if params.auth_type == MCPAuthType.OAUTH2:
+            # The probe may refresh the shared token, so it must not pick a
+            # route the connection's other servers don't use.
+            await self._validate_mcp_oauth_connection_route(
+                oauth_integration_id,
+                params.tunnel_id,
+                exclude_mcp_integration_id=params.mcp_integration_id,
+            )
         # Transient row used purely for config resolution — never added to the
         # session, so it is never persisted.
         transient = MCPIntegration(
@@ -4028,6 +4339,7 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration_id=oauth_integration_id,
             encrypted_headers=encrypted_headers,
             timeout=params.timeout,
+            tunnel_id=params.tunnel_id,
         )
 
         try:
@@ -4102,11 +4414,19 @@ class IntegrationService(BaseWorkspaceService):
                 error=e.error or e.message,
             )
 
-        merged_tools = await self.persist_mcp_integration_tools(
-            mcp_integration_id=mcp_integration.id,
-            discovered_tools=tools,
-            previous_tools=previous_tools,
-        )
+        try:
+            merged_tools = await self.persist_mcp_integration_tools(
+                mcp_integration_id=mcp_integration.id,
+                discovered_tools=tools,
+                previous_tools=previous_tools,
+            )
+        except TracecatNotFoundError:
+            # The row can be deleted while the probe runs unlocked.
+            return await self._record_mcp_verification_failure(
+                mcp_integration,
+                message="MCP integration not found",
+                error="MCP integration was deleted during verification",
+            )
         self.logger.info(
             "MCP integration verified",
             mcp_integration_id=str(mcp_integration.id),
@@ -4299,6 +4619,17 @@ class IntegrationService(BaseWorkspaceService):
         if not mcp_integration.server_uri:
             raise MCPConfigurationError("HTTP MCP integration has no server URI")
 
+        # Check the tunnel before any credential is used or refreshed, so an
+        # unusable tunnel fails closed without sending anything.
+        tunnel_proxy: str | None = None
+        if mcp_integration.tunnel_id is not None:
+            tunnel_proxy = await resolve_mcp_tunnel_proxy(
+                workspace_id=self.workspace_id,
+                organization_id=self.organization_id,
+                tunnel_id=mcp_integration.tunnel_id,
+                subject=f"mcp_integration:{mcp_integration.id}",
+            )
+
         headers: dict[str, str] = {}
         if mcp_integration.auth_type == MCPAuthType.OAUTH2:
             if not mcp_integration.oauth_integration_id:
@@ -4313,10 +4644,19 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration = result.scalars().first()
             if not oauth_integration:
                 raise MCPConfigurationError("Linked OAuth integration not found")
+            if mcp_integration.tunnel_id is not None and (
+                not self._is_custom_mcp_oauth_provider(oauth_integration.provider_id)
+            ):
+                # Only the MCP OAuth flow routes its token calls through the
+                # tunnel; other providers would refresh directly.
+                raise MCPConfigurationError(_TUNNELED_MCP_OAUTH_PROVIDER_ERROR)
             try:
-                oauth_integration = await self.refresh_token_if_needed(
-                    oauth_integration
-                )
+                # Refresh through this config's route, which may not be saved
+                # yet (connection tests and update verification).
+                with mcp_oauth_route(tunnel_proxy):
+                    oauth_integration = await self.refresh_token_if_needed(
+                        oauth_integration
+                    )
             except OAuthRefreshBusyError as e:
                 raise MCPConfigurationError(
                     "OAuth integration is busy refreshing"
@@ -4345,7 +4685,11 @@ class IntegrationService(BaseWorkspaceService):
                         custom_headers.pop(key, None)
                 headers.update(custom_headers)
         elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
-            headers.update(self._decrypt_mcp_custom_headers(mcp_integration))
+            headers.update(
+                await resolve_mcp_header_values(
+                    self._decrypt_mcp_custom_headers(mcp_integration), role=self.role
+                )
+            )
         elif mcp_integration.auth_type == MCPAuthType.NONE:
             pass
         else:
@@ -4363,6 +4707,9 @@ class IntegrationService(BaseWorkspaceService):
         }
         if mcp_integration.timeout is not None:
             server_config["timeout"] = mcp_integration.timeout
+        if mcp_integration.tunnel_id is not None and tunnel_proxy is not None:
+            server_config["tunnel_id"] = str(mcp_integration.tunnel_id)
+            server_config["tunnel_proxy"] = tunnel_proxy
         return server_config
 
     def _build_mcp_update_target(
@@ -4374,6 +4721,7 @@ class IntegrationService(BaseWorkspaceService):
         target_server_uri: str,
         target_auth_type: MCPAuthType,
         target_oauth_integration_id: uuid.UUID | None,
+        target_tunnel_id: uuid.UUID | None,
     ) -> MCPIntegration:
         """Build a transient row representing the merged (post-update) HTTP config.
 
@@ -4405,6 +4753,7 @@ class IntegrationService(BaseWorkspaceService):
             auth_type=target_auth_type,
             oauth_integration_id=target_oauth_integration_id,
             encrypted_headers=target_encrypted_headers,
+            tunnel_id=target_tunnel_id,
             timeout=(
                 params.timeout
                 if params.timeout is not None
@@ -4464,6 +4813,11 @@ class IntegrationService(BaseWorkspaceService):
         # while an empty object explicitly clears the stored environment.
         stdio_env_was_provided = params.stdio_env is not None
         target_oauth_integration_id = mcp_integration.oauth_integration_id
+        target_tunnel_id = (
+            params.tunnel_id
+            if "tunnel_id" in params.model_fields_set
+            else mcp_integration.tunnel_id
+        )
 
         if target_server_type == "http":
             target_server_uri = params.server_uri or mcp_integration.server_uri
@@ -4506,10 +4860,22 @@ class IntegrationService(BaseWorkspaceService):
                     "reauthorizing. Reconnect the server to authorize the new URI."
                 )
 
+            if target_tunnel_id is not None and (
+                target_tunnel_id != mcp_integration.tunnel_id
+                or target_server_uri != mcp_integration.server_uri
+            ):
+                await self._validate_mcp_tunnel(target_tunnel_id, target_server_uri)
+            if target_auth_type == MCPAuthType.OAUTH2:
+                await self._validate_mcp_oauth_connection_route(
+                    target_oauth_integration_id,
+                    target_tunnel_id,
+                    exclude_mcp_integration_id=mcp_integration.id,
+                )
             connection_changed = (
                 target_server_uri != mcp_integration.server_uri
                 or target_auth_type != mcp_integration.auth_type
                 or target_oauth_integration_id != mcp_integration.oauth_integration_id
+                or target_tunnel_id != mcp_integration.tunnel_id
             )
             # Only revalidate against the catalog when the connection itself
             # moved; a drifted recipe must never block a rename or timeout edit.
@@ -4546,6 +4912,7 @@ class IntegrationService(BaseWorkspaceService):
                     target_server_uri=target_server_uri,
                     target_auth_type=target_auth_type,
                     target_oauth_integration_id=target_oauth_integration_id,
+                    target_tunnel_id=target_tunnel_id,
                 )
                 # Skip the probe while an OAuth2 target still lacks an access
                 # token: the user hasn't completed (or has lost) authorization,
@@ -4633,6 +5000,7 @@ class IntegrationService(BaseWorkspaceService):
                 mcp_integration.auth_type = MCPAuthType.NONE
                 mcp_integration.oauth_integration_id = None
                 mcp_integration.encrypted_headers = None
+                mcp_integration.tunnel_id = None
 
         if target_server_type == "http":
             if params.server_uri is not None:
@@ -4640,6 +5008,7 @@ class IntegrationService(BaseWorkspaceService):
             if params.auth_type is not None:
                 mcp_integration.auth_type = params.auth_type
             mcp_integration.oauth_integration_id = target_oauth_integration_id
+            mcp_integration.tunnel_id = target_tunnel_id
 
         # Update stdio-type server fields
         if target_server_type == "stdio" and params.stdio_command is not None:
@@ -4708,7 +5077,7 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.tools = [tool.model_dump() for tool in merged_tools]
 
         self.session.add(mcp_integration)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(mcp_integration)
 
         if stdio_connection_changed and verify_connection:

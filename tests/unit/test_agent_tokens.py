@@ -346,3 +346,18 @@ def test_mcp_token_rejects_internal_tool_both_allowed_and_deferred(monkeypatch) 
             session_id=session_id,
             registry_lock=_registry_lock(),
         )
+
+
+def test_mcp_token_round_trips_tool_tunnels(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["tools.sublime.list_messages", "core.http_request"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+        tool_tunnels={"tools.sublime.list_messages": "onprem"},
+    )
+    claims = verify_mcp_token(token)
+    assert claims.tool_tunnels == {"tools.sublime.list_messages": "onprem"}
+    assert claims.tool_tunnels.get("core.http_request") is None

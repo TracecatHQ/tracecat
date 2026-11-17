@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Index document
+  description: "Create or replace a document in an Elasticsearch index or data stream. Omit `document_id` to let Elasticsearch generate one."
+  display_group: Elasticsearch
+  doc_url: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-index
+  namespace: tools.elasticsearch
+  name: index_document
+  secrets:
+    - name: elasticsearch
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    index:
+      type: str
+      description: "Index, data stream, or alias name."
+    document_id:
+      type: str | None
+      description: "Document ID. Omit to auto-generate."
+      default: null
+    document:
+      # Free-form: the document source is arbitrary user JSON.
+      type: dict[str, Any]
+      description: "The document source as JSON."
+    params:
+      type: dict[str, Any] | None
+      description: "Optional native Elasticsearch query parameters."
+      default: null
+    base_url:
+      type: str | None
+      description: "Elasticsearch base URL (e.g. https://localhost:9200)."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "Whether to verify SSL certificates."
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+          document_id: ${{ inputs.document_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(index, document_id):
+              path = f"/{quote(index, safe='')}/_doc"
+              if document_id:
+                  return f"{path}/{quote(document_id, safe='')}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}${{ steps.build_path.result }}
+        method: POST
+        params: ${{ inputs.params }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTIC_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ inputs.document }}
+  returns: ${{ steps.request.result }}

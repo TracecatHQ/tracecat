@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -33,6 +33,7 @@ _TEMP_CREDS = {
     "AccessKeyId": "ASIA_TEMP_KEY",
     "SecretAccessKey": "temp_secret",
     "SessionToken": "temp_token",
+    "Expiration": datetime(2030, 1, 1, tzinfo=UTC),
 }
 
 _IRSA_PATCH = "tracecat.executor.secret_preprocessors._assume_role_via_irsa"
@@ -168,6 +169,24 @@ class TestProjectSecretEnv:
         assert "AWS_ROLE_ARN" not in projection.env
         assert "ASIA_TEMP_KEY" in projection.mask_values
         assert "temp_token" in projection.mask_values
+
+    @pytest.mark.anyio
+    async def test_preprocessed_credentials_report_expiry_and_hide_from_repr(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Minted STS credentials carry their expiry and stay out of repr."""
+        with patch(_IRSA_PATCH, _mock_assume_role()):
+            preprocessed = await AwsAssumeRoleSecretPreprocessor().preprocess(
+                secrets=_base_aws_secrets(), role=role, run_context=run_context
+            )
+            projection = await project_secret_env(
+                secrets=_base_aws_secrets(), role=role, run_context=run_context
+            )
+
+        assert preprocessed.expires_at == _TEMP_CREDS["Expiration"]
+        assert projection.expires_at == _TEMP_CREDS["Expiration"]
+        assert "temp_secret" not in repr(preprocessed)
+        assert "temp_token" not in repr(preprocessed)
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(

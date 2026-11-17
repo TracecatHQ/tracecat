@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Add bookmark
+  description: Add a bookmark to a Slack channel.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/bookmarks.add/
+  namespace: tools.slack
+  name: add_bookmark
+  expects:
+    channel_id:
+      type: str
+      description: ID of the channel to add the bookmark to.
+    title:
+      type: str
+      description: Title for the bookmark.
+    link:
+      type: str
+      description: URL to bookmark.
+    emoji:
+      type: str | None
+      description: Emoji tag to apply to the bookmark.
+      default: null
+  steps:
+    - ref: add_bookmark
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: bookmarks_add
+        params:
+          channel_id: ${{ inputs.channel_id }}
+          title: ${{ inputs.title }}
+          type: link
+          link: ${{ inputs.link }}
+          emoji: ${{ inputs.emoji }}
+  returns: ${{ steps.add_bookmark.result }}

@@ -11,6 +11,7 @@ import httpx
 import litellm
 import pytest
 import yaml
+from botocore.exceptions import ClientError
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import (
     AuthenticationError,
@@ -35,6 +36,7 @@ from tracecat.agent.gateway import (
     get_provider_credentials,
     user_api_key_auth,
 )
+from tracecat.agent.gateway_providers import GATEWAY_PROVIDER_SPECS
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.exceptions import AgentModelNotEnabledError, TracecatAuthorizationError
@@ -287,6 +289,112 @@ async def test_bedrock_role_credentials_require_external_id() -> None:
     assert "workspace External ID" in exc_info.value.message
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("failing_step", "error_code", "operation", "status_code", "wire_type", "owner"),
+    [
+        pytest.param(
+            "workspace",
+            "AccessDenied",
+            "AssumeRole",
+            403,
+            "tracecat_llm_provider_role_denied",
+            RuntimeErrorOwner.USER,
+            id="workspace-role-denial-is-user-owned",
+        ),
+        pytest.param(
+            "workspace",
+            "Throttling",
+            "AssumeRole",
+            401,
+            "auth_error",
+            RuntimeErrorOwner.PLATFORM,
+            id="other-workspace-sts-failure-stays-platform",
+        ),
+        pytest.param(
+            "source",
+            "AccessDenied",
+            "AssumeRoleWithWebIdentity",
+            401,
+            "auth_error",
+            RuntimeErrorOwner.PLATFORM,
+            id="gateway-irsa-denial-stays-platform",
+        ),
+        pytest.param(
+            "source",
+            "AccessDenied",
+            "AssumeRole",
+            401,
+            "auth_error",
+            RuntimeErrorOwner.PLATFORM,
+            id="gateway-role-chain-denial-stays-platform",
+        ),
+    ],
+)
+async def test_bedrock_assume_role_failure_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    failing_step: str,
+    error_code: str,
+    operation: str,
+    status_code: int,
+    wire_type: str,
+    owner: RuntimeErrorOwner,
+) -> None:
+    """Only a denial of the workspace AssumeRole request is workspace-owned.
+
+    A failure resolving the gateway's own credentials happens before AWS sees
+    the workspace role, even when it is an AccessDenied on AssumeRole (role
+    chaining), so it stays platform-owned and retryable, as do other STS
+    failures. Neither path echoes the role ARN or the STS error message.
+    """
+    role_arn = "arn:aws:iam::123456789012:role/synthetic-role"
+    sts_message = "synthetic-sts-detail"
+    error = ClientError(
+        {"Error": {"Code": error_code, "Message": f"{sts_message} {role_arn}"}},
+        operation,
+    )
+
+    def assume_role(**_: object) -> None:
+        raise error
+
+    def gateway_sts_client() -> SimpleNamespace:
+        if failing_step == "source":
+            raise error
+        return SimpleNamespace(assume_role=assume_role)
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway._gateway_sts_client", gateway_sts_client
+    )
+
+    with pytest.raises(ProxyException) as exc_info:
+        await _resolve_bedrock_runtime_credentials(
+            {
+                "AWS_ROLE_ARN": role_arn,
+                "TRACECAT_AWS_EXTERNAL_ID": "ws-external-id",
+                "AWS_REGION": "us-west-2",
+            }
+        )
+
+    wire_error = exc_info.value.to_dict()
+    assert exc_info.value.code == str(status_code)
+    assert wire_error["type"] == wire_type
+    classification = _http_error_classification(
+        status_code,
+        route_is_direct=False,
+        body=json.dumps({"error": wire_error}).encode(),
+    )
+    assert classification.owner is owner
+    if owner is RuntimeErrorOwner.USER:
+        assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    else:
+        assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    for text in (json.dumps(wire_error), classification.message):
+        assert role_arn not in text
+        assert sts_message not in text
+
+
 def test_bedrock_rejects_ambient_credential_fallback() -> None:
     data = {"model": "bedrock"}
     creds = {
@@ -326,9 +434,70 @@ def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     assert resolved_model("azure/*") == "azure/*"
     assert resolved_model("azure_ai/*") == "azure_ai/*"
     assert resolved_model("mistral/*") == "mistral/*"
-    # Unqualified names fall through to the hosted_vllm catch-all so custom
-    # providers bridge to Chat Completions instead of the Responses API.
+    # Every managed gateway provider needs its own route, or its prefixed
+    # model ID falls through to the catch-all and is forwarded upstream as-is.
+    for spec in GATEWAY_PROVIDER_SPECS.values():
+        if spec.litellm_prefix is not None:
+            prefix = spec.litellm_prefix
+            assert resolved_model(f"{prefix}/*") == f"{prefix}/*"
+    # Unqualified names fall through to the hosted_vllm catch-all so they
+    # bridge to Chat Completions instead of the Responses API.
     assert resolved_model("custom") == "hosted_vllm/custom"
+
+
+@pytest.mark.anyio
+async def test_litellm_config_does_not_cool_down_per_request_credentials() -> None:
+    # Injected keys make LiteLLM register one deployment per credential and
+    # model; a cooldown would turn this caller's next 401 into a gateway 503.
+    config_path = (
+        Path(__file__).resolve().parents[2]
+        / "tracecat"
+        / "agent"
+        / "litellm_config.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text())
+    router = Router(
+        model_list=config["model_list"],
+        **config["router_settings"],
+        num_retries=0,
+        retry_after=0,
+    )
+    calls = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            401,
+            request=request,
+            json={
+                "error": {
+                    "message": "Incorrect API key provided",
+                    "type": "invalid_request_error",
+                    "code": "invalid_api_key",
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        for _ in range(3):
+            client = AsyncOpenAI(
+                api_key="synthetic-invalid-key",
+                http_client=http_client,
+                max_retries=0,
+            )
+            with pytest.raises(AuthenticationError):
+                await router.acompletion(
+                    model="openai/synthetic-model",
+                    messages=[{"role": "user", "content": "synthetic prompt"}],
+                    api_key="synthetic-invalid-key",
+                    client=client,
+                )
+
+    assert calls == 3
+    assert not await router.cooldown_cache.async_get_active_cooldowns(
+        model_ids=router.get_model_ids(), parent_otel_span=None
+    )
 
 
 def _make_request(
@@ -659,6 +828,61 @@ async def test_pre_call_hook_filters_model_settings(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (
+            {"proxy_server_request": {"headers": {"x-request-id": "trace-123"}}},
+            "trace-123",
+        ),
+        (
+            {"proxy_server_request": {"headers": {"x-request-id": "t" * 129}}},
+            "t" * 128,
+        ),
+        ({"proxy_server_request": {"headers": {}}}, None),
+        ({}, None),
+    ],
+)
+async def test_pre_call_hook_logs_proxy_trace_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+    data: dict[str, Any],
+    expected: str | None,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.gateway.logger", log)
+
+    await TracecatCallbackHandler().async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="llm-token",
+            metadata={
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "organization_id": "00000000-0000-0000-0000-000000000002",
+                "model": "gpt-5",
+                "provider": "openai",
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=cast(DualCache, object()),
+        data=data,
+        call_type="completion",
+    )
+
+    injected = next(
+        call
+        for call in log.info.call_args_list
+        if call.args == ("Injected credentials for LiteLLM call",)
+    )
+    assert injected.kwargs["trace_request_id"] == expected
+
+
+@pytest.mark.anyio
 async def test_pre_call_hook_uses_request_model_route_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -706,6 +930,48 @@ async def test_pre_call_hook_uses_request_model_route_claim(
     assert result["temperature"] == 0.2
     assert result["api_key"] == "test-openai-key"
     assert credential_requests[0]["use_workspace_credentials"] is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "model",
+    ["synthetic-model", "openai/synthetic-model", "litellm_proxy/synthetic-model"],
+)
+async def test_pre_call_hook_routes_custom_provider_models_through_hosted_vllm(
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "synthetic-key",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://provider.example.invalid/v1",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    result = await TracecatCallbackHandler().async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="llm-token",
+            metadata={
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "organization_id": "00000000-0000-0000-0000-000000000002",
+                "model": model,
+                "provider": "custom-model-provider",
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=cast(DualCache, object()),
+        data={"model": model},
+        call_type="anthropic_messages",
+    )
+
+    # Vendor-prefixed custom IDs must not match that vendor's route; the
+    # hosted_vllm adapter strips only its own prefix and forwards the rest.
+    assert result["model"] == f"hosted_vllm/{model}"
+    assert result["custom_llm_provider"] == "hosted_vllm"
 
 
 @pytest.mark.anyio
@@ -968,7 +1234,7 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
         assert b"synthetic-sensitive-detail" not in wire_body
     else:
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.owner is RuntimeErrorOwner.USER
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
         assert b"synthetic-sensitive-detail" not in wire_body
         assert b"LLM provider rate limit exceeded; retry later" in wire_body
@@ -1030,6 +1296,6 @@ async def test_throttling_callback_uses_safe_message_without_provider_response(
         result.status_code, route_is_direct=False, body=wire_body
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
     assert b"synthetic-sensitive-detail" not in wire_body

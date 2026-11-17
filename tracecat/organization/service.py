@@ -31,10 +31,10 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import (
-    drop_workspace_membership_mirror,
     lock_role_changes,
 )
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import (
     AccessToken,
     ExternalGroup,
@@ -207,14 +207,11 @@ class OrgService(BaseOrgService):
                 "Member is managed by the identity provider; deprovision them there."
             )
 
+        # The membership delete below fires the MCP token-revocation trigger,
+        # which takes this lock; take it before locking any of the user's rows.
+        await lock_mcp_refresh_token_users(self.session, [user.id])
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
-        )
-        workspace_ids = select(Workspace.id).where(
-            Workspace.organization_id == self.organization_id
-        )
-        await drop_workspace_membership_mirror(
-            self.session, user_id=user.id, workspace_ids=workspace_ids
         )
         # Rows written by older app versions carry no organization_id, so the
         # composite-FK cascade below cannot reach them.

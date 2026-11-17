@@ -16,6 +16,7 @@ import {
 } from "@/components/catalog/catalog-header"
 import { AwsIcon, SecretIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { AlertNotification } from "@/components/notifications"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -63,6 +64,7 @@ import {
   EditCredentialsDialogTrigger,
 } from "@/components/workspaces/edit-workspace-secret"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   useSecretDefinitions,
   useWorkspaceSecrets,
@@ -95,6 +97,8 @@ export function WorkspaceCredentialsInventory() {
   const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
   const canUpdateSecrets = useScopeCheck("secret:update") === true
   const canDeleteSecrets = useScopeCheck("secret:delete") === true
+  // Managed secrets keep values editable but cannot be deleted.
+  const { isManaged } = useManagedResources(workspaceId)
   const [searchQuery, setSearchQuery] = useState("")
   const [connectionFilter, setConnectionFilter] =
     useState<CredentialConnectionFilter>("all")
@@ -408,6 +412,12 @@ export function WorkspaceCredentialsInventory() {
                                               {key}
                                             </Badge>
                                           ))}
+                                        <ManagedResourceStatus
+                                          resourceType="secret_metadata"
+                                          id={secret.id}
+                                          name={secret.name}
+                                          showDetach
+                                        />
                                         {secret.is_corrupted ? (
                                           <Badge
                                             variant="secondary"
@@ -507,6 +517,10 @@ export function WorkspaceCredentialsInventory() {
                                           <Button
                                             variant="outline"
                                             size="sm"
+                                            disabled={isManaged(
+                                              "secret_metadata",
+                                              secret.id
+                                            )}
                                             className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
                                             onClick={(event) => {
                                               event.stopPropagation()

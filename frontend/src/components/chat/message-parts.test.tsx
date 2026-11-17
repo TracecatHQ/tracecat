@@ -382,6 +382,34 @@ describe("getRunningLineLabel", () => {
     )
   })
 
+  it("leaves an open thought's own line to show thinking at default", () => {
+    function thought(text: string, state: "streaming" | "done"): UIMessage {
+      return {
+        id: "a4",
+        role: "assistant",
+        parts: [{ type: "reasoning", text, state }],
+      }
+    }
+    expect(
+      getRunningLineLabel(
+        "streaming",
+        [prompt, thought("", "streaming")],
+        defaults
+      )
+    ).toBe(null)
+    expect(
+      getRunningLineLabel(
+        "streaming",
+        [prompt, thought("Plan", "done")],
+        defaults
+      )
+    ).toBe(null)
+    // An empty thought that ended draws nothing running, so the line returns.
+    expect(
+      getRunningLineLabel("streaming", [prompt, thought("", "done")], defaults)
+    ).toBe("Thinking...")
+  })
+
   it("thinks until the first step at minimal", () => {
     expect(getRunningLineLabel("submitted", [prompt], minimal)).toBe(
       "Thinking..."

@@ -3,23 +3,28 @@ import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AgentBackendRead,
+  type AgentControlReceipt,
+  type AgentPendingMessageRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
   type AgentSessionsCancelSessionResponse,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
+  type AgentSessionsListPendingMessagesResponse,
   type AgentSessionsListSessionsResponse,
   type AgentSessionsRemoveSessionArtifactData,
   type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
   agentSessionsCancelSession,
+  agentSessionsControlSession,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
   agentSessionsListAgentBackends,
+  agentSessionsListPendingMessages,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
@@ -28,13 +33,23 @@ import {
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { useSessionFeed } from "@/hooks/use-session-feed"
 import { getBaseUrl } from "@/lib/api"
 import {
   CHAT_MESSAGES_THROTTLE_MS,
   CoalescingChatTransport,
+  isUserPrompt,
   type ModelInfo,
   toServerUIMessage,
 } from "@/lib/chat"
+import {
+  chatStreamUrl,
+  readDroppedPrompt,
+  refetchChatTranscript,
+  saveDroppedPrompt,
+  serverTookPrompt,
+} from "@/lib/chat-dropped-prompt"
+import type { WithdrawPendingRequest } from "@/lib/extensions"
 import {
   type QueryClient,
   type UseQueryResult,
@@ -170,12 +185,34 @@ export function parseChatError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    // Generated-client errors keep the API body apart from the status text.
+    const body = "body" in error ? error.body : undefined
+    if (body && typeof body === "object" && "message" in body) {
+      const bodyMessage = (body as { message?: unknown }).message
+      if (typeof bodyMessage === "string" && bodyMessage.trim()) {
+        return bodyMessage.trim()
+      }
+    }
     const message = error.message?.trim()
     if (message) {
       try {
         const parsed = JSON.parse(message)
         if (parsed && typeof parsed === "object" && "errorText" in parsed) {
           const parsedMessage = (parsed as { errorText?: unknown }).errorText
+          if (typeof parsedMessage === "string" && parsedMessage.trim()) {
+            return parsedMessage.trim()
+          }
+        }
+        // A rejected send carries the API's `{"detail": "..."}` body as its message.
+        if (parsed && typeof parsed === "object" && "detail" in parsed) {
+          const detail = (parsed as { detail?: unknown }).detail
+          if (typeof detail === "string" && detail.trim()) {
+            return detail.trim()
+          }
+        }
+        // Typed API errors such as EntitlementRequired carry it in `message`.
+        if (parsed && typeof parsed === "object" && "message" in parsed) {
+          const parsedMessage = (parsed as { message?: unknown }).message
           if (typeof parsedMessage === "string" && parsedMessage.trim()) {
             return parsedMessage.trim()
           }
@@ -439,6 +476,71 @@ export function useDeleteChat(workspaceId: string) {
   }
 }
 
+const NO_PENDING_MESSAGES: AgentPendingMessageRead[] = []
+
+/**
+ * The user's messages the model has not read yet, in send order, and a way to
+ * withdraw them.
+ *
+ * Fetches only while `enabled`; otherwise the list is empty.
+ */
+export function usePendingMessages({
+  workspaceId,
+  chatId,
+  enabled,
+}: {
+  workspaceId: string
+  chatId?: string
+  enabled: boolean
+}) {
+  const queryClient = useQueryClient()
+  const active = enabled && !!chatId
+  const { data } = useQuery<AgentSessionsListPendingMessagesResponse, ApiError>(
+    {
+      queryKey: ["chat", chatId, workspaceId, "pending"],
+      queryFn: () =>
+        agentSessionsListPendingMessages({
+          sessionId: chatId ?? "",
+          workspaceId,
+        }),
+      enabled: active,
+      refetchOnWindowFocus: false,
+    }
+  )
+  const refreshPending = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ["chat", chatId, workspaceId, "pending"],
+    })
+  }, [chatId, queryClient, workspaceId])
+
+  const withdraw = useCallback(
+    async ({
+      id,
+      targetIds,
+    }: WithdrawPendingRequest): Promise<AgentControlReceipt> => {
+      if (!chatId) {
+        throw new Error("No chat to withdraw from")
+      }
+      try {
+        return await agentSessionsControlSession({
+          sessionId: chatId,
+          workspaceId,
+          requestBody: { type: "withdraw", id, target_ids: targetIds ?? null },
+        })
+      } finally {
+        await refreshPending()
+      }
+    },
+    [chatId, refreshPending, workspaceId]
+  )
+
+  return {
+    pending: active && data ? data.items : NO_PENDING_MESSAGES,
+    refreshPending,
+    withdraw,
+  }
+}
+
 /** Request cancellation for the currently running agent turn. */
 export function useCancelChatTurn(workspaceId: string) {
   const queryClient = useQueryClient()
@@ -492,6 +594,7 @@ export function useGetChatVercel({
     isLoading: chatLoading,
     isFetching: chatFetching,
     error: chatError,
+    refetch: refetchChat,
   } = useQuery<AgentSessionsGetSessionVercelResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
     queryFn: async () => {
@@ -511,7 +614,7 @@ export function useGetChatVercel({
     refetchOnMount: "always",
     refetchInterval,
   })
-  return { chat, chatLoading, chatFetching, chatError }
+  return { chat, chatLoading, chatFetching, chatError, refetchChat }
 }
 
 function applyArtifactsToVercelChat(
@@ -608,15 +711,61 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<{
-    chatId: string | undefined
-    message: string
+  // Reconnecting after a drop needs a fresh SDK Chat: the old one keeps the cut
+  // stream's partial state, and the server's full replay would duplicate it.
+  const [reconnect, setReconnect] = useState<{
+    chatId: string
+    generation: number
   } | null>(null)
+  const generation =
+    reconnect && reconnect.chatId === chatId ? reconnect.generation : 0
+  const chatKey = chatId && `${chatId}#${generation}`
+  const [lastError, setLastError] = useState<{
+    chatKey: string | undefined
+    message: string
+    disconnected: boolean
+    /** The drop cut a reconnect replay, which never shows its turn's prompt. */
+    replay?: boolean
+  } | null>(null)
+  // useChat reads its seed once per chat, so the dropped prompt is read once too.
+  const droppedPromptRef = useRef<{
+    chatKey: string | undefined
+    prompt: UIMessage | null
+  } | null>(null)
+  if (
+    !droppedPromptRef.current ||
+    droppedPromptRef.current.chatKey !== chatKey
+  ) {
+    droppedPromptRef.current = {
+      chatKey,
+      prompt: readDroppedPrompt(chatId, messages),
+    }
+  }
+  const droppedPrompt = droppedPromptRef.current.prompt
+  // A pane reused across chats must not resurface a chat's old live error;
+  // only a dropped prompt the server never got comes back.
+  useEffect(() => {
+    setLastError(
+      droppedPromptRef.current?.prompt
+        ? { chatKey, message: "Connection dropped", disconnected: true }
+        : null
+    )
+  }, [chatKey])
+  // Whether the request in flight is this tab's send or a reconnect replay.
+  const requestKindRef = useRef<"send" | "resume">("send")
+  // A replay's prompt is off screen, so its turn is never resent. A Retry
+  // reconnect means the server took the turn; a restored prompt is on screen.
+  function isReplay(): boolean {
+    return (
+      requestKindRef.current === "resume" &&
+      (generation > 0 || !droppedPromptRef.current?.prompt)
+    )
+  }
   // Live child-session transcripts. Child chunks are transient data parts, so
   // they never enter `messages`; they are routed here instead.
   const subagentStore = useMemo(
     () => new SubagentStreamStore(),
-    [chatId, workspaceId]
+    [chatKey, workspaceId]
   )
   useEffect(() => () => subagentStore.dispose(), [subagentStore])
 
@@ -633,25 +782,29 @@ export function useVercelChat({
   // on. Read it through a ref when the request is built instead.
   const pageContextRef = useRef(pageContext)
   pageContextRef.current = pageContext
+  // Whether the reconnect in flight streamed turn output, not just a finish.
+  const reconnectStreamedRef = useRef(false)
 
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
   // so Redis is the sole source for the live assistant); we therefore do not send
   // a Last-Event-ID cursor.
   const chat = aiSdk.useChat({
-    id: chatId,
+    id: chatKey,
     // Reconnects are started below so sends can wait for them.
     resume: false,
-    messages,
+    messages: droppedPrompt ? [...messages, droppedPrompt] : messages,
     experimental_throttle: CHAT_MESSAGES_THROTTLE_MS,
     transport: new CoalescingChatTransport({
       api: apiEndpoint,
       credentials: "include",
-      prepareReconnectToStreamRequest: ({ id }) => {
-        const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
-        url.searchParams.set("workspace_id", workspaceId)
+      onReconnectContent: () => {
+        reconnectStreamedRef.current = true
+      },
+      prepareReconnectToStreamRequest: () => {
+        if (!chatId) throw new Error("Reconnecting needs a chat id")
         return {
-          api: url.toString(),
+          api: chatStreamUrl(chatId, workspaceId),
           credentials: "include",
         }
       },
@@ -687,18 +840,47 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError({ chatId, message: friendlyMessage })
+      // A reconnect that fails before its stream opens gets no onFinish and
+      // leaves status untouched; the turn is unknown, so mark it dropped.
+      const streamOpened =
+        statusRef.current === "submitted" || statusRef.current === "streaming"
+      const reconnectDropped =
+        requestKindRef.current === "resume" &&
+        (generation > 0 || error instanceof TypeError || !streamOpened)
+      setLastError({
+        chatKey,
+        message: friendlyMessage,
+        disconnected: reconnectDropped,
+        replay: reconnectDropped && isReplay(),
+      })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
         description: friendlyMessage,
       })
     },
-    onFinish: ({ isAbort, isDisconnect, isError }) => {
+    onFinish: ({ messages: turnMessages, isAbort, isDisconnect, isError }) => {
       if (!isAbort && !isDisconnect && !isError) {
         void subagentStore.complete()
       }
-      setLastError(null)
+      // Leaving a chat aborts its request, and the SDK runs that abort's
+      // onFinish with the next chat's callbacks; sends already cleared state.
+      if (!isAbort) {
+        if (!isError) {
+          setLastError((prev) => (prev?.chatKey === chatKey ? null : prev))
+        } else if (isDisconnect) {
+          // The SDK also runs onFinish after onError; keep that turn's error.
+          const replay = isReplay()
+          setLastError(
+            (prev) => prev && { ...prev, disconnected: true, replay }
+          )
+        }
+        // Sends already cleared the saved prompt, and a reconnect's history may
+        // still lack it, so only a dropped send saves one.
+        if (chatId && isDisconnect && requestKindRef.current === "send") {
+          saveDroppedPrompt(chatId, turnMessages)
+        }
+      }
       invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
       // First-prompt auto-titling runs as a detached backend task that can
       // commit after the immediate invalidation on fast turns, leaving the
@@ -731,52 +913,149 @@ export function useVercelChat({
   // first message, would overlap the mount reconnect, so sends wait for it.
   const { resumeStream, sendMessage, regenerate, status } = chat
   const pendingResumeRef = useRef<{
-    chatId: string
+    chatKey: string
     done: Promise<void>
   } | null>(null)
   const statusRef = useRef(status)
   statusRef.current = status
-  const shouldResume = Boolean(chatId) && resume
+  // State, not just the ref, so the feed sees a 204 reconnect settle.
+  const [resumePending, setResumePending] = useState(false)
+  const startResume = useCallback(
+    (onSettled?: (streamed: boolean) => void) => {
+      if (!chatKey) return
+      // A strict-mode re-run reuses the reconnect already in flight, and a
+      // request already in flight owns the turn it would reconnect to.
+      if (pendingResumeRef.current?.chatKey === chatKey) return
+      if (
+        statusRef.current === "submitted" ||
+        statusRef.current === "streaming"
+      )
+        return
+      requestKindRef.current = "resume"
+      reconnectStreamedRef.current = false
+      setResumePending(true)
+      const done = resumeStream().finally(() => {
+        if (pendingResumeRef.current?.done === done) {
+          pendingResumeRef.current = null
+          // Before the feed sees the tab idle, so held events see the outcome.
+          onSettled?.(reconnectStreamedRef.current)
+          setResumePending(false)
+        }
+      })
+      pendingResumeRef.current = { chatKey, done }
+    },
+    [chatKey, resumeStream]
+  )
+  // A chat Retry reconnected resumes even when `resume` is off.
+  const shouldResume = Boolean(chatKey) && (resume || generation > 0)
   useEffect(() => {
-    if (!shouldResume || !chatId) return
-    // A strict-mode re-run reuses the reconnect already in flight, and a
-    // request already in flight owns the turn it would reconnect to.
-    if (pendingResumeRef.current?.chatId === chatId) return
-    if (statusRef.current === "submitted" || statusRef.current === "streaming")
-      return
-    const done = resumeStream().finally(() => {
-      if (pendingResumeRef.current?.done === done) {
-        pendingResumeRef.current = null
+    if (shouldResume) startResume()
+  }, [shouldResume, startResume])
+  // Runs started, resumed, or finished elsewhere reach this tab through the feed.
+  const refreshFromFeed = useCallback(() => {
+    invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
+  }, [queryClient, chatId, workspaceId])
+  useSessionFeed({
+    chatId,
+    workspaceId,
+    busy: status === "submitted" || status === "streaming" || resumePending,
+    onAttach: (settle) => {
+      // A dropped stream's Chat keeps its partial state, so a replay would
+      // duplicate it; Retry owns reconnecting with a fresh Chat.
+      const dropped =
+        statusRef.current === "error" &&
+        lastError !== null &&
+        lastError.chatKey === chatKey &&
+        lastError.disconnected
+      if (dropped) {
+        refreshFromFeed()
+        settle(true)
+      } else {
+        startResume(settle)
       }
-    })
-    pendingResumeRef.current = { chatId, done }
-  }, [chatId, shouldResume, resumeStream])
+    },
+    onRefresh: refreshFromFeed,
+  })
   const waitForResume = useCallback(async () => {
     const pending = pendingResumeRef.current
-    if (pending && pending.chatId === chatId) await pending.done
+    if (pending && pending.chatKey === chatKey) await pending.done
+  }, [chatKey])
+  const startTurn = useCallback(() => {
+    requestKindRef.current = "send"
+    setLastError(null)
+    if (chatId) saveDroppedPrompt(chatId, null)
   }, [chatId])
   const sendMessageAfterResume = useCallback<typeof sendMessage>(
     async (...args) => {
       await waitForResume()
+      startTurn()
       await sendMessage(...args)
     },
-    [sendMessage, waitForResume]
+    [sendMessage, startTurn, waitForResume]
   )
   const regenerateAfterResume = useCallback<typeof regenerate>(
     async (...args) => {
       await waitForResume()
+      startTurn()
       await regenerate(...args)
     },
-    [regenerate, waitForResume]
+    [regenerate, startTurn, waitForResume]
+  )
+
+  const currentError = lastError?.chatKey === chatKey ? lastError : null
+  const { messages: liveMessages } = chat
+  /**
+   * Retries the turn `messageId` started. After a dropped connection whose
+   * prompt the server took, reconnects to that turn instead of starting a
+   * second run. Throws, leaving the error up, when the server can't be checked.
+   */
+  const retryTurn = useCallback(
+    async (messageId: string | undefined): Promise<void> => {
+      const prompt = liveMessages.find((m) => m.id === messageId)
+      // A replay's prompt is off screen, and the transcript never stores an
+      // approval continuation, so neither is resent: adopt the server's state.
+      const unconfirmable =
+        currentError?.replay || (prompt !== undefined && !isUserPrompt(prompt))
+      if (currentError?.disconnected && chatId && unconfirmable) {
+        await refetchChatTranscript(queryClient, chatId, workspaceId)
+        setReconnect({ chatId, generation: generation + 1 })
+        return
+      }
+      if (currentError?.disconnected && chatId && prompt) {
+        const took = await serverTookPrompt({
+          chatId,
+          workspaceId,
+          prompt,
+          refetchTranscript: () =>
+            refetchChatTranscript(queryClient, chatId, workspaceId),
+        })
+        if (took) {
+          setReconnect({ chatId, generation: generation + 1 })
+          return
+        }
+      }
+      await regenerateAfterResume({ messageId })
+    },
+    [
+      chatId,
+      currentError,
+      generation,
+      liveMessages,
+      queryClient,
+      regenerateAfterResume,
+      workspaceId,
+    ]
   )
 
   return {
     ...chat,
     sendMessage: sendMessageAfterResume,
     regenerate: regenerateAfterResume,
+    retryTurn,
     subagentStore,
-    lastError:
-      lastError && lastError.chatId === chatId ? lastError.message : null,
+    lastError: currentError?.message ?? null,
+    /** The last error cut the connection; the server-side turn may still run. */
+    lastErrorDisconnected: currentError?.disconnected ?? false,
     clearError: useCallback(() => setLastError(null), []),
   }
 }

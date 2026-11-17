@@ -7,16 +7,12 @@ import {
   isToolUIPart,
   type UIMessage,
 } from "ai"
-import {
-  Loader2,
-  MousePointerClickIcon,
-  RefreshCcwIcon,
-  XIcon,
-} from "lucide-react"
+import { Loader2, MousePointerClickIcon, XIcon } from "lucide-react"
 import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useContext,
@@ -31,7 +27,6 @@ import type {
   ApprovalDecision,
   ChatReadVercel,
 } from "@/client"
-import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
   ConversationContent,
@@ -65,6 +60,7 @@ import {
 } from "@/components/chat/approval-request-part"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
+import { RetryAction, TurnErrorLine } from "@/components/chat/chat-turn-error"
 import {
   getRunningLineLabel,
   isAwaitingOutput,
@@ -74,16 +70,17 @@ import {
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
+import { extensions } from "@/extensions"
 import {
   makeContinueMessage,
   parseChatError,
   useAdoptServerTranscript,
   useCancelChatTurn,
   useGetChatVercel,
+  usePendingMessages,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
@@ -108,7 +105,9 @@ import {
   markLiveDenials,
   toUIMessage,
   transformMessages,
+  withoutStreamedError,
 } from "@/lib/chat"
+import type { RunningComposer } from "@/lib/extensions"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
@@ -155,6 +154,11 @@ class SubmitAbandonedError extends Error {
     this.name = "SubmitAbandonedError"
   }
 }
+
+/** The installed running-composer slot; Tracecat leaves the composer disabled. */
+const useRunningComposer =
+  extensions.useRunningComposer ??
+  ((): RunningComposer | undefined => undefined)
 
 function matchingUserTextPartKeys(
   messages: UIMessage[],
@@ -266,6 +270,11 @@ export interface ChatSessionPaneProps {
    */
   inputDisabledPlaceholder?: string
   /**
+   * Hide approval decisions while the composer stays as `inputDisabled` sets
+   * it. Unlike a read-only chat, the running turn can still be stopped.
+   */
+  approvalsDisabled?: boolean
+  /**
    * Optional preset selector rendered in the prompt footer.
    */
   presetSelector?: ChatPresetSelector
@@ -305,6 +314,7 @@ export function ChatSessionPane({
   onPendingMessageSent,
   inputDisabled = false,
   inputDisabledPlaceholder,
+  approvalsDisabled = false,
   presetSelector,
   surface = "regular",
   centered,
@@ -345,6 +355,7 @@ export function ChatSessionPane({
     handleKeyDown: handleMentionKeyDown,
     dismiss: dismissMentions,
     dropPrefix: dropMentionPrefix,
+    applySplice: applyMentionSplice,
   } = mentions
   const [selectedTools, setSelectedTools] = useState<string[]>([])
   const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
@@ -365,9 +376,16 @@ export function ChatSessionPane({
 
   // Read-only state includes ownership, backend availability, and entitlements.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  // A channel's session is read-only here, but workspace members may decide.
+  const canDecideApprovals =
+    chat && "can_decide_approvals" in chat
+      ? chat.can_decide_approvals !== false
+      : !isReadonly
   // Sending, retrying and approving all run the agent. `undefined` means the
   // scopes are still loading, which must not disable anything.
   const cannotExecuteAgents = useScopeCheck("agent:execute") === false
+  const cannotDecideApprovals =
+    !canDecideApprovals || approvalsDisabled || cannotExecuteAgents
   let readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
@@ -407,9 +425,10 @@ export function ChatSessionPane({
     messages,
     setMessages,
     status,
-    regenerate,
     lastError,
+    lastErrorDisconnected,
     clearError,
+    retryTurn,
     subagentStore,
   } = useVercelChat({
     chatId: chat?.id,
@@ -432,17 +451,17 @@ export function ChatSessionPane({
   // reopened session whose last run failed still surfaces why (the live error
   // only exists during/right after the failing run).
   //
-  // Suppress the persisted error the moment a new turn starts — optimistically
-  // on submit, before the backend clears last_error — because the new run will
-  // produce its own outcome (a fresh error or a reply) that supersedes it.
-  // The live error is always the current run's, so it is never suppressed.
+  // Suppress both the moment a new turn starts — optimistically on submit,
+  // before the backend clears last_error — because the new run (or a reload's
+  // replay of a dropped one) produces its own outcome that supersedes them.
   const hasNewTurnStarted =
     optimisticMessageText !== null ||
     status === "submitted" ||
     status === "streaming"
-  const persistedError =
-    hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
-  const displayedError = lastError ?? persistedError
+  const persistedError = chat ? getSessionLastError(chat) : null
+  const displayedError = hasNewTurnStarted
+    ? null
+    : (lastError ?? persistedError)
 
   useAdoptServerTranscript({
     status,
@@ -516,6 +535,60 @@ export function ChatSessionPane({
 
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const capabilities =
+    chat && "capabilities" in chat ? (chat.capabilities ?? {}) : {}
+  const { pending, refreshPending, withdraw } = usePendingMessages({
+    workspaceId,
+    chatId: chat?.id,
+    // The list is the owner's to withdraw; read-only viewers never fetch it.
+    enabled:
+      isGeneratingTurn &&
+      !isReadonly &&
+      !cannotExecuteAgents &&
+      !!capabilities.listing_pending,
+  })
+  const restoreInput = useCallback(
+    (text: string) => {
+      const draft = promptTextareaRef.current?.value ?? ""
+      const prefix = draft ? `${text}\n` : text
+      // Shift bound mentions past the restored text, and close an open
+      // mention query: its token offsets would otherwise point into the
+      // restored text.
+      dismissMentions()
+      applyMentionSplice({ start: 0, deleted: 0, inserted: prefix.length })
+      setInput(prefix + draft)
+    },
+    [applyMentionSplice, dismissMentions]
+  )
+  const runningComposer = useRunningComposer({
+    chatId: chat?.id,
+    workspaceId,
+    capabilities,
+    running: isGeneratingTurn,
+    messages,
+    pending,
+    refreshPending,
+    withdraw,
+    restoreInput,
+  })
+  // Takes the composer's input while a turn runs, when an extension offers it.
+  const steerComposer =
+    isGeneratingTurn && !isReadonly && !cannotExecuteAgents
+      ? runningComposer
+      : undefined
+  const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(event)) return
+    // Escape during IME composition cancels the candidate, not the messages.
+    if (
+      event.key === "Escape" &&
+      !event.nativeEvent.isComposing &&
+      steerComposer?.onEscape
+    ) {
+      event.preventDefault()
+      steerComposer.onEscape()
+    }
+  }
 
   const isWaitingForResponse = useMemo(
     () => isAwaitingOutput(status, messages),
@@ -527,9 +600,9 @@ export function ChatSessionPane({
     cannotExecuteAgents ||
     inputDisabled ||
     isOptimisticBeforeSendPending ||
-    !canSubmit
+    (!canSubmit && !steerComposer)
 
-  let composerPlaceholder = placeholder
+  let composerPlaceholder = steerComposer?.placeholder ?? placeholder
   if (isReadonly) {
     composerPlaceholder = readonlyDescription
   } else if (cannotExecuteAgents) {
@@ -541,7 +614,6 @@ export function ChatSessionPane({
     composerPlaceholder = inputDisabledPlaceholder
   }
 
-  const isGeneratingTurn = status === "submitted" || status === "streaming"
   const [cancelRequested, setCancelRequested] = useState(false)
 
   useEffect(() => {
@@ -656,7 +728,7 @@ export function ChatSessionPane({
   const [sentDecisions, setSentDecisions] = useState<ApprovalDecision[]>([])
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
-      if (isReadonly || !decisionPayload.length) return []
+      if (cannotDecideApprovals || !decisionPayload.length) return []
       // Another tab or the Inbox may have decided these since this pane last
       // refreshed, so submit only the decisions the session still waits on.
       const pendingIds = await fetchPendingApprovalIds()
@@ -689,7 +761,7 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, fetchPendingApprovalIds, isReadonly, sendMessage]
+    [cannotDecideApprovals, clearError, fetchPendingApprovalIds, sendMessage]
   )
 
   const [sentApprovalIds, setSentApprovalIds] = useState<ReadonlySet<string>>(
@@ -999,9 +1071,14 @@ export function ChatSessionPane({
     [selectedTools, toolLabels]
   )
 
-  const transformedMessages = useMemo(
+  const baseMessages = useMemo(
     () => transformMessages(markLiveDenials(messages, sentDecisions)),
     [messages, sentDecisions]
+  )
+  // Keeps the same array when nothing is hidden, so downstream memos hold.
+  const transformedMessages = useMemo(
+    () => withoutStreamedError(baseMessages, displayedError),
+    [baseMessages, displayedError]
   )
 
   // Reads the merged thread so a continuation folded into an earlier card
@@ -1017,7 +1094,7 @@ export function ChatSessionPane({
   // The latest turn's undecided calls, answered from the prompt box.
   const composerApprovals = useMemo(() => {
     const lastBlock = threadBlocks.at(-1)
-    if (isReadonly || lastBlock?.kind !== "turn") return []
+    if (cannotDecideApprovals || lastBlock?.kind !== "turn") return []
     return lastBlock.messages
       .flatMap((message) => message.parts)
       .flatMap((part) =>
@@ -1030,10 +1107,10 @@ export function ChatSessionPane({
           (!approval.status || approval.status === "pending") &&
           !sentApprovalIds.has(approval.tool_call_id)
       )
-  }, [isReadonly, sentApprovalIds, threadBlocks])
+  }, [cannotDecideApprovals, sentApprovalIds, threadBlocks])
   const approvalComposerContext = useMemo(
     () =>
-      isReadonly
+      cannotDecideApprovals
         ? null
         : {
             composerIds: new Set(
@@ -1042,7 +1119,12 @@ export function ChatSessionPane({
             sentIds: sentApprovalIds,
             deniedIds: deniedApprovalIds,
           },
-    [composerApprovals, deniedApprovalIds, isReadonly, sentApprovalIds]
+    [
+      cannotDecideApprovals,
+      composerApprovals,
+      deniedApprovalIds,
+      sentApprovalIds,
+    ]
   )
   const lastMessageId = messages.at(-1)?.id
 
@@ -1070,6 +1152,27 @@ export function ChatSessionPane({
     () => messages.findLast(isTurnRequest)?.id,
     [messages]
   )
+  // Retry starts a run, so it follows the composer's gate.
+  const canRetry =
+    !isWaitingForResponse &&
+    !isReadonly &&
+    !cannotExecuteAgents &&
+    !inputDisabled
+  const retryingRef = useRef(false)
+  const handleRetry = useCallback(async () => {
+    if (retryingRef.current) return
+    retryingRef.current = true
+    try {
+      await retryTurn(retryMessageId)
+    } catch {
+      toast({
+        title: "Couldn't reach Tracecat",
+        description: "Retry once the connection is back.",
+      })
+    } finally {
+      retryingRef.current = false
+    }
+  }, [retryTurn, retryMessageId])
 
   const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(
     () => collectCancelledTurns(transformedMessages),
@@ -1124,6 +1227,10 @@ export function ChatSessionPane({
   }, [messages, invalidateEntityQueries])
 
   const handleSubmit = async (message: PromptInputMessage) => {
+    if (steerComposer) {
+      await submitToRunningTurn(steerComposer, message)
+      return
+    }
     const hasText = Boolean(message.text?.trim())
 
     if (!hasText || isReadonly || !modelInfo) {
@@ -1148,6 +1255,41 @@ export function ChatSessionPane({
     } finally {
       submitInFlightRef.current = false
     }
+  }
+
+  /** Hand the text to the running turn; the composer keeps it unless taken. */
+  const submitToRunningTurn = async (
+    composer: RunningComposer,
+    message: PromptInputMessage
+  ) => {
+    const messageText = message.text ?? ""
+    if (message.files.length > 0) {
+      // The running turn takes text only; keep the draft and its files.
+      toast({
+        title: "Attachments wait for the next message",
+        description: "Send them once the agent has finished.",
+      })
+      throw new SubmitAbandonedError("A running turn takes text only")
+    }
+    if (!messageText.trim()) return
+    if (submitInFlightRef.current) {
+      throw new SubmitAbandonedError("A submit is already in flight")
+    }
+    submitInFlightRef.current = true
+    try {
+      if (!(await composer.submit(messageText.trim()))) {
+        throw new SubmitAbandonedError("The running turn did not take it")
+      }
+    } finally {
+      submitInFlightRef.current = false
+    }
+    // Keep whatever was typed while the submit was in flight.
+    const live = promptTextareaRef.current?.value ?? ""
+    const remaining = live.startsWith(messageText)
+      ? live.slice(messageText.length)
+      : live
+    setInput(remaining)
+    dropMentionPrefix(live.length - remaining.length)
   }
 
   const submitMessage = async (message: PromptInputMessage) => {
@@ -1290,6 +1432,7 @@ export function ChatSessionPane({
 
   const promptBox = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
+      {runningComposer?.panel}
       {isReadonly ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
           <Badge variant="outline" className="px-1.5 py-0 font-normal">
@@ -1336,7 +1479,7 @@ export function ChatSessionPane({
               // backspace. It calls preventDefault when it consumes a key,
               // which is what stops the prompt input from submitting on Enter
               // while the popover is open.
-              onKeyDown={handleMentionKeyDown}
+              onKeyDown={handlePromptKeyDown}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               onSelect={mentions.handleSelectionChange}
@@ -1451,12 +1594,6 @@ export function ChatSessionPane({
             resize={status === "streaming" ? "instant" : "smooth"}
           >
             <ConversationContent className={chatContentCenterClass}>
-              {displayedError && (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>Last run failed</AlertTitle>
-                  <AlertDescription>{displayedError}</AlertDescription>
-                </Alert>
-              )}
               {optimisticMessageText ? (
                 <OptimisticPendingMessage text={optimisticMessageText} />
               ) : null}
@@ -1523,31 +1660,30 @@ export function ChatSessionPane({
                       cancelledMessageIds={cancelledTurnMessageIds}
                       interruptedToolCallIds={interruptedToolCallIds}
                       onSubmitApprovals={
-                        isReadonly ? undefined : handleSubmitApprovals
+                        cannotDecideApprovals
+                          ? undefined
+                          : handleSubmitApprovals
                       }
                     />
-                    {/* Retry starts a run, so it follows the composer's gate. */}
-                    {holdsLatestResponse &&
-                      !isWaitingForResponse &&
-                      !isReadonly &&
-                      !cannotExecuteAgents &&
-                      !inputDisabled && (
-                        <Actions className="mt-4">
-                          <Action
-                            size="sm"
-                            onClick={() =>
-                              regenerate({ messageId: retryMessageId })
-                            }
-                            label="Retry"
-                            tooltip="Retry"
-                          >
-                            <RefreshCcwIcon className="size-3" />
-                          </Action>
-                        </Actions>
-                      )}
+                    {/* A failed turn's Retry sits with its error below. */}
+                    {holdsLatestResponse && canRetry && !displayedError && (
+                      <RetryAction onRetry={handleRetry} />
+                    )}
                   </div>
                 )
               })}
+              {displayedError && (
+                <TurnErrorLine
+                  error={displayedError}
+                  dropped={lastErrorDisconnected}
+                  // A drop reconnects, so it needs no message to resend.
+                  onRetry={
+                    canRetry && (lastErrorDisconnected || messages.length > 0)
+                      ? handleRetry
+                      : undefined
+                  }
+                />
+              )}
               {runningLineLabel && <ThinkingLine label={runningLineLabel} />}
             </ConversationContent>
             <ConversationScrollButton />
@@ -1706,7 +1842,7 @@ function OptimisticPendingMessage({ text }: { text: string }) {
 function ThinkingLine({ label }: { label: string }) {
   return (
     <motion.div
-      className="mt-5"
+      className="mt-1"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

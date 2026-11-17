@@ -6,7 +6,6 @@ from typing import Literal
 
 import orjson
 import yaml
-from asyncpg import UniqueViolationError
 from fastapi import (
     APIRouter,
     File,
@@ -38,6 +37,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import WebhookApiKey, Workflow
 from tracecat.dsl.common import apply_expects_order
 from tracecat.dsl.schemas import DSLConfig
@@ -49,6 +49,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.managed_resources.dependencies import ManagedWorkflowWriteGuard
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
@@ -233,6 +234,17 @@ def wfs_and_defns_to_response(
     return res
 
 
+def _dsl_import_failure(error: ValidationResult) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "status": "failure",
+            "message": "1 validation error(s)",
+            "errors": [error.root.model_dump(mode="json", exclude_none=True)],
+        },
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 @require_scope("workflow:create")
 async def create_workflow(
@@ -307,14 +319,9 @@ async def create_workflow(
                     )
                 ],
             )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": "failure",
-                    "message": "1 validation error(s)",
-                    "errors": [error.root.model_dump(mode="json", exclude_none=True)],
-                },
-            ) from e
+            raise _dsl_import_failure(error) from e
+        except TracecatValidationError as e:
+            raise _dsl_import_failure(ValidationResult.from_dsl_error(e)) from e
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -328,6 +335,10 @@ async def create_workflow(
                 ),
             ) from e
         except IntegrityError as e:
+            if not is_unique_violation(
+                e, "ix_workflow_id", DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE
+            ):
+                raise
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Workflow already exists",
@@ -429,19 +440,11 @@ async def update_workflow(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
     except IntegrityError as e:
-        while cause := e.__cause__:
-            e = cause
-        if isinstance(
-            e, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
-            logger.warning("Unique violation error", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
-            ) from e
+        if not is_unique_violation(e, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Workflow already exists",
+            detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
         ) from e
     workflow = await service.get_workflow(workflow_id)
     if workflow is None:
@@ -473,7 +476,11 @@ async def delete_workflow(
         ) from e
 
 
-@router.post("/{workflow_id}/commit", tags=["workflows"])
+@router.post(
+    "/{workflow_id}/commit",
+    tags=["workflows"],
+    dependencies=[ManagedWorkflowWriteGuard],
+)
 @require_scope("workflow:update")
 async def commit_workflow(
     role: WorkspaceActorRouteRole,
@@ -648,6 +655,7 @@ async def list_workflow_definitions(
 @router.post(
     "/{workflow_id}/definitions/{version}/restore",
     tags=["workflows"],
+    dependencies=[ManagedWorkflowWriteGuard],
     response_model=WorkflowRead,
 )
 @require_scope("workflow:update")
@@ -684,19 +692,11 @@ async def restore_workflow_definition(
             detail=str(e),
         ) from e
     except IntegrityError as e:
-        while cause := e.__cause__:
-            e = cause
-        if isinstance(
-            e, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
-            logger.warning("Unique violation error", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
-            ) from e
+        if not is_unique_violation(e, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Workflow already exists",
+            detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
         ) from e
     return await get_workflow(role=role, session=session, workflow_id=workflow_id)
 
@@ -775,7 +775,11 @@ async def get_workflow_draft(
         raise _workflow_edit_error_to_http(e) from e
 
 
-@router.put("/{workflow_id}/draft", tags=["workflows"])
+@router.put(
+    "/{workflow_id}/draft",
+    tags=["workflows"],
+    dependencies=[ManagedWorkflowWriteGuard],
+)
 @require_scope("workflow:update")
 async def replace_workflow_draft(
     role: WorkspaceActorRouteRole,
@@ -915,6 +919,7 @@ async def _webhook_key_audit_result(
     "/{workflow_id}/webhook",
     status_code=status.HTTP_201_CREATED,
     tags=["triggers"],
+    dependencies=[ManagedWorkflowWriteGuard],
 )
 @require_scope("workflow:update")
 async def create_webhook(
@@ -937,6 +942,8 @@ async def create_webhook(
         )
     except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return WebhookRead.model_validate(webhook, from_attributes=True)
 
 

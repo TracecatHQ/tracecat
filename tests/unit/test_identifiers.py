@@ -13,6 +13,7 @@ from tracecat.identifiers.common import (
     id_from_short,
     id_to_short,
 )
+from tracecat.identifiers.secret import SecretUUID
 from tracecat.identifiers.workflow import (
     WF_EXEC_ID_PATTERN,
     WF_EXEC_ID_SCHEMA_PATTERN,
@@ -22,6 +23,7 @@ from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowUUID,
 )
+from tracecat.secrets.dependencies import AnySecretIDPath
 
 
 @pytest.fixture
@@ -108,6 +110,55 @@ def test_optional_workflow_id_dependency_accepts_omitted_id(
 
     assert response.status_code == 200
     assert response.json() is None
+
+
+@pytest.fixture
+def secret_id_client() -> TestClient:
+    app = FastAPI()
+
+    def get_by_path(secret_id: AnySecretIDPath) -> str:
+        return str(secret_id)
+
+    app.add_api_route("/secrets/{secret_id}", get_by_path)
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    "secret_id",
+    [
+        pytest.param("not-a-uuid", id="bare-string"),
+        pytest.param("secret_abc-def", id="non-base62-char"),
+        pytest.param("secret_" + "z" * 22, id="uuid-overflow"),
+        pytest.param("secret-" + "1" * 32 + "invalid", id="legacy-trailing-junk"),
+    ],
+)
+def test_secret_id_path_dependency_rejects_malformed_ids(
+    secret_id_client: TestClient, secret_id: str
+) -> None:
+    response = secret_id_client.get(f"/secrets/{secret_id}")
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["path", "secret_id"]
+    assert error["type"] == "value_error"
+    assert error["input"] == secret_id
+
+
+@pytest.mark.parametrize("id_format", ["uuid", "short", "legacy"])
+def test_secret_id_path_dependency_accepts_valid_ids(
+    secret_id_client: TestClient, id_format: str
+) -> None:
+    secret_id = SecretUUID.new_uuid4()
+    raw_id = {
+        "uuid": str(secret_id),
+        "short": secret_id.short(),
+        "legacy": secret_id.to_legacy(),
+    }[id_format]
+
+    response = secret_id_client.get(f"/secrets/{raw_id}")
+
+    assert response.status_code == 200
+    assert response.json() == str(secret_id)
 
 
 def test_id_to_short() -> None:

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Literal, NotRequired, Self, TypedDict
 
 import dateparser
@@ -5,19 +6,21 @@ import yaml
 from pydantic import (
     Field,
     TypeAdapter,
+    ValidationError,
     computed_field,
     field_validator,
     model_validator,
 )
 
-from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.core.schemas import Schema
 from tracecat.dsl.enums import JoinStrategy, PlatformAction
-from tracecat.dsl.schemas import ActionRetryPolicy
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.dsl.view import Position
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
+from tracecat.validation.schemas import ValidationDetail
 
 
 class ActionEdge(TypedDict):
@@ -94,8 +97,30 @@ class ActionControlFlow(Schema):
                 )
                 is None
             ):
-                raise ValueError(f"'{v}' is not a valid `wait_until` value")
+                raise ValueError("Not a valid `wait_until` date or time")
         return v
+
+    @classmethod
+    def from_statement(cls, stmt: ActionStatement) -> Self:
+        """Build from a DSL statement, which has looser limits than persisted control flow."""
+        try:
+            return cls.model_validate(stmt)
+        except ValidationError as e:
+            details = ValidationDetail.list_from_pydantic(e)
+        # Raise after the handler so the rejected value isn't chained as context.
+        reasons = "; ".join(
+            f"{'.'.join(str(part) for part in d.loc or ())}: {d.msg}" for d in details
+        )
+        raise TracecatValidationError(
+            f"Invalid control flow for action {stmt.ref!r}: {reasons}",
+            detail=details,
+        )
+
+
+def validate_control_flows(actions: Iterable[ActionStatement]) -> None:
+    """Raise TracecatValidationError if any action's control flow can't be persisted."""
+    for stmt in actions:
+        ActionControlFlow.from_statement(stmt)
 
 
 class ActionLockStatus(Schema):
@@ -124,7 +149,7 @@ class ActionRead(Schema):
         """Expose the same deployment-bounded timeout that executes."""
         if PlatformAction.is_agent(self.type):
             retry_policy = self.control_flow.retry_policy
-            retry_policy.timeout = clamp_agent_timeout_seconds(retry_policy.timeout)
+            retry_policy.timeout = retry_policy.resolved_agent_timeout()
         return self
 
     @computed_field

@@ -39,16 +39,16 @@ jest.mock("@/components/tiptap-templates/simple/simple-editor", () => ({
 describe("ControlsHeader on the forms list", () => {
   it.each([
     [["form:create", "workflow:read"], true],
-    // The New form dialog picks from the workflow list.
+    // The Create form dialog picks from the workflow list.
     [["form:create"], false],
     [["workflow:read"], false],
-  ])("with %j offers New form: %p", (granted, shown) => {
+  ])("with %j offers Create form: %p", (granted, shown) => {
     scopes = new Set(granted)
 
     render(<ControlsHeader />)
 
     expect(screen.getByRole("heading", { name: "Forms" })).toBeInTheDocument()
-    expect(Boolean(screen.queryByRole("button", { name: "New form" }))).toBe(
+    expect(Boolean(screen.queryByRole("button", { name: "Create form" }))).toBe(
       shown
     )
   })

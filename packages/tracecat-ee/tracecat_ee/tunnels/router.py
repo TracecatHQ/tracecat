@@ -16,11 +16,17 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.tunnels.gateways import (
+    TunnelGatewayUnavailableError,
+    kubernetes_enabled,
+)
 from tracecat_ee.tunnels.pangolin import PangolinError
 from tracecat_ee.tunnels.schemas import (
     ManagedTunnelCreate,
     ManagedTunnelCreated,
+    TunnelAvailabilityRead,
     TunnelCreate,
+    TunnelDetailRead,
     TunnelGatewayKeyRead,
     TunnelGatewayPolicyRead,
     TunnelRead,
@@ -29,10 +35,23 @@ from tracecat_ee.tunnels.schemas import (
 )
 from tracecat_ee.tunnels.service import (
     TunnelDisabledError,
+    TunnelInUseError,
     TunnelsService,
     get_gateway_policy,
 )
 from tracecat_ee.tunnels.tokens import TunnelTokenError
+
+
+def _tunnel_in_use(exc: TunnelInUseError, service: TunnelsService) -> HTTPException:
+    referenced_by = service.readable_references(exc.referenced_by)
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "tunnel_in_use",
+            "message": str(exc),
+            "referenced_by": [ref.model_dump(mode="json") for ref in referenced_by],
+        },
+    )
 
 
 async def _require_entitlement(
@@ -76,6 +95,16 @@ async def list_tunnels(
     )
 
 
+@router.get("/availability")
+@require_scope("tunnel:read")
+async def get_tunnel_availability(
+    *,
+    role: WorkspaceActorRouteRole,
+) -> TunnelAvailabilityRead:
+    """Report whether this deployment can run tunnel gateways."""
+    return TunnelAvailabilityRead(available=kubernetes_enabled())
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("tunnel:create")
 async def create_tunnel(
@@ -91,6 +120,10 @@ async def create_tunnel(
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
+        ) from exc
+    except TunnelGatewayUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return TunnelRead.from_database(tunnel)
 
@@ -113,6 +146,10 @@ async def create_managed_tunnel(
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
+        ) from exc
+    except TunnelGatewayUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     except PangolinError as exc:
         raise HTTPException(
@@ -152,16 +189,21 @@ async def get_tunnel(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     tunnel_id: uuid.UUID,
-) -> TunnelRead:
-    """Get a tunnel in the workspace."""
+) -> TunnelDetailRead:
+    """Get a tunnel in the workspace and the resources that reference it."""
     service = TunnelsService(session, role=role)
     try:
         tunnel = await service.get_tunnel(tunnel_id)
+        referenced_by = service.readable_references(
+            await service.list_tunnel_references(tunnel)
+        )
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    return TunnelRead.from_database(tunnel)
+    return TunnelDetailRead(
+        **TunnelRead.from_database(tunnel).model_dump(), referenced_by=referenced_by
+    )
 
 
 @router.patch("/{tunnel_id}")
@@ -182,6 +224,8 @@ async def update_tunnel(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+    except TunnelInUseError as exc:
+        raise _tunnel_in_use(exc, service) from exc
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
@@ -205,6 +249,13 @@ async def delete_tunnel(
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except TunnelInUseError as exc:
+        raise _tunnel_in_use(exc, service) from exc
+    except IntegrityError as exc:
+        # An MCP integration started using the tunnel after the reference check.
+        raise _tunnel_in_use(
+            TunnelInUseError("Tunnel is in use. Reload and try again.", []), service
         ) from exc
     except PangolinError as exc:
         raise HTTPException(
@@ -232,6 +283,10 @@ async def issue_tunnel_gateway_key(
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except TunnelGatewayUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return TunnelGatewayKeyRead(tunnel_id=tunnel.id, gateway_key=gateway_key)
 
