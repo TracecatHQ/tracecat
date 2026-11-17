@@ -350,10 +350,6 @@ class EvaluateTemplatedObjectActivityInput(BaseModel):
     obj: Any
     operand: ExecutionContext
     key: str
-    role: Role | None = None
-    """Role used to read workspace variables. VARS stay unresolved without it."""
-    task_environment: str | None = None
-    default_environment: str = DEFAULT_SECRETS_ENVIRONMENT
 
 
 class EvaluateForEachActivityInput(BaseModel):
@@ -795,32 +791,20 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def evaluate_templated_object_activity(
+    def evaluate_templated_object_activity(
         input: EvaluateTemplatedObjectActivityInput,
     ) -> StoredObject:
         """Evaluate templated objects using the expression engine.
 
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
-        When a role is given, VARS referenced by the object are read too.
         """
         with activity_error_boundary(_materialization_error_classification):
-            if input.role is None:
-                materialized = await materialize_context(input.operand)
-            else:
-                materialized = await _materialize_with_workspace_variables(
-                    input.obj,
-                    input.operand,
-                    role=input.role,
-                    task_environment=input.task_environment,
-                    default_environment=input.default_environment,
-                )
+            materialized = run_sync(materialize_context(input.operand))
         with activity_error_boundary(_expression_error_classification):
-            result = await asyncio.to_thread(
-                eval_templated_object, input.obj, operand=materialized
-            )
+            result = eval_templated_object(input.obj, operand=materialized)
         with activity_error_boundary(_result_persistence_error_classification):
-            return await get_object_storage().store(input.key, result)
+            return run_sync(get_object_storage().store(input.key, result))
 
     @staticmethod
     @activity.defn
@@ -1144,44 +1128,26 @@ class DSLActivities:
             )
 
 
-async def _materialize_with_workspace_variables(
-    obj: Any,
-    operand: ExecutionContext,
-    *,
-    role: Role,
-    task_environment: str | None,
-    default_environment: str,
-) -> MaterializedExecutionContext:
-    """Materialize the operand and add the workspace variables `obj` references.
-
-    Variables are read from the task environment, falling back to the default.
-    """
-    materialized = await materialize_context(operand)
-    collected = await asyncio.to_thread(collect_expressions, obj)
-    if not collected.variables:
-        return materialized
-    environment = await asyncio.to_thread(
-        _resolve_environment, task_environment, default_environment, materialized
-    )
-    workspace_variables = await get_workspace_variables(
-        variable_exprs=collected.variables,
-        environment=environment,
-        role=role,
-    )
-    if workspace_variables:
-        materialized["VARS"] = workspace_variables
-    return materialized
-
-
 async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, Any]:
     """Resolve environment and VARS, materialize the operand, and evaluate templated args."""
-    materialized = await _materialize_with_workspace_variables(
-        input.args,
-        input.operand,
-        role=input.role,
-        task_environment=input.task_environment,
-        default_environment=input.default_environment,
+    operand = input.operand
+    materialized = await materialize_context(operand)
+    environment = await asyncio.to_thread(
+        _resolve_environment,
+        input.task_environment,
+        input.default_environment,
+        materialized,
     )
+    collected = await asyncio.to_thread(collect_expressions, input.args)
+    if collected.variables:
+        workspace_variables = await get_workspace_variables(
+            variable_exprs=collected.variables,
+            environment=environment,
+            role=input.role,
+        )
+        if workspace_variables:
+            operand["VARS"] = workspace_variables
+            materialized = await materialize_context(operand)
     args = _strip_string_values(input.args)
     return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
 
@@ -1485,13 +1451,15 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     task = input.task
 
     # Materialize any StoredObjects in operand, plus the VARS the args reference
-    materialized = await _materialize_with_workspace_variables(
-        task.args,
-        input.operand,
-        role=input.role,
-        task_environment=task.environment,
-        default_environment=input.default_environment,
-    )
+    materialized = await materialize_context(input.operand)
+    collected = await asyncio.to_thread(collect_expressions, task.args)
+    if collected.variables:
+        environment = _resolve_environment(
+            task.environment, input.default_environment, materialized
+        )
+        materialized["VARS"] = await get_workspace_variables(
+            collected.variables, environment=environment, role=input.role
+        )
 
     # Evaluate task args to get workflow_id or workflow_alias
     # Run CPU-bound expression evaluation in thread to avoid blocking event loop
@@ -1549,6 +1517,7 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             registry_lock=registry_lock,
             trigger_inputs=None,
             runtime_configs=runtime_config,
+            variables=materialized.get("VARS"),
         )
 
     # For looped subflows: evaluate all trigger_inputs and runtime_configs

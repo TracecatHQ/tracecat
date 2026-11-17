@@ -1343,15 +1343,15 @@ class DSLWorkflow:
             key = action_key(
                 str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
             )
+            operand = self._build_action_context(task, stream_id).copy()
+            if prepared.variables:
+                operand["VARS"] = prepared.variables
             trigger_inputs = await workflow.execute_activity(
                 DSLActivities.evaluate_templated_object_activity,
                 arg=EvaluateTemplatedObjectActivityInput(
                     obj=task.args.get("trigger_inputs"),
-                    operand=self._build_action_context(task, stream_id),
+                    operand=operand,
                     key=key,
-                    role=self.role,
-                    task_environment=task.environment,
-                    default_environment=self.run_context.environment,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
