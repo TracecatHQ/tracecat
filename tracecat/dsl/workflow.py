@@ -977,6 +977,7 @@ class DSLWorkflow:
                                 use_committed=(
                                     self.execution_type != ExecutionType.DRAFT
                                 ),
+                                default_environment=self.run_context.environment,
                             ),
                             start_to_close_timeout=timedelta(seconds=120),
                             retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1348,6 +1349,9 @@ class DSLWorkflow:
                     obj=task.args.get("trigger_inputs"),
                     operand=self._build_action_context(task, stream_id),
                     key=key,
+                    role=self.role,
+                    task_environment=task.environment,
+                    default_environment=self.run_context.environment,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
