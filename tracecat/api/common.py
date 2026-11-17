@@ -189,10 +189,12 @@ async def temporal_rpc_exception_handler(request: Request, exc: Exception) -> Re
     ):
         raise exc
     capture_api_exception(exc, priority=AlertPriority.LOW, level="warning")
+    # Log the route template: webhook paths carry a credential.
+    route = request.scope.get("route")
     logger.warning(
         "Temporal temporarily unavailable",
         rpc_status=exc.status.name,
-        path=request.url.path,
+        route=route.path if isinstance(route, APIRoute) else "unmatched",
         method=request.method,
         role=ctx_role.get(),
     )
