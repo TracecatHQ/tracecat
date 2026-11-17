@@ -1,3 +1,55 @@
+// Must match mist's SLACK_SCOPES. Scopes added after install make every workspace re-approve.
+const BOT_SCOPES = [
+  "app_mentions:read",
+  // Agent label, and `assistant.threads.setStatus`.
+  "assistant:write",
+  "bookmarks:read",
+  "bookmarks:write",
+  "canvases:read",
+  "canvases:write",
+  "channels:history",
+  "channels:manage",
+  // Lists the channels the bot is in.
+  "channels:read",
+  "chat:write",
+  "chat:write.customize",
+  "groups:history",
+  "groups:read",
+  "groups:write",
+  "im:history",
+  "im:read",
+  "im:write",
+  "links:read",
+  "links:write",
+  "mpim:history",
+  "mpim:read",
+  "pins:read",
+  "pins:write",
+  "reactions:read",
+  "reactions:write",
+  "search:read.files",
+  "search:read.public",
+  "search:read.users",
+  "users.profile:read",
+  "users:read",
+  "users:read.email",
+] as const
+
+// The legacy channel token path's scopes; matches SLACK_OAUTH_SCOPES in tracecat/agent/channels/service.py. Frozen.
+const LEGACY_BOT_SCOPES = [
+  "app_mentions:read",
+  "channels:history",
+  "chat:write",
+  "chat:write.customize",
+  "groups:history",
+  "im:history",
+  "mpim:history",
+  "reactions:read",
+  "reactions:write",
+  "users:read",
+  "users:read.email",
+] as const
+
 /** The Slack app manifest for a bot; a null endpoint means Socket Mode. */
 export function buildSlackManifest({
   endpointUrl,
@@ -50,25 +102,7 @@ export function buildSlackManifest({
     },
     oauth_config: {
       scopes: {
-        // Scopes added after install make every workspace re-approve.
-        bot: [
-          "app_mentions:read",
-          // Agent label, and `assistant.threads.setStatus`.
-          ...(legacy ? [] : ["assistant:write"]),
-          "channels:history",
-          // Lists the channels the bot is in.
-          ...(legacy ? [] : ["channels:read"]),
-          "chat:write",
-          "chat:write.customize",
-          "groups:history",
-          ...(legacy ? [] : ["groups:read"]),
-          "im:history",
-          "mpim:history",
-          "reactions:read",
-          "reactions:write",
-          "users:read",
-          "users:read.email",
-        ],
+        bot: legacy ? LEGACY_BOT_SCOPES : BOT_SCOPES,
       },
       redirect_urls: [oauthRedirectUrl],
     },
