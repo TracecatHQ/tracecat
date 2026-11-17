@@ -784,6 +784,9 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+      - id: core.table.search
+        examples:
+          - tables-semantic-search
       - id: core.table.aggregate_rows
         info: |
           The example groups alerts by source and hour, then calculates the

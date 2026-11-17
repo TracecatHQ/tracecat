@@ -1,0 +1,107 @@
+---
+title: "Case views"
+description: "Save a case list search as a named view, share it with your workspace, pin it to the sidebar, and run it from workflows and MCP."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+A case view saves a case list search under a name: its filters, text search, sort, and visible columns.
+Open a view to rerun the same search, share it with your workspace, or pin it to the sidebar.
+
+![Case views menu](/img/cases/case-views-menu.png)
+
+## Filter the case list
+
+Select `Filter` above the case list, choose a property, then pick its values.
+Each filter you apply appears as a chip, such as `Status is any of 2 statuses`.
+To skip the property step, type a value such as `phishing` and select it from the results.
+
+- Select the operator to switch between `is` and `is not`. `Status`, `Priority`, and `Severity` support `is not`.
+- Select the value to change it.
+- Select `×` to remove the filter. `Clear` removes every filter.
+
+`Updated` and `Created` take a preset, such as `1 week ago`, or a custom range.
+
+![Filter chips on the case list](/img/cases/case-view-filters.png)
+
+## Save a view
+
+1. Filter and search the case list, set the sort, and choose columns in `Display`.
+2. Select `Save view` at the end of the filter row.
+3. Enter a name and choose `Only me` or `Workspace`.
+4. Select `Create view`.
+
+Tracecat opens the new view.
+Date presets stay relative, so a view of cases created `1 week ago` covers the last week every time it runs.
+A custom range keeps its fixed dates.
+
+## Open and change a view
+
+Select the `Custom case views` icon next to the `Cases` title to list every view you can open, grouped under `Built-in`, `My views`, and `Shared with workspace`.
+Pinned views also appear under `Cases` in the sidebar.
+Select `All cases` to return to your own filters.
+
+When you change the filters, search, sort, or columns of an open view, the filter row shows:
+
+- `Reset` restores the saved view.
+- `Save as new` saves your changes as a new view.
+- `Save` updates the view. It appears only for views you can edit.
+
+Changing an open view leaves your own filters untouched.
+The views menu also holds actions for the open view: `Edit view...` to rename it or change who can see it, `Duplicate...`, `Pin to sidebar`, `Copy link`, and `Delete`.
+Deleting a view leaves its cases unchanged.
+
+## Personal and shared views
+
+- `Only me` views are visible only to you. Tracecat deletes them when your user is removed.
+- `Workspace` views are visible to everyone in the workspace. Sharing a view requires the `case:update` permission.
+- The owner of a shared view and anyone with `case:update` can edit or delete it. Only the owner can make it personal again.
+- Pins belong to each user. Pinning a shared view adds it to your sidebar only.
+
+Filter on assignee `Me` to build a shared view that shows each viewer their own cases.
+
+## Built-in view
+
+`Assigned to me` shows open cases assigned to you, including sub-cases.
+Open means every status except `Resolved` and `Closed`.
+The built-in view is read-only, so use `Save as new` to keep a changed copy.
+Select its pin in the views menu to add it to the sidebar.
+
+## Deleted tags and options
+
+If a tag or dropdown option that a view filters on is deleted, the view shows a chip such as `1 deleted tag or option`.
+A filter left with nothing to match shows no cases.
+Update the filters and select `Save` to fix the view.
+
+## Run views from workflows
+
+Use `core.cases.list_case_views` to list views, then pass a view's `id` to `core.cases.search_cases` as `view_id`.
+
+```yaml
+- ref: list_case_views
+  action: core.cases.list_case_views
+  args:
+    include_builtins: false
+- ref: search_view
+  action: core.cases.search_cases
+  args:
+    view_id: ${{ ACTIONS.list_case_views.result[0].id }}
+    limit: 25
+```
+
+- Workflows can run shared views only.
+- A view that filters on `Me`, including `Assigned to me`, fails in a workflow, because a workflow runs without a signed-in user.
+- `view_id` sets the search criteria. Add `filters` to narrow the view. Other matching inputs, such as `status`, are rejected.
+- Paging, `order_by`, and `sort` still apply.
+
+## Use views from MCP
+
+Agents connected to the [Tracecat MCP server](/automations/tracecat-mcp) can manage and run views with `list_case_views`, `create_case_view`, `update_case_view`, `pin_case_view`, `unpin_case_view`, and `search_cases` with `view_id`.
+MCP calls run as your user, so personal views and `Me` filters work.
+
+## Related pages
+
+- See [Cases](/automations/core-actions/case-actions/cases) for the full `core.cases.search_cases` and `core.cases.list_case_views` input reference.
+- See [Dropdowns](/automations/cases/dropdowns) to add classifications that become case list filters.
+- See [Tracecat MCP](/automations/tracecat-mcp) for setup and the full list of MCP tools.
