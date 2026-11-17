@@ -83,6 +83,43 @@ def test_httpx_to_response_text(mock_text_response: httpx.Response) -> None:
     assert "content-type" in result["headers"]
 
 
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        "application/json",
+        "application/json; charset=utf-8",
+        "Application/JSON",
+        "application/vnd.api+json",
+        "application/problem+json",
+        "application/hal+json; charset=utf-8",
+    ],
+)
+def test_httpx_to_response_json_media_types(content_type: str) -> None:
+    """JSON media types, including +json suffixes, are parsed as JSON."""
+    response = httpx.Response(
+        status_code=200,
+        headers={"Content-Type": content_type},
+        content=b'{"meta": {"page_index": 1}}',
+    )
+    result = httpx_to_response(response)
+    assert result["data"] == {"meta": {"page_index": 1}}
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    ["text/plain", "text/html", "application/jsonl", "application/json-seq"],
+)
+def test_httpx_to_response_non_json_media_types(content_type: str) -> None:
+    """Non-JSON media types stay as text."""
+    response = httpx.Response(
+        status_code=200,
+        headers={"Content-Type": content_type},
+        content=b'{"a": 1}',
+    )
+    result = httpx_to_response(response)
+    assert result["data"] == '{"a": 1}'
+
+
 def test_httpx_to_response_no_content(mock_no_content_response: httpx.Response) -> None:
     """Test converting 204 response to HTTPResponse."""
     result = httpx_to_response(mock_no_content_response)
@@ -1216,6 +1253,38 @@ async def test_http_paginate_without_jsonpath() -> None:
     assert result[0]["data"] == {"data": "page1", "hasMore": True}
     assert result[1]["data"] == {"data": "page2", "hasMore": True}
     assert result[2]["data"] == {"data": "page3", "hasMore": False}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_paginate_vnd_api_json() -> None:
+    """Stop conditions can read fields from application/vnd.api+json pages."""
+    headers = {"Content-Type": "application/vnd.api+json"}
+    responses = [
+        httpx.Response(
+            status_code=200,
+            headers=headers,
+            json={"data": [{"id": "1"}], "meta": {"page_index": 1, "total_pages": 2}},
+        ),
+        httpx.Response(
+            status_code=200,
+            headers=headers,
+            json={"data": [{"id": "2"}], "meta": {"page_index": 2, "total_pages": 2}},
+        ),
+    ]
+    route = respx.get("https://api.example.com/data").mock(side_effect=responses)
+
+    result = await http_paginate(
+        url="https://api.example.com/data",
+        method="GET",
+        stop_condition="lambda x: x['data']['meta']['page_index'] == x['data']['meta']['total_pages']",
+        next_request="lambda x: {'params': {'page': x['data']['meta']['page_index'] + 1}}",
+        items_jsonpath="$.data[*]",
+        limit=1000,
+    )
+
+    assert route.call_count == 2
+    assert result == [{"id": "1"}, {"id": "2"}]
 
 
 @pytest.mark.anyio

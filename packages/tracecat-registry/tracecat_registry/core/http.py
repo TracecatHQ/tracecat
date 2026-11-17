@@ -256,6 +256,17 @@ class TemporaryCACertificate:
                 )
 
 
+def _is_json_content_type(content_type: str | None) -> bool:
+    """Whether a Content-Type is JSON: application/json or a +json suffix (RFC 6839)."""
+    if not content_type:
+        return False
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    main_type, _, subtype = media_type.partition("/")
+    return main_type == "application" and (
+        subtype == "json" or subtype.endswith("+json")
+    )
+
+
 def httpx_to_response(
     response: httpx.Response, *, base64_encode_data: bool = False
 ) -> HTTPResponse:
@@ -276,7 +287,7 @@ def httpx_to_response(
 
     # Parse response based on content type
     content_type = response.headers.get("Content-Type")
-    if content_type and content_type.startswith("application/json"):
+    if _is_json_content_type(content_type):
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),
