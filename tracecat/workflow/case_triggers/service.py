@@ -342,10 +342,14 @@ class CaseTriggersService(BaseWorkspaceService):
         # Stored refs pass through; only unmatched entries resolve by name or ID.
         existing = set(
             await self.session.scalars(
-                select(CaseTag.ref).where(
+                select(CaseTag.ref)
+                .where(
                     CaseTag.workspace_id == self.workspace_id,
                     CaseTag.ref.in_(refs),
                 )
+                .order_by(CaseTag.id)
+                # Block a concurrent rename until this trigger's refs are saved.
+                .with_for_update(read=True, key_share=True)
             )
         )
         misses = [ref for ref in refs if ref not in existing]
