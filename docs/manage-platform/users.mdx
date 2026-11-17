@@ -19,7 +19,7 @@ Self-service registration needs `basic` in `TRACECAT__AUTH_TYPES`. Without it th
 
 `TRACECAT__AUTH_ALLOWED_DOMAINS` is a comma-separated list of email domains permitted to create an account, and a blank value permits every domain. Tracecat applies the same list on every OIDC sign-in. SAML sign-in checks the organization's configured domains first. When none are configured, a single-tenant deployment falls back to this list and a multi-tenant deployment rejects the sign-in. An existing basic-auth account signs in with its password regardless of the list.
 
-The first superadmin bypasses the domain list. A blocked email fails with the message `Please enter a valid email address.`
+The first superadmin bypasses the domain list. A blocked email fails with the message `Please enter a valid email address. If you already have an account, sign in instead.`
 
 A password must be at least `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` characters long, default `12`.
 
