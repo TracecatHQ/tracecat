@@ -143,19 +143,21 @@ describe("PlatformSlackAppSettings", () => {
     api.save.mockResolvedValue(SAVED)
     renderSettings()
 
+    expect(await screen.findByText("Not registered")).toBeInTheDocument()
     await userEvent.click(
       await screen.findByRole("link", { name: "Create in Slack" })
     )
-    expect(screen.getByText("Slack app ready")).toBeInTheDocument()
+    // Opening Slack makes nothing yet, so no step claims the app is ready.
+    expect(screen.queryByText("Slack app ready")).toBeNull()
     const save = screen.getByRole("button", { name: "Save" })
-    expect(screen.getByLabelText("Client ID")).toHaveAccessibleDescription(
-      "App Credentials → Client ID"
-    )
+    expect(save).toBeDisabled()
+    expect(screen.getByText("Fill in all four to save.")).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText("App ID"), "A0SYNTHETIC")
     await userEvent.type(screen.getByLabelText("Client ID"), "111.222")
     await userEvent.type(screen.getByLabelText("Client secret"), "client")
     expect(save).toBeDisabled()
     await userEvent.type(screen.getByLabelText("Signing secret"), "signing")
+    expect(screen.queryByText("Fill in all four to save.")).toBeNull()
     await userEvent.click(save)
 
     await waitFor(() =>
@@ -172,19 +174,33 @@ describe("PlatformSlackAppSettings", () => {
     )
   })
 
-  it("summarizes a registered app with links into its Slack settings", async () => {
+  it("summarizes a registered app as ready, with what is left to do in Slack", async () => {
     api.get.mockResolvedValue(SAVED)
     renderSettings()
 
     const summary = await screen.findByRole("region", {
       name: "Tracecat for Slack",
     })
+    expect(within(summary).getByText("Ready")).toBeInTheDocument()
+    expect(within(summary).queryByText("Registered")).toBeNull()
+    expect(within(summary).queryByText("Token rotation")).toBeNull()
+    expect(within(summary).queryByText("Credentials saved")).toBeNull()
     expect(
       within(summary).getByRole("link", { name: "A0SYNTHETIC" })
     ).toHaveAttribute("href", "https://api.slack.com/apps/A0SYNTHETIC/general")
     expect(within(summary).getByText("HTTP")).toBeInTheDocument()
+
+    const distribution = screen.getByRole("group", {
+      name: "Turn on public distribution",
+    })
+    // Self-hosted installs in one Slack workspace; distribution is not required.
+    expect(distribution).toHaveTextContent(
+      "Until it's on, workspaces outside the one the app was created in can't add Tracecat."
+    )
     expect(
-      screen.getByRole("link", { name: /Open Manage Distribution/ })
+      within(distribution).getByRole("link", {
+        name: /Open Manage Distribution/,
+      })
     ).toHaveAttribute(
       "href",
       "https://api.slack.com/apps/A0SYNTHETIC/distribute"
@@ -196,7 +212,7 @@ describe("PlatformSlackAppSettings", () => {
     expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument()
   })
 
-  it("saves each Slack-only step marked done and collapses once both are", async () => {
+  it("drops each Slack-only step once marked done, and lists it with an undo", async () => {
     api.get.mockResolvedValue(SAVED)
     api.mark
       .mockResolvedValueOnce({ ...SAVED, icon_uploaded: true })
@@ -208,7 +224,7 @@ describe("PlatformSlackAppSettings", () => {
     renderSettings()
 
     const icon = await screen.findByRole("group", {
-      name: "Upload the Tracecat icon (optional)",
+      name: "Upload the Tracecat icon",
     })
     await userEvent.click(
       within(icon).getByRole("button", { name: "Mark done" })
@@ -216,9 +232,11 @@ describe("PlatformSlackAppSettings", () => {
     expect(api.mark).toHaveBeenLastCalledWith({
       requestBody: { icon_uploaded: true },
     })
+    expect(await screen.findByText("Marked uploaded")).toBeInTheDocument()
     expect(
-      await within(icon).findByRole("button", { name: "Done" })
-    ).toHaveAttribute("aria-pressed", "true")
+      screen.queryByRole("group", { name: "Upload the Tracecat icon" })
+    ).toBeNull()
+
     const distribution = screen.getByRole("group", {
       name: "Turn on public distribution",
     })
@@ -228,79 +246,46 @@ describe("PlatformSlackAppSettings", () => {
     expect(api.mark).toHaveBeenLastCalledWith({
       requestBody: { distribution_enabled: true },
     })
-
-    expect(
-      await screen.findByText("Public distribution on")
-    ).toBeInTheDocument()
+    expect(await screen.findByText("Marked on")).toBeInTheDocument()
     expect(
       screen.queryByRole("group", { name: "Turn on public distribution" })
     ).toBeNull()
+    expect(screen.getByText("Ready")).toBeInTheDocument()
   })
 
-  it("keeps the optional icon step open once distribution is on", async () => {
+  it("undoes a step marked done by mistake", async () => {
     api.get.mockResolvedValue({ ...SAVED, distribution_enabled: true })
-    api.mark.mockResolvedValue({
-      ...SAVED,
-      distribution_enabled: true,
-      icon_uploaded: true,
-    })
+    api.mark.mockResolvedValue(SAVED)
     renderSettings()
-    expect(
-      await screen.findByText("Public distribution on")
-    ).toBeInTheDocument()
-    expect(screen.queryByText("Finish in Slack")).toBeNull()
-    expect(
-      screen.queryByRole("group", { name: "Turn on public distribution" })
-    ).toBeNull()
 
-    const icon = screen.getByRole("group", {
-      name: "Upload the Tracecat icon (optional)",
-    })
     await userEvent.click(
-      within(icon).getByRole("button", { name: "Mark done" })
+      await screen.findByRole("button", {
+        name: "Undo marking distribution on",
+      })
     )
-
     expect(api.mark).toHaveBeenCalledWith({
-      requestBody: { icon_uploaded: true },
+      requestBody: { distribution_enabled: false },
     })
     expect(
-      await screen.findByText("Tracecat icon uploaded")
+      await screen.findByRole("group", { name: "Turn on public distribution" })
     ).toBeInTheDocument()
-    expect(screen.getByText("Public distribution on")).toBeInTheDocument()
-    expect(
-      screen.queryByRole("group", {
-        name: "Upload the Tracecat icon (optional)",
-      })
-    ).toBeNull()
+    expect(screen.queryByText("Marked on")).toBeNull()
   })
 
-  it("shows a step marked done from the server after a remount", async () => {
-    api.get.mockResolvedValue(SAVED)
-    api.mark.mockResolvedValue({ ...SAVED, icon_uploaded: true })
-    const unmount = renderSettings()
-    const icon = await screen.findByRole("group", {
-      name: "Upload the Tracecat icon (optional)",
-    })
-    await userEvent.click(
-      within(icon).getByRole("button", { name: "Mark done" })
-    )
-    await waitFor(() => expect(api.mark).toHaveBeenCalledTimes(1))
-    unmount()
-
-    api.get.mockResolvedValue({ ...SAVED, icon_uploaded: true })
+  it("asks for the credentials again when the saved ones can't be read", async () => {
+    api.get.mockResolvedValue(slackApp({ ...SAVED, unreadable: true }))
     renderSettings()
 
-    const remounted = await screen.findByRole("group", {
-      name: "Upload the Tracecat icon (optional)",
-    })
     expect(
-      within(remounted).getByRole("button", { name: "Done" })
-    ).toHaveAttribute("aria-pressed", "true")
+      await screen.findByText("Can't read credentials")
+    ).toBeInTheDocument()
     expect(
-      within(
-        screen.getByRole("group", { name: "Turn on public distribution" })
-      ).getByRole("button", { name: "Mark done" })
-    ).toHaveAttribute("aria-pressed", "false")
+      screen.getByRole("heading", { name: "Paste the app's credentials again" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/no longer decrypts/)).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Remove app" })
+    ).toBeInTheDocument()
   })
 
   it("keeps saved secrets that are left blank", async () => {
@@ -392,7 +377,9 @@ describe("PlatformSlackAppSettings", () => {
     api.remove.mockResolvedValue(undefined)
     renderSettings()
 
-    await userEvent.click(await screen.findByRole("button", { name: "Remove" }))
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Remove app" })
+    )
     const dialog = await screen.findByRole("alertdialog")
     expect(api.remove).not.toHaveBeenCalled()
     await userEvent.click(
@@ -411,7 +398,9 @@ describe("PlatformSlackAppSettings", () => {
     )
     renderSettings()
 
-    await userEvent.click(await screen.findByRole("button", { name: "Remove" }))
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Remove app" })
+    )
     const dialog = await screen.findByRole("alertdialog")
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Remove" })

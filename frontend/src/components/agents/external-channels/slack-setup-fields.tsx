@@ -11,18 +11,10 @@ import { CopyField } from "@/components/copy-field"
 import { Button } from "@/components/ui/button"
 import { copyToClipboard } from "@/lib/utils"
 
-/** Where each credential lives in the Slack app's Basic Information page. */
-export const SLACK_CREDENTIAL_HINTS = {
-  appId: "App Credentials → App ID",
-  clientId: "App Credentials → Client ID",
-  clientSecret: "App Credentials → Client Secret",
-  signingSecret: "App Credentials → Signing Secret",
-} as const
-
 /** Shown in a secret field whose saved value a blank entry keeps. */
 export const SLACK_SAVED_SECRET_PLACEHOLDER = "Saved; leave blank to keep"
 
-/** The Slack app's Client ID and its two secrets. */
+/** The Slack app's Client ID and its two secrets, from Basic Information → App Credentials. */
 export function SlackClientCredentialFields({
   idPrefix,
   clientId,
@@ -57,7 +49,6 @@ export function SlackClientCredentialFields({
         onChange={onClientIdChange}
         disabled={disabled}
         placeholder="1234567890.1234567890"
-        help={SLACK_CREDENTIAL_HINTS.clientId}
       />
       <CredentialField
         id={`${idPrefix}-client-secret`}
@@ -67,7 +58,6 @@ export function SlackClientCredentialFields({
         onChange={onClientSecretChange}
         disabled={disabled}
         placeholder={secretPlaceholder(clientSecretSaved)}
-        help={SLACK_CREDENTIAL_HINTS.clientSecret}
       />
       <CredentialField
         id={`${idPrefix}-signing-secret`}
@@ -77,7 +67,6 @@ export function SlackClientCredentialFields({
         onChange={onSigningSecretChange}
         disabled={disabled}
         placeholder={secretPlaceholder(signingSecretSaved)}
-        help={SLACK_CREDENTIAL_HINTS.signingSecret}
       />
     </>
   )
@@ -87,22 +76,24 @@ export function SlackClientCredentialFields({
 export function CreateInSlackButton({
   manifest,
   disabled = false,
+  variant = "default",
   onOpen,
 }: {
   manifest: Record<string, unknown>
   disabled?: boolean
+  variant?: "default" | "outline"
   onOpen?: () => void
 }) {
   if (disabled) {
     return (
-      <Button type="button" size="sm" disabled>
+      <Button type="button" size="sm" variant={variant} disabled>
         Create in Slack
         <ExternalLink className="ml-2 size-4" />
       </Button>
     )
   }
   return (
-    <Button type="button" size="sm" asChild>
+    <Button type="button" size="sm" variant={variant} asChild>
       <a
         href={slackCreateAppUrl(manifest)}
         target="_blank"

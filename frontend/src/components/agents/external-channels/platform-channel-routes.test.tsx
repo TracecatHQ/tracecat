@@ -55,11 +55,21 @@ function servePlatform(
   api.listRoutableChannels.mockResolvedValue(channelPage(channels))
 }
 
+const INVITE_HINT = "Not in this channel yet. Run /invite @Tracecat there."
+
+/** The invite hints under routed channels the bot is not in. */
+function inviteHints(card: HTMLElement): HTMLElement[] {
+  return within(card).queryAllByText(
+    (_, element) =>
+      element?.tagName === "SPAN" && element.textContent === INVITE_HINT
+  )
+}
+
 /** Renders the Channels page and waits for the install's route editor. */
 async function editor(): Promise<HTMLElement> {
   renderChannelsPage()
   const card = await screen.findByRole("group", { name: "Tracecat for Slack" })
-  await within(card).findByText("Channels")
+  await within(card).findByText("Channel agents")
   return card
 }
 
@@ -221,9 +231,11 @@ describe("PlatformChannelRoutes", () => {
     )
     const card = await editor()
 
-    const list = await within(card).findByRole("list", { name: "Channels" })
+    const list = await within(card).findByRole("list", {
+      name: "Channel agents",
+    })
     expect(await within(list).findByText("C9")).toBeInTheDocument()
-    expect(within(card).queryByText(/Invite @Tracecat/)).toBeNull()
+    expect(inviteHints(card)).toHaveLength(0)
   })
 
   it("marks private channels and channels the bot is not in", async () => {
@@ -270,11 +282,7 @@ describe("PlatformChannelRoutes", () => {
     await choose(card, "Agent for the new route", "Phishing")
     await userEvent.click(within(card).getByRole("button", { name: "Add" }))
 
-    expect(
-      await within(card).findByText(
-        "Tracecat isn't in soc yet. Invite @Tracecat to start answering there."
-      )
-    ).toBeInTheDocument()
+    await waitFor(() => expect(inviteHints(card)).toHaveLength(1))
     expect(
       within(card).getByRole("button", { name: "Copy /invite @Tracecat" })
     ).toBeInTheDocument()
@@ -284,7 +292,9 @@ describe("PlatformChannelRoutes", () => {
     servePlatform([route("C1", "preset-2"), route("C9", PRESET.id)])
     const card = await editor()
 
-    const list = await within(card).findByRole("list", { name: "Channels" })
+    const list = await within(card).findByRole("list", {
+      name: "Channel agents",
+    })
     expect(await within(list).findByText("alerts")).toBeInTheDocument()
     expect(within(list).getByText("C9")).toBeInTheDocument()
     expect(
@@ -294,12 +304,7 @@ describe("PlatformChannelRoutes", () => {
       within(card).getByRole("button", { name: "Remove C9" })
     ).toBeInTheDocument()
     // Only the unlisted channel, likely private without the bot, needs an invite.
-    expect(within(card).getAllByText(/Invite @Tracecat/)).toHaveLength(1)
-    expect(
-      within(card).getByText(
-        "Tracecat isn't in this channel yet. Invite @Tracecat to start answering there."
-      )
-    ).toBeInTheDocument()
+    expect(inviteHints(card)).toHaveLength(1)
   })
 
   it("names each channel after its team when the tenant spans several", async () => {
@@ -310,7 +315,9 @@ describe("PlatformChannelRoutes", () => {
     servePlatform([route("C1", "preset-2")], grid)
     const card = await editor()
 
-    const list = await within(card).findByRole("list", { name: "Channels" })
+    const list = await within(card).findByRole("list", {
+      name: "Channel agents",
+    })
     expect(await within(list).findByText("SecOps › alerts")).toBeInTheDocument()
     expect(
       within(card).getByRole("button", { name: "Remove SecOps › #alerts" })
@@ -355,7 +362,9 @@ describe("PlatformChannelRoutes", () => {
   it("refuses a typed ID that already has a route", async () => {
     servePlatform([route("C0123ABCD", "preset-2")])
     const card = await editor()
-    const list = await within(card).findByRole("list", { name: "Channels" })
+    const list = await within(card).findByRole("list", {
+      name: "Channel agents",
+    })
     await within(list).findByText("C0123ABCD")
     await openPicker(card)
     await userEvent.type(
@@ -378,18 +387,20 @@ describe("PlatformChannelRoutes", () => {
     servePlatform([route("G1", "preset-2")])
     const card = await editor()
 
-    const list = await within(card).findByRole("list", { name: "Channels" })
+    const list = await within(card).findByRole("list", {
+      name: "Channel agents",
+    })
     expect(await within(list).findByText("soc")).toBeInTheDocument()
     expect(within(list).getByLabelText("Private channel")).toBeInTheDocument()
   })
 
   it.each([
-    [501, "Slack channels can't be listed here."],
-    [424, "Reinstall Tracecat for Slack to list channels."],
-    [400, "Could not load channels."],
+    [501, "Slack channels can't be listed here.", false],
+    [424, "Reconnect Tracecat for Slack to load channel names.", false],
+    [400, "Couldn't load channel names from Slack.", true],
   ])(
     "falls back to the channel ID on a %i from the listing",
-    async (status, note) => {
+    async (status, note, canRetry) => {
       api.listRoutableChannels.mockRejectedValue(
         apiError(status, { detail: "no" })
       )
@@ -397,6 +408,9 @@ describe("PlatformChannelRoutes", () => {
       expect(
         await within(card).findByText(note, { exact: false })
       ).toBeVisible()
+      expect(
+        within(card).queryAllByRole("button", { name: "Try again" })
+      ).toHaveLength(canRetry ? 1 : 0)
       expect(
         within(card).queryByRole("combobox", { name: "Channel" })
       ).toBeNull()
@@ -415,6 +429,47 @@ describe("PlatformChannelRoutes", () => {
       )
     }
   )
+
+  it("retries a failed listing, but not one Slack refuses for good", async () => {
+    api.listRoutableChannels.mockRejectedValueOnce(
+      apiError(400, { detail: "no" })
+    )
+    const card = await editor()
+    await userEvent.click(
+      await within(card).findByRole("button", { name: "Try again" })
+    )
+    await openPicker(card)
+    expect(screen.getAllByRole("option")).toHaveLength(3)
+    expect(
+      within(card).queryByText("Couldn't load channel names from Slack.")
+    ).toBeNull()
+  })
+
+  it("asks for channel IDs without listing while the install is paused", async () => {
+    serveBots([platformSlackBot({ status: "paused" })])
+    api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
+    const card = await editor()
+    expect(
+      within(card).getByText(
+        "Channel names load while Tracecat for Slack is active."
+      )
+    ).toBeInTheDocument()
+    expect(within(card).queryByRole("button", { name: "Try again" })).toBeNull()
+    expect(within(card).getByLabelText("Channel ID")).toBeInTheDocument()
+    expect(api.listRoutableChannels).not.toHaveBeenCalled()
+  })
+
+  it("offers no retry when Slack cannot list the channels", async () => {
+    api.listRoutableChannels.mockRejectedValue(apiError(501, { detail: "no" }))
+    const card = await editor()
+    await within(card).findByText("Slack channels can't be listed here.")
+    expect(within(card).queryByRole("button", { name: "Try again" })).toBeNull()
+    expect(
+      within(card).getByText(
+        "In Slack, a channel's ID is at the bottom of its details. Threads already started keep their agent."
+      )
+    ).toBeInTheDocument()
+  })
 
   it("refuses a typed channel that already has a route", async () => {
     servePlatform([route("C1", "preset-2")])
