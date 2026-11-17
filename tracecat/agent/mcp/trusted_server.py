@@ -31,8 +31,11 @@ from fastmcp.utilities.versions import VersionSpec
 from mcp.types import CallToolRequest, CallToolResult, ServerResult, TextContent
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
+from sqlalchemy import select
 from temporalio.exceptions import is_cancelled_exception
 
+from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.backends.registry import find_agent_backend
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPToolDefinition,
@@ -54,9 +57,8 @@ from tracecat.agent.mcp.metadata import (
     extract_proxy_tool_call_id,
 )
 from tracecat.agent.mcp.stdio_runner import (
-    StdioMCPRunnerUnsupportedError,
+    StdioMCPCallUnsupportedError,
     StdioMCPServer,
-    get_stdio_mcp_runner,
     stdio_mcp_tool_definition,
     usable_stdio_mcp_tools,
 )
@@ -76,6 +78,8 @@ from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -518,12 +522,29 @@ async def _resolve_user_mcp_config(
     return config
 
 
+async def _session_backend(
+    role: Role, session_id: uuid.UUID
+) -> AgentBackend[Any, Any] | None:
+    """The backend of the session whose turn makes the call, if installed here."""
+    async with get_async_session_context_manager() as db:
+        backend_id = await db.scalar(
+            select(AgentSession.backend_id).where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == role.workspace_id,
+            )
+        )
+    return None if backend_id is None else find_agent_backend(backend_id)
+
+
 async def _call_stdio_mcp_tool(
     target: _StdioMCPTarget,
     tool_name: str,
     args: dict[str, Any],
+    *,
+    role: Role,
+    session_id: uuid.UUID,
 ) -> str:
-    """Call one tool on a stdio server through the installed runner."""
+    """Call one tool on a stdio server through the calling session's backend."""
     server = target.server
     if target.active_tool(tool_name) is None:
         # The token allowed it, but the integration has since disabled or
@@ -531,11 +552,14 @@ async def _call_stdio_mcp_tool(
         raise ToolError(
             f"Tool '{tool_name}' is not available on MCP server '{server.name}'"
         )
-    try:
-        result = await get_stdio_mcp_runner().call_tool(
-            server, target.env, tool_name, args
+    if (backend := await _session_backend(role, session_id)) is None:
+        raise ToolError(
+            f"Stdio MCP server '{server.name}' can't be called: "
+            "the session's agent backend is unavailable"
         )
-    except StdioMCPRunnerUnsupportedError as e:
+    try:
+        result = await backend.call_stdio_mcp_tool(server, target.env, tool_name, args)
+    except StdioMCPCallUnsupportedError as e:
         raise ToolError(str(e)) from None
     text = flatten_mcp_content_blocks(result.content)
     if result.isError:
@@ -922,7 +946,9 @@ async def _execute_user_mcp(
     try:
         resolved = await _resolve_user_mcp_config(ref, role, resolve_stdio_env=True)
         if isinstance(resolved, _StdioMCPTarget):
-            result = await _call_stdio_mcp_tool(resolved, tool_name, args)
+            result = await _call_stdio_mcp_tool(
+                resolved, tool_name, args, role=role, session_id=claims.session_id
+            )
         else:
             client = UserMCPClient([resolved])
             result = await client.call_tool(server_name, tool_name, args)

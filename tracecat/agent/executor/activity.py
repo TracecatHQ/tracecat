@@ -26,7 +26,9 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
-from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
+from tracecat.agent.backends.access import can_use_backend
+from tracecat.agent.backends.base import AgentBackend
+from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, get_agent_backends
 from tracecat.agent.cancellation import (
     TURN_CANCEL_POLL_INTERVAL_SECONDS,
     read_turn_cancel_signal,
@@ -68,7 +70,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPProbeResult,
     sanitize_stdio_probe_error,
 )
-from tracecat.agent.mcp.stdio_runner import StdioMCPServer, get_stdio_mcp_runner
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.metrics import (
     TurnOutcome,
     TurnTokens,
@@ -118,8 +120,10 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.db.engine import SupportsExecute
 from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.identifiers import OrganizationID
 from tracecat.integrations.mcp_validation import MCPSecretResolutionError
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
@@ -1381,6 +1385,59 @@ async def _hydrate_stdio_env(
     return result
 
 
+async def _register_stdio_server_on_backend(
+    backend_id: str,
+    backend: AgentBackend[Any, Any],
+    server: StdioMCPServer,
+    env: dict[str, str] | None,
+) -> StdioMCPProbeResult:
+    try:
+        result = await backend.register_stdio_mcp_server(server, env)
+    except Exception as exc:
+        result = StdioMCPProbeResult(
+            success=False,
+            message="Failed to run stdio MCP probe",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+    if not result.success:
+        logger.warning(
+            "Stdio MCP server failed to register on an agent backend",
+            backend_id=backend_id,
+            mcp_integration_id=str(server.mcp_integration_id),
+        )
+    return result
+
+
+async def _register_stdio_server(
+    session: SupportsExecute,
+    organization_id: OrganizationID,
+    server: StdioMCPServer,
+    env: dict[str, str] | None,
+) -> StdioMCPProbeResult:
+    """Register a stdio server on every backend its organization may use.
+
+    Each backend runs stdio servers its own way, so each one registers the
+    server. A failure on any of them fails the verification. The built-in
+    backend comes first and is always usable, so its tool list is the one
+    saved.
+    """
+    usable = [
+        (backend_id, backend)
+        for backend_id, backend in get_agent_backends().items()
+        if backend.is_enabled()
+        and await can_use_backend(
+            session, organization_id, backend_id, entity_type=None
+        )
+    ]
+    results = await asyncio.gather(
+        *(
+            _register_stdio_server_on_backend(backend_id, backend, server, env)
+            for backend_id, backend in usable
+        )
+    )
+    return next((result for result in results if not result.success), results[0])
+
+
 async def _resolve_and_probe_stdio_config(
     *,
     preset_svc: AgentPresetService,
@@ -1421,18 +1478,11 @@ async def _resolve_and_probe_stdio_config(
             error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
         )
 
-    # An installed runner sees the resolved env. Redact it from the result's
-    # diagnostics before they cross into workflow history.
-    try:
-        result = await get_stdio_mcp_runner().list_tools(server, stdio_env)
-    except Exception as exc:
-        return StdioMCPProbeResult(
-            success=False,
-            message="Failed to run stdio MCP probe",
-            error=sanitize_stdio_probe_error(
-                f"{type(exc).__name__}: {exc}", env=stdio_env
-            ),
-        )
+    # Backends see the resolved env. Redact it from the result's diagnostics
+    # before they cross into workflow history.
+    result = await _register_stdio_server(
+        preset_svc.session, preset_svc.organization_id, server, stdio_env
+    )
     return result.model_copy(
         update={
             "message": sanitize_stdio_probe_error(result.message, env=stdio_env),

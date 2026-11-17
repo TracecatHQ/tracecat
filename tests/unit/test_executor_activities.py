@@ -26,12 +26,12 @@ from temporalio.exceptions import (
 )
 
 from tracecat import config
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.executor.activity import (
     _resolve_and_probe_stdio_config,
     probe_stdio_mcp_connection_activity,
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
-from tracecat.agent.mcp.stdio_probe import NsjailStdioMCPRunner
 from tracecat.agent.mcp.stdio_probe_types import (
     MCP_STDIO_PROBE_TIMEOUT_CAP,
     StdioMCPPersistInput,
@@ -142,6 +142,21 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
+
+
+def _stdio_backend(
+    result: StdioMCPProbeResult | None = None,
+    *,
+    error: Exception | None = None,
+    enabled: bool = True,
+) -> MagicMock:
+    """An agent backend that registers stdio servers with a fixed outcome."""
+    backend = MagicMock()
+    backend.is_enabled.return_value = enabled
+    backend.register_stdio_mcp_server = AsyncMock(
+        return_value=result, side_effect=error
+    )
+    return backend
 
 
 def _stdio_probe_input(mcp_integration_id: uuid.UUID, role: Role) -> StdioMCPProbeInput:
@@ -528,11 +543,11 @@ class TestProbeStdioMCPConnectionActivity:
         )
 
     @pytest.mark.anyio
-    async def test_probe_lists_tools_through_installed_runner(
+    async def test_probe_registers_server_on_backend(
         self,
         mock_role: Role,
     ) -> None:
-        """The activity hands the validated server to the installed runner."""
+        """The activity hands the validated server to the backend."""
         integrations_svc = MagicMock()
         integrations_svc.validate_stdio_server_config.return_value = None
         preset_svc = MagicMock()
@@ -541,8 +556,7 @@ class TestProbeStdioMCPConnectionActivity:
             success=True,
             message="Connected successfully — 0 tools available",
         )
-        runner = MagicMock()
-        runner.list_tools = AsyncMock(return_value=expected)
+        backend = _stdio_backend(expected)
         server = StdioMCPServer(
             workspace_id=uuid.uuid4(),
             mcp_integration_id=uuid.uuid4(),
@@ -552,8 +566,8 @@ class TestProbeStdioMCPConnectionActivity:
         )
 
         with patch(
-            "tracecat.agent.executor.activity.get_stdio_mcp_runner",
-            return_value=runner,
+            "tracecat.agent.executor.activity.get_agent_backends",
+            return_value={"oss": backend},
         ):
             result = await _resolve_and_probe_stdio_config(
                 preset_svc=preset_svc,
@@ -563,36 +577,135 @@ class TestProbeStdioMCPConnectionActivity:
             )
 
         assert result == expected
-        runner.list_tools.assert_awaited_once_with(server, None)
+        backend.register_stdio_mcp_server.assert_awaited_once_with(server, None)
+
+    @pytest.mark.anyio
+    async def test_probe_registers_server_on_every_usable_backend(
+        self,
+        mock_role: Role,
+    ) -> None:
+        """Enabled backends the organization may use each register the server."""
+        integrations_svc = MagicMock()
+        integrations_svc.validate_stdio_server_config.return_value = None
+        preset_svc = MagicMock()
+        preset_svc.role = mock_role
+        builtin_result = StdioMCPProbeResult(success=True, message="built-in")
+        builtin = _stdio_backend(builtin_result)
+        installed = _stdio_backend(StdioMCPProbeResult(success=True, message="other"))
+        disabled = _stdio_backend(enabled=False)
+        not_entitled = _stdio_backend()
+        server = StdioMCPServer(
+            workspace_id=uuid.uuid4(),
+            mcp_integration_id=uuid.uuid4(),
+            name="test-stdio-server",
+            command="python",
+        )
+
+        async def can_use(
+            session: object,
+            organization_id: object,
+            backend_id: str,
+            *,
+            entity_type: object,
+        ) -> bool:
+            del session, organization_id, entity_type
+            return backend_id != "not_entitled"
+
+        with (
+            patch(
+                "tracecat.agent.executor.activity.get_agent_backends",
+                return_value={
+                    "oss": builtin,
+                    "installed": installed,
+                    "disabled": disabled,
+                    "not_entitled": not_entitled,
+                },
+            ),
+            patch("tracecat.agent.executor.activity.can_use_backend", can_use),
+        ):
+            result = await _resolve_and_probe_stdio_config(
+                preset_svc=preset_svc,
+                integrations_svc=integrations_svc,
+                server=server,
+                stdio_env=None,
+            )
+
+        # The built-in backend's tool list is the one saved.
+        assert result == builtin_result
+        installed.register_stdio_mcp_server.assert_awaited_once_with(server, None)
+        disabled.register_stdio_mcp_server.assert_not_awaited()
+        not_entitled.register_stdio_mcp_server.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_probe_fails_when_any_backend_fails(
+        self,
+        mock_role: Role,
+    ) -> None:
+        """A server one usable backend cannot run does not verify."""
+        integrations_svc = MagicMock()
+        integrations_svc.validate_stdio_server_config.return_value = None
+        preset_svc = MagicMock()
+        preset_svc.role = mock_role
+        failure = StdioMCPProbeResult(
+            success=False, message="Failed to install", error="boom"
+        )
+
+        with (
+            patch(
+                "tracecat.agent.executor.activity.get_agent_backends",
+                return_value={
+                    "oss": _stdio_backend(
+                        StdioMCPProbeResult(success=True, message="ok")
+                    ),
+                    "installed": _stdio_backend(failure),
+                },
+            ),
+            patch(
+                "tracecat.agent.executor.activity.can_use_backend",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            result = await _resolve_and_probe_stdio_config(
+                preset_svc=preset_svc,
+                integrations_svc=integrations_svc,
+                server=StdioMCPServer(
+                    workspace_id=uuid.uuid4(),
+                    mcp_integration_id=uuid.uuid4(),
+                    name="test-stdio-server",
+                    command="python",
+                ),
+                stdio_env=None,
+            )
+
+        assert result == failure
 
     @pytest.mark.anyio
     @pytest.mark.parametrize("fails_by", ["result", "success", "exception"])
-    async def test_probe_redacts_env_from_runner_diagnostics(
+    async def test_probe_redacts_env_from_backend_diagnostics(
         self,
         mock_role: Role,
         fails_by: str,
     ) -> None:
-        """A replacement runner's diagnostics never carry the resolved env."""
+        """A backend's diagnostics never carry the resolved env."""
         integrations_svc = MagicMock()
         integrations_svc.validate_stdio_server_config.return_value = None
         preset_svc = MagicMock()
         preset_svc.role = mock_role
         stdio_env = {"API_TOKEN": "super-secret-value"}
         preset_svc.resolve_stdio_env = AsyncMock(return_value=stdio_env)
-        runner = MagicMock()
         leaked = "server rejected token super-secret-value"
         if fails_by in ("result", "success"):
-            runner.list_tools = AsyncMock(
-                return_value=StdioMCPProbeResult(
+            backend = _stdio_backend(
+                StdioMCPProbeResult(
                     success=fails_by == "success", message=leaked, error=leaked
                 )
             )
         else:
-            runner.list_tools = AsyncMock(side_effect=RuntimeError(leaked))
+            backend = _stdio_backend(error=RuntimeError(leaked))
 
         with patch(
-            "tracecat.agent.executor.activity.get_stdio_mcp_runner",
-            return_value=runner,
+            "tracecat.agent.executor.activity.get_agent_backends",
+            return_value={"oss": backend},
         ):
             result = await _resolve_and_probe_stdio_config(
                 preset_svc=preset_svc,
@@ -611,8 +724,8 @@ class TestProbeStdioMCPConnectionActivity:
         assert result.error is not None and "[redacted]" in result.error
 
     @pytest.mark.anyio
-    async def test_default_runner_uses_verification_timeout(self) -> None:
-        """The built-in runner passes the verification timeout to the probe."""
+    async def test_default_backend_uses_verification_timeout(self) -> None:
+        """The built-in backend passes the verification timeout to the probe."""
         expected = StdioMCPProbeResult(
             success=True,
             message="Connected successfully — 0 tools available",
@@ -626,11 +739,11 @@ class TestProbeStdioMCPConnectionActivity:
         )
 
         with patch(
-            "tracecat.agent.mcp.stdio_probe.probe_stdio_mcp_tools_in_sandbox",
+            "tracecat.agent.backends.default.probe_stdio_mcp_tools_in_sandbox",
             new_callable=AsyncMock,
             return_value=expected,
         ) as probe_stdio:
-            result = await NsjailStdioMCPRunner().list_tools(server, None)
+            result = await DefaultBackend().register_stdio_mcp_server(server, None)
 
         assert result is expected
         probe_stdio.assert_awaited_once_with(
@@ -705,8 +818,8 @@ class TestProbeStdioMCPConnectionActivity:
                 FakeIntegrationService,
             ),
             patch(
-                "tracecat.agent.executor.activity.get_stdio_mcp_runner"
-            ) as get_runner,
+                "tracecat.agent.executor.activity.get_agent_backends"
+            ) as get_backends,
         ):
             mock_activity.heartbeat = MagicMock()
 
@@ -724,7 +837,7 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
         )
-        get_runner.assert_not_called()
+        get_backends.assert_not_called()
 
     @pytest.mark.anyio
     async def test_stdio_env_unexpected_error_propagates(
@@ -777,8 +890,8 @@ class TestProbeStdioMCPConnectionActivity:
                 FakeIntegrationService,
             ),
             patch(
-                "tracecat.agent.executor.activity.get_stdio_mcp_runner"
-            ) as get_runner,
+                "tracecat.agent.executor.activity.get_agent_backends"
+            ) as get_backends,
         ):
             mock_activity.heartbeat = MagicMock()
 
@@ -793,7 +906,7 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_id=integration.id,
             mcp_integration_slug=integration.slug,
         )
-        get_runner.assert_not_called()
+        get_backends.assert_not_called()
 
     @pytest.mark.anyio
     async def test_persist_activity_persists_merged_tools(

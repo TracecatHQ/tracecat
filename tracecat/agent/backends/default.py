@@ -17,6 +17,12 @@ from tracecat.agent.backends.types import (
     TurnResult,
 )
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.mcp.stdio_probe import probe_stdio_mcp_tools_in_sandbox
+from tracecat.agent.mcp.stdio_probe_types import (
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
+    StdioMCPProbeResult,
+)
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.dsl.common import RETRY_POLICIES
@@ -38,6 +44,21 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     async def prepare_fork(self, context: SessionForkContext) -> None:
         """Copy the working snapshot; native history uses the parent session link."""
         context.fork.work_dir_snapshot = copy.deepcopy(context.parent.work_dir_snapshot)
+
+    async def register_stdio_mcp_server(
+        self, server: StdioMCPServer, env: dict[str, str] | None
+    ) -> StdioMCPProbeResult:
+        """Start the server once under nsjail and list its tools.
+
+        Nothing is kept: the Claude runtime starts a turn's stdio servers
+        itself, inside the turn's own sandbox.
+        """
+        return await probe_stdio_mcp_tools_in_sandbox(
+            command=server.command,
+            args=list(server.args),
+            env=env,
+            timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
+        )
 
     def parse_turn_result(self, result: object) -> TurnResult:
         """Read the output; a failed turn raises in the workflow instead.
