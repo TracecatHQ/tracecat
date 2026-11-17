@@ -173,3 +173,8 @@ output "caddy_sg_id" {
   value       = aws_security_group.caddy.id
   description = "The ID of the caddy security group"
 }
+
+output "alb_arn" {
+  description = "ARN of the application load balancer for an independently managed WAF association."
+  value       = aws_alb.this.arn
+}

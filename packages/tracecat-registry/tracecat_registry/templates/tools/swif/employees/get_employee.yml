@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get employee
+  description: >-
+    Get an employee by Swif internal employee ID. Calls GET
+    /restful/organization/employees/{employeeId}.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/13901608-public-apis-manage-employees
+  namespace: tools.swif
+  name: get_employee
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    employeeId:
+      type: str
+      description: >-
+        Swif internal employee ID, as returned by List employees. This is not the HRIS
+        employee number.
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/employees/${{ FN.url_encode(inputs.employeeId) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+  returns: ${{ steps.request.result }}

@@ -56,6 +56,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ExecutionError,
     LoopExecutionError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.executor.activities import ExecutorActivities
@@ -845,3 +846,35 @@ class TestProbeStdioMCPConnectionActivity:
             mcp_integration_id=mcp_integration_id,
             discovered_tools=discovered_tools,
         )
+
+    @pytest.mark.anyio
+    async def test_persist_activity_reports_deleted_integration(
+        self,
+        mock_role: Role,
+    ) -> None:
+        class FakeIntegrationService:
+            def __init__(self) -> None:
+                self.persist_mcp_integration_tools = AsyncMock(
+                    side_effect=TracecatNotFoundError("MCP integration not found")
+                )
+
+        fake_svc = FakeIntegrationService()
+
+        with (
+            patch("tracecat.agent.mcp.activities.activity") as mock_activity,
+            patch(
+                "tracecat.agent.mcp.activities.IntegrationService.with_session",
+                lambda *_, **__: _AsyncContext(fake_svc),
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+            result = await persist_stdio_mcp_connection_activity(
+                StdioMCPPersistInput(
+                    mcp_integration_id=uuid.uuid4(),
+                    role=mock_role,
+                    tools=[MCPToolSummary(name="search")],
+                )
+            )
+
+        assert result.success is False
+        assert result.message == "MCP integration probe result could not be persisted"

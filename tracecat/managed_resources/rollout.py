@@ -112,7 +112,7 @@ from tracecat.registry.versions.schemas import (
 )
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.secrets.service import SecretsService
-from tracecat.sync import PullDiagnostic, PullResult
+from tracecat.sync import PullDiagnostic, PullResult, first_diff_per_resource
 from tracecat.tables.service import TablesService
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -1585,6 +1585,7 @@ def _references(result: PullResult) -> list[RolloutReference]:
 
 
 def _incoming_changes(result: PullResult) -> list[RolloutChange]:
+    """List each added or modified resource once."""
     return [
         RolloutChange(
             change=diff.change_type,
@@ -1592,7 +1593,7 @@ def _incoming_changes(result: PullResult) -> list[RolloutChange]:
             source_id=diff.source_id,
             name=diff.title or diff.source_id,
         )
-        for diff in result.resource_diffs or []
+        for diff in first_diff_per_resource(result.resource_diffs or []).values()
         if diff.change_type != "deleted"
     ]
 

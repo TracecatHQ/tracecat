@@ -303,6 +303,26 @@ def user_agent_execution_failed(
     )
 
 
+def agent_backend_turn_failed(error: str) -> RuntimeErrorClassification:
+    """Classify a turn the configured agent backend reported as failed.
+
+    The message keeps a redacted, bounded copy of the backend's reason so a run
+    view shows why the action failed. A turn result carries no owner, so a
+    caller-side reason (a provider rejection, a denied tool call) cannot be told
+    apart from an infrastructure failure the backend returned as a failed turn.
+    The platform owns it, like a failed case-comment turn, so infrastructure
+    failures still alert.
+    """
+    message = "Agent execution failed"
+    if safe_detail := _unclassified_detail(None, error):
+        message = f"{message}: {safe_detail}"
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_EXECUTION_FAILED,
+        message=message,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_provider_rejected_request(
     *,
     status_code: int,
@@ -330,13 +350,22 @@ def agent_llm_provider_rejected_request(
 
 def agent_llm_read_timeout(
     error: BaseException | None = None,
+    *,
+    user_owned: bool = False,
 ) -> RuntimeErrorClassification:
-    """Assign investigation of an ambiguous upstream read stall to Tracecat.
+    """Classify an upstream read stall past the LLM proxy read timeout.
 
-    Operational ownership is not root-cause attribution: a direct route alone
-    cannot distinguish provider, network, or local proxy failures.
+    Args:
+        error: Transport error that caused the stall, if any.
+        user_owned: Whether the stalled upstream is the caller's own provider
+            or gateway (direct route) rather than the managed gateway.
     """
-    return RuntimeErrorClassification.platform(
+    constructor = (
+        RuntimeErrorClassification.user
+        if user_owned
+        else RuntimeErrorClassification.platform
+    )
+    return constructor(
         kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
         message="Timed out waiting for data from the LLM upstream",
         retry_disposition=RetryDisposition.RETRYABLE,
@@ -363,16 +392,29 @@ def agent_llm_stream_interrupted(
 def agent_llm_provider_unavailable(*, status_code: int) -> RuntimeErrorClassification:
     """Classify a managed-route upstream outage the gateway attributed to the provider.
 
-    Tracecat operates managed provider credentials and capacity, so the outage
-    is platform-owned even though the provider is the immediate cause.
+    "Managed" means the request went through Tracecat's LLM gateway, not that
+    Tracecat owns the provider. The gateway calls the provider with the
+    organization's own credentials and deployment, so a provider 5xx or a
+    dropped provider connection is user-owned. Failures of the gateway itself
+    are classified by ``agent_llm_gateway_unavailable`` and stay platform-owned.
     """
-    return RuntimeErrorClassification.platform(
+    return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
         message=(
-            f"The managed LLM provider is temporarily unavailable (HTTP {status_code}); "
+            f"The LLM provider is temporarily unavailable (HTTP {status_code}); "
             "retry later"
         ),
         retry_disposition=RetryDisposition.RETRYABLE,
+    )
+
+
+def agent_llm_gateway_unreachable(error: BaseException) -> RuntimeErrorClassification:
+    """Classify a managed gateway the proxy could not open a connection to."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
+        message="Could not connect to the LLM gateway; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
     )
 
 
@@ -457,11 +499,16 @@ def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
     )
 
 
-def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
-    """Classify temporary throttling without assuming that a budget ran out."""
+def agent_llm_rate_limited(*, user_owned: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out.
+
+    Args:
+        user_owned: Whether the throttling is attributable to the caller's
+            own provider credentials rather than shared platform capacity.
+    """
     constructor = (
         RuntimeErrorClassification.user
-        if route_is_direct
+        if user_owned
         else RuntimeErrorClassification.platform
     )
     return constructor(

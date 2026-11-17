@@ -8,9 +8,6 @@ let access: FormsAccess = "enabled"
 let params: { formId?: string } = {}
 
 jest.mock("next/navigation", () => ({
-  notFound: () => {
-    throw new Error("NEXT_NOT_FOUND")
-  },
   useParams: () => params,
 }))
 jest.mock("@/hooks/use-forms-access", () => ({
@@ -37,12 +34,7 @@ const renderLayout = () =>
   )
 
 describe("FormsRouteLayout", () => {
-  it("is a 404 with the flag off and a spinner without the shell while access loads", () => {
-    access = "hidden"
-    jest.spyOn(console, "error").mockImplementation(() => {})
-    expect(renderLayout).toThrow("NEXT_NOT_FOUND")
-    jest.restoreAllMocks()
-
+  it("is a spinner without the shell while access loads", () => {
     access = "loading"
     renderLayout()
     expect(screen.getByText("Loading")).toBeInTheDocument()

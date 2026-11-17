@@ -70,10 +70,14 @@
 
 <ResponseField name="rename_workflow_folder" type="tool">
   Rename a workflow folder by absolute path.
+
+  The folder keeps its position; its path and every descendant path change.
 </ResponseField>
 
 <ResponseField name="move_workflow_folder" type="tool">
   Move a workflow folder under a new parent path.
+
+  The folder's subfolders and workflows move with it.
 </ResponseField>
 
 <ResponseField name="delete_workflow_folder" type="tool">
@@ -273,6 +277,28 @@
   Search cases with filtering and sorting.
 </ResponseField>
 
+<ResponseField name="list_case_views" type="tool">
+  List case views you can see, to run with search_cases(view_id=...).
+
+  Saved views are personal (only you) or shared with the workspace and come back one page at a time in ``saved``. The read-only built-in view, assigned_to_me, is defined by Tracecat and comes back separately in ``builtins``. With ``pinned``, both lists hold only the views you pinned.
+</ResponseField>
+
+<ResponseField name="create_case_view" type="tool">
+  Save a case search as a named view, to run with search_cases(view_id=...).
+</ResponseField>
+
+<ResponseField name="update_case_view" type="tool">
+  Change, share, or unshare a saved case view you can edit.
+</ResponseField>
+
+<ResponseField name="pin_case_view" type="tool">
+  Pin a case view to your own sidebar.
+</ResponseField>
+
+<ResponseField name="unpin_case_view" type="tool">
+  Remove a case view from your own sidebar.
+</ResponseField>
+
 <ResponseField name="get_case" type="tool">
   Get a specific case with full details including fields, tags, and description.
 </ResponseField>
@@ -313,6 +339,8 @@
 
 <ResponseField name="delete_case_comment" type="tool">
   Delete a comment from a case.
+
+  Workspace admins (``case:delete``) can delete any comment, including other users' comments. Deletion is a soft delete: the comment is hidden from the thread but kept in the database and recorded as a case event.
 </ResponseField>
 
 <ResponseField name="list_case_tasks" type="tool">
@@ -439,6 +467,36 @@
   Update table metadata.
 </ResponseField>
 
+<ResponseField name="list_table_tree" type="tool">
+  List table folders and tables under a path.
+</ResponseField>
+
+<ResponseField name="create_table_folder" type="tool">
+  Create a table folder by absolute path.
+</ResponseField>
+
+<ResponseField name="rename_table_folder" type="tool">
+  Rename a table folder by absolute path.
+
+  The folder keeps its position; its path and every descendant path change.
+</ResponseField>
+
+<ResponseField name="move_table_folder" type="tool">
+  Move a table folder under a new parent path.
+
+  The folder's subfolders and tables move with it.
+</ResponseField>
+
+<ResponseField name="delete_table_folder" type="tool">
+  Delete a table folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_tables" type="tool">
+  Move tables into or out of a folder.
+
+  This tool is best-effort and non-atomic. If one table fails to move, the remaining table moves still proceed.
+</ResponseField>
+
 <ResponseField name="create_column" type="tool">
   Add a column to an existing table. Migrating a table is never needed to add a field. This alters the schema every workflow and view reads, so tell the user which table and column you are about to change and get their confirmation before calling this tool.
 </ResponseField>
@@ -553,10 +611,14 @@
 
 <ResponseField name="rename_agent_folder" type="tool">
   Rename an agent folder by absolute path.
+
+  The folder keeps its position; its path and every descendant path change.
 </ResponseField>
 
 <ResponseField name="move_agent_folder" type="tool">
   Move an agent folder under a new parent path.
+
+  The folder's subfolders and presets move with it.
 </ResponseField>
 
 <ResponseField name="delete_agent_folder" type="tool">
@@ -565,6 +627,8 @@
 
 <ResponseField name="move_agent_presets" type="tool">
   Move agent presets into or out of a folder by preset slug.
+
+  This tool is best-effort and non-atomic. If one preset fails to move, the remaining preset moves still proceed.
 </ResponseField>
 
 <ResponseField name="list_skill_tree" type="tool">
@@ -577,10 +641,14 @@
 
 <ResponseField name="rename_skill_folder" type="tool">
   Rename a skill folder by absolute path.
+
+  The folder keeps its position; its path and every descendant path change.
 </ResponseField>
 
 <ResponseField name="move_skill_folder" type="tool">
   Move a skill folder under a new parent path.
+
+  The folder's subfolders and skills move with it.
 </ResponseField>
 
 <ResponseField name="delete_skill_folder" type="tool">
@@ -588,7 +656,9 @@
 </ResponseField>
 
 <ResponseField name="move_skills" type="tool">
-  Move skills by slug into a destination folder.
+  Move skills into or out of a folder by skill slug.
+
+  This tool is best-effort and non-atomic. If one skill fails to move, the remaining skill moves still proceed.
 </ResponseField>
 
 <ResponseField name="list_skills" type="tool">

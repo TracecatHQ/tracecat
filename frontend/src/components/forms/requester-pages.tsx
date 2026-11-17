@@ -13,7 +13,7 @@ import {
   SearchXIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { notFound, useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useEffect, useState } from "react"
 import {
   type FormIntakeRead,
@@ -249,9 +249,6 @@ function RequesterPage({
 
 function RequesterGate({ children }: { children: ReactNode }) {
   const access = useFormsAccess()
-  if (access === "hidden") {
-    notFound()
-  }
   if (access === "loading") {
     return <CenteredSpinner />
   }

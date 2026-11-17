@@ -1487,6 +1487,19 @@ export const $AgentCatalogRead = {
       ],
       title: "Model Metadata",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -1496,9 +1509,227 @@ export const $AgentCatalogRead = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "AgentCatalogRead",
   description: "Single catalog model entry.",
+} as const
+
+export const $AgentChannelBotCreate = {
+  properties: {
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["agent_preset_id", "provider"],
+  title: "AgentChannelBotCreate",
+  description: "Reserve a bot before the provider app exists.",
+} as const
+
+export const $AgentChannelBotRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+      description:
+        "The agent that answers; a platform install's default agent.",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    app_owner: {
+      $ref: "#/components/schemas/ChannelBotAppOwner",
+    },
+    status: {
+      $ref: "#/components/schemas/ChannelBotStatus",
+    },
+    provider_tenant_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Tenant Id",
+    },
+    provider_app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider App Id",
+    },
+    endpoint_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Url",
+      description:
+        "Inbound event URL; None when the bot's events arrive over a socket.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    details: {
+      $ref: "#/components/schemas/ChannelBotDetails",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "agent_preset_id",
+    "provider",
+    "app_owner",
+    "status",
+    "provider_tenant_id",
+    "provider_app_id",
+    "endpoint_url",
+    "created_at",
+    "updated_at",
+    "details",
+  ],
+  title: "AgentChannelBotRead",
+} as const
+
+export const $AgentChannelBotUpdate = {
+  properties: {
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "New target. Existing threads stay on the agent they started with.",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelBotRunState",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    credentials: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelBotCredentialsUpdate",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Must name the bot's provider.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AgentChannelBotUpdate",
+} as const
+
+export const $AgentChannelRouteRead = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "bot_id",
+    "provider_channel_id",
+    "agent_preset_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentChannelRouteRead",
+} as const
+
+export const $AgentChannelRouteSet = {
+  properties: {
+    provider_channel_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^\\S+$",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider_channel_id", "agent_preset_id"],
+  title: "AgentChannelRouteSet",
+  description:
+    "Answer new threads in one channel with another agent than the default.",
 } as const
 
 export const $AgentChannelTokenCreate = {
@@ -4544,7 +4775,6 @@ export const $AgentSessionCreate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -4741,6 +4971,13 @@ export const $AgentSessionRead = {
       title: "Is Readonly",
       description: "Whether the requesting actor can modify this session",
       default: false,
+    },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -4973,6 +5210,13 @@ export const $AgentSessionReadVercel = {
       title: "Is Readonly",
       description: "Whether the requesting actor can modify this session",
       default: false,
+    },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -5214,6 +5458,13 @@ export const $AgentSessionReadWithMessages = {
       description: "Whether the requesting actor can modify this session",
       default: false,
     },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
+    },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
     },
@@ -5441,7 +5692,6 @@ export const $AgentSessionUpdate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -5562,6 +5812,11 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      default: false,
+    },
   },
   type: "object",
   required: [
@@ -5614,6 +5869,13 @@ export const $AgentSettingsUpdate = {
       title: "Agent Case Chat Inject Content",
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      description:
+        "Whether runs on a retired model move to its replacement when that model is enabled.",
       default: false,
     },
   },
@@ -5798,11 +6060,29 @@ export const $AlertArtifact = {
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
-export const $AndClause = {
+export const $AndClause_Input = {
   properties: {
     and: {
       items: {
-        $ref: "#/components/schemas/Filter",
+        $ref: "#/components/schemas/Filter-Input",
+      },
+      type: "array",
+      minItems: 1,
+      title: "And",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["and"],
+  title: "AndClause",
+  description: "A conjunction of one or more filters.",
+} as const
+
+export const $AndClause_Output = {
+  properties: {
+    and: {
+      items: {
+        $ref: "#/components/schemas/Filter-Output",
       },
       type: "array",
       minItems: 1,
@@ -7826,6 +8106,17 @@ export const $Body_tables_import_table_from_csv = {
       ],
       title: "Table Name",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
   },
   type: "object",
   required: ["file"],
@@ -7905,6 +8196,11 @@ export const $BuildEdition = {
   enum: ["oss", "ee"],
   title: "BuildEdition",
   description: "Edition of the running deployment.",
+} as const
+
+export const $BuiltinCaseViewId = {
+  type: "string",
+  const: "assigned_to_me",
 } as const
 
 export const $CaseAgentSessionBackfillStatus = {
@@ -8785,6 +9081,624 @@ export const $CaseCreate = {
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
   title: "CaseCreate",
+} as const
+
+export const $CaseCriteria_Input = {
+  properties: {
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseCriteria",
+  description: `Matching criteria shared by case search, status counts, and saved views.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
+} as const
+
+export const $CaseCriteria_Output = {
+  properties: {
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseCriteria",
+  description: `Matching criteria shared by case search, status counts, and saved views.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
 } as const
 
 export const $CaseDropdownDefinitionCreate = {
@@ -10559,7 +11473,7 @@ export const $CaseQuery = {
     filters: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Filter",
+          $ref: "#/components/schemas/Filter-Input",
         },
         {
           type: "null",
@@ -10704,7 +11618,7 @@ export const $CaseQuery = {
               },
               {
                 type: "string",
-                enum: ["unassigned", "__UNASSIGNED__"],
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
               },
             ],
           },
@@ -10715,6 +11629,32 @@ export const $CaseQuery = {
         },
       ],
       title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
     },
     tags: {
       anyOf: [
@@ -10770,6 +11710,18 @@ export const $CaseQuery = {
       ],
       title: "End Time",
     },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
     updated_after: {
       anyOf: [
         {
@@ -10794,23 +11746,88 @@ export const $CaseQuery = {
       ],
       title: "Updated Before",
     },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.",
+    },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
   title: "CaseQuery",
-  description: `Matching criteria shared by case search and filtered status counts.
+  description:
+    "Case criteria as a request runs them: on their own or through a view.",
+} as const
 
-Explicit text, identity, and hierarchy constraints are combined with
-\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
-service and cannot be supplied or negated by this request.
+export const $CaseQueryErrorCode = {
+  type: "string",
+  const: "current_user_required",
+} as const
 
-Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
-\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
-\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+export const $CaseQueryErrorDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/CaseQueryErrorCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["code", "message"],
+  title: "CaseQueryErrorDetail",
+  description: "A case query error with a machine-readable code.",
+} as const
 
-Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
-\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
-unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
+export const $CaseQueryErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          $ref: "#/components/schemas/CaseQueryErrorDetail",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "CaseQueryErrorResponse",
+  description: "A rejected case query: a plain message, or a typed error.",
 } as const
 
 export const $CaseRead = {
@@ -11221,7 +12238,7 @@ export const $CaseSearchRequest = {
     filters: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Filter",
+          $ref: "#/components/schemas/Filter-Input",
         },
         {
           type: "null",
@@ -11366,7 +12383,7 @@ export const $CaseSearchRequest = {
               },
               {
                 type: "string",
-                enum: ["unassigned", "__UNASSIGNED__"],
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
               },
             ],
           },
@@ -11377,6 +12394,32 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
     },
     tags: {
       anyOf: [
@@ -11432,6 +12475,18 @@ export const $CaseSearchRequest = {
       ],
       title: "End Time",
     },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
     updated_after: {
       anyOf: [
         {
@@ -11455,6 +12510,41 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.",
+    },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
     },
     order_by: {
       anyOf: [
@@ -11552,12 +12642,6 @@ export const $CaseSearchRequest = {
       title: "Promote Exact Match",
       description:
         "Place complete case references before filtered text matches within the authorized workspace.",
-      default: false,
-    },
-    match_none: {
-      type: "boolean",
-      title: "Match None",
-      description: "The ordinary filter population matches no cases.",
       default: false,
     },
   },
@@ -12560,6 +13644,494 @@ export const $CaseVersionRestoreRead = {
     "Confirmation that a historical case field version was restored.",
 } as const
 
+export const $CaseViewColumns = {
+  items: {
+    type: "string",
+  },
+  type: "array",
+  maxItems: 100,
+} as const
+
+export const $CaseViewCreate = {
+  properties: {
+    name: {
+      $ref: "#/components/schemas/CaseViewName",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+      default: "personal",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseCriteria-Input",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewColumns",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["name"],
+  title: "CaseViewCreate",
+  description: "Save a case search as a named view.",
+} as const
+
+export const $CaseViewDetail = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "A UUID for saved views, or a built-in view ID.",
+    },
+    kind: {
+      $ref: "#/components/schemas/CaseViewKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+    },
+    owner_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Owner Id",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseCriteria-Output",
+      description:
+        "The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Columns",
+    },
+    can_edit: {
+      type: "boolean",
+      title: "Can Edit",
+      description:
+        "Whether the requesting user may rename, change, or delete it.",
+    },
+    pinned: {
+      type: "boolean",
+      title: "Pinned",
+      default: false,
+    },
+    pin_position: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pin Position",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+    stale_refs: {
+      items: {
+        $ref: "#/components/schemas/CaseViewStaleRef",
+      },
+      type: "array",
+      title: "Stale Refs",
+      description:
+        "Deleted tags, dropdowns, or dropdown options the stored query names. They are removed from query.",
+    },
+    empty_rules: {
+      $ref: "#/components/schemas/CaseViewEmptyRules",
+      description: "Rules left with nothing to match after deletions.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "kind",
+    "name",
+    "visibility",
+    "query",
+    "can_edit",
+    "stale_refs",
+    "empty_rules",
+  ],
+  title: "CaseViewDetail",
+  description: "One view in the form it runs in, with what deletions changed.",
+} as const
+
+export const $CaseViewEmptyRules = {
+  properties: {
+    tags: {
+      type: "boolean",
+      title: "Tags",
+      default: false,
+    },
+    dropdown_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Dropdown Refs",
+    },
+    filters: {
+      type: "boolean",
+      title: "Filters",
+      description: "The advanced filter tree names something deleted.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "CaseViewEmptyRules",
+  description: `Rules of a view left with nothing to match after deletions.
+
+Each one makes the view match no cases until it is given new values.`,
+} as const
+
+export const $CaseViewKind = {
+  type: "string",
+  enum: ["builtin", "custom"],
+} as const
+
+export const $CaseViewName = {
+  type: "string",
+  maxLength: 255,
+  minLength: 1,
+} as const
+
+export const $CaseViewPinUpdate = {
+  properties: {
+    position: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 10000,
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position",
+      description: "Sidebar position. Omit to add the view at the end.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseViewPinUpdate",
+  description: "Where to put a pinned view in the sidebar.",
+} as const
+
+export const $CaseViewRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "A UUID for saved views, or a built-in view ID.",
+    },
+    kind: {
+      $ref: "#/components/schemas/CaseViewKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+    },
+    owner_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Owner Id",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseCriteria-Output",
+      description:
+        "The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Columns",
+    },
+    can_edit: {
+      type: "boolean",
+      title: "Can Edit",
+      description:
+        "Whether the requesting user may rename, change, or delete it.",
+    },
+    pinned: {
+      type: "boolean",
+      title: "Pinned",
+      default: false,
+    },
+    pin_position: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pin Position",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "kind", "name", "visibility", "query", "can_edit"],
+  title: "CaseViewRead",
+  description: "A saved or built-in case view, as seen by the requesting user.",
+} as const
+
+export const $CaseViewSort = {
+  type: "string",
+  enum: ["asc", "desc"],
+} as const
+
+export const $CaseViewStaleRef = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["tag", "dropdown"],
+      title: "Kind",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+      description:
+        "The identifier as stored in the view's query: a tag ref, a `definition_ref:option_ref` entry, or a dropdown ref from the filter tree.",
+    },
+  },
+  type: "object",
+  required: ["kind", "value"],
+  title: "CaseViewStaleRef",
+  description:
+    "A reference in a view's query to something that no longer exists.",
+} as const
+
+export const $CaseViewUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewName",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    visibility: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewVisibility",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    query: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCriteria-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewColumns",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseViewUpdate",
+  description: `Change a saved view. Omitted fields stay as they are.
+
+\`\`order_by\`\`, \`\`sort\`\`, and \`\`columns\`\` accept \`\`null\`\` to clear them.`,
+} as const
+
+export const $CaseViewVisibility = {
+  type: "string",
+  enum: ["personal", "workspace"],
+  title: "CaseViewVisibility",
+  description: "Who can see a saved case view.",
+} as const
+
 export const $CaseViewedEventRead = {
   properties: {
     wf_exec_id: {
@@ -12807,6 +14379,242 @@ export const $CatalogMappingSelection = {
   title: "CatalogMappingSelection",
   description:
     "User-selected target catalog row for one source catalog reference.",
+} as const
+
+export const $ChannelBotAppOwner = {
+  type: "string",
+  enum: ["workspace", "platform"],
+  title: "ChannelBotAppOwner",
+  description: "Who owns a bot's provider app.",
+} as const
+
+export const $ChannelBotChannel = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    is_private: {
+      type: "boolean",
+      title: "Is Private",
+    },
+    is_member: {
+      type: "boolean",
+      title: "Is Member",
+    },
+    team_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Id",
+    },
+    team_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "is_private", "is_member"],
+  title: "ChannelBotChannel",
+  description:
+    "A channel in the bot's provider tenant, which a route can name.",
+} as const
+
+export const $ChannelBotCredentialsUpdate = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  },
+} as const
+
+export const $ChannelBotDetails = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotDetails",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotDetails",
+    },
+  },
+} as const
+
+export const $ChannelBotInstall = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotInstall",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotInstall",
+    },
+  },
+} as const
+
+export const $ChannelBotInstallResult = {
+  properties: {
+    bot: {
+      $ref: "#/components/schemas/AgentChannelBotRead",
+    },
+    authorization_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Url",
+      description:
+        "Where to send the browser to finish the install; None when the provider has no browser step.",
+    },
+  },
+  type: "object",
+  required: ["bot", "authorization_url"],
+  title: "ChannelBotInstallResult",
+} as const
+
+export const $ChannelBotPlatformApp = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "ChannelBotPlatformApp",
+  description:
+    "A provider app the deployment owns, which a workspace installs in one step.",
+} as const
+
+export const $ChannelBotPlatformAppSetup = {
+  properties: {
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+    request_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Url",
+    },
+  },
+  type: "object",
+  required: ["transport", "oauth_redirect_url", "request_url"],
+  title: "ChannelBotPlatformAppSetup",
+  description:
+    "What a platform admin pastes into the deployment's own provider app.",
+} as const
+
+export const $ChannelBotPlatformInstall = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description: "Platform install to reconnect. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "The install's default agent. Required without bot_id; with it, replaces it.",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider", "return_url"],
+  title: "ChannelBotPlatformInstall",
+  description:
+    "Install the platform app, which the deployment registers, over OAuth; or reconnect.",
+} as const
+
+export const $ChannelBotProvider = {
+  type: "string",
+  enum: ["slack"],
+  title: "ChannelBotProvider",
+} as const
+
+export const $ChannelBotRunState = {
+  type: "string",
+  enum: ["active", "paused"],
+  title: "ChannelBotRunState",
+  description:
+    "The statuses an admin sets directly; the others follow install and uninstall.",
+} as const
+
+export const $ChannelBotStatus = {
+  type: "string",
+  enum: ["active", "paused", "disconnected", "needs_reconnect"],
+  title: "ChannelBotStatus",
+} as const
+
+export const $ChannelBotTransport = {
+  type: "string",
+  enum: ["http", "socket"],
+  title: "ChannelBotTransport",
+  description:
+    "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
 } as const
 
 export const $ChannelType = {
@@ -13574,6 +15382,19 @@ export const $CommentDeletedEventRead = {
     delete_mode: {
       $ref: "#/components/schemas/CaseCommentDeleteMode",
     },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+      description: "The author of the deleted comment.",
+    },
     user_id: {
       anyOf: [
         {
@@ -13712,6 +15533,19 @@ export const $CommentReplyDeletedEventRead = {
     },
     delete_mode: {
       $ref: "#/components/schemas/CaseCommentDeleteMode",
+    },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+      description: "The author of the deleted comment.",
     },
     user_id: {
       anyOf: [
@@ -13937,7 +15771,35 @@ export const $CommitInfo = {
   title: "CommitInfo",
 } as const
 
-export const $Condition = {
+export const $Condition_Input = {
+  properties: {
+    field: {
+      type: "string",
+      minLength: 1,
+      title: "Field",
+    },
+    op: {
+      $ref: "#/components/schemas/FilterOp",
+    },
+    value: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FilterValue",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "op"],
+  title: "Condition",
+  description: "A predicate over one resolver-defined field.",
+} as const
+
+export const $Condition_Output = {
   properties: {
     field: {
       type: "string",
@@ -14122,6 +15984,132 @@ export const $CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AdminOrgInvitationRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelBotRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelBotRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelBotRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelRouteRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelRouteRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelRouteRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {
@@ -14563,6 +16551,132 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_CaseViewRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseViewRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseViewRead]",
+} as const
+
+export const $CursorPaginatedResponse_ChannelBotChannel_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ChannelBotChannel",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ChannelBotChannel]",
 } as const
 
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
@@ -15445,6 +17559,69 @@ export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_TableFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[TableFolderRead]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -16872,6 +19049,20 @@ export const $EffectiveEntitlements = {
         "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
       default: false,
     },
+    agent_runtime_workflows: {
+      type: "boolean",
+      title: "Agent runtime for workflows",
+      description:
+        "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+      default: false,
+    },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -17118,6 +19309,18 @@ export const $EntitlementsDict = {
       title: "Agent runtime preview",
       description:
         "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
+    },
+    agent_runtime_workflows: {
+      type: "boolean",
+      title: "Agent runtime for workflows",
+      description:
+        "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+    },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
     },
   },
   type: "object",
@@ -17711,7 +19914,6 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-fs-persistence",
     "workspace-sync-github-archive",
-    "forms",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -17855,19 +20057,36 @@ export const $FileUIPart = {
   description: "A file part of a message.",
 } as const
 
-export const $Filter = {
+export const $Filter_Input = {
   oneOf: [
     {
-      $ref: "#/components/schemas/Condition",
+      $ref: "#/components/schemas/Condition-Input",
     },
     {
-      $ref: "#/components/schemas/AndClause",
+      $ref: "#/components/schemas/AndClause-Input",
     },
     {
-      $ref: "#/components/schemas/OrClause",
+      $ref: "#/components/schemas/OrClause-Input",
     },
     {
-      $ref: "#/components/schemas/NotClause",
+      $ref: "#/components/schemas/NotClause-Input",
+    },
+  ],
+} as const
+
+export const $Filter_Output = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Condition-Output",
+    },
+    {
+      $ref: "#/components/schemas/AndClause-Output",
+    },
+    {
+      $ref: "#/components/schemas/OrClause-Output",
+    },
+    {
+      $ref: "#/components/schemas/NotClause-Output",
     },
   ],
 } as const
@@ -21122,6 +23341,30 @@ export const $IPAllowlistCheckResult = {
   title: "IPAllowlistCheckResult",
 } as const
 
+export const $InboxChannelThread = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+      description: "Channel bot the thread is linked on",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+      description: "The bot's provider",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+      description: "The provider's channel ID",
+    },
+  },
+  type: "object",
+  required: ["bot_id", "provider", "provider_channel_id"],
+  title: "InboxChannelThread",
+  description: "The provider channel a session's linked thread is in.",
+} as const
+
 export const $InboxGroup = {
   type: "string",
   enum: ["review_required", "running", "error", "completed"],
@@ -21221,6 +23464,18 @@ export const $InboxItemRead = {
       ],
       title: "Metadata",
       description: "Type-specific metadata",
+    },
+    channel_thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/InboxChannelThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The channel of the session's linked provider thread, if any",
     },
   },
   type: "object",
@@ -25682,6 +27937,52 @@ export const $ModelCredentialUpdate = {
   description: "Model for updating model credentials.",
 } as const
 
+export const $ModelLifecycleRead = {
+  properties: {
+    deprecated_on: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated On",
+    },
+    retires_on: {
+      type: "string",
+      format: "date",
+      title: "Retires On",
+    },
+    replacement: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Replacement",
+      description: "Same-provider catalog model that retired runs move to.",
+    },
+    status: {
+      $ref: "#/components/schemas/ModelLifecycleStatus",
+    },
+  },
+  type: "object",
+  required: ["retires_on", "status"],
+  title: "ModelLifecycleRead",
+  description: "Provider deprecation of a platform model, as of the request.",
+} as const
+
+export const $ModelLifecycleStatus = {
+  type: "string",
+  enum: ["deprecated", "retired"],
+} as const
+
 export const $ModelSecretConfig = {
   properties: {
     required: {
@@ -25764,10 +28065,23 @@ Keys match the TypeScript SDK's \`\`ModelUsage\`\` shape (camelCase), since
 the value is passed through verbatim from the CLI's \`\`modelUsage\`\` field.`,
 } as const
 
-export const $NotClause = {
+export const $NotClause_Input = {
   properties: {
     not: {
-      $ref: "#/components/schemas/Filter",
+      $ref: "#/components/schemas/Filter-Input",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["not"],
+  title: "NotClause",
+  description: "The negation of one filter.",
+} as const
+
+export const $NotClause_Output = {
+  properties: {
+    not: {
+      $ref: "#/components/schemas/Filter-Output",
     },
   },
   additionalProperties: false,
@@ -25846,11 +28160,29 @@ This is a typed reference that replaces large payloads in workflow context.
 Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
 } as const
 
-export const $OrClause = {
+export const $OrClause_Input = {
   properties: {
     or: {
       items: {
-        $ref: "#/components/schemas/Filter",
+        $ref: "#/components/schemas/Filter-Input",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Or",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["or"],
+  title: "OrClause",
+  description: "A disjunction of one or more filters.",
+} as const
+
+export const $OrClause_Output = {
+  properties: {
+    or: {
+      items: {
+        $ref: "#/components/schemas/Filter-Output",
       },
       type: "array",
       minItems: 1,
@@ -29989,6 +32321,36 @@ export const $RegistryStatusResponse = {
   description: "Registry health status.",
 } as const
 
+export const $RelativeTimeUnit = {
+  type: "string",
+  enum: ["hour", "day", "week", "month"],
+  title: "RelativeTimeUnit",
+  description: "Calendar units a relative time window can count back in.",
+} as const
+
+export const $RelativeTimeWindow = {
+  properties: {
+    amount: {
+      type: "integer",
+      maximum: 1000,
+      minimum: 1,
+      title: "Amount",
+    },
+    unit: {
+      $ref: "#/components/schemas/RelativeTimeUnit",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["amount", "unit"],
+  title: "RelativeTimeWindow",
+  description: `A time range that ends now, such as "the last 30 days".
+
+The database resolves the start each time a query runs, so a saved view
+keeps meaning "the last 30 days" instead of a fixed date. Months use
+calendar arithmetic: one month before 31 March is 28 or 29 February.`,
+} as const
+
 export const $ReopenedEventRead = {
   properties: {
     wf_exec_id: {
@@ -31286,6 +33648,7 @@ export const $RuntimeErrorKind = {
     "storage.materialization.invalid_data",
     "storage.persistence.transport_unavailable",
     "executor.activity.timed_out",
+    "executor.worker.shutdown",
     "executor.backend.initialization_failed",
     "executor.registry.lease_contention",
     "executor.registry.capacity_exhausted",
@@ -35907,6 +38270,252 @@ export const $SkillVersionReadMinimal = {
     "Summary response model for published skill versions in list endpoints.",
 } as const
 
+export const $SlackBotCredentialsUpdate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider"],
+  title: "SlackBotCredentialsUpdate",
+  description: `Slack app credentials to replace; unset fields keep their stored value.
+
+No bot token: only OAuth sets one, together with the install it belongs to.`,
+} as const
+
+export const $SlackBotDetails = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    provider_enterprise_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Enterprise Id",
+    },
+    provider_bot_user_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Bot User Id",
+    },
+    granted_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Granted Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+      description:
+        "Required scopes the install did not grant; reinstall to add them.",
+    },
+    update_needed: {
+      type: "boolean",
+      title: "Update Needed",
+    },
+    manifest_version: {
+      type: "integer",
+      title: "Manifest Version",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    has_bot_token: {
+      type: "boolean",
+      title: "Has Bot Token",
+    },
+    has_signing_secret: {
+      type: "boolean",
+      title: "Has Signing Secret",
+    },
+    has_client_secret: {
+      type: "boolean",
+      title: "Has Client Secret",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "transport",
+    "provider_enterprise_id",
+    "provider_bot_user_id",
+    "granted_scopes",
+    "missing_scopes",
+    "update_needed",
+    "manifest_version",
+    "client_id",
+    "has_bot_token",
+    "has_signing_secret",
+    "has_client_secret",
+    "oauth_redirect_url",
+  ],
+  title: "SlackBotDetails",
+  description: "Secrets are reported only as present or not.",
+} as const
+
+export const $SlackBotInstall = {
+  properties: {
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description:
+        "Bot to install into; it must already target agent_preset_id. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+    },
+    signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^(xoxe\\.)?xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.",
+    },
+    app_refresh_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xoxe-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Refresh Token",
+      description:
+        "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: [
+    "agent_preset_id",
+    "provider",
+    "client_id",
+    "client_secret",
+    "signing_secret",
+    "return_url",
+  ],
+  title: "SlackBotInstall",
+  description: "Install a workspace-owned Slack app over OAuth.",
+} as const
+
 export const $SlackChannelTokenConfig = {
   properties: {
     slack_bot_token: {
@@ -36026,6 +38635,180 @@ export const $SlackOAuthStartResponse = {
   required: ["authorization_url", "token"],
   title: "SlackOAuthStartResponse",
   description: "Response schema for Slack OAuth start.",
+} as const
+
+export const $SlackPlatformAppRead = {
+  properties: {
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret_set: {
+      type: "boolean",
+      title: "Client Secret Set",
+    },
+    signing_secret_set: {
+      type: "boolean",
+      title: "Signing Secret Set",
+    },
+    app_token_set: {
+      type: "boolean",
+      title: "App Token Set",
+    },
+    icon_uploaded: {
+      type: "boolean",
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      type: "boolean",
+      title: "Distribution Enabled",
+    },
+    unreadable: {
+      type: "boolean",
+      title: "Unreadable",
+    },
+    setup: {
+      $ref: "#/components/schemas/ChannelBotPlatformAppSetup",
+    },
+  },
+  type: "object",
+  required: [
+    "app_id",
+    "client_id",
+    "client_secret_set",
+    "signing_secret_set",
+    "app_token_set",
+    "icon_uploaded",
+    "distribution_enabled",
+    "unreadable",
+    "setup",
+  ],
+  title: "SlackPlatformAppRead",
+  description:
+    "The registration without its secrets, and what to paste into Slack.",
+} as const
+
+export const $SlackPlatformAppSetupStepsUpdate = {
+  properties: {
+    icon_uploaded: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Distribution Enabled",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "SlackPlatformAppSetupStepsUpdate",
+  description:
+    "Mark the Slack-only setup steps done or not done; an omitted step keeps its value.",
+} as const
+
+export const $SlackPlatformAppUpdate = {
+  properties: {
+    app_id: {
+      type: "string",
+      minLength: 1,
+      title: "App Id",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^(xoxe\\.)?xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.",
+    },
+    app_refresh_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xoxe-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Refresh Token",
+      description:
+        "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["app_id", "client_id"],
+  title: "SlackPlatformAppUpdate",
+  description: `Register or change the app. An omitted secret keeps its stored value while the
+app ID stays the same.`,
 } as const
 
 export const $SourceDocumentUIPart = {
@@ -36191,6 +38974,10 @@ export const $StepStartUIPart = {
   required: ["type"],
   title: "StepStartUIPart",
   description: "A step boundary part of a message.",
+} as const
+
+export const $StoredCaseQuery = {
+  $ref: "#/components/schemas/CaseCriteria-Input",
 } as const
 
 export const $StreamEvent = {
@@ -37030,11 +39817,224 @@ export const $TableCreate = {
       title: "Columns",
       description: "The columns of the table",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+      description:
+        "Folder to create the table in. Defaults to the workspace root.",
+    },
   },
   type: "object",
   required: ["name"],
   title: "TableCreate",
   description: "Create model for a table.",
+} as const
+
+export const $TableDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "table",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "name", "folder_id", "created_at", "updated_at"],
+  title: "TableDirectoryItem",
+  description: "Table as a directory item.",
+} as const
+
+export const $TableFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "TableFolderCreate",
+} as const
+
+export const $TableFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "TableFolderDelete",
+} as const
+
+export const $TableFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "TableFolderDirectoryItem",
+} as const
+
+export const $TableFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "TableFolderMove",
+} as const
+
+export const $TableFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "TableFolderRead",
+} as const
+
+export const $TableFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "TableFolderUpdate",
 } as const
 
 export const $TableImportResponse = {
@@ -37058,6 +40058,26 @@ export const $TableImportResponse = {
   required: ["table", "rows_inserted", "column_mapping"],
   title: "TableImportResponse",
   description: "Response model for importing a table from CSV.",
+} as const
+
+export const $TableMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "TableMoveToFolder",
+  description:
+    "Payload for moving a table into a folder or the workspace root.",
 } as const
 
 export const $TableRead = {
@@ -37095,6 +40115,18 @@ export const $TableReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
     },
     created_at: {
       type: "string",
@@ -46148,6 +49180,19 @@ export const $WorkspaceAgentModelCandidate = {
       ],
       title: "Custom Provider Name",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -46157,6 +49202,7 @@ export const $WorkspaceAgentModelCandidate = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "WorkspaceAgentModelCandidate",
   description:
@@ -46280,6 +49326,19 @@ export const $WorkspaceAgentModelRead = {
       ],
       title: "Custom Provider Base Url",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -46289,6 +49348,7 @@ export const $WorkspaceAgentModelRead = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "WorkspaceAgentModelRead",
   description:
@@ -46754,6 +49814,17 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -46877,6 +49948,19 @@ export const $WorkspaceSettingsUpdate = {
       title: "Validate Attachment Magic Number",
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+      description:
+        "Whether closing or resolving a parent case also closes its open sub-cases and fills their empty required-on-closure fields and dropdowns from the parent. Defaults to true.",
     },
   },
   type: "object",

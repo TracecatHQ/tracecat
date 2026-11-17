@@ -61,6 +61,10 @@ import {
   adminResendOrganizationInvitation,
   adminResetUserMfa,
   adminRevokeOrganizationInvitation,
+  adminSlackAppDeleteSlackApp,
+  adminSlackAppGetSlackApp,
+  adminSlackAppMarkSlackAppSetupSteps,
+  adminSlackAppSaveSlackApp,
   adminSyncOrgRepository,
   adminTestAuditWebhook,
   adminUpdateAuditSettings,
@@ -89,6 +93,9 @@ import {
   type PlatformSecuritySettingsUpdate,
   type RegistryArtifactsBackfillStartRequest,
   type RegistryArtifactsBackfillStartResponse,
+  type SlackPlatformAppRead,
+  type SlackPlatformAppSetupStepsUpdate,
+  type SlackPlatformAppUpdate,
   type TierCreate,
   type TierRead,
   type TierUpdate,
@@ -1061,6 +1068,99 @@ export function useAdminSecuritySettings() {
     updateSecuritySettingsIsPending,
     checkIpAllowlist,
     checkIpAllowlistIsPending,
+  }
+}
+
+const ADMIN_SLACK_APP_QUERY_KEY = ["admin", "slack-app"]
+
+/** Read, save, and remove the Tracecat Slack app every organization installs,
+ * and remember the Slack-only setup steps an admin marked done. */
+export function useAdminSlackApp() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: slackApp,
+    isLoading: slackAppIsLoading,
+    error: slackAppError,
+  } = useQuery<SlackPlatformAppRead, TracecatApiError>({
+    queryKey: ADMIN_SLACK_APP_QUERY_KEY,
+    queryFn: adminSlackAppGetSlackApp,
+    retry: false,
+  })
+
+  const {
+    mutateAsync: removeSlackApp,
+    isPending: removeSlackAppIsPending,
+    error: removeSlackAppError,
+    reset: resetRemoveSlackApp,
+  } = useMutation<void, TracecatApiError, void>({
+    mutationFn: async () => await adminSlackAppDeleteSlackApp(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ADMIN_SLACK_APP_QUERY_KEY })
+      toast({ title: "Slack app removed" })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to remove the Slack app",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const { mutateAsync: saveSlackApp, isPending: saveSlackAppIsPending } =
+    useMutation<SlackPlatformAppRead, TracecatApiError, SlackPlatformAppUpdate>(
+      {
+        mutationFn: async (requestBody) =>
+          await adminSlackAppSaveSlackApp({ requestBody }),
+        onSuccess: (saved) => {
+          queryClient.setQueryData(ADMIN_SLACK_APP_QUERY_KEY, saved)
+          resetRemoveSlackApp()
+          toast({ title: "Slack app saved" })
+        },
+        onError: (error) => {
+          toast({
+            title: "Failed to save the Slack app",
+            description: getApiErrorDetail(error) ?? "Please try again.",
+            variant: "destructive",
+          })
+        },
+      }
+    )
+
+  const {
+    mutateAsync: markSlackAppSetupSteps,
+    isPending: markSlackAppSetupStepsIsPending,
+  } = useMutation<
+    SlackPlatformAppRead,
+    TracecatApiError,
+    SlackPlatformAppSetupStepsUpdate
+  >({
+    mutationFn: async (requestBody) =>
+      await adminSlackAppMarkSlackAppSetupSteps({ requestBody }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(ADMIN_SLACK_APP_QUERY_KEY, saved)
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to update the setup step",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    slackApp,
+    slackAppIsLoading,
+    slackAppError,
+    saveSlackApp,
+    saveSlackAppIsPending,
+    markSlackAppSetupSteps,
+    markSlackAppSetupStepsIsPending,
+    removeSlackApp,
+    removeSlackAppIsPending,
+    removeSlackAppError,
   }
 }
 

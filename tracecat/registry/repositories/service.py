@@ -8,10 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.authz.controls import require_scope
+from tracecat.auth.types import Role
+from tracecat.authz.controls import check_scopes, has_scope, require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.exceptions import RegistryError, RegistryNotFound
 from tracecat.managed_resources.guard import ensure_registry_repository_unmanaged
+from tracecat.parse import safe_url
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
@@ -24,6 +26,22 @@ from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.ssh import ssh_context
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
+
+
+async def ensure_registry_ssh_origin_allowed(role: Role, origin: str) -> None:
+    """Check that ``role`` may use the org registry SSH key for ``origin``.
+
+    Registry scopes only cover the origin configured in Git settings, which
+    requires ``org:settings:update`` to change. Any other origin still needs
+    ``org:secret:read``, so registry roles cannot point the key elsewhere.
+    """
+    if has_scope(role.scopes or frozenset(), "org:secret:read"):
+        return
+    configured_url = await get_setting("git_repo_url", role=role)
+    if isinstance(configured_url, str) and configured_url:
+        if safe_url(configured_url) == origin:
+            return
+    check_scopes(role, "org:secret:read")
 
 
 class RegistryReposService(BaseOrgService):
@@ -146,6 +164,7 @@ class RegistryReposService(BaseOrgService):
         is_git_ssh = repository.origin.startswith("git+ssh://")
         git_repo_package_name: str | None = None
         if is_git_ssh:
+            await ensure_registry_ssh_origin_allowed(self.role, repository.origin)
             git_repo_package_name = await get_setting(
                 "git_repo_package_name", role=self.role
             )

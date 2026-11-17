@@ -17,11 +17,16 @@ def test_background_sandbox_with_fastmcp_import_hook() -> None:
                 import fastmcp
                 from temporalio import workflow
                 from tracecat.background.sandbox import new_sandbox_runner
+                from tracecat.cases.triggers.dispatcher import CaseTriggerDispatcher
                 from tracecat.search.indexing_workflow import SearchIndexDispatcher
                 from tracecat.workspace_sync.operations.workflows import WorkspaceSyncWorkflow
 
                 async def validate():
-                    for cls in (WorkspaceSyncWorkflow, SearchIndexDispatcher):
+                    for cls in (
+                        WorkspaceSyncWorkflow,
+                        SearchIndexDispatcher,
+                        CaseTriggerDispatcher,
+                    ):
                         definition = workflow._Definition.must_from_class(cls)
                         new_sandbox_runner().prepare_workflow(definition)
 

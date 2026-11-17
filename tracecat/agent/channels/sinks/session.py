@@ -22,7 +22,7 @@ from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import AgentChannelToken, AgentSession
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
@@ -199,7 +199,10 @@ async def _build_external_channel_sink(
 ) -> ExternalChannelSink | None:
     """Resolve an external channel sink when session is external."""
 
-    async with get_async_session_context_manager() as session:
+    # Called from the agent executor activity, which has no ctx_role.
+    async with get_async_session_tenant_context_manager(
+        workspace_id=workspace_id
+    ) as session:
         stmt = select(AgentSession).where(
             AgentSession.id == session_id,
             AgentSession.workspace_id == workspace_id,

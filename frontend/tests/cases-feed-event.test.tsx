@@ -85,6 +85,7 @@ describe("case feed comment events", () => {
         <CommentReplyDeletedEvent
           event={buildReplyDeletedEvent()}
           actor={actor}
+          userMap={{}}
         />
       </div>
     )
@@ -92,6 +93,39 @@ describe("case feed comment events", () => {
     expect(screen.getByText("created a comment")).toBeInTheDocument()
     expect(screen.getByText("edited a reply")).toBeInTheDocument()
     expect(screen.getByText("deleted a reply")).toBeInTheDocument()
+  })
+
+  it("names the comment author when someone else deleted it", () => {
+    const author = new User({
+      id: "user-2",
+      email: "author@example.com",
+      role: "basic",
+      first_name: "Author",
+      last_name: "Two",
+      settings: {},
+    })
+    render(
+      <CommentReplyDeletedEvent
+        event={{ ...buildReplyDeletedEvent(), author_id: author.id }}
+        actor={actor}
+        userMap={{ [author.id]: author }}
+      />
+    )
+
+    expect(screen.getByText(/deleted a reply/)).toBeInTheDocument()
+    expect(screen.getByText("Author Two")).toBeInTheDocument()
+  })
+
+  it("omits the author when the actor deleted their own comment", () => {
+    render(
+      <CommentReplyDeletedEvent
+        event={{ ...buildReplyDeletedEvent(), author_id: actor.id }}
+        actor={actor}
+        userMap={{ [actor.id]: actor }}
+      />
+    )
+
+    expect(screen.queryByText(/ by /)).not.toBeInTheDocument()
   })
 
   it("offers comment events in both trigger suggestions and duration options", () => {

@@ -27,7 +27,7 @@ from tracecat.contexts import (
     ctx_role,
     ctx_secret_masks,
 )
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
@@ -218,7 +218,9 @@ async def get_registry_artifacts_for_lock(
 
     # Fetch all misses with a single UNION ALL query
     fetched_artifacts: list[RegistryArtifactsContext] = []
-    async with get_async_session_bypass_rls_context_manager() as session:
+    async with get_async_session_tenant_context_manager(
+        organization_id=organization_id
+    ) as session:
         statements = []
 
         # Platform query (no org filter)
@@ -1154,10 +1156,14 @@ async def invoke_once(
         # Apply secret masking at root level only. Large action results can make
         # this CPU-bound traversal expensive, so keep it off the activity event
         # loop where it could otherwise delay heartbeats for every activity on
-        # the worker.
+        # the worker. Keys are masked too, so a secret returned as a mapping
+        # key is not persisted verbatim.
         if mask_values:
             action_result = await asyncio.to_thread(
-                apply_masks_object, action_result, masks=mask_values
+                apply_masks_object,
+                action_result,
+                masks=mask_values,
+                mask_keys=True,
             )
         return action_result
     finally:

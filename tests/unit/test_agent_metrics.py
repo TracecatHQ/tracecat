@@ -163,7 +163,7 @@ def test_record_llm_ttft_labels_backend_and_route(
         (
             AgentExecutorResult(
                 success=False,
-                classification=agent_llm_rate_limited(route_is_direct=False),
+                classification=agent_llm_rate_limited(user_owned=False),
             ),
             TurnOutcome.MODEL_ERROR,
         ),

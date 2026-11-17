@@ -30,7 +30,7 @@ dependencies = [
     "databricks-sdk==0.133.0",
     "dnspython==2.9.0",
     "docker==7.1.0",
-    "duckdb==1.4.3",
+    "duckdb==2.0.0",
     "google-auth==2.48.0",
     "google-api-python-client==2.196.0",
     "grpcio==1.75.1",

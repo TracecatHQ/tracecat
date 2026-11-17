@@ -49,7 +49,11 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
-from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
+from tracecat.vcs.bitbucket.app import (
+    BitbucketError,
+    BitbucketTokenService,
+    BitbucketTransportError,
+)
 from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
 from tracecat.vcs.bitbucket.types import (
     BitbucketBranch,
@@ -135,8 +139,14 @@ class VcsSyncTransport(Protocol):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
-        """Read workspace sync files at a ref."""
+        """Read workspace sync files at a ref.
+
+        ``resource_filter`` limits which resource files have their contents
+        fetched; ``blob_paths`` still lists every file. The manifest and the
+        package include file are always read.
+        """
         ...
 
     async def write_files(
@@ -576,11 +586,12 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
             raise ValueError("A non-empty commit message is required")
         return message
 
+    @staticmethod
     async def _select_snapshot_files(
-        self,
         *,
         blob_paths: Sequence[str],
         fetch_text: Callable[[str], Awaitable[str | None]],
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> dict[str, str]:
         """Decode the manifest and managed-resource blobs from a commit tree.
 
@@ -616,7 +627,10 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
             if path != MANIFEST_FILENAME
             and (
                 path == PACKAGE_INCLUDE_FILENAME
-                or any(path.startswith(f"{root}/") for root in resource_roots)
+                or (
+                    any(path.startswith(f"{root}/") for root in resource_roots)
+                    and (resource_filter is None or resource_filter(path))
+                )
             )
         ]
         for path, content in await asyncio.gather(
@@ -661,6 +675,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``.
 
@@ -692,7 +707,11 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 if item.type == "blob" and item.path
             }
             archive_texts: dict[str, str | None] = {}
-            if is_feature_enabled(FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE):
+            # A filtered read wants a few files, so per-blob reads beat
+            # downloading the whole commit archive.
+            if resource_filter is None and is_feature_enabled(
+                FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE
+            ):
                 archive_texts = await self._read_archive_texts(
                     repo,
                     commit_sha=commit.sha,
@@ -714,6 +733,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             files = await self._select_snapshot_files(
                 blob_paths=list(blob_shas),
                 fetch_text=fetch_text,
+                resource_filter=resource_filter,
             )
             return VcsTreeSnapshot(
                 commit_sha=commit.sha,
@@ -1368,6 +1388,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``."""
         async with self._authed_client(url) as client:
@@ -1375,6 +1396,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 client=client,
                 url=url,
                 ref=f"refs/heads/{ref}" if ref_kind == "branch" else ref,
+                resource_filter=resource_filter,
             )
 
     async def write_files(
@@ -1750,6 +1772,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         client: httpx.AsyncClient,
         url: GitUrl,
         ref: str,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read workspace sync files with an existing GitLab client."""
         project_id = _gitlab_project_id(url)
@@ -1789,6 +1812,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         files = await self._select_snapshot_files(
             blob_paths=list(blob_shas),
             fetch_text=fetch_text,
+            resource_filter=resource_filter,
         )
         return VcsTreeSnapshot(
             commit_sha=commit_sha,
@@ -2186,7 +2210,16 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             or not target.path.startswith("/2.0/repositories/")
         ):
             raise BitbucketError("Invalid Bitbucket Cloud API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Cloud API request failed", error_type=type(e).__name__
+            )
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketTransportError(
+                "Bitbucket Cloud API request failed: could not reach Bitbucket."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
                 f"Bitbucket Cloud API request failed (HTTP {response.status_code}). Check token permissions and repository access.",
@@ -2348,6 +2381,7 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         url: GitUrl,
         ref: str,
         ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         async with self._connection(url) as (client, git, _path):
             sha = await git.fetch(self._git_remote(url, client), ref, ref_kind=ref_kind)
@@ -2364,7 +2398,9 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     return None
 
             files = await self._select_snapshot_files(
-                blob_paths=list(entries), fetch_text=fetch_text
+                blob_paths=list(entries),
+                fetch_text=fetch_text,
+                resource_filter=resource_filter,
             )
             tree = (await git.run("rev-parse", f"{sha}^{{tree}}")).decode().strip()
             return VcsTreeSnapshot(
@@ -2560,7 +2596,17 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
             or target.fragment
         ):
             raise BitbucketError("Invalid Data Center API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Data Center API request failed", error_type=type(e).__name__
+            )
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketTransportError(
+                "Bitbucket Data Center API request failed: could not reach the"
+                " Bitbucket host. Check the URL and network access."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
                 f"Bitbucket Data Center API request failed (HTTP {response.status_code})",
@@ -2721,8 +2767,8 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
 
         A commit that is missing (404) or malformed leaves its tags undated, so
         they are skipped instead of failing the whole page. Any other failure
-        (auth, rate limit, server error) is about the request, not the tag, and
-        is raised so the page is not silently incomplete.
+        (auth, rate limit, server error, unreachable host) is about the request,
+        not the tag, and is raised so the page is not silently incomplete.
         """
         semaphore = asyncio.Semaphore(_DATA_CENTER_TAG_COMMIT_CONCURRENCY)
 
@@ -2734,6 +2780,9 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                         f"{path}/commits/{quote(sha, safe='')}",
                         DataCenterCommit,
                     )
+            except BitbucketTransportError:
+                # An unreachable host is about the request, not this commit.
+                raise
             except BitbucketError as e:
                 # Validation failures carry no status; 404 means this commit.
                 if e.status_code not in (None, 404):

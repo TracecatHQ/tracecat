@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Literal, NoReturn, TypedDict
+from typing import Any, Literal, NoReturn, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
@@ -29,10 +29,13 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.cases.errors import CASE_REQUEST_ERRORS, case_http_error
 from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
     CaseEventRead,
     CaseEventsWithUsers,
+    CommentDeletedEventRead,
+    CommentReplyDeletedEventRead,
     TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
@@ -65,6 +68,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.search_schemas import (
     CaseFilterMetadata,
     CaseQuery,
+    CaseQueryErrorResponse,
     CaseSearchOrder,
     CaseSearchRequest,
 )
@@ -235,6 +239,13 @@ async def _parse_case_search_filters(
     }
 
 
+CASE_SEARCH_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": CaseQueryErrorResponse, "description": "The query is invalid."},
+    404: {"description": "view_id names no view the caller can see."},
+    503: {"description": "Full-text search is not ready yet."},
+}
+
+
 # Case Management
 
 
@@ -339,7 +350,7 @@ async def list_case_filter_fields(
     return await CasesService(session, role).list_filter_fields()
 
 
-@cases_router.post("/search")
+@cases_router.post("/search", responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_cases(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseSearchRequest
@@ -349,11 +360,11 @@ async def query_cases(
         return await CasesService(session, role).query_cases(params)
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
-    except (ValueError, TracecatValidationError) as exc:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
-@cases_router.post("/search/aggregate")
+@cases_router.post("/search/aggregate", responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_case_aggregates(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseQuery
@@ -363,8 +374,8 @@ async def query_case_aggregates(
         return await CasesService(session, role).query_case_aggregates(params)
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
-    except (ValueError, TracecatValidationError) as exc:
-        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CASE_REQUEST_ERRORS as exc:
+        raise case_http_error(exc) from exc
 
 
 @cases_router.get("/search")
@@ -1119,6 +1130,11 @@ async def list_events_with_users(
                 user_ids.add(root_evt.old)
             if root_evt.new is not None:
                 user_ids.add(root_evt.new)
+        if (
+            isinstance(root_evt, CommentDeletedEventRead | CommentReplyDeletedEventRead)
+            and root_evt.author_id is not None
+        ):
+            user_ids.add(root_evt.author_id)
         if root_evt.user_id is not None:
             user_ids.add(root_evt.user_id)
         events.append(evt)

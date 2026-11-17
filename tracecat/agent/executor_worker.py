@@ -27,6 +27,7 @@ from tracecat.agent.runtime_services import (
 )
 from tracecat.agent.sandbox.cgroup import sandbox_cgroup
 from tracecat.agent.worker import new_sandbox_runner
+from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.dsl.client import get_temporal_client
 from tracecat.executor.startup import executor_lifecycle
 from tracecat.logger import logger
@@ -95,6 +96,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         if shutdown_event is None:
             shutdown_event = asyncio.Event()
         runtime_failure_reason = None
+        await verify_rls_enforceable_login()
         if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             sandbox_cgroup()
         max_concurrent = int(

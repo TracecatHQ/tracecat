@@ -24,6 +24,7 @@ def mock_tracecat_client() -> MagicMock:
     client.get = AsyncMock()
     client.post = AsyncMock()
     client.patch = AsyncMock()
+    client.delete = AsyncMock()
     return client
 
 
@@ -503,3 +504,33 @@ class TestWorkflowExecutionIDPattern:
         from tracecat.identifiers.workflow import WF_EXEC_ID_SCHEMA_PATTERN
 
         assert WF_EXEC_ID_PATTERN == WF_EXEC_ID_SCHEMA_PATTERN
+
+
+class TestWorkflowsClientDeleteTag:
+    @pytest.mark.anyio
+    async def test_delete_tag(
+        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
+    ):
+        await workflows_client.delete_tag("triage")
+
+        mock_tracecat_client.delete.assert_awaited_once_with("/tags/triage")
+
+
+class TestCoreDeleteWorkflowTag:
+    @pytest.mark.anyio
+    async def test_delete_workflow_tag(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from tracecat_registry.core.workflow import delete_workflow_tag
+
+        workflows = AsyncMock()
+        workflows.aio = workflows
+        with patch(
+            "tracecat_registry.ctx.get_context",
+            return_value=SimpleNamespace(workflows=workflows),
+        ):
+            result = await delete_workflow_tag(tag="triage")
+
+        workflows.delete_tag.assert_awaited_once_with("triage")
+        assert result is None

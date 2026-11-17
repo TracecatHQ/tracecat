@@ -4,6 +4,7 @@ import {
   DatabricksIcon,
   getIcon,
   getIconSource,
+  getMcpProviderIconId,
   getModelProviderIconId,
   MicrosoftGraphIcon,
   MicrosoftIcon,
@@ -239,6 +240,51 @@ describe("Spur registry icon mappings", () => {
   it("renders the Spur mark for the spur secret", () => {
     const Icon = secretIcons.spur
     expect(svgTitle(<Icon />)).toBe("Spur")
+  })
+})
+
+describe("Devin MCP catalog icon", () => {
+  it("registers the Devin MCP catalog icon", () => {
+    expect(providerIcons.devin_mcp).toBeDefined()
+  })
+})
+
+describe("Socket MCP catalog icon", () => {
+  it("resolves the Socket catalog slug to its icon", () => {
+    expect(providerIcons.socket_mcp).toBeDefined()
+    expect(getMcpProviderIconId("socket-mcp")).toBe("socket_mcp")
+  })
+})
+
+describe("Swif registry icon mappings", () => {
+  it.each(["tools.swif", "tools.swif.list_script_reports"])(
+    "renders the Swif mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("Swif")
+    }
+  )
+
+  it("renders the Swif mark for the swif secret", () => {
+    const Icon = secretIcons.swif
+    expect(svgTitle(<Icon />)).toBe("Swif")
+  })
+
+  it("registers the Swif MCP catalog icon", () => {
+    expect(providerIcons.swif_mcp).toBeDefined()
+  })
+})
+
+describe("Trend Micro registry icon mappings", () => {
+  it.each([
+    "tools.trend_vision_one",
+    "tools.trend_vision_one.isolate_endpoints",
+  ])("renders the Trend Micro mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Trend Micro")
+  })
+
+  it("renders the Trend Micro mark for the trend_vision_one secret", () => {
+    const Icon = secretIcons.trend_vision_one
+    expect(svgTitle(<Icon />)).toBe("Trend Micro")
   })
 })
 

@@ -289,6 +289,11 @@ function OperationDiffList({
                   <ChangeIcon changeType={diff.change_type} />
                   <span className="min-w-0 flex-1 truncate font-mono text-xs">
                     {diff.source_path}
+                    {/* Bundled resources such as case tags share one path. */}
+                    <span className="font-sans text-muted-foreground">
+                      {" "}
+                      · {diff.title ?? diff.source_id}
+                    </span>
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {isOpen ? "Hide diff" : "View diff"}

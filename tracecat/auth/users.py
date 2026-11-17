@@ -37,6 +37,7 @@ from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDataba
 from pydantic import EmailStr
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from tracecat import config
 from tracecat.audit.service import AuditService
@@ -702,6 +703,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # The user delete cascades to refresh tokens and memberships; lock
         # first so a concurrent MCP token rotation cannot deadlock with it.
         await lock_mcp_refresh_token_users(self._user_db.session, [user.id])
+        await delete_personal_case_views(self._user_db.session, user.id)
 
     async def saml_callback(
         self,

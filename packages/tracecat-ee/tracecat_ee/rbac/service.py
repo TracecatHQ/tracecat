@@ -18,9 +18,7 @@ from tracecat.authz.controls import (
 )
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.membership import (
-    drop_workspace_membership_mirror,
     lock_role_changes,
-    mirror_workspace_membership,
 )
 from tracecat.authz.scopes import (
     ORG_MEMBER_ROLE_SLUG,
@@ -876,10 +874,6 @@ class RBACService(BaseOrgService):
                 if scope in existing:
                     existing[scope].role_id = role_id
                 else:
-                    if scope is not None:
-                        await mirror_workspace_membership(
-                            self.session, user_id=params.user_id, workspace_id=scope
-                        )
                     self.session.add(
                         UserRoleAssignment(
                             organization_id=self.organization_id,
@@ -891,15 +885,6 @@ class RBACService(BaseOrgService):
                     )
             for assignment in removed:
                 await self.session.delete(assignment)
-            removed_workspaces = [
-                a.workspace_id for a in removed if a.workspace_id is not None
-            ]
-            if removed_workspaces:
-                await drop_workspace_membership_mirror(
-                    self.session,
-                    user_id=params.user_id,
-                    workspace_ids=removed_workspaces,
-                )
             await self.session.commit()
         except Exception:
             await self.session.rollback()
@@ -970,11 +955,6 @@ class RBACService(BaseOrgService):
             assigned_by=self.role.user_id,
         )
         try:
-            if workspace_id is not None:
-                # Legacy workspace table is still written for app versions reading it.
-                await mirror_workspace_membership(
-                    self.session, user_id=user_id, workspace_id=workspace_id
-                )
             self.session.add(assignment)
             await self.session.commit()
         except IntegrityError as e:
@@ -1026,13 +1006,6 @@ class RBACService(BaseOrgService):
         await lock_role_changes(self.session, self.organization_id)
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
-        # Org presence outlives the assignment; only the workspace mirror follows it.
-        if assignment.workspace_id is not None:
-            await drop_workspace_membership_mirror(
-                self.session,
-                user_id=assignment.user_id,
-                workspace_ids=[assignment.workspace_id],
-            )
         await self.session.commit()
 
     async def get_user_role_scopes(

@@ -1,0 +1,706 @@
+"""Saved case views: storage, visibility rules, pins, and running a view."""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from typing import Literal, cast
+
+import sqlalchemy as sa
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.sql.elements import ColumnElement
+
+from tracecat.authz.controls import has_scope
+from tracecat.cases.enums import CaseViewVisibility
+from tracecat.cases.query import DROPDOWN_PREFIX
+from tracecat.cases.search_adapters import (
+    format_dropdown_entry,
+    iter_case_filter_conditions,
+    parse_dropdown_entry,
+    requesting_user_id,
+)
+from tracecat.cases.search_schemas import (
+    CaseCriteria,
+    CaseQuery,
+    CaseSearchOrder,
+    CaseSearchRequest,
+)
+from tracecat.cases.tags.search import split_case_tag_filters
+from tracecat.db.models import (
+    CaseDropdownDefinition,
+    CaseDropdownOption,
+    CaseTag,
+    CaseView,
+    CaseViewPin,
+)
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
+from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
+from tracecat.query.filters import AndClause
+from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tiers.enums import Entitlement
+from tracecat_ee.cases.views.builtins import BUILTIN_CASE_VIEWS
+from tracecat_ee.cases.views.schemas import (
+    CaseViewCreate,
+    CaseViewDetail,
+    CaseViewEmptyRules,
+    CaseViewRead,
+    CaseViewStaleRef,
+    CaseViewUpdate,
+    validate_view_order,
+)
+from tracecat_ee.cases.views.types import BUILTIN_CASE_VIEW_IDS, BuiltinCaseViewId
+
+CASE_VIEW_QUERY_VERSION = 1
+SHARED_VIEW_SCOPE = "case:update"
+
+# Matching fields a request may not combine with ``view_id``. ``filters`` is
+# allowed and ANDed with the view's own tree; ``match_none`` is ORed.
+_VIEW_EXCLUSIVE_FIELDS = frozenset(CaseCriteria.model_fields) - {"filters"}
+
+
+class CaseViewNotFoundError(TracecatNotFoundError):
+    """The view does not exist, or the requesting user cannot see it."""
+
+    def __init__(self) -> None:
+        super().__init__("Case view not found")
+
+
+class CaseViewPermissionError(TracecatAuthorizationError):
+    """The requesting user can see the view but may not change it."""
+
+
+@dataclass(frozen=True, slots=True)
+class _CleanedQuery:
+    query: CaseCriteria
+    stale_refs: list[CaseViewStaleRef]
+    empty_rules: CaseViewEmptyRules
+
+
+def _saved_view_id(view_id: str | uuid.UUID, builtin_message: str) -> uuid.UUID:
+    """Return a saved view's UUID, rejecting built-in IDs with ``builtin_message``."""
+    parsed = parse_view_id(view_id)
+    if not isinstance(parsed, uuid.UUID):
+        raise TracecatValidationError(builtin_message)
+    return parsed
+
+
+def parse_view_id(view_id: str | uuid.UUID) -> uuid.UUID | BuiltinCaseViewId:
+    """Return a saved view's UUID or a built-in ID, or raise not found."""
+    if isinstance(view_id, uuid.UUID):
+        return view_id
+    if view_id in BUILTIN_CASE_VIEW_IDS:
+        return cast(BuiltinCaseViewId, view_id)
+    try:
+        return uuid.UUID(view_id)
+    except ValueError as exc:
+        raise CaseViewNotFoundError() from exc
+
+
+class CaseViewsService(BaseWorkspaceService):
+    """Manage saved case views for the requesting user and workspace.
+
+    Case views are an enterprise feature: every method needs the case add-ons
+    entitlement, except a search that names no view.
+    """
+
+    service_name = "case_views"
+
+    # Visibility and permissions
+
+    @property
+    def _user_id(self) -> uuid.UUID | None:
+        # Only user roles own personal views; workflows see shared views only.
+        return requesting_user_id(self.role)
+
+    @property
+    def _can_edit_shared(self) -> bool:
+        return has_scope(self.role.scopes or frozenset(), SHARED_VIEW_SCOPE)
+
+    def _visible(self) -> ColumnElement[bool]:
+        """Shared views, plus the requesting user's personal views."""
+        shared = CaseView.visibility == CaseViewVisibility.WORKSPACE
+        if self._user_id is None:
+            return shared
+        return sa.or_(shared, CaseView.owner_id == self._user_id)
+
+    def _can_edit(self, view: CaseView) -> bool:
+        is_owner = self._user_id is not None and view.owner_id == self._user_id
+        if view.visibility == CaseViewVisibility.PERSONAL:
+            return is_owner
+        return is_owner or self._can_edit_shared
+
+    def _require_user(self) -> uuid.UUID:
+        if self._user_id is None:
+            raise CaseViewPermissionError("Saved views belong to a signed-in user")
+        return self._user_id
+
+    # Reads
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def list_builtins(self, *, pinned_only: bool = False) -> list[CaseViewRead]:
+        """Return the views every workspace has, with the user's pins.
+
+        Args:
+            pinned_only: Only the built-ins the user pinned, in pin order.
+        """
+        positions = await self._builtin_pin_positions()
+        views = [
+            self._builtin_read(view_id, positions.get(view_id))
+            for view_id in BUILTIN_CASE_VIEW_IDS
+        ]
+        if not pinned_only:
+            return views
+        pinned = [view for view in views if view.pin_position is not None]
+        return sorted(pinned, key=lambda view: view.pin_position or 0)
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def list_views(
+        self, page: PageParams, *, pinned_only: bool = False
+    ) -> CursorPaginatedResponse[CaseViewRead]:
+        """Page through saved views the requesting user can see.
+
+        Args:
+            page: Page size and continuation cursor.
+            pinned_only: Only the user's pinned views, in pin order.
+        """
+        pin = self._pin_join()
+        statement = (
+            select(CaseView, pin.c.position)
+            .outerjoin(pin, pin.c.view_id == CaseView.id)
+            .where(CaseView.workspace_id == self.workspace_id, self._visible())
+        )
+        if pinned_only:
+            statement = statement.where(pin.c.position.is_not(None))
+            order_by = (pin.c.position.asc(), CaseView.id.asc())
+        else:
+            order_by = (CaseView.created_at.asc(), CaseView.id.asc())
+        result = await paginate(
+            self.session,
+            statement,
+            page=page,
+            order_by=order_by,
+            row_factory=lambda row: self._custom_read(
+                cast(CaseView, row[0]), cast(int | None, row[1])
+            ),
+        )
+        return CursorPaginatedResponse(
+            items=result.items,
+            next_cursor=result.next_cursor,
+            prev_cursor=result.prev_cursor,
+            has_more=result.has_more,
+            has_previous=result.has_previous,
+        )
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def get_view(self, view_id: str | uuid.UUID) -> CaseViewDetail:
+        """Return one view in the form it runs in.
+
+        Deleted tags and options are removed from ``query`` and listed in
+        ``stale_refs``. Rules left with nothing to match are in ``empty_rules``,
+        and make the view match no cases until they get new values.
+
+        Args:
+            view_id: A saved view's UUID or a built-in view ID.
+        """
+        parsed = parse_view_id(view_id)
+        if not isinstance(parsed, uuid.UUID):
+            positions = await self._builtin_pin_positions()
+            read = self._builtin_read(parsed, positions.get(parsed))
+            return CaseViewDetail(
+                **dict(read), stale_refs=[], empty_rules=CaseViewEmptyRules()
+            )
+        view = await self._get_visible(parsed)
+        read = self._custom_read(view, await self._pin_position(view.id))
+        cleaned = await self._clean_query(read.query)
+        return CaseViewDetail(
+            **(dict(read) | {"query": cleaned.query}),
+            stale_refs=cleaned.stale_refs,
+            empty_rules=cleaned.empty_rules,
+        )
+
+    # Writes
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def create_view(self, params: CaseViewCreate) -> CaseViewRead:
+        """Save a new view owned by the requesting user."""
+        owner_id = self._require_user()
+        if (
+            params.visibility == CaseViewVisibility.WORKSPACE
+            and not self._can_edit_shared
+        ):
+            raise CaseViewPermissionError(
+                f"Sharing a view with the workspace requires {SHARED_VIEW_SCOPE}"
+            )
+        view = CaseView(
+            workspace_id=self.workspace_id,
+            owner_id=owner_id,
+            name=params.name,
+            visibility=params.visibility,
+            query=params.query.model_dump(mode="json", exclude_defaults=True),
+            query_version=CASE_VIEW_QUERY_VERSION,
+            order_by=params.order_by,
+            sort=params.sort,
+            columns=params.columns,
+        )
+        self.session.add(view)
+        await self.session.commit()
+        await self.session.refresh(view)
+        return self._custom_read(view, None)
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def update_view(
+        self, view_id: str | uuid.UUID, params: CaseViewUpdate
+    ) -> CaseViewRead:
+        """Change a view the requesting user may edit."""
+        view = await self._get_editable(view_id)
+        changes = params.model_fields_set
+        if "visibility" in changes and params.visibility != view.visibility:
+            self._check_visibility_change(view, params.visibility)
+            view.visibility = cast(CaseViewVisibility, params.visibility)
+        if "name" in changes and params.name is not None:
+            view.name = params.name
+        if "query" in changes and params.query is not None:
+            view.query = params.query.model_dump(mode="json", exclude_defaults=True)
+            view.query_version = CASE_VIEW_QUERY_VERSION
+        if "order_by" in changes:
+            view.order_by = params.order_by
+        if "sort" in changes:
+            view.sort = params.sort
+        if "columns" in changes:
+            view.columns = params.columns
+        try:
+            validate_view_order(self._stored_query(view), view.order_by, view.sort)
+        except ValueError as exc:
+            raise TracecatValidationError(str(exc)) from exc
+        await self.session.commit()
+        await self.session.refresh(view)
+        return self._custom_read(view, await self._pin_position(view.id))
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def delete_view(self, view_id: str | uuid.UUID) -> None:
+        """Delete a view the requesting user may edit. Pins go with it."""
+        view = await self._get_editable(view_id)
+        await self.session.delete(view)
+        await self.session.commit()
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def pin_view(
+        self, view_id: str | uuid.UUID, *, position: int | None = None
+    ) -> CaseViewRead:
+        """Show a saved or built-in view in the requesting user's sidebar."""
+        user_id = self._require_user()
+        parsed = parse_view_id(view_id)
+        if not isinstance(parsed, uuid.UUID):
+            return await self._pin_builtin(user_id, parsed, position=position)
+        view = await self._get_visible(parsed)
+        # An upsert, so two pin requests at once cannot both insert and hit
+        # the unique (user_id, view_id) constraint. Without an explicit
+        # position, an existing pin keeps its place.
+        statement = pg_insert(CaseViewPin).values(
+            workspace_id=self.workspace_id,
+            user_id=user_id,
+            view_id=view.id,
+            position=(
+                position if position is not None else await self._next_pin_position()
+            ),
+        )
+        conflict = ["user_id", "view_id"]
+        statement = (
+            statement.on_conflict_do_update(
+                index_elements=conflict,
+                set_={"position": statement.excluded.position},
+            )
+            if position is not None
+            else statement.on_conflict_do_nothing(index_elements=conflict)
+        )
+        await self.session.execute(statement)
+        await self.session.commit()
+        await self.session.refresh(view)
+        return self._custom_read(view, await self._pin_position(view.id))
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def unpin_view(self, view_id: str | uuid.UUID) -> None:
+        """Remove a saved or built-in view from the requesting user's sidebar."""
+        user_id = self._require_user()
+        parsed = parse_view_id(view_id)
+        target = (
+            CaseViewPin.view_id == parsed
+            if isinstance(parsed, uuid.UUID)
+            else CaseViewPin.builtin_view_id == parsed
+        )
+        await self.session.execute(
+            sa.delete(CaseViewPin).where(
+                CaseViewPin.workspace_id == self.workspace_id,
+                CaseViewPin.user_id == user_id,
+                target,
+            )
+        )
+        await self.session.commit()
+
+    # Running a view
+
+    async def apply_to_query[QueryT: CaseQuery](self, request: QueryT) -> QueryT:
+        """Return the request to run, with its view (if any) applied.
+
+        The view's criteria replace the request's. The request's ``filters``
+        tree is ANDed with the view's, and its pagination and result options
+        stay. A search request with no ``order_by`` takes the view's saved
+        order; an explicit request ``sort`` still sets the direction. The
+        result is validated again, so the merge cannot produce an order the
+        search contract forbids.
+
+        Raises:
+            TracecatValidationError: The request also sets other matching fields.
+            ValueError: The merged request is invalid, such as relevance
+                ordering without a full-text term.
+        """
+        if request.view_id is None:
+            return request
+        # Plain searches stay open to every tier; only running a view needs
+        # the case add-ons entitlement.
+        await self.require_entitlement(Entitlement.CASE_ADDONS)
+        defaults = CaseCriteria()
+        # Field names come from the model, so dynamic attribute access is the
+        # only way to compare every matching field without listing them.
+        conflicting = sorted(
+            field
+            for field in _VIEW_EXCLUSIVE_FIELDS
+            if getattr(request, field) != getattr(defaults, field)
+        )
+        if conflicting:
+            raise TracecatValidationError(
+                "A view supplies its own matching criteria. Use `filters` to "
+                f"narrow it; remove {', '.join(conflicting)}."
+            )
+        resolved = await self.get_view(request.view_id)
+        view_query = resolved.query
+        filters = view_query.filters
+        if request.filters is not None:
+            filters = (
+                request.filters
+                if filters is None
+                else AndClause.model_validate({"and": [filters, request.filters]})
+            )
+        update: dict[str, object] = {
+            field: getattr(view_query, field) for field in _VIEW_EXCLUSIVE_FIELDS
+        }
+        update.update(
+            view_id=None,
+            filters=filters,
+            match_none=request.match_none or resolved.empty_rules.matches_none,
+        )
+        if (
+            isinstance(request, CaseSearchRequest)
+            and request.order_by is None
+            and resolved.order_by is not None
+        ):
+            update["order_by"] = resolved.order_by
+            if request.sort is None:
+                update["sort"] = resolved.sort
+        return type(request).model_validate({**request.model_dump(), **update})
+
+    # Helpers
+
+    def _builtin_read(
+        self, view_id: BuiltinCaseViewId, pin_position: int | None = None
+    ) -> CaseViewRead:
+        builtin = BUILTIN_CASE_VIEWS[view_id]
+        return CaseViewRead(
+            id=builtin.id,
+            kind="builtin",
+            name=builtin.name,
+            visibility=CaseViewVisibility.WORKSPACE,
+            query=builtin.query,
+            order_by=builtin.order_by,
+            sort=builtin.sort,
+            can_edit=False,
+            pinned=pin_position is not None,
+            pin_position=pin_position,
+        )
+
+    async def _builtin_pin_positions(self) -> dict[BuiltinCaseViewId, int]:
+        """Return where the user pinned each built-in view, by built-in ID."""
+        if self._user_id is None:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(CaseViewPin.builtin_view_id, CaseViewPin.position).where(
+                    CaseViewPin.workspace_id == self.workspace_id,
+                    CaseViewPin.user_id == self._user_id,
+                    CaseViewPin.builtin_view_id.is_not(None),
+                )
+            )
+        ).tuples()
+        return {
+            cast(BuiltinCaseViewId, view_id): position
+            for view_id, position in rows
+            if view_id in BUILTIN_CASE_VIEW_IDS
+        }
+
+    async def _pin_builtin(
+        self,
+        user_id: uuid.UUID,
+        view_id: BuiltinCaseViewId,
+        *,
+        position: int | None,
+    ) -> CaseViewRead:
+        """Pin a built-in view, with the same upsert rules as saved views."""
+        statement = pg_insert(CaseViewPin).values(
+            workspace_id=self.workspace_id,
+            user_id=user_id,
+            builtin_view_id=view_id,
+            position=(
+                position if position is not None else await self._next_pin_position()
+            ),
+        )
+        conflict = ["workspace_id", "user_id", "builtin_view_id"]
+        statement = (
+            statement.on_conflict_do_update(
+                index_elements=conflict,
+                set_={"position": statement.excluded.position},
+            )
+            if position is not None
+            else statement.on_conflict_do_nothing(index_elements=conflict)
+        )
+        await self.session.execute(statement)
+        await self.session.commit()
+        positions = await self._builtin_pin_positions()
+        return self._builtin_read(view_id, positions.get(view_id))
+
+    def _custom_read(self, view: CaseView, pin_position: int | None) -> CaseViewRead:
+        return CaseViewRead(
+            id=str(view.id),
+            kind="custom",
+            name=view.name,
+            visibility=view.visibility,
+            owner_id=view.owner_id,
+            query=self._stored_query(view),
+            order_by=cast(CaseSearchOrder | None, view.order_by),
+            sort=cast(Literal["asc", "desc"] | None, view.sort),
+            columns=view.columns,
+            can_edit=self._can_edit(view),
+            pinned=pin_position is not None,
+            pin_position=pin_position,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+
+    @staticmethod
+    def _stored_query(view: CaseView) -> CaseCriteria:
+        if view.query_version > CASE_VIEW_QUERY_VERSION:
+            raise TracecatValidationError(
+                f"Case view {view.name!r} was saved by a newer version of Tracecat"
+            )
+        try:
+            return CaseCriteria.model_validate(view.query)
+        except ValueError as exc:
+            raise TracecatValidationError(
+                f"Case view {view.name!r} has a query this version cannot read: {exc}"
+            ) from exc
+
+    def _pin_join(self) -> sa.Subquery:
+        user_id = self._user_id
+        statement = select(CaseViewPin.view_id, CaseViewPin.position).where(
+            CaseViewPin.workspace_id == self.workspace_id
+        )
+        statement = statement.where(
+            sa.false() if user_id is None else CaseViewPin.user_id == user_id
+        )
+        return statement.subquery("pin")
+
+    async def _pin_position(self, view_id: uuid.UUID) -> int | None:
+        if self._user_id is None:
+            return None
+        return (
+            await self.session.execute(
+                select(CaseViewPin.position).where(
+                    CaseViewPin.workspace_id == self.workspace_id,
+                    CaseViewPin.user_id == self._user_id,
+                    CaseViewPin.view_id == view_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def _next_pin_position(self) -> int:
+        current = (
+            await self.session.execute(
+                select(func.max(CaseViewPin.position)).where(
+                    CaseViewPin.workspace_id == self.workspace_id,
+                    CaseViewPin.user_id == self._user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        return 0 if current is None else current + 1
+
+    async def _get_visible(self, view_id: uuid.UUID) -> CaseView:
+        view = (
+            await self.session.execute(
+                select(CaseView).where(
+                    CaseView.workspace_id == self.workspace_id,
+                    CaseView.id == view_id,
+                    self._visible(),
+                )
+            )
+        ).scalar_one_or_none()
+        if view is None:
+            raise CaseViewNotFoundError()
+        return view
+
+    async def _get_editable(self, view_id: str | uuid.UUID) -> CaseView:
+        view = await self._get_visible(
+            _saved_view_id(view_id, "Built-in views cannot be changed")
+        )
+        if not self._can_edit(view):
+            raise CaseViewPermissionError("You cannot change this view")
+        return view
+
+    def _check_visibility_change(
+        self, view: CaseView, visibility: CaseViewVisibility | None
+    ) -> None:
+        if visibility == CaseViewVisibility.WORKSPACE and not self._can_edit_shared:
+            raise CaseViewPermissionError(
+                f"Sharing a view with the workspace requires {SHARED_VIEW_SCOPE}"
+            )
+        is_owner = self._user_id is not None and view.owner_id == self._user_id
+        if visibility == CaseViewVisibility.PERSONAL and not is_owner:
+            # Making it personal would hide it from everyone but its owner. A
+            # caller with no user, such as an API key, owns nothing, even a
+            # view whose owner was deleted.
+            raise CaseViewPermissionError("Only the view's owner can make it personal")
+
+    async def _clean_query(self, query: CaseCriteria) -> _CleanedQuery:
+        """Drop deleted tags and dropdown options from a stored query.
+
+        A rule left with no values would otherwise widen the results, so it is
+        reported in ``empty_rules`` and makes the view match nothing instead.
+        """
+        stale: list[CaseViewStaleRef] = []
+        empty = CaseViewEmptyRules()
+        update: dict[str, object] = {}
+
+        if query.tags:
+            _, missing_tags = await split_case_tag_filters(
+                session=self.session, workspace_id=self.workspace_id, tags=query.tags
+            )
+            if missing_tags:
+                stale.extend(
+                    CaseViewStaleRef(kind="tag", value=tag) for tag in missing_tags
+                )
+                # Blank entries match nothing, so they must not count as kept.
+                kept = [
+                    tag for tag in query.tags if tag.strip() and tag not in missing_tags
+                ]
+                empty.tags = not kept
+                update["tags"] = kept or None
+
+        if query.dropdown:
+            definitions = {parse_dropdown_entry(e)[0] for e in query.dropdown}
+            _, existing = await self._existing_dropdowns(definitions)
+            missing_options = [
+                entry for entry in query.dropdown if entry not in existing
+            ]
+            if missing_options:
+                stale.extend(
+                    CaseViewStaleRef(kind="dropdown", value=entry)
+                    for entry in missing_options
+                )
+                kept = [entry for entry in query.dropdown if entry in existing]
+                kept_definitions = {parse_dropdown_entry(e)[0] for e in kept}
+                empty.dropdown_refs = sorted(definitions - kept_definitions)
+                update["dropdown"] = kept or None
+
+        tree_stale = await self._stale_filter_tree_refs(query)
+        if tree_stale:
+            # Rewriting an AND/OR/NOT tree could widen it, so a tree naming a
+            # deleted tag or option matches nothing until the view is fixed.
+            stale.extend(tree_stale)
+            empty.filters = True
+            update["filters"] = None
+
+        cleaned = query.model_copy(update=update) if update else query
+        return _CleanedQuery(query=cleaned, stale_refs=stale, empty_rules=empty)
+
+    async def _stale_filter_tree_refs(
+        self, query: CaseCriteria
+    ) -> list[CaseViewStaleRef]:
+        """Find deleted tags, dropdowns, and dropdown options in the filter tree."""
+        tag_refs: set[str] = set()
+        dropdown_refs: set[str] = set()
+        dropdown_options: set[tuple[str, str]] = set()
+        for condition in iter_case_filter_conditions(query.filters):
+            values = (
+                condition.value
+                if isinstance(condition.value, list)
+                else [condition.value]
+            )
+            names = [str(value) for value in values if value is not None]
+            if condition.field == "tags":
+                tag_refs.update(names)
+            elif condition.field.startswith(DROPDOWN_PREFIX):
+                ref = condition.field.removeprefix(DROPDOWN_PREFIX)
+                # Conditions such as is_null name a dropdown but no option.
+                dropdown_refs.add(ref)
+                dropdown_options.update((ref, name) for name in names)
+        stale: list[CaseViewStaleRef] = []
+        if tag_refs:
+            existing_tags = set(
+                (
+                    await self.session.execute(
+                        select(CaseTag.ref).where(
+                            CaseTag.workspace_id == self.workspace_id,
+                            CaseTag.ref.in_(tag_refs),
+                        )
+                    )
+                ).scalars()
+            )
+            stale.extend(
+                CaseViewStaleRef(kind="tag", value=ref)
+                for ref in sorted(tag_refs - existing_tags)
+            )
+        if dropdown_refs:
+            existing_refs, existing_entries = await self._existing_dropdowns(
+                dropdown_refs
+            )
+            # A deleted dropdown is reported once, not once per option.
+            stale.extend(
+                CaseViewStaleRef(kind="dropdown", value=ref)
+                for ref in sorted(dropdown_refs - existing_refs)
+            )
+            # Keep the refs apart, so a blank option value is never re-parsed.
+            for ref, name in sorted(dropdown_options):
+                entry = format_dropdown_entry(ref, name)
+                if ref in existing_refs and entry not in existing_entries:
+                    stale.append(CaseViewStaleRef(kind="dropdown", value=entry))
+        return stale
+
+    async def _existing_dropdowns(
+        self, definition_refs: set[str]
+    ) -> tuple[set[str], set[str]]:
+        """Return which of these dropdowns exist, and their options as entries."""
+        if not definition_refs:
+            return set(), set()
+        rows = (
+            await self.session.execute(
+                select(CaseDropdownDefinition.ref, CaseDropdownOption.ref)
+                .outerjoin(
+                    CaseDropdownOption,
+                    CaseDropdownOption.definition_id == CaseDropdownDefinition.id,
+                )
+                .where(
+                    CaseDropdownDefinition.workspace_id == self.workspace_id,
+                    CaseDropdownDefinition.ref.in_(definition_refs),
+                )
+            )
+        ).tuples()
+        refs: set[str] = set()
+        entries: set[str] = set()
+        for definition, option in rows:
+            refs.add(definition)
+            if option is not None:
+                entries.add(format_dropdown_entry(definition, option))
+        return refs, entries

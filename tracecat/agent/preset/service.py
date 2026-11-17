@@ -19,6 +19,8 @@ from sqlalchemy.orm import load_only, selectinload
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.channel_bots.platform_app import is_live_platform_install
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -85,6 +87,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelBot,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
@@ -1064,6 +1067,24 @@ class AgentPresetService(BaseWorkspaceService):
             for ref in config.subagents
         ]
 
+    async def _require_no_platform_channel_install(self, preset_id: uuid.UUID) -> None:
+        """A platform app install answers every unrouted channel with its default agent, so
+        losing it would silence the install. Only a live install counts."""
+        install_id = await self.session.scalar(
+            select(AgentChannelBot.id)
+            .where(
+                AgentChannelBot.workspace_id == self.workspace_id,
+                AgentChannelBot.agent_preset_id == preset_id,
+                is_live_platform_install(),
+            )
+            .limit(1)
+        )
+        if install_id is not None:
+            raise TracecatValidationError(
+                "This agent is the default agent of an installed Tracecat channel app;"
+                " make another agent the default before deleting this one"
+            )
+
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
     async def delete_preset(
@@ -1088,6 +1109,7 @@ class AgentPresetService(BaseWorkspaceService):
             )
         )
         await self._lock_preset_row(preset.id)
+        await self._require_no_platform_channel_install(preset.id)
         channel_service = AgentChannelService(self.session, role=self.role)
         await channel_service.deactivate_tokens_for_preset(preset.id)
         for model in (AgentPreset, AgentPresetVersion):
@@ -1168,11 +1190,22 @@ class AgentPresetService(BaseWorkspaceService):
             preset_version=preset_version,
             include_deleted=include_deleted,
         )
-        return await self._version_to_agent_config(
+        config = await self._version_to_agent_config(
             version,
             prune_tool_tunnels=prune_tool_tunnels,
             resolve_dependencies_from_heads=resolve_dependencies_from_heads,
         )
+        # Runtime only: stored presets keep the retired model.
+        if replacement := await AgentCatalogService(
+            self.session
+        ).resolve_model_replacement(
+            role=self.role,
+            model_provider=config.model_provider,
+            model_name=config.model_name,
+            catalog_id=config.catalog_id,
+        ):
+            config = dataclasses.replace(config, **replacement.selection_update())
+        return config
 
     async def resolve_agent_preset_version(
         self,

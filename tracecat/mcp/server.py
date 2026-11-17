@@ -14,7 +14,14 @@ import json
 import re
 import uuid
 from collections import defaultdict, deque
-from collections.abc import AsyncIterator, Collection, Mapping, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Collection,
+    Mapping,
+    Sequence,
+)
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -50,6 +57,15 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views.schemas import (
+    CaseViewCreate,
+    CaseViewListRead,
+    CaseViewPinUpdate,
+    CaseViewRead,
+    CaseViewSort,
+    CaseViewUpdate,
+)
+from tracecat_ee.cases.views.service import CaseViewsService
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
@@ -129,10 +145,13 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    CaseViewVisibility,
 )
 from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
     CaseEventRead,
+    CommentDeletedEventRead,
+    CommentReplyDeletedEventRead,
     TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.schemas import (
@@ -152,7 +171,7 @@ from tracecat.cases.schemas import (
     CaseTaskUpdate,
     CaseUpdate,
 )
-from tracecat.cases.search_schemas import CaseSearchRequest
+from tracecat.cases.search_schemas import CaseSearchOrder, CaseSearchRequest
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
@@ -182,11 +201,11 @@ from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
     ScopeDeniedError,
+    TracecatAuthorizationError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.forms.access import can_read_form_config
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.exceptions import FormError
@@ -257,6 +276,8 @@ from tracecat.pagination import (
     CursorPaginationParams,
     PageParams,
 )
+from tracecat.redis.auth import create_redis_client
+from tracecat.redis.client import resolve_redis_url
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
     RegistryActionsService,
@@ -281,6 +302,7 @@ from tracecat.storage.object import (
     retrieve_stored_object,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.folders.service import TableFolderService
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -1080,7 +1102,7 @@ class SkillTreeSkillItem(BaseModel):
 
     type: Literal["skill"]
     name: str
-    slug: str
+    skill_slug: str
     description: str | None = None
     current_version_id: uuid.UUID | None = None
     folder_path: str
@@ -1296,6 +1318,70 @@ class TableResponse(TableSummaryResponse):
     """Table metadata response."""
 
     columns: list[TableColumnResponse] = Field(default_factory=list)
+
+
+class TableFolderCreatedResponse(BaseModel):
+    """Created table folder response."""
+
+    path: str
+    folder_id: uuid.UUID
+    created_paths: list[str]
+    already_existed: bool
+
+
+class TableTreeFolderItem(BaseModel):
+    """Folder item in the table tree response."""
+
+    type: Literal["folder"]
+    path: str
+    name: str
+    depth: int
+
+
+class TableTreeTableItem(BaseModel):
+    """Table item in the table tree response."""
+
+    type: Literal["table"]
+    table_id: uuid.UUID
+    name: str
+    folder_path: str
+    depth: int
+
+
+TableTreeItem = TableTreeFolderItem | TableTreeTableItem
+
+
+class TableTreeResponse(MCPPaginatedResponse[TableTreeItem]):
+    """Paginated table tree response."""
+
+    root_path: str
+    depth: int | Literal["unlimited"]
+
+
+class TableMoveItem(BaseModel):
+    """Table move candidate/result item."""
+
+    table_id: uuid.UUID
+    name: str
+
+
+class TableMoveError(BaseModel):
+    """Per-table move error."""
+
+    table_id: str
+    error: str
+
+
+class TableMoveResponse(BaseModel):
+    """Bulk table move response."""
+
+    destination_path: str
+    requested_count: int
+    moved_count: int | None = None
+    movable_count: int | None = None
+    moved_tables: list[TableMoveItem] = Field(default_factory=list)
+    movable_tables: list[TableMoveItem] = Field(default_factory=list)
+    errors: list[TableMoveError] = Field(default_factory=list)
 
 
 class TableRowResponse(BaseModel):
@@ -1578,7 +1664,7 @@ def _get_workflow_artifact_redis() -> AsyncRedis:
     """Get the Redis client used for MCP file artifact metadata."""
     global _workflow_artifact_redis
     if _workflow_artifact_redis is None:
-        _workflow_artifact_redis = AsyncRedis.from_url(config.REDIS_URL)
+        _workflow_artifact_redis = create_redis_client(resolve_redis_url())
     return _workflow_artifact_redis
 
 
@@ -2859,8 +2945,8 @@ Loops: `core.loop.start`, `core.loop.end`
 Workflow: `core.workflow.create_workflow`, `core.workflow.edit_workflow`,
 `core.workflow.execute`, `core.workflow.get_authoring_context`,
 `core.workflow.get_case_trigger`, `core.workflow.get_status`,
-`core.workflow.get_webhook`, `core.workflow.get_workflow`,
-`core.workflow.list_executions`, `core.workflow.publish`,
+`core.workflow.delete_workflow_tag`, `core.workflow.get_webhook`,
+`core.workflow.get_workflow`, `core.workflow.list_executions`, `core.workflow.publish`,
 `core.workflow.run`, `core.workflow.update_case_trigger`,
 `core.workflow.update_webhook`
 
@@ -2871,20 +2957,22 @@ Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.cre
 `core.table.lookup`, `core.table.lookup_many`, `core.table.search`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
-Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
+Cases: `core.cases.add_case_tag`, `core.cases.add_sub_cases`,
+`core.cases.aggregate_cases`, `core.cases.assign_user`,
 `core.cases.assign_user_by_email`, `core.cases.create_case`,
 `core.cases.create_comment`, `core.cases.create_task`,
 `core.cases.delete_attachment`, `core.cases.delete_case`,
-`core.cases.delete_comment`, `core.cases.delete_task`, `core.cases.download_attachment`,
+`core.cases.delete_case_tag`, `core.cases.delete_comment`, `core.cases.delete_task`, `core.cases.download_attachment`,
 `core.cases.get_attachment`, `core.cases.get_attachment_download_url`,
 `core.cases.get_case`, `core.cases.get_case_metrics`,
 `core.cases.get_comment_thread`, `core.cases.get_linked_case_rows`,
 `core.cases.get_task`, `core.cases.insert_row`, `core.cases.link_row`,
 `core.cases.list_attachments`, `core.cases.list_case_events`,
-`core.cases.list_cases`, `core.cases.list_cases_by_row`,
+`core.cases.list_case_views`, `core.cases.list_cases`, `core.cases.list_cases_by_row`,
 `core.cases.list_comment_threads`, `core.cases.list_comments`,
 `core.cases.list_tasks`,
-`core.cases.remove_case_tag`, `core.cases.reply_to_comment`,
+`core.cases.remove_case_tag`, `core.cases.remove_sub_cases`,
+`core.cases.reply_to_comment`,
 `core.cases.run_task`, `core.cases.search_cases`, `core.cases.unlink_row`,
 `core.cases.update_case`, `core.cases.update_comment`,
 `core.cases.update_task`, `core.cases.upload_attachment`,
@@ -3074,7 +3162,8 @@ There is no `TRIGGER.payload`. A case trigger delivers `case_id`, `event`
 (`id`, `type`, `data`, `created_at`, `user_id`, `wf_exec_id`), `tags` (objects
 with `id`, `ref`, `name`, `color`), and `workspace_id`. `status: online` requires
 a non-empty `event_types`. `tag_filters` are tag refs matched with OR semantics;
-an empty list means no tag filtering.
+an empty list means no tag filtering. `tag_added`/`tag_removed` events match the
+added or removed tag; other events match the case's current tags.
 ```yaml
 case_trigger:
   status: online
@@ -3616,6 +3705,67 @@ def _paginate_items[T](
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         has_more=next_cursor is not None,
+        has_previous=start > 0,
+    )
+
+
+async def _list_folder_tree_page[T](
+    *,
+    tool_name: str,
+    list_directory: Callable[[str], Awaitable[Sequence[BaseModel]]],
+    build_item: Callable[[dict[str, Any], str, int], T | None],
+    root_path: str,
+    depth: int,
+    limit: int,
+    cursor: str | None,
+    filters: dict[str, Any],
+) -> MCPPaginatedResponse[T]:
+    """Walk a folder tree breadth-first and return one page of items.
+
+    Stops reading directories once the page is full, so cost scales with the
+    requested page instead of the whole tree.
+    """
+    limit = _normalize_limit(
+        limit,
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    fingerprint = _pagination_fingerprint(tool_name, **filters)
+    start = (
+        _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
+        if cursor is not None
+        else 0
+    )
+    end = start + limit
+    queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+    items: list[T] = []
+    seen_items = 0
+    has_more = False
+
+    while queue and not has_more:
+        current_path, current_depth = queue.popleft()
+        for entry in await list_directory(current_path):
+            payload = entry.model_dump(mode="json")
+            if payload["type"] == "folder" and (depth == 0 or current_depth < depth):
+                queue.append((payload["path"], current_depth + 1))
+            item = build_item(payload, current_path, current_depth)
+            if item is None:
+                continue
+            if seen_items >= end:
+                has_more = True
+                break
+            if seen_items >= start:
+                items.append(item)
+            seen_items += 1
+
+    prev_start = max(0, start - limit)
+    return MCPPaginatedResponse[T](
+        items=items,
+        next_cursor=_encode_offset_cursor(end, fingerprint) if has_more else None,
+        prev_cursor=(
+            _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
+        ),
+        has_more=has_more,
         has_previous=start > 0,
     )
 
@@ -4648,49 +4798,37 @@ async def list_workflow_tree(
         _, role = await _resolve_workspace_role(workspace_id)
         root_path = _normalize_folder_path_arg(path)
 
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> WorkflowTreeItem | None:
+            if payload["type"] == "folder":
+                return WorkflowTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_workflows:
+                return None
+            return WorkflowTreeWorkflowItem(
+                type="workflow",
+                workflow_id=WorkflowUUID.new(payload["id"]).short(),
+                title=payload["title"],
+                alias=payload["alias"],
+                status=payload["status"],
+                tags=payload.get("tags") or [],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
+
         async with WorkflowFolderService.with_session(role=role) as svc:
-            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
-            items: list[WorkflowTreeItem] = []
-
-            while queue:
-                current_path, current_depth = queue.popleft()
-                for item in await svc.get_directory_items(
-                    current_path, order_by="desc"
-                ):
-                    payload = item.model_dump(mode="json")
-                    if payload["type"] == "folder":
-                        items.append(
-                            WorkflowTreeFolderItem(
-                                type="folder",
-                                path=payload["path"],
-                                name=payload["name"],
-                                depth=current_depth,
-                            )
-                        )
-                        if depth == 0 or current_depth < depth:
-                            queue.append((payload["path"], current_depth + 1))
-                    elif include_workflows:
-                        items.append(
-                            WorkflowTreeWorkflowItem(
-                                type="workflow",
-                                workflow_id=WorkflowUUID.new(payload["id"]).short(),
-                                title=payload["title"],
-                                alias=payload["alias"],
-                                status=payload["status"],
-                                folder_path=current_path,
-                                depth=current_depth,
-                                tags=payload.get("tags") or [],
-                            )
-                        )
-
-            page = _paginate_items(
-                items,
+            page = await _list_folder_tree_page(
                 tool_name="list_workflow_tree",
-                limit=_normalize_limit(
-                    limit,
-                    default=config.TRACECAT__LIMIT_DEFAULT,
-                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-                ),
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
+                root_path=root_path,
+                depth=depth,
+                limit=limit,
                 cursor=cursor,
                 filters={
                     "path": root_path,
@@ -4698,18 +4836,26 @@ async def list_workflow_tree(
                     "include_workflows": include_workflows,
                 },
             )
-            return WorkflowTreeResponse(
-                items=page.items,
-                next_cursor=page.next_cursor,
-                prev_cursor=page.prev_cursor,
-                has_more=page.has_more,
-                has_previous=page.has_previous,
-                root_path=root_path,
-                depth="unlimited" if depth == 0 else depth,
-            )
+        return WorkflowTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list workflow tree", error=str(e))
@@ -4778,7 +4924,15 @@ async def create_workflow_folder(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create workflow folder", error=str(e))
@@ -4791,7 +4945,17 @@ async def rename_workflow_folder(
     path: str,
     new_name: str,
 ) -> FolderOperationResponse:
-    """Rename a workflow folder by absolute path."""
+    """Rename a workflow folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -4809,7 +4973,15 @@ async def rename_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename workflow folder", error=str(e))
@@ -4822,7 +4994,18 @@ async def move_workflow_folder(
     path: str,
     destination_parent_path: str = "/",
 ) -> FolderOperationResponse:
-    """Move a workflow folder under a new parent path."""
+    """Move a workflow folder under a new parent path.
+
+    The folder's subfolders and workflows move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -4852,7 +5035,15 @@ async def move_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move workflow folder", error=str(e))
@@ -4865,7 +5056,17 @@ async def delete_workflow_folder(
     path: str,
     recursive: bool = False,
 ) -> FolderDeleteResponse:
-    """Delete a workflow folder by absolute path."""
+    """Delete a workflow folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their workflows move to the workspace root.
+            Workflows are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -4885,7 +5086,15 @@ async def delete_workflow_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete workflow folder", error=str(e))
@@ -4927,36 +5136,38 @@ async def move_workflows(
                 if folder is None:
                     raise ToolError(f"Folder {normalized_destination} not found")
 
-            validated: list[WorkflowMoveItem] = []
             errors: list[WorkflowMoveError] = []
+            requested_uuids: list[tuple[str, WorkflowUUID]] = []
             for raw_workflow_id in workflow_ids:
                 try:
-                    workflow_uuid = WorkflowUUID.new(raw_workflow_id)
+                    requested_uuids.append(
+                        (raw_workflow_id, WorkflowUUID.new(raw_workflow_id))
+                    )
                 except ValueError as e:
                     errors.append(
                         WorkflowMoveError(workflow_id=raw_workflow_id, error=str(e))
                     )
-                    continue
 
-                statement = select(Workflow.id, Workflow.title).where(
-                    Workflow.workspace_id == folder_svc.workspace_id,
-                    Workflow.id == workflow_uuid,
-                )
-                result = await folder_svc.session.execute(statement)
-                if row := result.one_or_none():
-                    validated.append(
-                        WorkflowMoveItem(
-                            workflow_id=row.id,
-                            title=row.title,
-                        )
-                    )
+            workflow_titles = await folder_svc.get_workflow_titles(
+                {workflow_uuid for _, workflow_uuid in requested_uuids}
+            )
+            managed_ids = await folder_svc.get_managed_workflow_ids(
+                workflow_titles.keys()
+            )
+            validated: list[WorkflowMoveItem] = []
+            for raw_workflow_id, workflow_uuid in requested_uuids:
+                if (title := workflow_titles.get(workflow_uuid)) is None:
+                    error = f"Workflow {raw_workflow_id} not found"
+                elif workflow_uuid in managed_ids:
+                    error = LOCKED_MESSAGE
                 else:
-                    errors.append(
-                        WorkflowMoveError(
-                            workflow_id=raw_workflow_id,
-                            error=f"Workflow {raw_workflow_id} not found",
-                        )
+                    validated.append(
+                        WorkflowMoveItem(workflow_id=workflow_uuid, title=title)
                     )
+                    continue
+                errors.append(
+                    WorkflowMoveError(workflow_id=raw_workflow_id, error=error)
+                )
 
             if dry_run:
                 return WorkflowMoveResponse(
@@ -4975,6 +5186,15 @@ async def move_workflows(
                     moved.append(workflow_info)
                 except Exception as e:
                     await folder_svc.session.rollback()
+                    if folder is not None:
+                        # Rollback expires the destination; reload it for later moves.
+                        folder = await folder_svc.get_folder_by_path(
+                            normalized_destination
+                        )
+                        if folder is None:
+                            raise ToolError(
+                                f"Folder {normalized_destination} not found"
+                            ) from None
                     errors.append(
                         WorkflowMoveError(
                             workflow_id=workflow_info.workflow_id,
@@ -4991,7 +5211,15 @@ async def move_workflows(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move workflows", error=str(e))
@@ -6388,8 +6616,9 @@ Args:
         valid values are listed above.
     tag_filters: List of case tag *refs* (slugs), e.g. `["malware","phishing"]`,
         not tag names or UUIDs. Refs are OR-matched: the trigger fires when the
-        case carries any listed tag. An empty list means no tag filtering. Refs
-        that do not exist yet are created automatically.
+        case carries any listed tag, or for `tag_added`/`tag_removed` when the
+        added or removed tag is listed. An empty list means no tag filtering.
+        Refs that do not exist yet are created automatically.
 
 Returns a confirmation message.
 """
@@ -6445,14 +6674,12 @@ async def _forms_service(
 ) -> AsyncIterator[FormsService]:
     """Open the forms service for one form tool call and map its errors.
 
-    Checks, in order: the caller's workspace role, the ``forms`` feature flag,
-    the ``forms`` entitlement, and the scopes. Any error raised inside the
-    block, the tool's own included, reaches the client as a ``ToolError``.
+    Checks, in order: the caller's workspace role, the ``forms`` entitlement,
+    and the scopes. Any error raised inside the block, the tool's own
+    included, reaches the client as a ``ToolError``.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        if not is_feature_enabled(FeatureFlag.FORMS):
-            raise ToolError("Forms are not enabled on this Tracecat instance")
         async with FormsService.with_session(role=role) as svc:
             if not await svc.has_entitlement(Entitlement.FORMS):
                 raise EntitlementRequired(Entitlement.FORMS.value)
@@ -6871,6 +7098,7 @@ async def search_cases(
     workspace_id: uuid.UUID,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
+    view_id: str | None = None,
     search_term: str | None = None,
     search_mode: Literal["full_text", "literal"] | None = None,
     search_columns: list[Literal["summary", "description"]] | None = None,
@@ -6891,6 +7119,9 @@ async def search_cases(
     end_time: datetime | None = None,
     updated_after: datetime | None = None,
     updated_before: datetime | None = None,
+    created_by: list[str] | None = None,
+    created_within: dict[str, Any] | None = None,
+    updated_within: dict[str, Any] | None = None,
     include_rows: bool = False,
     field_ids: list[str] | None = None,
     include_durations: bool = False,
@@ -6903,6 +7134,12 @@ async def search_cases(
         workspace_id: The workspace ID.
         limit: Maximum items per page.
         cursor: Cursor for pagination.
+        view_id: Run a saved case view (UUID from list_case_views) or a
+            built-in assigned_to_me view.
+            The view supplies the matching criteria: ``filters`` is ANDed with
+            it, and other matching arguments are rejected. Paging, result
+            options, and order_by/sort still apply; order_by overrides the
+            view's saved order.
         search_term: Text to search for in case summary, description, short
             ID, or case UUID.
         search_mode: Explicit full_text words/phrases or literal substring; omitted preserves legacy behavior.
@@ -6939,6 +7176,12 @@ async def search_cases(
         end_time: Inclusive creation upper bound.
         updated_after: Inclusive update lower bound.
         updated_before: Inclusive update upper bound.
+        created_by: User IDs who created the case, or "me" for you.
+        created_within: Created in a window ending now, e.g.
+            {"amount": 30, "unit": "day"}; units hour, day, week, month.
+            Replaces start_time/end_time.
+        updated_within: Updated in a window ending now. Replaces
+            updated_after/updated_before.
         include_rows: Include linked table rows.
         field_ids: Include these custom field values.
         include_durations: Include durations when entitled.
@@ -6973,6 +7216,7 @@ async def search_cases(
                     max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
                 ),
                 "cursor": cursor,
+                "view_id": view_id,
                 "search_term": search_term,
                 "search_mode": search_mode,
                 "search_columns": search_columns,
@@ -6993,6 +7237,9 @@ async def search_cases(
                 "end_time": end_time,
                 "updated_after": updated_after,
                 "updated_before": updated_before,
+                "created_by": created_by,
+                "created_within": created_within,
+                "updated_within": updated_within,
                 "include_rows": include_rows,
                 "field_ids": field_ids,
                 "include_durations": include_durations,
@@ -7006,13 +7253,206 @@ async def search_cases(
         raise ToolError(
             f"Missing required scope: {', '.join(e.required_scopes)}"
         ) from e
-    except (EntitlementRequired, TracecatValidationError) as e:
+    except (EntitlementRequired, TracecatValidationError, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to search cases", error=str(e))
         raise ToolError(f"Failed to search cases: {e}") from None
+
+
+def _case_view_tool_error(exc: Exception, action: str) -> ToolError:
+    """Turn a case view error into the message an agent sees."""
+    match exc:
+        case ToolError():
+            return exc
+        case ScopeDeniedError():
+            return ToolError(
+                f"Missing required scope: {', '.join(exc.required_scopes)}"
+            )
+        case EntitlementRequired():
+            return ToolError(
+                "Case views need the case add-ons entitlement on this "
+                "organization's plan"
+            )
+        case (
+            TracecatNotFoundError()
+            | TracecatAuthorizationError()
+            | TracecatValidationError()
+            | ValueError()
+        ):
+            # Pydantic's ValidationError is a ValueError: a bad view or query.
+            return ToolError(str(exc))
+    logger.error(f"Failed to {action}", error=str(exc))
+    # Keep internal details in the log, not in the agent-facing message.
+    return ToolError(f"Failed to {action}")
+
+
+@mcp.tool()
+async def list_case_views(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+    pinned: bool = False,
+    include_builtins: bool = True,
+) -> CaseViewListRead:
+    """List case views you can see, to run with search_cases(view_id=...).
+
+    Saved views are personal (only you) or shared with the workspace and come
+    back one page at a time in ``saved``. The read-only built-in view,
+    assigned_to_me, is defined by Tracecat and comes back separately in
+    ``builtins``. With ``pinned``, both lists hold only the views you pinned.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum saved views per page.
+        cursor: Cursor for the next page of saved views.
+        pinned: Only views you pinned to your sidebar, in pin order. Saved
+            and built-in pins share one order; compare ``pin_position``.
+        include_builtins: Return the built-in views in ``builtins``.
+
+    Returns ``builtins`` and a paginated ``saved`` list. Each view has its
+    ``id``, ``name``, ``visibility``, and the ``query`` it runs.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        page_params = PageParams(
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+        async with CaseViewsService.with_session(role=role) as svc:
+            saved = await svc.list_views(page_params, pinned_only=pinned)
+            builtins = (
+                await svc.list_builtins(pinned_only=pinned) if include_builtins else []
+            )
+            return CaseViewListRead(builtins=builtins, saved=saved)
+    except Exception as e:
+        raise _case_view_tool_error(e, "list case views") from e
+
+
+@mcp.tool()
+async def create_case_view(
+    workspace_id: uuid.UUID,
+    name: str,
+    query: dict[str, Any] | None = None,
+    visibility: CaseViewVisibility = CaseViewVisibility.PERSONAL,
+    order_by: CaseSearchOrder | None = None,
+    sort: CaseViewSort | None = None,
+    columns: list[str] | None = None,
+) -> CaseViewRead:
+    """Save a case search as a named view, to run with search_cases(view_id=...).
+
+    Args:
+        workspace_id: The workspace ID.
+        name: The view's name.
+        query: The matching criteria, with the same fields as search_cases,
+            such as {"status": ["new"], "tags": ["phishing"],
+            "created_within": {"amount": 30, "unit": "day"}}. Omit to match
+            every case.
+        visibility: "personal" (only you) or "workspace" (everyone in the
+            workspace). Sharing with the workspace requires case:update.
+        order_by: The saved sort field, such as "created_at" or "priority".
+        sort: The saved sort direction.
+        columns: Column IDs the cases page shows for this view.
+
+    Returns the saved view, including its ``id``.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        params = CaseViewCreate.model_validate(
+            {
+                "name": name,
+                "visibility": visibility,
+                "query": query or {},
+                "order_by": order_by,
+                "sort": sort,
+                "columns": columns,
+            }
+        )
+        async with CaseViewsService.with_session(role=role) as svc:
+            return await svc.create_view(params)
+    except Exception as e:
+        raise _case_view_tool_error(e, "create case view") from e
+
+
+@mcp.tool()
+async def update_case_view(
+    workspace_id: uuid.UUID,
+    view_id: str,
+    changes: dict[str, Any],
+) -> CaseViewRead:
+    """Change, share, or unshare a saved case view you can edit.
+
+    Args:
+        workspace_id: The workspace ID.
+        view_id: The saved view's ID. Built-in views cannot be changed.
+        changes: Only the fields to change: name, visibility ("personal" or
+            "workspace"), query, order_by, sort, and columns. query replaces
+            the whole saved query. order_by, sort, and columns accept null to
+            clear them. Sharing with the workspace requires case:update.
+
+    Returns the updated view.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        params = CaseViewUpdate.model_validate(changes)
+        async with CaseViewsService.with_session(role=role) as svc:
+            return await svc.update_view(view_id, params)
+    except Exception as e:
+        raise _case_view_tool_error(e, "update case view") from e
+
+
+@mcp.tool()
+async def pin_case_view(
+    workspace_id: uuid.UUID,
+    view_id: str,
+    position: int | None = None,
+) -> CaseViewRead:
+    """Pin a case view to your own sidebar.
+
+    Args:
+        workspace_id: The workspace ID.
+        view_id: A saved view's ID or a built-in view ID, such as
+            assigned_to_me.
+        position: Where to place it among your pins, from 0. Omit to add it
+            last; a view that is already pinned keeps its current place.
+
+    Returns the view with its pin position.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        pin = CaseViewPinUpdate.model_validate({"position": position})
+        async with CaseViewsService.with_session(role=role) as svc:
+            return await svc.pin_view(view_id, position=pin.position)
+    except Exception as e:
+        raise _case_view_tool_error(e, "pin case view") from e
+
+
+@mcp.tool()
+async def unpin_case_view(workspace_id: uuid.UUID, view_id: str) -> MCPMessageResponse:
+    """Remove a case view from your own sidebar.
+
+    Args:
+        workspace_id: The workspace ID.
+        view_id: A saved view's ID or a built-in view ID.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "case:read")
+        async with CaseViewsService.with_session(role=role) as svc:
+            await svc.unpin_view(view_id)
+        return MCPMessageResponse(message=f"Unpinned case view {view_id}")
+    except Exception as e:
+        raise _case_view_tool_error(e, "unpin case view") from e
 
 
 @mcp.tool()
@@ -7149,13 +7589,9 @@ async def create_case(
         )
 
         async with CasesService.with_session(role=role) as svc:
-            case = await svc.create_case(params)
-
-            if tags:
-                for tag in tags:
-                    await svc.tags.add_case_tag(
-                        case.id, tag, create_if_missing=create_missing_tags
-                    )
+            case = await svc.create_case(
+                params, tags=tags or (), create_missing_tags=create_missing_tags
+            )
 
             return CaseCreatedResponse(
                 message="Case created successfully",
@@ -7550,6 +7986,10 @@ async def delete_case_comment(
 ) -> MCPMessageResponse:
     """Delete a comment from a case.
 
+    Workspace admins (``case:delete``) can delete any comment, including
+    other users' comments. Deletion is a soft delete: the comment is hidden
+    from the thread but kept in the database and recorded as a case event.
+
     Args:
         workspace_id: The workspace ID.
         case_id: Case UUID.
@@ -7576,7 +8016,11 @@ async def delete_case_comment(
             )
     except ToolError:
         raise
-    except (TracecatValidationError, TracecatNotFoundError) as e:
+    except (
+        TracecatAuthorizationError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+    ) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -7954,6 +8398,13 @@ async def list_case_events(
                         user_ids.add(root_evt.old)
                     if root_evt.new is not None:
                         user_ids.add(root_evt.new)
+                if (
+                    isinstance(
+                        root_evt, CommentDeletedEventRead | CommentReplyDeletedEventRead
+                    )
+                    and root_evt.author_id is not None
+                ):
+                    user_ids.add(root_evt.author_id)
                 if root_evt.user_id is not None:
                     user_ids.add(root_evt.user_id)
                 events.append(evt)
@@ -8934,6 +9385,454 @@ async def update_table(
     except Exception as e:
         logger.error("Failed to update table", error=str(e))
         raise ToolError(f"Failed to update table: {e}") from None
+
+
+@mcp.tool()
+async def list_table_tree(
+    workspace_id: uuid.UUID,
+    path: str = "/",
+    depth: int = 1,
+    include_tables: bool = True,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> TableTreeResponse:
+    """List table folders and tables under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_tables: Whether to include tables alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> TableTreeItem | None:
+            if payload["type"] == "folder":
+                return TableTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_tables:
+                return None
+            return TableTreeTableItem(
+                type="table",
+                table_id=payload["id"],
+                name=payload["name"],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
+
+        async with TableFolderService.with_session(role=role) as svc:
+            page = await _list_folder_tree_page(
+                tool_name="list_table_tree",
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
+                root_path=root_path,
+                depth=depth,
+                limit=limit,
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_tables": include_tables,
+                },
+            )
+        return TableTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list table tree", error=str(e))
+        raise ToolError(f"Failed to list table tree: {e}") from None
+
+
+@mcp.tool()
+async def create_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    parents: bool = False,
+) -> TableFolderCreatedResponse:
+    """Create a table folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/iocs/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with TableFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return TableFolderCreatedResponse(
+                path=normalized_path,
+                folder_id=folder.id,
+                created_paths=created_paths,
+                already_existed=not created_paths,
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create table folder", error=str(e))
+        raise ToolError(f"Failed to create table folder: {e}") from None
+
+
+@mcp.tool()
+async def rename_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    new_name: str,
+) -> FolderOperationResponse:
+    """Rename a table folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with TableFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            renamed = await svc.rename_folder(folder.id, new_name)
+            return FolderOperationResponse(
+                folder_id=renamed.id,
+                path=renamed.path,
+                message=f"Table folder {normalized_path} renamed to {renamed.path}",
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to rename table folder", error=str(e))
+        raise ToolError(f"Failed to rename table folder: {e}") from None
+
+
+@mcp.tool()
+async def move_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    destination_parent_path: str = "/",
+) -> FolderOperationResponse:
+    """Move a table folder under a new parent path.
+
+    The folder's subfolders and tables move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        normalized_parent_path = _normalize_folder_path_arg(destination_parent_path)
+
+        async with TableFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+
+            new_parent_id = None
+            if normalized_parent_path != "/":
+                parent_folder = await svc.get_folder_by_path(normalized_parent_path)
+                if parent_folder is None:
+                    raise ToolError(f"Folder {normalized_parent_path} not found")
+                new_parent_id = parent_folder.id
+
+            moved = await svc.move_folder(folder.id, new_parent_id)
+            return FolderOperationResponse(
+                folder_id=moved.id,
+                path=moved.path,
+                message=(
+                    f"Table folder {normalized_path} moved under "
+                    f"{normalized_parent_path}"
+                ),
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move table folder", error=str(e))
+        raise ToolError(f"Failed to move table folder: {e}") from None
+
+
+@mcp.tool()
+async def delete_table_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    recursive: bool = False,
+) -> FolderDeleteResponse:
+    """Delete a table folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their tables move to the workspace root.
+            Tables are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with TableFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            folder_id = folder.id
+            await svc.delete_folder(folder_id, recursive=recursive)
+            return FolderDeleteResponse(
+                folder_id=folder_id,
+                path=normalized_path,
+                recursive=recursive,
+                message=f"Table folder {normalized_path} deleted",
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete table folder", error=str(e))
+        raise ToolError(f"Failed to delete table folder: {e}") from None
+
+
+@mcp.tool()
+async def move_tables(
+    workspace_id: uuid.UUID,
+    table_ids: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> TableMoveResponse:
+    """Move tables into or out of a folder.
+
+    This tool is best-effort and non-atomic. If one table fails to move,
+    the remaining table moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        table_ids: Table UUIDs.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved tables and per-table errors.
+    """
+
+    try:
+        if not table_ids:
+            raise ToolError("table_ids must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+
+        async with TableFolderService.with_session(role=role) as folder_svc:
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+
+            errors: list[TableMoveError] = []
+            requested_uuids: list[tuple[str, uuid.UUID]] = []
+            for raw_table_id in table_ids:
+                try:
+                    requested_uuids.append((raw_table_id, uuid.UUID(raw_table_id)))
+                except ValueError:
+                    errors.append(
+                        TableMoveError(
+                            table_id=raw_table_id,
+                            error=f"Invalid table ID {raw_table_id!r}",
+                        )
+                    )
+
+            table_names = await folder_svc.get_table_names(
+                {table_uuid for _, table_uuid in requested_uuids}
+            )
+
+            managed_ids = await folder_svc.get_managed_table_ids(table_names.keys())
+            validated: list[TableMoveItem] = []
+            for raw_table_id, table_uuid in requested_uuids:
+                if (name := table_names.get(table_uuid)) is None:
+                    error = f"Table {raw_table_id} not found"
+                elif table_uuid in managed_ids:
+                    error = LOCKED_MESSAGE
+                else:
+                    validated.append(TableMoveItem(table_id=table_uuid, name=name))
+                    continue
+                errors.append(TableMoveError(table_id=raw_table_id, error=error))
+
+            if dry_run:
+                return TableMoveResponse(
+                    destination_path=normalized_destination,
+                    requested_count=len(table_ids),
+                    movable_count=len(validated),
+                    movable_tables=validated,
+                    errors=errors,
+                )
+
+            moved: list[TableMoveItem] = []
+            for table_info in validated:
+                try:
+                    await folder_svc.move_table(table_info.table_id, folder)
+                    moved.append(table_info)
+                except Exception as e:
+                    await folder_svc.session.rollback()
+                    if folder is not None:
+                        # Rollback expires the destination; reload it for later moves.
+                        folder = await folder_svc.get_folder_by_path(
+                            normalized_destination
+                        )
+                        if folder is None:
+                            raise ToolError(
+                                f"Folder {normalized_destination} not found"
+                            ) from None
+                    errors.append(
+                        TableMoveError(
+                            table_id=str(table_info.table_id),
+                            error=str(e),
+                        )
+                    )
+
+            return TableMoveResponse(
+                destination_path=normalized_destination,
+                requested_count=len(table_ids),
+                moved_count=len(moved),
+                moved_tables=moved,
+                errors=errors,
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move tables", error=str(e))
+        raise ToolError(f"Failed to move tables: {e}") from None
 
 
 @mcp.tool()
@@ -10054,7 +10953,17 @@ async def list_agent_tree(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
 ) -> AgentTreeResponse:
-    """List agent folders and presets under a path."""
+    """List agent folders and presets under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_presets: Whether to include presets alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
 
     try:
         if depth < 0:
@@ -10062,89 +10971,65 @@ async def list_agent_tree(
 
         _, role = await _resolve_workspace_role(workspace_id)
         root_path = _normalize_folder_path_arg(path)
-        limit = _normalize_limit(
-            limit,
-            default=config.TRACECAT__LIMIT_DEFAULT,
-            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-        )
-        filters = {
-            "path": root_path,
-            "depth": depth,
-            "include_presets": include_presets,
-        }
-        fingerprint = _pagination_fingerprint("list_agent_tree", **filters)
-        start = (
-            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
-            if cursor is not None
-            else 0
-        )
-        end = start + limit
+
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> AgentTreeItem | None:
+            if payload["type"] == "folder":
+                return AgentTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_presets:
+                return None
+            return AgentTreePresetItem(
+                type="preset",
+                preset_slug=payload["slug"],
+                name=payload["name"],
+                model_provider=payload.get("model_provider"),
+                model_name=payload.get("model_name"),
+                tags=payload.get("tags") or [],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
 
         async with AgentFolderService.with_session(role=role) as svc:
-            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
-            items: list[AgentTreeItem] = []
-            seen_items = 0
-            has_more = False
-
-            def collect_item(item: AgentTreeItem) -> None:
-                nonlocal seen_items, has_more
-                if seen_items >= end:
-                    has_more = True
-                    return
-                if seen_items >= start:
-                    items.append(item)
-                seen_items += 1
-
-            while queue and not has_more:
-                current_path, current_depth = queue.popleft()
-                for item in await svc.get_directory_items(
-                    current_path, order_by="desc"
-                ):
-                    payload = item.model_dump(mode="json")
-                    if payload["type"] == "folder":
-                        collect_item(
-                            AgentTreeFolderItem(
-                                type="folder",
-                                path=payload["path"],
-                                name=payload["name"],
-                                depth=current_depth,
-                            )
-                        )
-                        if depth == 0 or current_depth < depth:
-                            queue.append((payload["path"], current_depth + 1))
-                    elif include_presets:
-                        collect_item(
-                            AgentTreePresetItem(
-                                type="preset",
-                                preset_slug=payload["slug"],
-                                name=payload["name"],
-                                folder_path=current_path,
-                                depth=current_depth,
-                                model_provider=payload.get("model_provider"),
-                                model_name=payload.get("model_name"),
-                                tags=payload.get("tags") or [],
-                            )
-                        )
-                    if has_more:
-                        break
-
-            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
-            prev_start = max(0, start - limit)
-            prev_cursor = (
-                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
-            )
-            return AgentTreeResponse(
-                items=items,
-                next_cursor=next_cursor,
-                prev_cursor=prev_cursor,
-                has_more=next_cursor is not None,
-                has_previous=start > 0,
+            page = await _list_folder_tree_page(
+                tool_name="list_agent_tree",
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
                 root_path=root_path,
-                depth="unlimited" if depth == 0 else depth,
+                depth=depth,
+                limit=limit,
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_presets": include_presets,
+                },
             )
+        return AgentTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list agent tree", error=str(e))
@@ -10157,7 +11042,15 @@ async def create_agent_folder(
     path: str,
     parents: bool = False,
 ) -> AgentFolderCreatedResponse:
-    """Create an agent folder by absolute path."""
+    """Create an agent folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/triage/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10205,7 +11098,15 @@ async def create_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create agent folder", error=str(e))
@@ -10218,7 +11119,17 @@ async def rename_agent_folder(
     path: str,
     new_name: str,
 ) -> FolderOperationResponse:
-    """Rename an agent folder by absolute path."""
+    """Rename an agent folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10236,7 +11147,15 @@ async def rename_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename agent folder", error=str(e))
@@ -10249,7 +11168,18 @@ async def move_agent_folder(
     path: str,
     destination_parent_path: str = "/",
 ) -> FolderOperationResponse:
-    """Move an agent folder under a new parent path."""
+    """Move an agent folder under a new parent path.
+
+    The folder's subfolders and presets move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10279,7 +11209,15 @@ async def move_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move agent folder", error=str(e))
@@ -10292,7 +11230,17 @@ async def delete_agent_folder(
     path: str,
     recursive: bool = False,
 ) -> FolderDeleteResponse:
-    """Delete an agent folder by absolute path."""
+    """Delete an agent folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their presets move to the workspace root.
+            Presets are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10312,7 +11260,15 @@ async def delete_agent_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete agent folder", error=str(e))
@@ -10326,7 +11282,19 @@ async def move_agent_presets(
     destination_path: str = "/",
     dry_run: bool = False,
 ) -> AgentPresetMoveResponse:
-    """Move agent presets into or out of a folder by preset slug."""
+    """Move agent presets into or out of a folder by preset slug.
+
+    This tool is best-effort and non-atomic. If one preset fails to move,
+    the remaining preset moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        preset_slugs: Agent preset slugs.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved presets and per-preset errors.
+    """
 
     try:
         if not preset_slugs:
@@ -10373,6 +11341,21 @@ async def move_agent_presets(
                         )
                     )
 
+            managed_ids = await folder_svc.get_managed_preset_ids(
+                {preset_id for preset_id, _ in validated}
+            )
+            if managed_ids:
+                errors.extend(
+                    AgentPresetMoveError(
+                        preset_slug=item.preset_slug, error=LOCKED_MESSAGE
+                    )
+                    for preset_id, item in validated
+                    if preset_id in managed_ids
+                )
+                validated = [
+                    entry for entry in validated if entry[0] not in managed_ids
+                ]
+
             if dry_run:
                 return AgentPresetMoveResponse(
                     destination_path=normalized_destination,
@@ -10389,6 +11372,15 @@ async def move_agent_presets(
                     moved.append(preset_info)
                 except Exception as e:
                     await folder_svc.session.rollback()
+                    if folder is not None:
+                        # Rollback expires the destination; reload it for later moves.
+                        folder = await folder_svc.get_folder_by_path(
+                            normalized_destination
+                        )
+                        if folder is None:
+                            raise ToolError(
+                                f"Folder {normalized_destination} not found"
+                            ) from None
                     errors.append(
                         AgentPresetMoveError(
                             preset_slug=preset_info.preset_slug,
@@ -10405,7 +11397,15 @@ async def move_agent_presets(
             )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move agent presets", error=str(e))
@@ -10421,94 +11421,85 @@ async def list_skill_tree(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
 ) -> SkillTreeResponse:
-    """List skill folders and skills under a path."""
+    """List skill folders and skills under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_skills: Whether to include skills alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
 
     try:
         if depth < 0:
             raise ToolError("depth must be >= 0")
+
         _, role = await _resolve_workspace_role(workspace_id)
         root_path = _normalize_folder_path_arg(path)
-        limit = _normalize_limit(
-            limit,
-            default=config.TRACECAT__LIMIT_DEFAULT,
-            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-        )
-        filters = {"path": root_path, "depth": depth, "include_skills": include_skills}
-        fingerprint = _pagination_fingerprint("list_skill_tree", **filters)
-        start = (
-            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
-            if cursor is not None
-            else 0
-        )
-        end = start + limit
+
+        def build_item(
+            payload: dict[str, Any], folder_path: str, item_depth: int
+        ) -> SkillTreeItem | None:
+            if payload["type"] == "folder":
+                return SkillTreeFolderItem(
+                    type="folder",
+                    path=payload["path"],
+                    name=payload["name"],
+                    depth=item_depth,
+                )
+            if not include_skills:
+                return None
+            return SkillTreeSkillItem(
+                type="skill",
+                skill_slug=payload["slug"],
+                name=payload["name"],
+                description=payload.get("description"),
+                current_version_id=payload.get("current_version_id"),
+                tags=payload.get("tags") or [],
+                created_at=payload["created_at"],
+                updated_at=payload["updated_at"],
+                folder_path=folder_path,
+                depth=item_depth,
+            )
 
         async with SkillFolderService.with_session(role=role) as svc:
-            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
-            items: list[SkillTreeItem] = []
-            seen_items = 0
-            has_more = False
-
-            def collect_item(item: SkillTreeItem) -> None:
-                nonlocal seen_items, has_more
-                if seen_items >= end:
-                    has_more = True
-                    return
-                if seen_items >= start:
-                    items.append(item)
-                seen_items += 1
-
-            while queue and not has_more:
-                current_path, current_depth = queue.popleft()
-                for item in await svc.get_directory_items(
-                    current_path, order_by="desc"
-                ):
-                    payload = item.model_dump(mode="json")
-                    if payload["type"] == "folder":
-                        collect_item(
-                            SkillTreeFolderItem(
-                                type="folder",
-                                path=payload["path"],
-                                name=payload["name"],
-                                depth=current_depth,
-                            )
-                        )
-                        if depth == 0 or current_depth < depth:
-                            queue.append((payload["path"], current_depth + 1))
-                    elif include_skills:
-                        collect_item(
-                            SkillTreeSkillItem(
-                                type="skill",
-                                name=payload["name"],
-                                slug=payload["slug"],
-                                description=payload.get("description"),
-                                current_version_id=payload.get("current_version_id"),
-                                folder_path=current_path,
-                                depth=current_depth,
-                                tags=payload.get("tags") or [],
-                                created_at=payload["created_at"],
-                                updated_at=payload["updated_at"],
-                            )
-                        )
-                    if has_more:
-                        break
-
-            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
-            prev_start = max(0, start - limit)
-            prev_cursor = (
-                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
-            )
-            return SkillTreeResponse(
-                items=items,
-                next_cursor=next_cursor,
-                prev_cursor=prev_cursor,
-                has_more=next_cursor is not None,
-                has_previous=start > 0,
+            page = await _list_folder_tree_page(
+                tool_name="list_skill_tree",
+                list_directory=lambda p: svc.get_directory_items(p, order_by="desc"),
+                build_item=build_item,
                 root_path=root_path,
-                depth="unlimited" if depth == 0 else depth,
+                depth=depth,
+                limit=limit,
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_skills": include_skills,
+                },
             )
+        return SkillTreeResponse(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            root_path=root_path,
+            depth="unlimited" if depth == 0 else depth,
+        )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list skill tree", error=str(e))
@@ -10521,7 +11512,15 @@ async def create_skill_folder(
     path: str,
     parents: bool = False,
 ) -> SkillFolderCreatedResponse:
-    """Create a skill folder by absolute path."""
+    """Create a skill folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/triage/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10569,7 +11568,15 @@ async def create_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to create skill folder", error=str(e))
@@ -10582,7 +11589,17 @@ async def rename_skill_folder(
     path: str,
     new_name: str,
 ) -> FolderOperationResponse:
-    """Rename a skill folder by absolute path."""
+    """Rename a skill folder by absolute path.
+
+    The folder keeps its position; its path and every descendant path change.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        new_name: New folder name. Must not contain "/".
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10600,7 +11617,15 @@ async def rename_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to rename skill folder", error=str(e))
@@ -10613,7 +11638,18 @@ async def move_skill_folder(
     path: str,
     destination_parent_path: str = "/",
 ) -> FolderOperationResponse:
-    """Move a skill folder under a new parent path."""
+    """Move a skill folder under a new parent path.
+
+    The folder's subfolders and skills move with it.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute path of the folder to move, e.g. "/security/triage/".
+        destination_parent_path: Absolute path of the new parent folder, or "/"
+            for the workspace root.
+
+    Returns JSON with the folder ID and its new path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10643,7 +11679,15 @@ async def move_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move skill folder", error=str(e))
@@ -10656,7 +11700,17 @@ async def delete_skill_folder(
     path: str,
     recursive: bool = False,
 ) -> FolderDeleteResponse:
-    """Delete a skill folder by absolute path."""
+    """Delete a skill folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path, e.g. "/security/triage/".
+        recursive: When false, the folder must be empty. When true, subfolders
+            are deleted and their skills move to the workspace root.
+            Skills are never deleted.
+
+    Returns JSON with the deleted folder's ID and path.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -10676,7 +11730,15 @@ async def delete_skill_folder(
             )
     except ToolError:
         raise
-    except (ValueError, TracecatValidationError) as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to delete skill folder", error=str(e))
@@ -10690,7 +11752,19 @@ async def move_skills(
     destination_path: str = "/",
     dry_run: bool = False,
 ) -> SkillMoveResponse:
-    """Move skills by slug into a destination folder."""
+    """Move skills into or out of a folder by skill slug.
+
+    This tool is best-effort and non-atomic. If one skill fails to move,
+    the remaining skill moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        skill_slugs: Skill slugs.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved skills and per-skill errors.
+    """
 
     try:
         if not skill_slugs:
@@ -10737,6 +11811,18 @@ async def move_skills(
                             ),
                         )
                     )
+                managed_ids = await folder_svc.get_managed_skill_ids(
+                    {skill_id for skill_id, _ in validated}
+                )
+                if managed_ids:
+                    errors.extend(
+                        SkillMoveError(skill_slug=item.skill_slug, error=LOCKED_MESSAGE)
+                        for skill_id, item in validated
+                        if skill_id in managed_ids
+                    )
+                    validated = [
+                        entry for entry in validated if entry[0] not in managed_ids
+                    ]
                 if dry_run:
                     return SkillMoveResponse(
                         destination_path=normalized_destination,
@@ -10753,6 +11839,15 @@ async def move_skills(
                         moved.append(skill_info)
                     except Exception as e:
                         await folder_svc.session.rollback()
+                        if folder is not None:
+                            # Rollback expires the destination; reload it for later moves.
+                            folder = await folder_svc.get_folder_by_path(
+                                normalized_destination
+                            )
+                            if folder is None:
+                                raise ToolError(
+                                    f"Folder {normalized_destination} not found"
+                                ) from None
                         errors.append(
                             SkillMoveError(
                                 skill_slug=skill_info.skill_slug,
@@ -10768,7 +11863,15 @@ async def move_skills(
                 )
     except ToolError:
         raise
-    except ValueError as e:
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        ValueError,
+        TracecatValidationError,
+        TracecatNotFoundError,
+        TracecatAuthorizationError,
+    ) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to move skills", error=str(e))

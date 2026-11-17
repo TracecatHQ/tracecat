@@ -51,6 +51,7 @@ import {
 } from "@/components/agents/agents-catalog-view-toggle"
 import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
+import { useAgentsChannelsHref } from "@/components/agents/external-channels/agents-channels-href"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -69,6 +70,7 @@ import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
+import { CaseViewHeaderSlot } from "@/components/cases/case-view-header-slot"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -96,6 +98,10 @@ import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import {
+  normalizeTableFolderPath,
+  TableFolderCreateDialog,
+} from "@/components/tables/table-folder-dialogs"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
@@ -261,8 +267,12 @@ function WorkflowsBreadcrumb({
 }
 
 function TablesActions() {
-  const [activeDialog, setActiveDialog] = useState<"create" | "import" | null>(
-    null
+  const searchParams = useSearchParams()
+  const [activeDialog, setActiveDialog] = useState<
+    "create" | "import" | "folder" | null
+  >(null)
+  const currentFolderPath = normalizeTableFolderPath(
+    searchParams?.get("path") ?? null
   )
 
   return (
@@ -306,15 +316,31 @@ function TablesActions() {
               </span>
             </div>
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("folder")}>
+            <FolderIcon className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Folder</span>
+              <span className="text-xs text-muted-foreground">
+                Organize tables into folders
+              </span>
+            </div>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <CreateTableDialog
         open={activeDialog === "create"}
         onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
+        folderPath={currentFolderPath}
       />
       <TableImportTableDialog
         open={activeDialog === "import"}
         onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
+        folderPath={currentFolderPath}
+      />
+      <TableFolderCreateDialog
+        open={activeDialog === "folder"}
+        onOpenChange={(open) => setActiveDialog(open ? "folder" : null)}
+        parentPath={currentFolderPath}
       />
     </>
   )
@@ -715,9 +741,12 @@ function AgentsActions() {
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
 
+  const channelsHref = useAgentsChannelsHref(workspaceId)
   const catalogView = pathname?.includes("/agents/tags")
     ? AgentsCatalogViewMode.Tags
-    : AgentsCatalogViewMode.Agents
+    : pathname?.includes("/agents/channels")
+      ? AgentsCatalogViewMode.Channels
+      : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
   const isFoldersView =
@@ -738,7 +767,7 @@ function AgentsActions() {
           />
         )
       }
-    } else {
+    } else if (catalogView === AgentsCatalogViewMode.Agents) {
       agentActionControls = (
         <>
           <DropdownMenu>
@@ -798,11 +827,12 @@ function AgentsActions() {
 
   return (
     <>
-      {organizationEnabled ? (
+      {organizationEnabled || channelsHref ? (
         <AgentsCatalogViewToggle
           view={catalogView}
           agentsHref={agentsHref}
-          tagsHref={tagsHref}
+          tagsHref={organizationEnabled ? tagsHref : undefined}
+          channelsHref={channelsHref}
         />
       ) : null}
       <WorkspaceResourceSyncActions
@@ -2469,6 +2499,19 @@ function getPageConfig(
       }
     }
 
+    if (pagePath === "/agents/channels") {
+      return {
+        title: (
+          <FolderPathBreadcrumb
+            rootLabel="Agents"
+            rootHref={`${basePath}/agents`}
+            currentPage="Channels"
+          />
+        ),
+        actions: <AgentsActions />,
+      }
+    }
+
     // Agent preset detail page
     const agentPresetMatch = pagePath.match(/^\/agents\/([^/]+)$/)
     if (agentPresetMatch) {
@@ -2826,6 +2869,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         ) : (
           titleContent
         )}
+        {isCasesListPage && <CaseViewHeaderSlot />}
       </div>
 
       {/* Middle section: bulk selection actions */}

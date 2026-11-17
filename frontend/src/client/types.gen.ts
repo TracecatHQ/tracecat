@@ -455,6 +455,67 @@ export type AgentCatalogRead = {
   model_metadata: {
     [key: string]: unknown
   } | null
+  /**
+   * Deprecation of a platform model; ``None`` while it is current.
+   */
+  readonly lifecycle: ModelLifecycleRead | null
+}
+
+/**
+ * Reserve a bot before the provider app exists.
+ */
+export type AgentChannelBotCreate = {
+  agent_preset_id: string
+  provider: ChannelBotProvider
+}
+
+export type AgentChannelBotRead = {
+  id: string
+  workspace_id: string
+  /**
+   * The agent that answers; a platform install's default agent.
+   */
+  agent_preset_id: string
+  provider: ChannelBotProvider
+  app_owner: ChannelBotAppOwner
+  status: ChannelBotStatus
+  provider_tenant_id: string | null
+  provider_app_id: string | null
+  /**
+   * Inbound event URL; None when the bot's events arrive over a socket.
+   */
+  endpoint_url: string | null
+  created_at: string
+  updated_at: string
+  details: ChannelBotDetails
+}
+
+export type AgentChannelBotUpdate = {
+  /**
+   * New target. Existing threads stay on the agent they started with.
+   */
+  agent_preset_id?: string | null
+  status?: ChannelBotRunState | null
+  /**
+   * Must name the bot's provider.
+   */
+  credentials?: ChannelBotCredentialsUpdate | null
+}
+
+export type AgentChannelRouteRead = {
+  bot_id: string
+  provider_channel_id: string
+  agent_preset_id: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Answer new threads in one channel with another agent than the default.
+ */
+export type AgentChannelRouteSet = {
+  provider_channel_id: string
+  agent_preset_id: string
 }
 
 /**
@@ -1276,6 +1337,10 @@ export type AgentSessionRead = {
    * Whether the requesting actor can modify this session
    */
   is_readonly?: boolean
+  /**
+   * Whether the requesting actor can approve or deny this session's tool calls
+   */
+  can_decide_approvals?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -1311,6 +1376,10 @@ export type AgentSessionReadVercel = {
    * Whether the requesting actor can modify this session
    */
   is_readonly?: boolean
+  /**
+   * Whether the requesting actor can approve or deny this session's tool calls
+   */
+  can_decide_approvals?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -1350,6 +1419,10 @@ export type AgentSessionReadWithMessages = {
    * Whether the requesting actor can modify this session
    */
   is_readonly?: boolean
+  /**
+   * Whether the requesting actor can approve or deny this session's tool calls
+   */
+  can_decide_approvals?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
@@ -1416,6 +1489,7 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
+  agent_auto_migrate_retired_models?: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -1435,6 +1509,10 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
+  /**
+   * Whether runs on a retired model move to its replacement when that model is enabled.
+   */
+  agent_auto_migrate_retired_models?: boolean
 }
 
 /**
@@ -1509,8 +1587,15 @@ export type AlertArtifact = {
 /**
  * A conjunction of one or more filters.
  */
-export type AndClause = {
-  and: Array<Filter>
+export type AndClause_Input = {
+  and: Array<Filter_Input>
+}
+
+/**
+ * A conjunction of one or more filters.
+ */
+export type AndClause_Output = {
+  and: Array<Filter_Output>
 }
 
 export type AnyAttachedSubagentRef =
@@ -2102,6 +2187,7 @@ export type Body_tables_import_csv = {
 export type Body_tables_import_table_from_csv = {
   file: Blob | File
   table_name?: string | null
+  folder_path?: string | null
 }
 
 export type Body_workflows_create_workflow = {
@@ -2128,6 +2214,8 @@ export type BooleanApprovalDecision = {
  * Edition of the running deployment.
  */
 export type BuildEdition = "oss" | "ee"
+
+export type BuiltinCaseViewId = "assigned_to_me"
 
 /**
  * Lifecycle state for the durable backfill operation.
@@ -2378,6 +2466,122 @@ export type CaseCreate = {
    * Create the case as a sub-case of this top-level case.
    */
   parent_id?: string | null
+}
+
+/**
+ * Matching criteria shared by case search, status counts, and saved views.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseCriteria_Input = {
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter_Input | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
+   */
+  created_by?: Array<string | "me"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
+  updated_after?: string | null
+  updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+}
+
+export type hierarchy = "all" | "top_level"
+
+/**
+ * Matching criteria shared by case search, status counts, and saved views.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseCriteria_Output = {
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter_Output | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
+   */
+  created_by?: Array<string | "me"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
+  updated_after?: string | null
+  updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
 }
 
 /**
@@ -2945,25 +3149,13 @@ export type CasePriority =
   | "other"
 
 /**
- * Matching criteria shared by case search and filtered status counts.
- *
- * Explicit text, identity, and hierarchy constraints are combined with
- * ``filters`` using AND. Workspace and entitlement checks belong to the
- * service and cannot be supplied or negated by this request.
- *
- * Tag membership uses existing filter nodes: ``in`` matches any tag, an
- * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
- * ``in`` excludes the selected tags. ``is_null`` matches no tags.
- *
- * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
- * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
- * unset values explicitly with an ``or`` containing ``is_null``.
+ * Case criteria as a request runs them: on their own or through a view.
  */
 export type CaseQuery = {
   /**
    * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
    */
-  filters?: Filter | null
+  filters?: Filter_Input | null
   search_term?: string | null
   /**
    * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
@@ -2977,16 +3169,54 @@ export type CaseQuery = {
   status?: Array<CaseStatus> | null
   priority?: Array<CasePriority> | null
   severity?: Array<CaseSeverity> | null
-  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
+   */
+  created_by?: Array<string | "me"> | null
   tags?: Array<string> | null
   dropdown?: Array<string> | null
   start_time?: string | null
   end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
   updated_after?: string | null
   updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+  /**
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
+   */
+  view_id?: string | BuiltinCaseViewId | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
 
-export type hierarchy = "all" | "top_level"
+export type CaseQueryErrorCode = "current_user_required"
+
+/**
+ * A case query error with a machine-readable code.
+ */
+export type CaseQueryErrorDetail = {
+  code: CaseQueryErrorCode
+  message: string
+}
+
+/**
+ * A rejected case query: a plain message, or a typed error.
+ */
+export type CaseQueryErrorResponse = {
+  detail: string | CaseQueryErrorDetail
+}
 
 export type CaseRead = {
   id: string
@@ -3099,7 +3329,7 @@ export type CaseSearchRequest = {
   /**
    * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
    */
-  filters?: Filter | null
+  filters?: Filter_Input | null
   search_term?: string | null
   /**
    * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
@@ -3113,13 +3343,36 @@ export type CaseSearchRequest = {
   status?: Array<CaseStatus> | null
   priority?: Array<CasePriority> | null
   severity?: Array<CaseSeverity> | null
-  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  /**
+   * User IDs, "unassigned", or "me" for the requesting user.
+   */
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__" | "me"> | null
+  /**
+   * Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.
+   */
+  created_by?: Array<string | "me"> | null
   tags?: Array<string> | null
   dropdown?: Array<string> | null
   start_time?: string | null
   end_time?: string | null
+  /**
+   * Created within this window, ending at the time the query runs.
+   */
+  created_within?: RelativeTimeWindow | null
   updated_after?: string | null
   updated_before?: string | null
+  /**
+   * Updated within this window, ending at the time the query runs.
+   */
+  updated_within?: RelativeTimeWindow | null
+  /**
+   * Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.
+   */
+  view_id?: string | BuiltinCaseViewId | null
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
   order_by?: CaseSearchOrder | null
   sort?: "asc" | "desc" | null
   include_rows?: boolean
@@ -3133,10 +3386,6 @@ export type CaseSearchRequest = {
    * Place complete case references before filtered text matches within the authorized workspace.
    */
   promote_exact_match?: boolean
-  /**
-   * The ordinary filter population matches no cases.
-   */
-  match_none?: boolean
 }
 
 /**
@@ -3397,6 +3646,148 @@ export type CaseVersionRestoreRead = {
   field: CaseVersionField
 }
 
+export type CaseViewColumns = Array<string>
+
+/**
+ * Save a case search as a named view.
+ */
+export type CaseViewCreate = {
+  name: CaseViewName
+  visibility?: CaseViewVisibility
+  query?: CaseCriteria_Input
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: CaseViewColumns | null
+}
+
+/**
+ * One view in the form it runs in, with what deletions changed.
+ */
+export type CaseViewDetail = {
+  /**
+   * A UUID for saved views, or a built-in view ID.
+   */
+  id: string
+  kind: CaseViewKind
+  name: string
+  visibility: CaseViewVisibility
+  owner_id?: string | null
+  /**
+   * The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.
+   */
+  query: CaseCriteria_Output
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: Array<string> | null
+  /**
+   * Whether the requesting user may rename, change, or delete it.
+   */
+  can_edit: boolean
+  pinned?: boolean
+  pin_position?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+  /**
+   * Deleted tags, dropdowns, or dropdown options the stored query names. They are removed from query.
+   */
+  stale_refs: Array<CaseViewStaleRef>
+  /**
+   * Rules left with nothing to match after deletions.
+   */
+  empty_rules: CaseViewEmptyRules
+}
+
+/**
+ * Rules of a view left with nothing to match after deletions.
+ *
+ * Each one makes the view match no cases until it is given new values.
+ */
+export type CaseViewEmptyRules = {
+  tags?: boolean
+  dropdown_refs?: Array<string>
+  /**
+   * The advanced filter tree names something deleted.
+   */
+  filters?: boolean
+}
+
+export type CaseViewKind = "builtin" | "custom"
+
+export type CaseViewName = string
+
+/**
+ * Where to put a pinned view in the sidebar.
+ */
+export type CaseViewPinUpdate = {
+  /**
+   * Sidebar position. Omit to add the view at the end.
+   */
+  position?: number | null
+}
+
+/**
+ * A saved or built-in case view, as seen by the requesting user.
+ */
+export type CaseViewRead = {
+  /**
+   * A UUID for saved views, or a built-in view ID.
+   */
+  id: string
+  kind: CaseViewKind
+  name: string
+  visibility: CaseViewVisibility
+  owner_id?: string | null
+  /**
+   * The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.
+   */
+  query: CaseCriteria_Output
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: Array<string> | null
+  /**
+   * Whether the requesting user may rename, change, or delete it.
+   */
+  can_edit: boolean
+  pinned?: boolean
+  pin_position?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type CaseViewSort = "asc" | "desc"
+
+/**
+ * A reference in a view's query to something that no longer exists.
+ */
+export type CaseViewStaleRef = {
+  kind: "tag" | "dropdown"
+  /**
+   * The identifier as stored in the view's query: a tag ref, a `definition_ref:option_ref` entry, or a dropdown ref from the filter tree.
+   */
+  value: string
+}
+
+export type kind = "tag" | "dropdown"
+
+/**
+ * Change a saved view. Omitted fields stay as they are.
+ *
+ * ``order_by``, ``sort``, and ``columns`` accept ``null`` to clear them.
+ */
+export type CaseViewUpdate = {
+  name?: CaseViewName | null
+  visibility?: CaseViewVisibility | null
+  query?: CaseCriteria_Input | null
+  order_by?: CaseSearchOrder | null
+  sort?: CaseViewSort | null
+  columns?: CaseViewColumns | null
+}
+
+/**
+ * Who can see a saved case view.
+ */
+export type CaseViewVisibility = "personal" | "workspace"
+
 /**
  * Event for when a case is viewed.
  */
@@ -3462,6 +3853,87 @@ export type CatalogMappingSelection = {
   source_catalog_id: string
   target_catalog_id: string
 }
+
+/**
+ * Who owns a bot's provider app.
+ */
+export type ChannelBotAppOwner = "workspace" | "platform"
+
+/**
+ * A channel in the bot's provider tenant, which a route can name.
+ */
+export type ChannelBotChannel = {
+  id: string
+  name: string
+  is_private: boolean
+  is_member: boolean
+  team_id?: string | null
+  team_name?: string | null
+}
+
+export type ChannelBotCredentialsUpdate = SlackBotCredentialsUpdate
+
+export type ChannelBotDetails = SlackBotDetails
+
+export type ChannelBotInstall = SlackBotInstall
+
+export type ChannelBotInstallResult = {
+  bot: AgentChannelBotRead
+  /**
+   * Where to send the browser to finish the install; None when the provider has no browser step.
+   */
+  authorization_url: string | null
+}
+
+/**
+ * A provider app the deployment owns, which a workspace installs in one step.
+ */
+export type ChannelBotPlatformApp = {
+  provider: ChannelBotProvider
+}
+
+/**
+ * What a platform admin pastes into the deployment's own provider app.
+ */
+export type ChannelBotPlatformAppSetup = {
+  transport: ChannelBotTransport
+  oauth_redirect_url: string
+  request_url: string | null
+}
+
+/**
+ * Install the platform app, which the deployment registers, over OAuth; or reconnect.
+ */
+export type ChannelBotPlatformInstall = {
+  provider: ChannelBotProvider
+  /**
+   * Platform install to reconnect. If omitted, creates one.
+   */
+  bot_id?: string | null
+  /**
+   * The install's default agent. Required without bot_id; with it, replaces it.
+   */
+  agent_preset_id?: string | null
+  return_url: string
+}
+
+export type ChannelBotProvider = "slack"
+
+/**
+ * The statuses an admin sets directly; the others follow install and uninstall.
+ */
+export type ChannelBotRunState = "active" | "paused"
+
+export type ChannelBotStatus =
+  | "active"
+  | "paused"
+  | "disconnected"
+  | "needs_reconnect"
+
+/**
+ * How a bot's events arrive: posted to our endpoint, or read from a provider socket.
+ */
+export type ChannelBotTransport = "http" | "socket"
 
 /**
  * Supported external channel types.
@@ -3814,6 +4286,10 @@ export type CommentDeletedEventRead = {
   type?: "comment_deleted"
   delete_mode: CaseCommentDeleteMode
   /**
+   * The author of the deleted comment.
+   */
+  author_id?: string | null
+  /**
    * The user who performed the action.
    */
   user_id?: string | null
@@ -3858,6 +4334,10 @@ export type CommentReplyDeletedEventRead = {
   thread_root_id: string
   type?: "comment_reply_deleted"
   delete_mode: CaseCommentDeleteMode
+  /**
+   * The author of the deleted comment.
+   */
+  author_id?: string | null
   /**
    * The user who performed the action.
    */
@@ -3926,7 +4406,16 @@ export type CommitInfo = {
 /**
  * A predicate over one resolver-defined field.
  */
-export type Condition = {
+export type Condition_Input = {
+  field: string
+  op: FilterOp
+  value?: FilterValue | null
+}
+
+/**
+ * A predicate over one resolver-defined field.
+ */
+export type Condition_Output = {
   field: string
   op: FilterOp
   value?: FilterValue | null
@@ -3976,6 +4465,54 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   items: Array<AdminOrgInvitationRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentChannelBotRead_ = {
+  items: Array<AgentChannelBotRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentChannelRouteRead_ = {
+  items: Array<AgentChannelRouteRead>
   /**
    * Cursor for next page
    */
@@ -4144,6 +4681,54 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
 
 export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   items: Array<CaseVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_CaseViewRead_ = {
+  items: Array<CaseViewRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ChannelBotChannel_ = {
+  items: Array<ChannelBotChannel>
   /**
    * Cursor for next page
    */
@@ -4480,6 +5065,30 @@ export type CursorPaginatedResponse_SkillTagRead_ = {
 
 export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   items: Array<SkillVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_TableFolderRead_ = {
+  items: Array<TableFolderRead>
   /**
    * Cursor for next page
    */
@@ -5029,6 +5638,14 @@ export type EffectiveEntitlements = {
    * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
+  /**
+   * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
+   */
+  agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 /**
@@ -5166,6 +5783,14 @@ export type EntitlementsDict = {
    * Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions
    */
   agent_runtime_preview?: boolean
+  /**
+   * Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview
+   */
+  agent_runtime_workflows?: boolean
+  /**
+   * Whether the organization uses the channel bot API in place of legacy agent channels
+   */
+  agent_channels_preview?: boolean
 }
 
 export type ErrorModel = {
@@ -5342,7 +5967,6 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-fs-persistence"
   | "workspace-sync-github-archive"
-  | "forms"
 
 /**
  * Response model for feature flags.
@@ -5405,7 +6029,17 @@ export type FileUIPart = {
   }
 }
 
-export type Filter = Condition | AndClause | OrClause | NotClause
+export type Filter_Input =
+  | Condition_Input
+  | AndClause_Input
+  | OrClause_Input
+  | NotClause_Input
+
+export type Filter_Output =
+  | Condition_Output
+  | AndClause_Output
+  | OrClause_Output
+  | NotClause_Output
 
 /**
  * Operations supported by the shared filter language.
@@ -6487,6 +7121,24 @@ export type IPAllowlistCheckResult = {
 }
 
 /**
+ * The provider channel a session's linked thread is in.
+ */
+export type InboxChannelThread = {
+  /**
+   * Channel bot the thread is linked on
+   */
+  bot_id: string
+  /**
+   * The bot's provider
+   */
+  provider: ChannelBotProvider
+  /**
+   * The provider's channel ID
+   */
+  provider_channel_id: string
+}
+
+/**
  * Display groups for inbox items.
  *
  * Groups are derived from approval state and live workflow execution status,
@@ -6552,6 +7204,10 @@ export type InboxItemRead = {
   metadata?: {
     [key: string]: unknown
   } | null
+  /**
+   * The channel of the session's linked provider thread, if any
+   */
+  channel_thread?: InboxChannelThread | null
 }
 
 /**
@@ -6925,7 +7581,7 @@ export type LibrarySkillSourceRead = {
   kind: "upstream" | "local"
 }
 
-export type kind = "upstream" | "local"
+export type kind2 = "upstream" | "local"
 
 /**
  * Authentication type for MCP integrations.
@@ -7835,7 +8491,7 @@ export type MessageOrigin = {
   subkind?: "scheduled-trigger" | "peer-send-message"
 }
 
-export type kind2 =
+export type kind3 =
   | "human"
   | "channel"
   | "peer"
@@ -7922,6 +8578,21 @@ export type ModelCredentialUpdate = {
   }
 }
 
+/**
+ * Provider deprecation of a platform model, as of the request.
+ */
+export type ModelLifecycleRead = {
+  deprecated_on?: string | null
+  retires_on: string
+  /**
+   * Same-provider catalog model that retired runs move to.
+   */
+  replacement?: string | null
+  status: ModelLifecycleStatus
+}
+
+export type ModelLifecycleStatus = "deprecated" | "retired"
+
 export type ModelSecretConfig = {
   required?: Array<string>
   optional?: Array<string>
@@ -7949,8 +8620,15 @@ export type ModelUsage = {
 /**
  * The negation of one filter.
  */
-export type NotClause = {
-  not: Filter
+export type NotClause_Input = {
+  not: Filter_Input
+}
+
+/**
+ * The negation of one filter.
+ */
+export type NotClause_Output = {
+  not: Filter_Output
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -7984,8 +8662,15 @@ export type encoding = "json" | "json+zstd" | "json+gzip"
 /**
  * A disjunction of one or more filters.
  */
-export type OrClause = {
-  or: Array<Filter>
+export type OrClause_Input = {
+  or: Array<Filter_Input>
+}
+
+/**
+ * A disjunction of one or more filters.
+ */
+export type OrClause_Output = {
+  or: Array<Filter_Output>
 }
 
 /**
@@ -9225,6 +9910,23 @@ export type RegistryStatusResponse = {
 }
 
 /**
+ * Calendar units a relative time window can count back in.
+ */
+export type RelativeTimeUnit = "hour" | "day" | "week" | "month"
+
+/**
+ * A time range that ends now, such as "the last 30 days".
+ *
+ * The database resolves the start each time a query runs, so a saved view
+ * keeps meaning "the last 30 days" instead of a fixed date. Months use
+ * calendar arithmetic: one month before 31 March is 28 or 29 February.
+ */
+export type RelativeTimeWindow = {
+  amount: number
+  unit: RelativeTimeUnit
+}
+
+/**
  * Event for when a case is reopened.
  */
 export type ReopenedEventRead = {
@@ -9638,6 +10340,7 @@ export type RuntimeErrorKind =
   | "storage.materialization.invalid_data"
   | "storage.persistence.transport_unavailable"
   | "executor.activity.timed_out"
+  | "executor.worker.shutdown"
   | "executor.backend.initialization_failed"
   | "executor.registry.lease_contention"
   | "executor.registry.capacity_exhausted"
@@ -10668,7 +11371,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind3 = "inline" | "download"
+export type kind4 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -10920,6 +11623,64 @@ export type SkillVersionReadMinimal = {
 }
 
 /**
+ * Slack app credentials to replace; unset fields keep their stored value.
+ *
+ * No bot token: only OAuth sets one, together with the install it belongs to.
+ */
+export type SlackBotCredentialsUpdate = {
+  provider: "slack"
+  signing_secret?: string | null
+  client_id?: string | null
+  client_secret?: string | null
+}
+
+/**
+ * Secrets are reported only as present or not.
+ */
+export type SlackBotDetails = {
+  provider: "slack"
+  transport: ChannelBotTransport
+  provider_enterprise_id: string | null
+  provider_bot_user_id: string | null
+  granted_scopes: Array<string>
+  /**
+   * Required scopes the install did not grant; reinstall to add them.
+   */
+  missing_scopes: Array<string>
+  update_needed: boolean
+  manifest_version: number
+  client_id: string | null
+  has_bot_token: boolean
+  has_signing_secret: boolean
+  has_client_secret: boolean
+  oauth_redirect_url: string
+}
+
+/**
+ * Install a workspace-owned Slack app over OAuth.
+ */
+export type SlackBotInstall = {
+  /**
+   * Bot to install into; it must already target agent_preset_id. If omitted, creates one.
+   */
+  bot_id?: string | null
+  agent_preset_id: string
+  provider: "slack"
+  client_id: string
+  client_secret: string
+  signing_secret: string
+  /**
+   * App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.
+   */
+  app_token?: string | null
+  /**
+   * The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.
+   */
+  app_refresh_token?: string | null
+  return_url: string
+}
+
+/**
  * Slack channel token configuration.
  */
 export type SlackChannelTokenConfig = {
@@ -10977,6 +11738,48 @@ export type SlackOAuthStartRequest = {
 export type SlackOAuthStartResponse = {
   authorization_url: string
   token: AgentChannelTokenRead
+}
+
+/**
+ * The registration without its secrets, and what to paste into Slack.
+ */
+export type SlackPlatformAppRead = {
+  app_id: string | null
+  client_id: string | null
+  client_secret_set: boolean
+  signing_secret_set: boolean
+  app_token_set: boolean
+  icon_uploaded: boolean
+  distribution_enabled: boolean
+  unreadable: boolean
+  setup: ChannelBotPlatformAppSetup
+}
+
+/**
+ * Mark the Slack-only setup steps done or not done; an omitted step keeps its value.
+ */
+export type SlackPlatformAppSetupStepsUpdate = {
+  icon_uploaded?: boolean | null
+  distribution_enabled?: boolean | null
+}
+
+/**
+ * Register or change the app. An omitted secret keeps its stored value while the
+ * app ID stays the same.
+ */
+export type SlackPlatformAppUpdate = {
+  app_id: string
+  client_id: string
+  client_secret?: string | null
+  signing_secret?: string | null
+  /**
+   * App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.
+   */
+  app_token?: string | null
+  /**
+   * The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.
+   */
+  app_refresh_token?: string | null
 }
 
 /**
@@ -11056,6 +11859,8 @@ export type StatusChangedEventRead = {
 export type StepStartUIPart = {
   type: "step-start"
 }
+
+export type StoredCaseQuery = CaseCriteria_Input
 
 export type StreamEvent = {
   uuid: string
@@ -11332,6 +12137,59 @@ export type TableCreate = {
    * The columns of the table
    */
   columns?: Array<TableColumnCreate>
+  /**
+   * Folder to create the table in. Defaults to the workspace root.
+   */
+  folder_path?: string | null
+}
+
+/**
+ * Table as a directory item.
+ */
+export type TableDirectoryItem = {
+  type: "table"
+  id: string
+  name: string
+  folder_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TableFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type TableFolderDelete = {
+  recursive?: boolean
+}
+
+export type TableFolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
+export type TableFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type TableFolderRead = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type TableFolderUpdate = {
+  name?: string | null
 }
 
 /**
@@ -11341,6 +12199,13 @@ export type TableImportResponse = {
   table: TableRead
   rows_inserted: number
   column_mapping: Array<InferredColumn>
+}
+
+/**
+ * Payload for moving a table into a folder or the workspace root.
+ */
+export type TableMoveToFolder = {
+  folder_path?: string | null
 }
 
 /**
@@ -11358,6 +12223,7 @@ export type TableRead = {
 export type TableReadMinimal = {
   id: string
   name: string
+  folder_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -12914,7 +13780,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind4 = "download_file" | "download_export"
+export type kind5 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -13937,6 +14803,10 @@ export type WorkspaceAgentModelCandidate = {
     [key: string]: unknown
   } | null
   custom_provider_name?: string | null
+  /**
+   * Deprecation of a platform model; ``None`` while it is current.
+   */
+  readonly lifecycle: ModelLifecycleRead | null
 }
 
 /**
@@ -13972,6 +14842,10 @@ export type WorkspaceAgentModelRead = {
   } | null
   custom_provider_name?: string | null
   custom_provider_base_url?: string | null
+  /**
+   * Deprecation of a platform model; ``None`` while it is current.
+   */
+  readonly lifecycle: ModelLifecycleRead | null
 }
 
 export type WorkspaceCreate = {
@@ -14117,6 +14991,7 @@ export type WorkspaceSettingsRead = {
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
+  close_sub_cases_with_parent?: boolean | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -14150,6 +15025,10 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+  /**
+   * Whether closing or resolving a parent case also closes its open sub-cases and fills their empty required-on-closure fields and dropdowns from the parent. Defaults to true.
+   */
+  close_sub_cases_with_parent?: boolean | null
 }
 
 /**
@@ -14933,6 +15812,13 @@ export type GraphApplyGraphOperationsData = {
 }
 
 export type GraphApplyGraphOperationsResponse = GraphResponse
+
+export type GraphPreviewAutoLayoutData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type GraphPreviewAutoLayoutResponse = GraphResponse
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
   limit?: number | null
@@ -16051,6 +16937,123 @@ export type AgentChannelsStartSlackOauthData = {
 
 export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
 
+export type AgentChannelBotsListBotsData = {
+  agentPresetId?: string | null
+  appOwner?: ChannelBotAppOwner | null
+  cursor?: string | null
+  limit?: number
+  provider?: ChannelBotProvider | null
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotsResponse =
+  CursorPaginatedResponse_AgentChannelBotRead_
+
+export type AgentChannelBotsCreateBotData = {
+  requestBody: AgentChannelBotCreate
+  workspaceId: string
+}
+
+export type AgentChannelBotsCreateBotResponse = AgentChannelBotRead
+
+export type AgentChannelBotsUpdateBotData = {
+  botId: string
+  requestBody: AgentChannelBotUpdate
+  workspaceId: string
+}
+
+export type AgentChannelBotsUpdateBotResponse = AgentChannelBotRead
+
+export type AgentChannelBotsRotateBotEndpointData = {
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsRotateBotEndpointResponse = AgentChannelBotRead
+
+export type AgentChannelBotsDisconnectBotData = {
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsDisconnectBotResponse = AgentChannelBotRead
+
+export type AgentChannelBotsInstallBotData = {
+  requestBody: ChannelBotInstall
+  workspaceId: string
+}
+
+export type AgentChannelBotsInstallBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsListPlatformAppsData = {
+  workspaceId: string
+}
+
+export type AgentChannelBotsListPlatformAppsResponse =
+  Array<ChannelBotPlatformApp>
+
+export type AgentChannelBotsInstallPlatformBotData = {
+  requestBody: ChannelBotPlatformInstall
+  workspaceId: string
+}
+
+export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsListBotRoutesData = {
+  agentPresetId?: string | null
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotRoutesResponse =
+  CursorPaginatedResponse_AgentChannelRouteRead_
+
+export type AgentChannelBotsAddBotRouteData = {
+  botId: string
+  requestBody: AgentChannelRouteSet
+  workspaceId: string
+}
+
+export type AgentChannelBotsAddBotRouteResponse = AgentChannelRouteRead
+
+export type AgentChannelBotsSetBotRouteData = {
+  botId: string
+  requestBody: AgentChannelRouteSet
+  workspaceId: string
+}
+
+export type AgentChannelBotsSetBotRouteResponse = AgentChannelRouteRead
+
+export type AgentChannelBotsDeleteBotRouteData = {
+  botId: string
+  providerChannelId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsDeleteBotRouteResponse = void
+
+export type AgentChannelBotsListBotChannelsData = {
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
+
+export type AgentChannelBotsListBotRoutableChannelsData = {
+  botId: string
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentChannelBotsListBotRoutableChannelsResponse =
+  CursorPaginatedResponse_ChannelBotChannel_
+
 export type AgentPresetsListAgentPresetsData = {
   useInChat?: boolean | null
   workspaceId: string
@@ -16721,6 +17724,13 @@ export type AgentSessionsStreamSessionEventsData = {
 
 export type AgentSessionsStreamSessionEventsResponse = unknown
 
+export type AgentSessionsStreamSessionFeedData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsStreamSessionFeedResponse = unknown
+
 export type AgentSessionsListPendingMessagesData = {
   sessionId: string
   workspaceId: string
@@ -17276,6 +18286,22 @@ export type AdminRegistryDeleteRegistryVersionData = {
 
 export type AdminRegistryDeleteRegistryVersionResponse = void
 
+export type AdminSlackAppGetSlackAppResponse = SlackPlatformAppRead
+
+export type AdminSlackAppSaveSlackAppData = {
+  requestBody: SlackPlatformAppUpdate
+}
+
+export type AdminSlackAppSaveSlackAppResponse = SlackPlatformAppRead
+
+export type AdminSlackAppDeleteSlackAppResponse = void
+
+export type AdminSlackAppMarkSlackAppSetupStepsData = {
+  requestBody: SlackPlatformAppSetupStepsUpdate
+}
+
+export type AdminSlackAppMarkSlackAppSetupStepsResponse = SlackPlatformAppRead
+
 export type InboxGetPendingCountData = {
   workspaceId: string
 }
@@ -17646,6 +18672,14 @@ export type TablesDeleteTableData = {
 
 export type TablesDeleteTableResponse = void
 
+export type TablesMoveTableData = {
+  requestBody: TableMoveToFolder
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesMoveTableResponse = void
+
 export type TablesCreateColumnData = {
   requestBody: TableColumnCreate
   tableId: string
@@ -17801,6 +18835,70 @@ export type TablesGetTableSearchProgressData = {
 }
 
 export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
+
+export type TableFoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type TableFoldersGetDirectoryResponse = Array<
+  TableDirectoryItem | TableFolderDirectoryItem
+>
+
+export type TableFoldersListFoldersData = {
+  cursor?: string | null
+  limit?: number
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type TableFoldersListFoldersResponse =
+  CursorPaginatedResponse_TableFolderRead_
+
+export type TableFoldersCreateFolderData = {
+  requestBody: TableFolderCreate
+  workspaceId: string
+}
+
+export type TableFoldersCreateFolderResponse = TableFolderRead
+
+export type TableFoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type TableFoldersGetFolderResponse = TableFolderRead
+
+export type TableFoldersUpdateFolderData = {
+  folderId: string
+  requestBody: TableFolderUpdate
+  workspaceId: string
+}
+
+export type TableFoldersUpdateFolderResponse = TableFolderRead
+
+export type TableFoldersDeleteFolderData = {
+  folderId: string
+  requestBody?: TableFolderDelete | null
+  workspaceId: string
+}
+
+export type TableFoldersDeleteFolderResponse = void
+
+export type TableFoldersMoveFolderData = {
+  folderId: string
+  requestBody: TableFolderMove
+  workspaceId: string
+}
+
+export type TableFoldersMoveFolderResponse = TableFolderRead
 
 export type FormsListFormsData = {
   cursor?: string | null
@@ -18609,6 +19707,72 @@ export type CaseTagsDeleteCaseTagData = {
 }
 
 export type CaseTagsDeleteCaseTagResponse = void
+
+export type CaseViewsListCaseViewsData = {
+  /**
+   * Continuation cursor
+   */
+  cursor?: string | null
+  limit?: number
+  /**
+   * Only views the requesting user pinned, in pin order
+   */
+  pinned?: boolean
+  workspaceId: string
+}
+
+export type CaseViewsListCaseViewsResponse =
+  CursorPaginatedResponse_CaseViewRead_
+
+export type CaseViewsCreateCaseViewData = {
+  requestBody: CaseViewCreate
+  workspaceId: string
+}
+
+export type CaseViewsCreateCaseViewResponse = CaseViewRead
+
+export type CaseViewsListBuiltinCaseViewsData = {
+  workspaceId: string
+}
+
+export type CaseViewsListBuiltinCaseViewsResponse = Array<CaseViewRead>
+
+export type CaseViewsGetCaseViewData = {
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsGetCaseViewResponse = CaseViewDetail
+
+export type CaseViewsUpdateCaseViewData = {
+  requestBody: CaseViewUpdate
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsUpdateCaseViewResponse = CaseViewRead
+
+export type CaseViewsDeleteCaseViewData = {
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsDeleteCaseViewResponse = void
+
+export type CaseViewsPinCaseViewData = {
+  requestBody: CaseViewPinUpdate
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsPinCaseViewResponse = CaseViewRead
+
+export type CaseViewsUnpinCaseViewData = {
+  viewId: string
+  workspaceId: string
+}
+
+export type CaseViewsUnpinCaseViewResponse = void
 
 export type CaseAttachmentsListAttachmentsData = {
   caseId: string
@@ -20460,6 +21624,21 @@ export type $OpenApiTs = {
     }
     patch: {
       req: GraphApplyGraphOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GraphResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/graph/auto-layout": {
+    get: {
+      req: GraphPreviewAutoLayoutData
       res: {
         /**
          * Successful Response
@@ -22730,6 +23909,224 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/channel-bots": {
+    get: {
+      req: AgentChannelBotsListBotsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentChannelBotRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentChannelBotsCreateBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}": {
+    patch: {
+      req: AgentChannelBotsUpdateBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/rotate": {
+    post: {
+      req: AgentChannelBotsRotateBotEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/disconnect": {
+    post: {
+      req: AgentChannelBotsDisconnectBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelBotRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/install": {
+    post: {
+      req: AgentChannelBotsInstallBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/platform-apps": {
+    get: {
+      req: AgentChannelBotsListPlatformAppsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChannelBotPlatformApp>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/platform-apps/install": {
+    post: {
+      req: AgentChannelBotsInstallPlatformBotData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routes": {
+    get: {
+      req: AgentChannelBotsListBotRoutesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentChannelRouteRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentChannelBotsAddBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentChannelRouteRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentChannelBotsSetBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelRouteRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentChannelBotsDeleteBotRouteData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/channels": {
+    get: {
+      req: AgentChannelBotsListBotChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ChannelBotChannel_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/routable-channels": {
+    get: {
+      req: AgentChannelBotsListBotRoutableChannelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ChannelBotChannel_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * The bot's app lacks the scopes to list channels; reinstall it
+         */
+        424: unknown
+        /**
+         * The bot's provider cannot list its channels
+         */
+        501: unknown
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets": {
     get: {
       req: AgentPresetsListAgentPresetsData
@@ -22838,6 +24235,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset is the default agent of an installed channel app
+         */
+        400: unknown
         /**
          * Agent preset not found
          */
@@ -23883,6 +25284,21 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/agent/sessions/{session_id}/stream": {
     get: {
       req: AgentSessionsStreamSessionEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/feed": {
+    get: {
+      req: AgentSessionsStreamSessionFeedData
       res: {
         /**
          * Successful Response
@@ -25063,6 +26479,52 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/slack-app": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+      }
+    }
+    put: {
+      req: AdminSlackAppSaveSlackAppData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/admin/slack-app/setup": {
+    patch: {
+      req: AdminSlackAppMarkSlackAppSetupStepsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackPlatformAppRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/inbox/items/pending-count": {
     get: {
       req: InboxGetPendingCountData
@@ -25813,6 +27275,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/tables/{table_id}/move": {
+    post: {
+      req: TablesMoveTableData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/tables/{table_id}/columns": {
     post: {
       req: TablesCreateColumnData
@@ -26089,6 +27566,105 @@ export type $OpenApiTs = {
          * Conflict
          */
         409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders/directory": {
+    get: {
+      req: TableFoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<TableDirectoryItem | TableFolderDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders": {
+    get: {
+      req: TableFoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_TableFolderRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TableFoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders/{folder_id}": {
+    get: {
+      req: TableFoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TableFoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TableFoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/table-folders/{folder_id}/move": {
+    post: {
+      req: TableFoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableFolderRead
         /**
          * Validation Error
          */
@@ -26445,9 +28021,21 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_CaseReadMinimal_
         /**
+         * The query is invalid.
+         */
+        400: CaseQueryErrorResponse
+        /**
+         * view_id names no view the caller can see.
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Full-text search is not ready yet.
+         */
+        503: unknown
       }
     }
     get: {
@@ -26473,9 +28061,21 @@ export type $OpenApiTs = {
          */
         200: CaseSearchAggregateRead
         /**
+         * The query is invalid.
+         */
+        400: CaseQueryErrorResponse
+        /**
+         * view_id names no view the caller can see.
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Full-text search is not ready yet.
+         */
+        503: unknown
       }
     }
     get: {
@@ -27054,6 +28654,118 @@ export type $OpenApiTs = {
     }
     delete: {
       req: CaseTagsDeleteCaseTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views": {
+    get: {
+      req: CaseViewsListCaseViewsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseViewRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseViewsCreateCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views/builtins": {
+    get: {
+      req: CaseViewsListBuiltinCaseViewsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseViewRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views/{view_id}": {
+    get: {
+      req: CaseViewsGetCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseViewDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseViewsUpdateCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseViewsDeleteCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/case-views/{view_id}/pin": {
+    put: {
+      req: CaseViewsPinCaseViewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseViewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseViewsUnpinCaseViewData
       res: {
         /**
          * Successful Response

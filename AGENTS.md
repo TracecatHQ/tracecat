@@ -99,6 +99,28 @@ changes.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.
 
+## MCP server coverage
+
+Customers operate Tracecat through its MCP server (`tracecat/mcp/server.py`).
+A feature that is missing from the MCP server is effectively unusable in
+production, so MCP coverage is part of the definition of done.
+
+- Every new user-facing feature, or change to an existing one (new resources,
+  fields, filters, or operations such as table folders or custom views), must
+  add or update the matching `@mcp.tool()` functions in the same PR.
+- MCP tools call the feature's service layer and enforce the same scopes and
+  access checks as the API routes. Do not reimplement business logic in the
+  tool.
+- Update `tracecat/mcp/README.md`, regenerate `docs/snippets/mcp-tools.mdx`
+  with `just gen-mcp-docs`, and cover the tools in
+  `tests/unit/test_mcp_server.py`.
+- Do not add delete or other destructive MCP tools by default. Low-risk,
+  easily reversible removals (for example, removing a case tag) may be fine.
+  For anything potentially destructive, ask the user and get explicit
+  confirmation before adding the tool.
+- If a change genuinely has no MCP surface (UI-only polish, internal
+  refactors), say so explicitly in the PR body instead of skipping silently.
+
 ## Pull requests
 
 - The title is the changelog line and the squash-commit subject. Format:

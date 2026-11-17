@@ -147,8 +147,8 @@ async def test_indexing_skips_unentitled_organizations(entitled: bool):
     )
     with (
         patch(
-            "tracecat.search.indexing_workflow.get_async_session_bypass_rls_context_manager"
-        ),
+            "tracecat.search.indexing_workflow.get_async_session_tenant_context_manager"
+        ) as tenant_session,
         patch(
             "tracecat.search.indexing_workflow.is_org_entitled",
             new=AsyncMock(return_value=entitled),
@@ -163,6 +163,7 @@ async def test_indexing_skips_unentitled_organizations(entitled: bool):
             result = await index_search_collection(work)
             assert result == IndexingProgress(outcome=IndexingOutcome.UNAVAILABLE)
             search_capacity.assert_not_called()
+    tenant_session.assert_called_once_with(organization_id=work.organization_id)
     is_entitled.assert_awaited_once()
     assert is_entitled.await_args is not None
     assert is_entitled.await_args.args[1:] == (

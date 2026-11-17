@@ -7,7 +7,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.managed_resources.dependencies import ManagedWorkflowWriteGuard
@@ -145,6 +145,10 @@ async def create_action(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Action ref already exists in the workflow",
+        ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
         ) from e
 
     return ActionReadMinimal(

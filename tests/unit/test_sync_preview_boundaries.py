@@ -34,7 +34,7 @@ from tracecat.integrations.enums import MCPAuthType
 from tracecat.sync import PullResult
 from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
 from tracecat.workspace_sync.adapters.registry import CASE_FIELD_RESOURCE_ADAPTER
-from tracecat.workspace_sync.enums import VcsProvider
+from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.operations.domain import DurableSyncService
 from tracecat.workspace_sync.operations.mappings import surviving_mapping_targets
 from tracecat.workspace_sync.operations.schemas import (
@@ -167,8 +167,24 @@ async def test_push_preview_distinguishes_replacements_from_additions(
     svc_role, remote_kind, content
 ):
     path = "workflows/synthetic/definition.yml"
+    workflow = WorkflowResourceSpec(
+        id="synthetic",
+        definition=DSLInput(
+            title="Synthetic workflow",
+            description="Synthetic",
+            entrypoint=DSLEntrypoint(ref="noop"),
+            actions=[
+                ActionStatement(
+                    ref="noop", action="core.transform.passthrough", args={}
+                )
+            ],
+        ),
+    )
     projection = WorkspaceProjection(
-        manifest=WorkspaceManifest(), spec=WorkspaceSpec(), files={path: content}
+        manifest=WorkspaceManifest(),
+        spec=WorkspaceSpec(workflows={"synthetic": workflow}),
+        files={path: content},
+        paths={SyncResourceType.WORKFLOW: {"synthetic": path}},
     )
     remote = VcsTreeSnapshot(
         commit_sha="a" * 40,
@@ -611,7 +627,10 @@ async def test_recovery_omits_soft_deleted_resources_and_removed_schema_fields(
         ),
         SyncMappingTarget("skill", "synthetic", "skills/synthetic/skill.yml", skill.id),
         SyncMappingTarget(
-            "case_field", field.source_id, field.source_path, field.local_id
+            "case_field",
+            field.source_id,
+            CASE_FIELD_RESOURCE_ADAPTER.legacy_id_path(field.source_id),
+            field.local_id,
         ),
     ]
     assert await surviving_mapping_targets(sync, targets) == targets
@@ -673,7 +692,10 @@ async def test_case_field_recovery_preserves_existing_rename_mapping_without_gue
     sync = DurableSyncService(session, svc_role)
     field = (await CASE_FIELD_RESOURCE_ADAPTER.project(sync)).resources[0]
     target = SyncMappingTarget(
-        "case_field", field.source_id, field.source_path, field.local_id
+        "case_field",
+        field.source_id,
+        CASE_FIELD_RESOURCE_ADAPTER.legacy_id_path(field.source_id),
+        field.local_id,
     )
     if already_mapped:
         session.add(

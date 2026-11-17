@@ -63,7 +63,8 @@
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
-                  "automations/integrations/mcp-integrations"
+                  "automations/integrations/mcp-integrations",
+                  "automations/integrations/chatops"
                 ]
               }
             ]
@@ -83,16 +84,6 @@
               "agents/human-in-the-loop",
               "agents/timeouts",
               "agents/channels"
-            ]
-          },
-          {
-            "group": "Building custom integrations",
-            "icon": "blocks",
-            "pages": [
-              "custom-actions/custom-registry",
-              "custom-actions/python-udf",
-              "custom-actions/yaml-template",
-              "custom-actions/local-development"
             ]
           }
         ]
@@ -278,6 +269,7 @@
               "tools/iru",
               "tools/jamf",
               "tools/jira",
+              "tools/jira_service_management",
               "tools/kubernetes_sdk",
               "tools/ldap",
               "tools/leakcheck",
@@ -322,11 +314,13 @@
               "tools/splunk",
               "tools/spur",
               "tools/sublime",
+              "tools/swif",
               "tools/tavily",
               "tools/tenable_sc",
               "tools/terraform",
               "tools/threatfox",
               "tools/threatstream",
+              "tools/trend_vision_one",
               "tools/urlhaus",
               "tools/urlscan",
               "tools/vercel_security",
@@ -334,6 +328,29 @@
               "tools/wazuh",
               "tools/x",
               "tools/zendesk"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "GitOps / Custom Registry",
+        "groups": [
+          {
+            "group": "Workspace Git sync",
+            "icon": "git-branch",
+            "pages": [
+              "gitops/workspace-git-sync",
+              "gitops/push-and-pull"
+            ]
+          },
+          {
+            "group": "Custom integrations",
+            "icon": "blocks",
+            "pages": [
+              "custom-actions/custom-registry",
+              "custom-actions/python-udf",
+              "custom-actions/yaml-template",
+              "custom-actions/local-development"
             ]
           }
         ]
@@ -370,7 +387,9 @@
               "self-hosting/temporal-retention",
               "self-hosting/architecture",
               "self-hosting/pgvector",
+              "self-hosting/database-roles",
               "self-hosting/tls",
+              "self-hosting/database-iam",
               "self-hosting/environment-variables",
               "self-hosting/security",
               "self-hosting/support"
@@ -385,7 +404,6 @@
               "manage-platform/ip-allowlist",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
-              "manage-platform/git-sync",
               "manage-platform/tunnels"
             ]
           },
@@ -610,6 +628,14 @@
     {
       "source": "/automations/cases/linked-tables",
       "destination": "/automations/cases/linked-rows"
+    },
+    {
+      "source": "/manage-platform/git-sync",
+      "destination": "/gitops/workspace-git-sync"
+    },
+    {
+      "source": "/quickstart/github-workflow-sync-setup",
+      "destination": "/gitops/workspace-git-sync"
     }
   ],
   "logo": {

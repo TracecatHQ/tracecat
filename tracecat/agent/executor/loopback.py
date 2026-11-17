@@ -52,7 +52,7 @@ from tracecat.artifacts.bindings import (
 )
 from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
@@ -759,7 +759,9 @@ class LoopbackHandler:
             return artifact_effects
 
         try:
-            async with get_async_session_bypass_rls_context_manager() as session:
+            async with get_async_session_tenant_context_manager(
+                workspace_id=self.input.workspace_id
+            ) as session:
                 organization_id = await session.scalar(
                     select(Workspace.organization_id).where(
                         Workspace.id == self.input.workspace_id
@@ -979,7 +981,9 @@ class LoopbackHandler:
             uuid=line_uuid,
         )
 
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_tenant_context_manager(
+            workspace_id=self.input.workspace_id
+        ) as session:
             # On first session line, update AgentSession with sdk_session_id
             if self._sdk_session_id is None:
                 self._sdk_session_id = sdk_session_id

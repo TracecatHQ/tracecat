@@ -148,8 +148,8 @@ def test_build_agent_nsjail_config_uses_reduced_broker_shim_mounts() -> None:
     assert 'dst: "/app" fstype: "tmpfs"' not in config_text
     assert 'dst: "/run/tracecat" is_bind: true rw: false' not in config_text
     assert (
-        'exec_bin { path: "/usr/local/bin/python3" arg: "/run/tracecat/job/shim_entrypoint.py" }'
-        in config_text
+        'exec_bin { path: "/usr/local/bin/python3" arg: "-I" arg: "-S" arg: "-B" arg: "-u" '
+        'arg: "/run/tracecat/job/shim_entrypoint.py" }' in config_text
     )
     assert 'cwd: "/run/tracecat/job"' in config_text
 

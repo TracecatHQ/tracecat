@@ -14,6 +14,8 @@ excluded_actions:
   - core.workflow.run
   - core.workflow.update_case_trigger
   - core.workflow.update_webhook
+  # Workspace administration actions without a docs page yet.
+  - core.workflow.delete_workflow_tag
 
 pages:
   - slug: request-actions/http
@@ -447,6 +449,9 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.list_case_views
+        examples:
+          - cases-list-views
       - id: core.cases.aggregate_cases
         info: |
           The example counts `new` and `in_progress` cases by priority and day.
@@ -476,9 +481,28 @@ pages:
       - id: core.cases.remove_case_tag
         examples:
           - cases-remove-tag
+      - id: core.cases.delete_case_tag
+        examples:
+          - cases-delete-tag
       - id: core.cases.delete_case
         examples:
           - cases-delete
+      - id: core.cases.add_sub_cases
+        info: |
+          The result has one item per case with `success` and `error`, plus
+          `succeeded` and `failed` counts. A case that fails does not stop the others.
+          An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
+          If `case_ids` includes the parent case, that one item fails with
+          "A case cannot be its own parent" and the other cases are still grouped.
+        examples:
+          - cases-add-sub-cases
+      - id: core.cases.remove_sub_cases
+        info: |
+          The result has one item per case with `success` and `error`, plus
+          `succeeded` and `failed` counts. A case that fails does not stop the others.
+          An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
+        examples:
+          - cases-remove-sub-cases
       - id: core.cases.get_case_metrics
         examples:
           - cases-metrics

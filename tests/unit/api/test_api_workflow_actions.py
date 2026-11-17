@@ -7,7 +7,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.workflow.actions.service import WorkflowActionService
 
 _WORKFLOW_ID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
@@ -40,6 +40,19 @@ def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
             TracecatValidationError("ref exists"),
             status.HTTP_409_CONFLICT,
             id="create-conflict",
+        ),
+        pytest.param(
+            "POST",
+            "/actions",
+            {
+                "workflow_id": _WORKFLOW_ID,
+                "type": "core.http_request",
+                "title": "Test Action",
+            },
+            "create_action",
+            TracecatNotFoundError("Workflow not found"),
+            status.HTTP_404_NOT_FOUND,
+            id="create-missing-workflow",
         ),
         pytest.param(
             "GET",

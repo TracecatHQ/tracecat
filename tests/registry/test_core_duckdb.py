@@ -7,8 +7,10 @@ from typing import Any
 import pytest
 from tracecat_registry.core import duckdb as duckdb_action
 from tracecat_registry.core.duckdb import (
+    _async_thread_limit,
     _build_s3_secret,
     _extension_directory,
+    _memory_limit,
     _thread_limit,
     execute_sql,
 )
@@ -202,11 +204,70 @@ def test_connect_applies_thread_limit(monkeypatch: pytest.MonkeyPatch) -> None:
         con.close()
 
 
+@pytest.mark.parametrize(
+    ("nproc", "expected"),
+    [(64, 4), (16, 1), (8, 1), (1_000_000, 32)],
+)
+def test_async_thread_limit_scales_with_task_cap(
+    monkeypatch: pytest.MonkeyPatch, nproc: int, expected: int
+) -> None:
+    monkeypatch.setattr(duckdb_action.resource, "getrlimit", lambda _: (nproc, nproc))
+    assert _async_thread_limit() == expected
+
+
+def test_async_thread_limit_none_without_task_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        duckdb_action.resource,
+        "getrlimit",
+        lambda _: (duckdb_action.resource.RLIM_INFINITY,) * 2,
+    )
+    assert _async_thread_limit() is None
+
+
+def test_connect_applies_async_thread_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(duckdb_action, "_async_thread_limit", lambda: 2)
+    con = duckdb_action._connect()
+    try:
+        assert con.execute("SELECT current_setting('async_threads')").fetchone() == (2,)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize(
+    ("budget", "expected"),
+    [("2048", "1433MiB"), ("1", "1MiB"), ("", None), ("0", None), ("x", None)],
+)
+def test_memory_limit_from_sandbox_budget(
+    monkeypatch: pytest.MonkeyPatch, budget: str, expected: str | None
+) -> None:
+    monkeypatch.setenv("TRACECAT__SANDBOX_MEMORY_MB", budget)
+    assert _memory_limit() == expected
+
+
+def test_memory_limit_none_outside_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TRACECAT__SANDBOX_MEMORY_MB", raising=False)
+    assert _memory_limit() is None
+
+
+def test_connect_applies_memory_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(duckdb_action, "_memory_limit", lambda: "512MiB")
+    con = duckdb_action._connect()
+    try:
+        assert con.execute("SELECT current_setting('memory_limit')").fetchone() == (
+            "512.0 MiB",
+        )
+    finally:
+        con.close()
+
+
 def test_thread_limit_none_without_resource_module(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(duckdb_action, "resource", None)
     assert _thread_limit() is None
+    assert _async_thread_limit() is None
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires Linux glibc")

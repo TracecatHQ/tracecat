@@ -72,7 +72,7 @@ import {
   AgentPresetRailTools,
 } from "@/components/agents/agent-preset-rail-tools"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
-import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
+import { AgentChannelsPanel } from "@/components/agents/external-channels/agent-channels-panel"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   ChatHistoryDropdown,
@@ -769,7 +769,6 @@ function AgentPresetChatPane({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
         entity_id: preset.id,
-        tools: selectedVersionConfig?.actions ?? preset.actions ?? undefined,
         agent_preset_id: preset.id,
         agent_preset_version_id: selectedVersionId,
       })
@@ -1563,7 +1562,9 @@ function AgentPresetForm({
   )
   const [railDrill, setRailDrill] = useState<AgentPresetRailDrill | null>(null)
   const { hasEntitlement, hasEntitlementData } = useEntitlements()
-  const channelsEnabled = hasEntitlement("agent_channels")
+  // Legacy channels need agent_channels; channel bots need only the preview.
+  const channelsEnabled =
+    hasEntitlement("agent_channels") || hasEntitlement("agent_channels_preview")
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
     mode: "onBlur",
@@ -1988,7 +1989,7 @@ function AgentPresetForm({
               while loading changes its hook order. */}
           {leftMode === "channels" ? (
             channelsEnabled ? (
-              <SlackChannelPanel workspaceId={workspaceId} preset={preset} />
+              <AgentChannelsPanel workspaceId={workspaceId} preset={preset} />
             ) : null
           ) : (
             documentPanel

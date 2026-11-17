@@ -317,6 +317,9 @@ class PullResourceDiff:
 
     Pull is currently upsert-only: local resources absent from the incoming Git
     snapshot are left untouched, so dry-run diffs do not report deletions.
+    Pull diffs report ``added`` only for files of a new resource. A file added
+    to or removed from an existing resource, such as a workflow script file,
+    is reported as ``modified``.
     """
 
     title: str | None
@@ -327,6 +330,21 @@ class PullResourceDiff:
 
     truncated: bool = False
     """Whether the diff was shortened for response size."""
+
+
+def first_diff_per_resource(
+    diffs: Sequence[PullResourceDiff],
+) -> dict[tuple[str, str], PullResourceDiff]:
+    """Return one diff per ``(resource_type, source_id)``, in order.
+
+    Diffs are per file, and a workflow with scripts or a skill has several
+    files. Every file of a resource in a pull diff has the same change type,
+    so its first diff speaks for the whole resource.
+    """
+    first: dict[tuple[str, str], PullResourceDiff] = {}
+    for diff in diffs:
+        first.setdefault((diff.resource_type, diff.source_id), diff)
+    return first
 
 
 @dataclass(frozen=True)

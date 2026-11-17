@@ -132,6 +132,69 @@ RLS_BYPASS_ON = "on"
 SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
 
 
+async def assign_dynamic_owner(
+    conn: AsyncConnection,
+    object_type: Literal["SCHEMA", "TABLE"],
+    quoted_name: str,
+) -> None:
+    """Give a dynamic schema or table to ``TRACECAT__DB_DYNAMIC_OWNER_ROLE``.
+
+    No-op when the setting is empty, or when the role doesn't exist or the
+    login can't act as it (no role setup yet: the creator keeps ownership and
+    the next ``tracecat.db.roles upgrade`` moves the object).
+    Uses ``ALTER ... OWNER`` rather than ``SET ROLE``: the owner role has no
+    DML grants on ``public``, so later writes in the same transaction would
+    fail under ``SET ROLE``. The caller keeps owner rights through its
+    membership in the owner role.
+    """
+    if not (role_name := config.TRACECAT__DB_DYNAMIC_OWNER_ROLE):
+        return
+    owner = conn.dialect.identifier_preparer.quote(role_name)
+    # The caller keeps working in the handed-over schema through inherited
+    # privileges (USAGE). ALTER SCHEMA ... OWNER TO needs CREATE on the database
+    # for the new owner, and SET on the role from PG 16 (membership before,
+    # which USAGE implies). CASE, not AND: the 'SET' privilege type only exists
+    # from PG 16.
+    exists, usable = (
+        (
+            await conn.execute(
+                sa.text(
+                    "SELECT r.oid IS NOT NULL, r.oid IS NOT NULL"
+                    " AND pg_catalog.pg_has_role(current_user, r.oid, 'USAGE')"
+                    " AND pg_catalog.has_database_privilege("
+                    "r.oid, pg_catalog.current_database(), 'CREATE') AND CASE"
+                    " WHEN pg_catalog.current_setting('server_version_num')::int < 160000"
+                    " THEN true"
+                    " ELSE pg_catalog.pg_has_role(current_user, r.oid, 'SET') END"
+                    " FROM (SELECT pg_catalog.to_regrole(:role) AS oid) AS r"
+                ),
+                {"role": owner},
+            )
+        )
+        .tuples()
+        .one()
+    )
+    if not exists:
+        logger.debug(
+            "Dynamic owner role does not exist yet; keeping the creating role",
+            role=role_name,
+        )
+        return
+    if not usable:
+        logger.warning(
+            "This login can't act as the dynamic owner role; keeping the creating role",
+            role=role_name,
+        )
+        return
+    # Both names go through the context: DDL %-formats the statement.
+    await conn.execute(
+        sa.DDL(
+            f"ALTER {object_type} %(name)s OWNER TO %(owner)s",
+            {"name": quoted_name, "owner": owner},
+        )
+    )
+
+
 def visible_column_names(column_names: Sequence[str]) -> list[str]:
     """Build the API-facing column order for dynamic table row payloads."""
     visible_names: list[str] = list(SYSTEM_VISIBLE_COLUMN_NAMES)
@@ -345,6 +408,10 @@ class BaseTablesService(BaseWorkspaceService):
         )
         await conn.execute(
             sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
+        )
+        # FORCE so the policy also applies when the app role owns the table.
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s FORCE ROW LEVEL SECURITY", full_table_name)
         )
         await conn.execute(
             sa.DDL(
@@ -642,7 +709,9 @@ class BaseTablesService(BaseWorkspaceService):
         )
 
     @audit_log(resource_type="table", action="create")
-    async def create_table(self, params: TableCreate) -> Table:
+    async def create_table(
+        self, params: TableCreate, *, folder_id: UUID | None = None
+    ) -> Table:
         """Create a new lookup table.
 
         Args:
@@ -662,6 +731,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Create schema if it doesn't exist
         conn = await self.session.connection()
         await conn.execute(sa.DDL('CREATE SCHEMA IF NOT EXISTS "%s"', schema_name))
+        await assign_dynamic_owner(conn, "SCHEMA", f'"{schema_name}"')
 
         # Define table using SQLAlchemy schema objects
         new_table = sa.Table(
@@ -700,12 +770,12 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Create the physical table
         await conn.run_sync(new_table.create)
-        await self._enable_workspace_rls_for_physical_table(
-            conn, self._full_table_name(table_name)
-        )
+        full_table_name = self._full_table_name(table_name)
+        await assign_dynamic_owner(conn, "TABLE", full_table_name)
+        await self._enable_workspace_rls_for_physical_table(conn, full_table_name)
 
         # Create metadata entry
-        table = Table(workspace_id=self.ws_uuid, name=table_name)
+        table = Table(workspace_id=self.ws_uuid, name=table_name, folder_id=folder_id)
         self.session.add(table)
         await self.session.flush()
 
@@ -2102,8 +2172,10 @@ class TablesService(BaseTablesService):
     """Transactional tables service."""
 
     @require_scope("table:create")
-    async def create_table(self, params: TableCreate) -> Table:
-        result = await super().create_table(params)
+    async def create_table(
+        self, params: TableCreate, *, folder_id: UUID | None = None
+    ) -> Table:
+        result = await super().create_table(params, folder_id=folder_id)
         await self.session.commit()
         await self.session.refresh(result)
         return result
@@ -2115,6 +2187,7 @@ class TablesService(BaseTablesService):
         contents: bytes,
         filename: str | None = None,
         table_name: str | None = None,
+        folder_id: UUID | None = None,
         chunk_size: int = 1000,
     ) -> tuple[Table, int, list[InferredCSVColumn]]:
         """Create a new table by inferring schema and rows from a CSV file."""
@@ -2150,7 +2223,8 @@ class TablesService(BaseTablesService):
             for column in inferred_columns
         ]
         table = await self.create_table(
-            TableCreate(name=unique_table_name, columns=column_defs)
+            TableCreate(name=unique_table_name, columns=column_defs),
+            folder_id=folder_id,
         )
 
         second_pass = StringIO(csv_text)

@@ -143,6 +143,22 @@ class CaseParentRead(TypedDict):
     summary: str
 
 
+class CaseBatchItemResult(TypedDict):
+    """Result of a batch operation for one case."""
+
+    case_id: UUID
+    success: bool
+    error: str | None
+
+
+class CaseBatchResponse(TypedDict):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
 class CaseDurationRead(TypedDict):
     """Optional materialized case duration."""
 
@@ -196,6 +212,58 @@ class CaseListResponse(TypedDict):
     """Paginated case list response."""
 
     items: list[CaseReadMinimal]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+    total_estimate: int | None
+
+
+class CaseViewStaleRef(TypedDict):
+    """A deleted tag or dropdown option that a saved view still names."""
+
+    kind: Literal["tag", "dropdown"]
+    value: str
+
+
+class CaseViewEmptyRules(TypedDict):
+    """Rules of a view left with nothing to match after deletions."""
+
+    tags: bool
+    dropdown_refs: list[str]
+    filters: bool
+
+
+class CaseViewRead(TypedDict):
+    """A saved or built-in case view."""
+
+    id: str
+    kind: Literal["builtin", "custom"]
+    name: str
+    visibility: Literal["personal", "workspace"]
+    owner_id: UUID | None
+    query: dict[str, Any]
+    order_by: str | None
+    sort: Literal["asc", "desc"] | None
+    columns: list[str] | None
+    can_edit: bool
+    pinned: bool
+    pin_position: int | None
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
+class CaseViewDetail(CaseViewRead):
+    """One case view in the form it runs in, with what deletions changed."""
+
+    stale_refs: list[CaseViewStaleRef]
+    empty_rules: CaseViewEmptyRules
+
+
+class CaseViewListResponse(TypedDict):
+    """Paginated saved case view list."""
+
+    items: list[CaseViewRead]
     next_cursor: str | None
     prev_cursor: str | None
     has_more: bool

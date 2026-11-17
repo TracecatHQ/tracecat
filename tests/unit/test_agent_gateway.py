@@ -445,6 +445,61 @@ def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     assert resolved_model("custom") == "hosted_vllm/custom"
 
 
+@pytest.mark.anyio
+async def test_litellm_config_does_not_cool_down_per_request_credentials() -> None:
+    # Injected keys make LiteLLM register one deployment per credential and
+    # model; a cooldown would turn this caller's next 401 into a gateway 503.
+    config_path = (
+        Path(__file__).resolve().parents[2]
+        / "tracecat"
+        / "agent"
+        / "litellm_config.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text())
+    router = Router(
+        model_list=config["model_list"],
+        **config["router_settings"],
+        num_retries=0,
+        retry_after=0,
+    )
+    calls = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            401,
+            request=request,
+            json={
+                "error": {
+                    "message": "Incorrect API key provided",
+                    "type": "invalid_request_error",
+                    "code": "invalid_api_key",
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        for _ in range(3):
+            client = AsyncOpenAI(
+                api_key="synthetic-invalid-key",
+                http_client=http_client,
+                max_retries=0,
+            )
+            with pytest.raises(AuthenticationError):
+                await router.acompletion(
+                    model="openai/synthetic-model",
+                    messages=[{"role": "user", "content": "synthetic prompt"}],
+                    api_key="synthetic-invalid-key",
+                    client=client,
+                )
+
+    assert calls == 3
+    assert not await router.cooldown_cache.async_get_active_cooldowns(
+        model_ids=router.get_model_ids(), parent_otel_span=None
+    )
+
+
 def _make_request(
     path: str,
     *,
@@ -1179,7 +1234,7 @@ async def test_provider_quota_survives_litellm_request_and_serialization(
         assert b"synthetic-sensitive-detail" not in wire_body
     else:
         assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.owner is RuntimeErrorOwner.USER
         assert classification.retry_disposition is RetryDisposition.RETRYABLE
         assert b"synthetic-sensitive-detail" not in wire_body
         assert b"LLM provider rate limit exceeded; retry later" in wire_body
@@ -1241,6 +1296,6 @@ async def test_throttling_callback_uses_safe_message_without_provider_response(
         result.status_code, route_is_direct=False, body=wire_body
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
     assert b"synthetic-sensitive-detail" not in wire_body

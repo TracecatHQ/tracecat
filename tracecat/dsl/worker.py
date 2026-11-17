@@ -26,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
         CaseAgentSessionBackfillWorkflow,
         case_agent_session_backfill_activity,
     )
+    from tracecat.db.engine import verify_rls_enforceable_login
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
@@ -124,6 +125,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     _logger._is_worker_process = True
 
     initialize_platform_tracing("tracecat-worker")
+    await verify_rls_enforceable_login()
 
     client = await get_temporal_client()
     task_queue = os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue")

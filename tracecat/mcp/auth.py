@@ -32,13 +32,9 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
 from pydantic import AnyUrl, BaseModel, Field
-from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
-from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
-from starlette.routing import Route
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -46,7 +42,6 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.config import (
-    REDIS_URL,
     TRACECAT__PUBLIC_APP_URL,
 )
 from tracecat.contexts import ctx_role
@@ -73,6 +68,8 @@ from tracecat.mcp.oidc.features import (
 )
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.service import verify_mcp_personal_access_token
+from tracecat.redis.auth import create_redis_client
+from tracecat.redis.client import resolve_redis_url
 
 
 class MCPTokenIdentity(BaseModel):
@@ -93,7 +90,6 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
-_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -136,52 +132,6 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
     return OFFLINE_ACCESS_SCOPE in scopes_supported
-
-
-def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
-    """Patch only the advertised token auth methods on discovery responses."""
-
-    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await app(scope, receive, send)
-            return
-
-        start_message: Message | None = None
-        body_chunks: list[bytes] = []
-
-        async def capture(message: Message) -> None:
-            nonlocal start_message
-
-            match message["type"]:
-                case "http.response.start":
-                    start_message = dict(message)
-                case "http.response.body":
-                    body_chunks.append(message.get("body", b""))
-                case _:
-                    await send(message)
-
-        await app(scope, receive, capture)
-
-        if start_message is None:
-            return
-
-        body = b"".join(body_chunks)
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError:
-            payload = None
-        if isinstance(payload, dict):
-            payload["token_endpoint_auth_methods_supported"] = (
-                _MCP_TOKEN_ENDPOINT_AUTH_METHODS
-            )
-            body = json.dumps(payload).encode("utf-8")
-
-        headers = MutableHeaders(raw=start_message["headers"])
-        headers["content-length"] = str(len(body))
-        await send(start_message)
-        await send({"type": "http.response.body", "body": body, "more_body": False})
-
-    return patched_app
 
 
 def _normalize_loopback_path(path: str) -> str:
@@ -1087,27 +1037,10 @@ def _create_oidc_auth() -> OIDCProxy:
             response.headers["content-length"] = str(len(response.body))
             return response
 
-        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
-            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
-            routes = super().get_routes(mcp_path)
-            if self.base_url is None:
-                return routes
-
-            for route in routes:
-                if not (
-                    isinstance(route, Route)
-                    and route.path.startswith("/.well-known/oauth-authorization-server")
-                ):
-                    continue
-
-                route.app = _patch_oauth_metadata_route(route.app)
-
-            return routes
-
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = create_redis_client(resolve_redis_url(), decode_responses=True)
     redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
     if config.TRACECAT__DB_ENCRYPTION_KEY:

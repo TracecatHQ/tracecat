@@ -1,8 +1,34 @@
 "use client"
 
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo } from "react"
+import type {
+  CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
+  CaseTagRead,
+  WorkspaceMember,
+} from "@/client"
+import { CaseViewHeaderPortal } from "@/components/cases/case-view-header-slot"
+import {
+  CaseViewActions,
+  CaseViewChips,
+  CaseViewEditorPanel,
+  CaseViewMenu,
+  useCaseViewEditor,
+} from "@/components/cases/case-view-switcher"
+import type { CasesViewBar } from "@/components/cases/cases-header"
 import { CasesLayout } from "@/components/cases/cases-layout"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { Button } from "@/components/ui/button"
 import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
+import {
+  type ActiveCaseView,
+  useActiveCaseView,
+  useCaseViewControls,
+  useViewColumns,
+  VIEW_PARAM,
+} from "@/hooks/use-case-view-state"
 import { useCases } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -16,7 +42,11 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CasesPage() {
   const workspaceId = useWorkspaceId()
-  const { hasEntitlement, hasEntitlementData } = useEntitlements()
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { members } = useWorkspaceMembers(workspaceId)
@@ -75,10 +105,110 @@ export default function CasesPage() {
     caseAddonsEnabled,
   ])
 
-  const { visibleColumnIds, toggleColumn } = useCaseColumnVisibility(
-    workspaceId,
-    knownColumnIds
+  const {
+    visibleColumnIds: personalColumnIds,
+    toggleColumn: togglePersonalColumn,
+  } = useCaseColumnVisibility(workspaceId, knownColumnIds)
+  // Case views are an enterprise feature (case add-ons).
+  const viewsEnabled = caseAddonsEnabled
+  const activeView = useActiveCaseView(workspaceId, viewsEnabled)
+  const searchParams = useSearchParams()
+  const hasViewParam = Boolean(searchParams?.get(VIEW_PARAM))
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      document.title = "Cases"
+    }
+  }, [])
+
+  // A ?view= link waits for its view before mounting the list, so the list
+  // starts from the view's filters and never shows another search first.
+  // Until entitlements load, it is not yet known whether the link applies.
+  // If they fail to load, views count as unavailable and the page falls back
+  // to the user's own list rather than waiting forever.
+  if (hasViewParam && entitlementsLoading) {
+    return <CenteredSpinner />
+  }
+  if (activeView.viewId !== null && !activeView.mapped) {
+    return (
+      <div className="flex size-full items-center justify-center">
+        {activeView.isError ? (
+          <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+            <span>View not found</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => activeView.selectView(null)}
+            >
+              Back to cases
+            </Button>
+          </div>
+        ) : (
+          <CenteredSpinner />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <CasesPageBody
+      // One list per view: switching views starts fresh from that view's
+      // filters, and closing a view starts again from the user's own.
+      key={activeView.viewId ?? "personal"}
+      workspaceId={workspaceId}
+      viewsEnabled={viewsEnabled}
+      activeView={activeView}
+      caseAddonsEnabled={caseAddonsEnabled}
+      members={members}
+      caseTags={caseTags}
+      dropdownDefinitions={dropdownDefinitions}
+      caseFields={caseFields}
+      caseDurationDefinitions={caseDurationDefinitions}
+      knownColumnIds={knownColumnIds}
+      personalColumnIds={personalColumnIds}
+      togglePersonalColumn={togglePersonalColumn}
+    />
   )
+}
+
+interface CasesPageBodyProps {
+  workspaceId: string
+  /** Whether case views are available (the case add-ons entitlement). */
+  viewsEnabled: boolean
+  activeView: ActiveCaseView
+  caseAddonsEnabled: boolean
+  members: WorkspaceMember[] | undefined
+  caseTags: CaseTagRead[] | undefined
+  dropdownDefinitions: CaseDropdownDefinitionRead[] | undefined
+  caseFields: CaseFieldReadMinimal[] | undefined
+  caseDurationDefinitions: CaseDurationDefinitionRead[] | undefined
+  knownColumnIds: Set<string> | undefined
+  personalColumnIds: string[]
+  togglePersonalColumn: (columnId: string) => void
+}
+
+/** The case list for one view, or for the user's own filters. */
+function CasesPageBody({
+  workspaceId,
+  viewsEnabled,
+  activeView,
+  caseAddonsEnabled,
+  members,
+  caseTags,
+  dropdownDefinitions,
+  caseFields,
+  caseDurationDefinitions,
+  knownColumnIds,
+  personalColumnIds,
+  togglePersonalColumn,
+}: CasesPageBodyProps) {
+  const viewColumns = useViewColumns({
+    view: activeView.view,
+    personalColumns: personalColumnIds,
+    togglePersonalColumn,
+    knownColumnIds,
+  })
+  const { visibleColumnIds } = viewColumns
 
   const selectedFieldIds = useMemo(() => {
     const validFieldIds = new Set(
@@ -102,6 +232,19 @@ export default function CasesPage() {
     return visibleColumnIds.some((columnId) => durationColumnIds.has(columnId))
   }, [caseAddonsEnabled, caseDurationDefinitions, visibleColumnIds])
 
+  const casesResult = useCases({
+    fieldIds: selectedFieldIds,
+    includeDurations,
+    view: activeView.mapped ?? undefined,
+  })
+  const viewControls = useCaseViewControls({
+    workspaceId,
+    active: activeView,
+    cases: casesResult,
+    viewColumns,
+    personalColumns: personalColumnIds,
+  })
+  const viewEditor = useCaseViewEditor()
   const {
     cases,
     isLoading,
@@ -127,7 +270,6 @@ export default function CasesPage() {
     setTagFilter,
     setTagMode,
     setTagSortDirection,
-    setStructuredFilters,
     setDropdownFilter,
     setDropdownMode,
     setDropdownSortDirection,
@@ -142,16 +284,40 @@ export default function CasesPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useCases({ fieldIds: selectedFieldIds, includeDurations })
+  } = casesResult
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      document.title = "Cases"
-    }
-  }, [])
+  const viewBar: CasesViewBar = {
+    panel: viewEditor.mode && (
+      <CaseViewEditorPanel
+        key={viewEditor.mode.kind}
+        workspaceId={workspaceId}
+        controls={viewControls}
+        editor={viewEditor}
+        mode={viewEditor.mode}
+      />
+    ),
+    chips: <CaseViewChips controls={viewControls} />,
+    renderActions: ({ hasFilters, clearFilters }) => (
+      <CaseViewActions
+        controls={viewControls}
+        editor={viewEditor}
+        hasFilters={hasFilters}
+        clearFilters={clearFilters}
+      />
+    ),
+  }
 
   return (
     <div className="size-full overflow-hidden">
+      {viewsEnabled && (
+        <CaseViewHeaderPortal>
+          <CaseViewMenu
+            workspaceId={workspaceId}
+            controls={viewControls}
+            editor={viewEditor}
+          />
+        </CaseViewHeaderPortal>
+      )}
       <CasesLayout
         cases={cases}
         isLoading={isLoading}
@@ -192,8 +358,7 @@ export default function CasesPage() {
           caseAddonsEnabled ? caseDurationDefinitions : undefined
         }
         visibleColumnIds={visibleColumnIds}
-        onToggleColumn={toggleColumn}
-        onStructuredFiltersChange={setStructuredFilters}
+        onToggleColumn={viewColumns.toggleColumn}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
@@ -205,6 +370,7 @@ export default function CasesPage() {
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}
+        viewBar={viewsEnabled ? viewBar : undefined}
       />
     </div>
   )

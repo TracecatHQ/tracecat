@@ -20,6 +20,7 @@ from tracecat.agent.channels.schemas import (
 )
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.tiers.enums import Entitlement
 
 
 class _AsyncContext:
@@ -266,7 +267,7 @@ async def test_handle_channel_event_ignores_events_without_agent_channels() -> N
             AsyncMock(return_value=validated_token),
         ),
         patch(
-            "tracecat.agent.channels.router._is_workspace_entitled_to_channels",
+            "tracecat.agent.channels.router._is_workspace_on_legacy_channels",
             AsyncMock(return_value=False),
         ),
     ):
@@ -280,3 +281,35 @@ async def test_handle_channel_event_ignores_events_without_agent_channels() -> N
 
     assert getattr(response, "status_code", None) == 200
     background_tasks.add_task.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("granted", "on_legacy"),
+    [
+        ({Entitlement.AGENT_CHANNELS}, True),
+        ({Entitlement.AGENT_CHANNELS, Entitlement.AGENT_CHANNELS_PREVIEW}, False),
+        ({Entitlement.AGENT_CHANNELS_PREVIEW}, False),
+        (set(), False),
+    ],
+    ids=["legacy", "preview-takes-over", "preview-only", "neither"],
+)
+async def test_legacy_channels_serve_only_without_the_preview(
+    granted: set[Entitlement], on_legacy: bool
+) -> None:
+    from tracecat.agent.channels.router import _is_workspace_on_legacy_channels
+
+    async def is_org_entitled(
+        _session: object, _org: uuid.UUID, entitlement: Entitlement
+    ) -> bool:
+        return entitlement in granted
+
+    session = AsyncMock()
+    session.execute.return_value = MagicMock(
+        scalar_one_or_none=MagicMock(return_value=uuid.uuid4())
+    )
+    with patch("tracecat.agent.channels.router.is_org_entitled", is_org_entitled):
+        assert (
+            await _is_workspace_on_legacy_channels(session, workspace_id=uuid.uuid4())
+            is on_legacy
+        )

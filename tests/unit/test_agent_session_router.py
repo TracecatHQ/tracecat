@@ -57,6 +57,7 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.session.views import build_session_read
+from tracecat.agent.stream.feed import SessionFeedSnapshot
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,
@@ -972,6 +973,7 @@ async def test_send_message_rejects_teammate_session() -> None:
             return_value=SimpleNamespace(
                 curr_run_id=None,
                 created_by=uuid.uuid4(),
+                entity_type=AgentSessionEntity.AGENT_PRESET,
             )
         ),
         run_turn=AsyncMock(),
@@ -999,6 +1001,65 @@ async def test_send_message_rejects_teammate_session() -> None:
         "message": "Teammate sessions are read-only.",
     }
     fake_svc.run_turn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("deciding", [True, False])
+async def test_a_member_may_only_decide_on_a_channel_session(deciding: bool) -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = (
+        ContinueRunRequest(
+            decisions=[ApprovalDecision(tool_call_id="tool_call_123", action="approve")]
+        )
+        if deciding
+        else VercelChatRequest(
+            message=UIMessage(
+                id="msg-1", role="user", parts=[{"type": "text", "text": "hi"}]
+            ),
+            model="gpt-4o-mini",
+            model_provider="openai",
+        )
+    )
+    channel_session = _agent_session_stub(
+        created_by=None, entity_type=AgentSessionEntity.EXTERNAL_CHANNEL
+    )
+    fake_svc = SimpleNamespace(
+        session=Mock(),
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=channel_session),
+        # Reaching the turn is enough: the write gate already passed.
+        run_turn=AsyncMock(side_effect=TracecatConflictError("already recorded")),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router._require_workspace_chat_entitlement_for_session_tree",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await cast(Any, send_message).__wrapped__(
+                session_id=channel_session.id,
+                request=request,
+                role=role,
+                http_request=cast(
+                    Any,
+                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+                ),
+            )
+
+    assert exc_info.value.status_code == (409 if deciding else 403)
+    assert fake_svc.run_turn.await_count == (1 if deciding else 0)
 
 
 @pytest.mark.anyio
@@ -1915,6 +1976,76 @@ def test_session_read_reports_backend_controls(
     assert read.capabilities.withdrawing is (enabled and withdrawing)
 
 
+@pytest.mark.parametrize(
+    ("entity_type", "created_by", "enabled", "can_decide"),
+    [
+        (AgentSessionEntity.EXTERNAL_CHANNEL, None, True, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, None, False, False),
+        (AgentSessionEntity.AGENT_PRESET, None, True, False),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, uuid.uuid4(), True, False),
+    ],
+)
+def test_members_decide_approvals_only_on_ownerless_channel_sessions(
+    entity_type: AgentSessionEntity,
+    created_by: uuid.UUID | None,
+    enabled: bool,
+    can_decide: bool,
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external", entity_type=entity_type, created_by=created_by
+    )
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=uuid.uuid4(),
+        workspace_id=session_stub.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry, "get_agent_backends", return_value={"external": provider}
+        ),
+        patch.object(provider, "is_enabled", return_value=enabled),
+    ):
+        read = build_session_read(cast(Any, session_stub), role)
+    assert read.is_readonly is True
+    assert read.can_decide_approvals is can_decide
+
+
+@pytest.mark.parametrize(
+    ("scopes", "can_decide"),
+    [
+        (frozenset({"agent:execute"}), True),
+        (frozenset({"agent:read"}), False),
+        (None, False),
+    ],
+)
+def test_deciding_approvals_needs_the_execute_scope(
+    scopes: frozenset[str] | None, can_decide: bool
+) -> None:
+    user_id = uuid.uuid4()
+    session_stub = _agent_session_stub(backend_id="external", created_by=user_id)
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=user_id,
+        workspace_id=session_stub.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry, "get_agent_backends", return_value={"external": provider}
+        ),
+        patch.object(provider, "is_enabled", return_value=True),
+    ):
+        read = build_session_read(cast(Any, session_stub), role)
+    assert read.can_decide_approvals is can_decide
+
+
 class _TrackedSession:
     def __init__(self) -> None:
         self.closed = False
@@ -2005,6 +2136,44 @@ def test_stream_session_events_releases_request_session_before_streaming() -> No
         TestClient(app) as client,
     ):
         response = client.get(f"/agent/sessions/{session_id}/stream")
+
+    assert response.status_code == 200
+    assert response.text == "data: {}\n\n"
+    assert released_at_first_chunk == [True]
+
+
+def test_stream_session_feed_releases_request_session_before_streaming() -> None:
+    """The feed stays open as long as the tab, so it must not pin a DB connection."""
+    session_id = uuid.uuid4()
+    tracked = _TrackedSession()
+    app, released_at_first_chunk = _session_release_app(
+        tracked, _make_stream_role(uuid.uuid4())
+    )
+    fake_svc = SimpleNamespace(
+        get_feed_snapshot=AsyncMock(
+            return_value=SessionFeedSnapshot(run_id=None, stream_id=None, paused=False)
+        )
+    )
+    fake_feed = SimpleNamespace(
+        latest_id=AsyncMock(return_value="0-0"),
+        sse=Mock(
+            side_effect=lambda *_a, **_kw: _released_event_stream(
+                tracked, released_at_first_chunk
+            )
+        ),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.SessionFeed.new",
+            AsyncMock(return_value=fake_feed),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.get(f"/agent/sessions/{session_id}/feed")
 
     assert response.status_code == 200
     assert response.text == "data: {}\n\n"

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, raiseload
 
 from tracecat.auth.types import Role
+from tracecat.cases.enums import CaseStatus
 from tracecat.cases.event_schemas import (
     ParentChangedEvent,
     SubCasesAddedEvent,
@@ -69,6 +70,21 @@ class CaseHierarchyService(BaseWorkspaceService):
 
     async def enabled(self) -> bool:
         return await self.has_entitlement(Entitlement.CASE_ADDONS)
+
+    async def lock_open_sub_cases(self, parent_id: uuid.UUID) -> list[Case]:
+        """Lock a parent's sub-cases that are not closed or resolved, in ID order."""
+        result = await self.session.execute(
+            select(Case)
+            .options(raiseload("*"))
+            .where(
+                Case.workspace_id == self.workspace_id,
+                Case.parent_id == parent_id,
+                Case.status.not_in((CaseStatus.CLOSED, CaseStatus.RESOLVED)),
+            )
+            .order_by(Case.id)
+            .with_for_update(key_share=True)
+        )
+        return list(result.scalars().all())
 
     async def resolve_filters(
         self,

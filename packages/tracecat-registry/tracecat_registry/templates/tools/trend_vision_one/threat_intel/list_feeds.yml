@@ -1,0 +1,86 @@
+type: action
+definition:
+  title: List threat feed intelligence objects
+  description: >-
+    List intelligence objects from Trend Threat Intelligence Feed. Retrieves a list of
+    intelligence reports from the Trend Threat Intelligence Feed, along with their associated
+    objects and relationships. These include entities such as indicators, campaigns, intrusion
+    sets, malware, tools, CVEs, targeted industries, and targeted countries, all interconnected
+    through STIX relationships (`object`, `attributed-to`, etc.). Calls GET
+    /v3.0/threatintel/feeds.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Trend-Threat-Intelligence-Feed/paths/~1v3.0~1threatintel~1feeds/get
+  namespace: tools.trend_vision_one
+  name: list_feeds
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    startDateTime:
+      type: str | None
+      description: >-
+        The data retrieval timestamp in ISO 8601 format used to filter results. Only reports
+        created after this time will be included. If not provided, the query will include
+        all available reports from the earliest creation time.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        The data retrieval timestamp in ISO 8601 format used to filter results. Only reports
+        created before or at this time will be included. If not provided, the query will
+        include all reports up to the time of the request.
+      default: null
+    topReport:
+      type: int | None
+      description: >-
+        The number of reports (maximum 20) returned by a query. Allowed values: 5, 10, 20.
+        Provider default: 10.
+      default: null
+    responseObjectFormat:
+      type: str | None
+      description: >-
+        The preferred format for the query response. If the preferred format is unsupported,
+        the default format is used. Allowed values: stixBundle, taxiiEnvelope. Provider
+        default: stixBundle.
+      default: null
+    tmv1_contextual_filter:
+      type: str | None
+      description: >-
+        Defines the criteria for retrieving specific subsets of intelligence objects from
+        the Trend Threat Intelligence Feed by applying contextual relationship-based
+        filtering. Supported fields: location, industry. Sent as the TMV1-Contextual-Filter
+        header.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/threatintel/feeds
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+          TMV1-Contextual-Filter: ${{ inputs.tmv1_contextual_filter }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          topReport: ${{ inputs.topReport }}
+          responseObjectFormat: ${{ inputs.responseObjectFormat }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

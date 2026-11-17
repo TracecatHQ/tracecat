@@ -1,0 +1,129 @@
+---
+title: "Push and pull"
+description: "Push workspace configuration to Git as a pull request, then pull a reviewed commit into another workspace."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Push and pull require a workspace connected to a repository. See [Workspace Git sync](/gitops/workspace-git-sync) to connect a provider and bind a workspace.
+
+## Push and open a pull request
+
+Use the `Push` tab to push the full workspace configuration.
+
+<Steps>
+  <Step title="Choose a branch and commit message">
+    On the `Push` tab, use the branch picker beside `Into` to choose an existing branch or enter a new branch name and click `Create`. Enter a commit message. New branches start from the base branch. Tracecat blocks direct pushes to both the base branch and the repository default branch.
+
+    <Frame>
+      ![Git sync Push tab with grouped resource changes, target branch, and commit message](/img/manage-platform/git-sync-workspace-push.jpg)
+    </Frame>
+  </Step>
+  <Step title="Preview changes">
+    Click `Preview` to compare with the target branch, or the base branch when creating a branch. Expand a resource group to review its file changes. Use `Preview again` after making more edits.
+  </Step>
+  <Step title="Push">
+    Click `Push and open PR` (`Push and open MR` on GitLab); the button includes the change count after a preview. Use the adjacent menu to choose `Push only` when you want a commit without a pull request. Tracecat commits only changed files, deletes stale files, and reuses an open pull request on the same branch.
+
+    The pull request body names the workspace and the publishing user's email.
+  </Step>
+</Steps>
+
+### Push one resource type
+
+Each resource list page has its own `Push` button, which exports that resource type plus everything it references onto its own branch.
+
+<Tabs>
+  <Tab title="Tables">
+    <Frame>
+      ![Push tables dialog showing the source, target branch, and resulting pull request](/img/manage-platform/git-sync-resource-push-tables.png)
+    </Frame>
+  </Tab>
+  <Tab title="Case fields">
+    <Frame>
+      ![Push case custom fields dialog showing the source, target branch, and resulting pull request](/img/manage-platform/git-sync-resource-push-case-fields.png)
+    </Frame>
+  </Tab>
+  <Tab title="Skills">
+    <Frame>
+      ![Push skills dialog showing the source, target branch, and resulting pull request](/img/manage-platform/git-sync-resource-push-skills.png)
+    </Frame>
+  </Tab>
+</Tabs>
+
+### Push a single workflow
+
+From the workflow builder's `Publish` dropdown, choose `Open PR` or `Push directly`; a direct push commits to the selected branch with no pull request.
+
+<Frame>
+  ![Workflow builder Publish dropdown with Open PR and Push directly options](/img/manage-platform/git-sync-workflow-publish.png)
+</Frame>
+
+## Pull a commit
+
+A merged pull request changes nothing in a workspace until you or your pipeline pull that commit.
+
+<Steps>
+  <Step title="Choose a commit">
+    On the `Pull` tab, use the commit picker beside `From` to choose a commit from the base branch.
+
+    <Frame>
+      ![Git sync Pull tab with grouped changes, commit selector, and schedule-overwrite control](/img/manage-platform/git-sync-workspace-pull.jpg)
+    </Frame>
+  </Step>
+  <Step title="Preview changes">
+    Click `Preview` to dry-run the pull. If Tracecat cannot resolve a model, MCP integration, or secret store, choose its target in the matching dialog, then click `Save and preview again`. Use `Choose matches` to reopen unresolved choices. Resolve any validation errors before pulling.
+
+    <Frame>
+      ![Match model and MCP references before pulling a commit](/img/manage-platform/git-sync-manual-matching.jpg)
+    </Frame>
+  </Step>
+  <Step title="Apply">
+    Click `Pull into <workspace>`; the button includes the change count after a preview. Tracecat enables it only after a successful preview for the same commit and options. A pull updates matching workspace resources and leaves schedules untouched unless you check `Overwrite schedules`. Changing the commit, schedule option, or reference matches requires another preview.
+  </Step>
+</Steps>
+
+<Warning>
+  A pull can overwrite local edits made after the preview. Coordinate workspace edits, run one push or pull at a time, and wait for it to finish before starting another. Leaving the page does not cancel an in-flight sync. A push exports the workspace state when you submit it, so preview again after editing resources.
+</Warning>
+
+Until you publish a pulled workflow, its runs resolve actions against the workspace's current registry versions. Publishing it records the registry lock.
+
+## Staging to production
+
+<Steps>
+  <Step title="Bind both workspaces">
+    Bind staging and production workspaces to the same repository. Role assignments are per workspace, so grant `workspace_sync:sync` (`workspace-editor` and above) in each.
+  </Step>
+  <Step title="Push from staging">
+    Build in staging, then choose `Push and open PR` (`MR` on GitLab) from its `Push` tab.
+  </Step>
+  <Step title="Review and merge">
+    Merge the pull request in your repository, where branch protection and required reviews apply.
+  </Step>
+  <Step title="Pull into production">
+    In production, select the merged commit, click `Preview`, then `Pull into <workspace>`. Publish any workflow that needs a registry lock.
+  </Step>
+</Steps>
+
+## API reference
+
+Exporting a workspace requires `workspace_sync:sync`. Reading branches and commits, pulling, and publishing one workflow also accept `workflow:sync`, so a service account holding only `workflow:sync` can pull from CI.
+
+| Action | Endpoint | Scopes |
+| --- | --- | --- |
+| Save provider credentials | `POST /organization/vcs/{provider}/credentials` (`github` or `gitlab`) | `org:settings:update` |
+| Bind a repository | `PATCH /workspaces/{workspace_id}` with `settings.git_provider` and `settings.git_repo_url` | `workspace:update` |
+| Preview an export | `POST /workflows/sync/export/preview` | `workspace_sync:sync` |
+| Export and open a pull request | `POST /workflows/sync/export` | `workspace_sync:sync` |
+| Push one workflow | `POST /workflows/{workflow_id}/publish` | `workflow:update`, plus `workflow:sync` or `workspace_sync:sync` |
+| List branches and commits | `GET /workflows/sync/branches`, `GET /workflows/sync/commits?branch=` | `workflow:sync` or `workspace_sync:sync` |
+| Pull a commit | `POST /workflows/sync/pull` with a required `commit_sha` | `workflow:sync` or `workspace_sync:sync` |
+
+## Related pages
+
+- See [Workspace Git sync](/gitops/workspace-git-sync) for connecting a repository and the layout of an export.
+- See [Security architecture](/security/architecture#workspace-gitops) for the GitOps model and how registry versions resolve after a pull.
+- See [Roles and permissions](/manage-platform/rbac) for the scopes that gate connecting, exporting, and pulling.
+- See [Workflows](/automations/workflows) for YAML export and import without Git.

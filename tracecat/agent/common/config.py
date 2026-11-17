@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tracecat.agent.constants import AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 from tracecat.executor.enums import ExecutorBackendType
+from tracecat.process_env import is_loader_env_var
 
 # === Agent Sandbox Config (read directly from env) === #
 
@@ -64,6 +65,11 @@ AGENT_RUNTIME_PROTECTED_ENV_VARS = frozenset(
     }
 )
 """Environment variables reserved for Tracecat's agent runtime isolation."""
+
+
+def is_agent_runtime_protected_env_var(key: str) -> bool:
+    """Return whether user-supplied agent runtime env must not set ``key``."""
+    return key in AGENT_RUNTIME_PROTECTED_ENV_VARS or is_loader_env_var(key)
 
 
 def build_agent_runtime_uv_env(uv_state_dir: Path) -> dict[str, str]:

@@ -34,6 +34,7 @@ from tracecat.organization import router as organization_router
 from tracecat.registry.actions import router as registry_actions_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
+from tracecat.tables.folders import router as table_folder_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.store import router as workflow_store_router
@@ -219,6 +220,25 @@ async def test_agent_preset_scope_guards(
     ],
 )
 async def test_agent_folder_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (table_folder_router.get_directory, "table:read"),
+        (table_folder_router.list_folders, "table:read"),
+        (table_folder_router.create_folder, "table:create"),
+        (table_folder_router.update_folder, "table:update"),
+        (table_folder_router.move_folder, "table:update"),
+        (table_folder_router.delete_folder, "table:delete"),
+        (tables_router.move_table, "table:update"),
+    ],
+)
+async def test_table_folder_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
