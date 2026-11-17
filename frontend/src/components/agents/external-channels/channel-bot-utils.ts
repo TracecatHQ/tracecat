@@ -85,6 +85,9 @@ export function channelLabel(
   return channelName({ ...channel, name: `${prefix}${channel.name}` })
 }
 
+/** The platform Slack app's name wherever a screen shows it. */
+export const PLATFORM_SLACK_TITLE = "Tracecat for Slack"
+
 /** What a provider card shows for its bot. */
 export type ChannelBotState =
   | "not_connected"
@@ -121,6 +124,44 @@ export function channelBotState(
     return "not_installed"
   }
   return bot.status
+}
+
+/**
+ * Whether an installed Slack bot lacks scopes the current manifest needs. A bot
+ * that needs reconnecting is left out: its reconnect requests every scope.
+ */
+export function slackUpdateNeeded(
+  details: ChannelBotDetailsOf<"slack"> | null,
+  state: ChannelBotState
+): boolean {
+  return (
+    CHANNEL_BOT_STATES[state].installed &&
+    state !== "needs_reconnect" &&
+    (details?.update_needed === true ||
+      (details?.missing_scopes.length ?? 0) > 0)
+  )
+}
+
+/** A routed channel's label: its name when listed, else its ID. */
+export function routeChannelLabel(
+  provider: ChannelBotProvider,
+  providerChannelId: string,
+  known: ChannelBotChannel | undefined
+): string {
+  return known ? channelLabel(provider, known) : providerChannelId
+}
+
+/** The first `cap` channels, and ` +N` (`+N+` when more are unloaded) for the rest. */
+export function channelSummary<T>(
+  channels: T[],
+  cap: number,
+  hasMore: boolean
+): { shown: T[]; overflow: string | null } {
+  const hidden = channels.length - cap
+  return {
+    shown: channels.slice(0, cap),
+    overflow: hidden > 0 ? ` +${hidden}${hasMore ? "+" : ""}` : null,
+  }
 }
 
 /** One provider's member of the bot details union. */

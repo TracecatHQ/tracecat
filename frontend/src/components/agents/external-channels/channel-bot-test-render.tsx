@@ -59,7 +59,7 @@ export type ProviderTitle = "Custom Slack app"
 /** Opens a provider's dialog from its row, once the bot list has loaded. */
 export async function openProvider(
   title: ProviderTitle,
-  action: "Connect" | "Manage"
+  action: "Connect" | "Manage" | "Reconnect"
 ): Promise<void> {
   const row = await screen.findByRole("group", { name: title })
   await userEvent.click(within(row).getByRole("button", { name: action }))

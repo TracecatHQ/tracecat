@@ -177,38 +177,168 @@ describe("Channels page", () => {
     })
   })
 
-  it("manages a connected install: routes, pause and disconnect", async () => {
+  it("manages a connected install: routes, then pauses it from a menu that offers Disconnect", async () => {
     servePlatform()
+    api.updateBot.mockResolvedValue(platformSlackBot({ status: "paused" }))
     renderChannelsPage()
     const row = await platformRow()
     expect(within(row).getByText("Active")).toBeInTheDocument()
-    expect(within(row).getByText("Connected to Slack")).toBeInTheDocument()
+    expect(within(row).getByText("Tracecat for Slack")).toBeInTheDocument()
+    expect(within(row).queryByText("Connected to Slack")).toBeNull()
     expect(
       await within(row).findByRole("combobox", { name: "Default agent" })
     ).toBeInTheDocument()
     expect(
       within(row).getByRole("combobox", { name: "Channel" })
     ).toBeInTheDocument()
-    expect(within(row).getByRole("button", { name: "Pause" })).toBeEnabled()
-    expect(
-      within(row).getByRole("button", { name: "Disconnect" })
-    ).toBeEnabled()
     expect(
       within(row).queryByRole("button", { name: "Add to Slack" })
     ).toBeNull()
+
+    await userEvent.click(
+      within(row).getByRole("button", { name: "More actions" })
+    )
+    expect(
+      screen.getByRole("menuitem", { name: "Disconnect" })
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("menuitem", { name: "Pause" }))
+    expect(api.updateBot).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "platform-1",
+      requestBody: { status: "paused" },
+    })
   })
 
-  it("is read-only without agent:update", async () => {
+  it("tells a member without agent:update who can add Tracecat, with no dead controls", async () => {
     mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
     servePlatform([])
     renderChannelsPage()
     const row = await platformRow()
     expect(
-      within(row).getByRole("button", { name: "Add to Slack" })
-    ).toBeDisabled()
+      within(row).getByText(
+        "Ask someone who can edit agents to add Tracecat to Slack."
+      )
+    ).toBeInTheDocument()
     expect(
-      within(row).getByRole("combobox", { name: "Default agent" })
-    ).toBeDisabled()
+      within(row).queryByRole("button", { name: "Add to Slack" })
+    ).toBeNull()
+    expect(
+      within(row).queryByRole("combobox", { name: "Default agent" })
+    ).toBeNull()
+  })
+
+  it("says a paused install ignores Slack and resumes it beside its status", async () => {
+    servePlatform([platformSlackBot({ status: "paused" })])
+    api.updateBot.mockResolvedValue(platformSlackBot())
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(within(row).getByText("Paused")).toBeInTheDocument()
+    expect(
+      within(row).getByText("Tracecat ignores Slack messages until you resume.")
+    ).toBeInTheDocument()
+    await userEvent.click(within(row).getByRole("button", { name: "Resume" }))
+    expect(api.updateBot).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "platform-1",
+      requestBody: { status: "active" },
+    })
+  })
+
+  it("tells a member without agent:update who can resume a paused install", async () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    servePlatform([platformSlackBot({ status: "paused" })])
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(
+      within(row).getByText(
+        "Tracecat ignores Slack messages until it's resumed. Ask someone who can edit agents to resume it."
+      )
+    ).toBeInTheDocument()
+    expect(within(row).queryByRole("button", { name: "Resume" })).toBeNull()
+  })
+
+  it("flags a paused install missing scopes; a reconnect clears both", async () => {
+    servePlatform([
+      platformSlackBot(
+        { status: "paused" },
+        { update_needed: true, missing_scopes: ["channels:read"] }
+      ),
+    ])
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(within(row).getByText("Update needed")).toBeInTheDocument()
+    expect(within(row).queryByText("Paused")).toBeNull()
+    expect(within(row).getByText(/which also resumes it\./)).toBeInTheDocument()
+    expect(within(row).getByRole("button", { name: "Reconnect" })).toBeEnabled()
+    // Resume stays reachable without a Slack approval.
+    await userEvent.click(
+      within(row).getByRole("button", { name: "More actions" })
+    )
+    expect(screen.getByRole("menuitem", { name: "Resume" })).toBeInTheDocument()
+  })
+
+  it("titles an install that needs reconnecting by its name, not as connected", async () => {
+    servePlatform([platformSlackBot({ status: "needs_reconnect" })])
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(within(row).getByText("Tracecat for Slack")).toBeInTheDocument()
+    expect(within(row).queryByText("Connected to Slack")).toBeNull()
+    expect(within(row).getByText("Needs reconnect")).toBeInTheDocument()
+    expect(
+      within(row).getByText(
+        "Tracecat isn't answering in Slack. Reconnect to restore it."
+      )
+    ).toBeInTheDocument()
+    expect(within(row).getByRole("button", { name: "Reconnect" })).toBeEnabled()
+  })
+
+  it("flags an install missing scopes and reconnects it to request them", async () => {
+    servePlatform([
+      platformSlackBot(
+        {},
+        {
+          update_needed: true,
+          missing_scopes: ["channels:read", "groups:read"],
+        }
+      ),
+    ])
+    api.installPlatformBot.mockResolvedValue({
+      bot: platformSlackBot({ status: "needs_reconnect" }),
+      authorization_url: AUTHORIZE_URL,
+    })
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(within(row).getByText("Update needed")).toBeInTheDocument()
+    expect(within(row).queryByText("Active")).toBeNull()
+    expect(
+      within(row).getByText("Missing: channels:read, groups:read")
+    ).toBeInTheDocument()
+
+    await userEvent.click(
+      within(row).getByRole("button", { name: "Reconnect" })
+    )
+    expect(api.installPlatformBot.mock.calls[0][0].requestBody).toMatchObject({
+      bot_id: "platform-1",
+      agent_preset_id: undefined,
+    })
+    await waitFor(() => expect(goTo).toHaveBeenCalledWith(AUTHORIZE_URL))
+  })
+
+  it("asks a member without agent:update to find an editor for an update", async () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    servePlatform([
+      platformSlackBot(
+        {},
+        { update_needed: true, missing_scopes: ["channels:read"] }
+      ),
+    ])
+    renderChannelsPage()
+    const row = await platformRow()
+    expect(within(row).getByText("Update needed")).toBeInTheDocument()
+    expect(
+      within(row).getByText(/Ask someone who can edit agents to reconnect it\./)
+    ).toBeInTheDocument()
+    expect(within(row).queryByRole("button", { name: "Reconnect" })).toBeNull()
   })
 
   it("shows connected controls disabled without agent:update", async () => {
@@ -223,8 +353,9 @@ describe("Channels page", () => {
       within(row).getByRole("combobox", { name: "Channel" })
     ).toBeDisabled()
     expect(within(row).getByRole("button", { name: "Add" })).toBeDisabled()
-    expect(within(row).queryByRole("button", { name: "Pause" })).toBeNull()
-    expect(within(row).queryByRole("button", { name: "Disconnect" })).toBeNull()
+    expect(
+      within(row).queryByRole("button", { name: "More actions" })
+    ).toBeNull()
   })
 
   it("shows why the installs failed to load", async () => {
@@ -254,7 +385,7 @@ describe("Channels page", () => {
     const row = await platformRow()
     expect(
       within(row).getByText(
-        "This Slack workspace is already connected to another Tracecat workspace"
+        "Another Tracecat workspace has that Slack workspace"
       )
     ).toBeInTheDocument()
     expect(toast).not.toHaveBeenCalled()

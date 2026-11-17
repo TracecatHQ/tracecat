@@ -1,9 +1,10 @@
-import { act, screen, waitFor, within } from "@testing-library/react"
+import { act, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { AgentChannelRouteRead } from "@/client"
 import {
   api,
   apiError,
+  channelPage,
   PRESET,
   platformSlackBot,
   reservedSlackBot,
@@ -21,12 +22,15 @@ jest.mock("@/client")
 jest.mock("@/components/agents/external-channels/slack-channel-panel", () => ({
   SlackChannelPanel: () => "Legacy Slack panel",
 }))
+const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
+
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
 }))
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockUseScopeCheck.mockImplementation(() => true)
   serveEntitlements()
   serveBots([])
 })
@@ -155,78 +159,142 @@ function servePlatform(
 }
 
 describe("Tracecat for Slack on the Channels tab", () => {
-  it("shows the custom app with no platform card or switch link", async () => {
-    servePlatform([platformSlackBot({ agent_preset_id: "preset-2" })])
+  const CHANNELS_HREF = "/workspaces/workspace-1/agents/channels"
+
+  async function platformCard(): Promise<HTMLElement> {
+    return await screen.findByRole("group", { name: "Tracecat for Slack" })
+  }
+
+  it("leads with Tracecat for Slack, before the custom app", async () => {
+    servePlatform()
     renderPanel()
-    const custom = await screen.findByRole("group", {
-      name: "Custom Slack app",
-    })
+    const platform = await platformCard()
+    const custom = screen.getByRole("group", { name: "Custom Slack app" })
+    expect(
+      platform.compareDocumentPosition(custom) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     expect(
       within(custom).getByRole("button", { name: "Connect" })
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("group", { name: "Tracecat for Slack" })
-    ).toBeNull()
-    expect(
-      screen.queryByRole("button", { name: "Use your own Slack app instead" })
-    ).toBeNull()
   })
 
-  it("links to the Channels page when this agent is the default", async () => {
+  it("says this agent answers DMs and all other channels as the default", async () => {
     servePlatform()
     renderPanel()
-    const link = await screen.findByRole("link", { name: "Tracecat for Slack" })
-    expect(link).toHaveAttribute(
-      "href",
-      "/workspaces/workspace-1/agents/channels"
-    )
-    expect(link.closest("p")).toHaveTextContent(
-      "Answers in Slack via Tracecat for Slack."
-    )
+    const card = await platformCard()
+    expect(
+      within(card).getByText(
+        "Default agent. Answers DMs and all other channels."
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(card).getByRole("link", { name: "Edit channels" })
+    ).toHaveAttribute("href", CHANNELS_HREF)
+    // Active is the usual case, so the card shows no status.
+    expect(within(card).queryByText("Active")).toBeNull()
   })
 
-  it("links to the Channels page when a channel routes to this agent", async () => {
+  it("names the channels that route to this agent", async () => {
     servePlatform(
       [platformSlackBot({ agent_preset_id: "preset-2" })],
       [route(PRESET.id)]
     )
+    // Named even before the bot joins it, as on the Channels page.
+    api.listRoutableChannels.mockResolvedValue(
+      channelPage([
+        { id: "C1", name: "alerts", is_private: false, is_member: false },
+      ])
+    )
     renderPanel()
+    const card = await platformCard()
+    expect(await within(card).findByText("#alerts")).toBeInTheDocument()
+    expect(within(card).getByText(/Answers in/)).toBeInTheDocument()
     expect(
-      await screen.findByRole("link", { name: "Tracecat for Slack" })
-    ).toBeInTheDocument()
+      within(card).getByRole("link", { name: "Edit channels" })
+    ).toHaveAttribute("href", CHANNELS_HREF)
     expect(api.listRoutes).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       botId: "platform-1",
       agentPresetId: PRESET.id,
-      limit: 1,
+      limit: 200,
     })
   })
 
-  it("says nothing when another agent answers every channel", async () => {
+  it("counts routed channels past the first three", async () => {
+    const routes = ["C1", "C2", "C3", "C4", "C5"].map((id) => ({
+      ...route(PRESET.id),
+      provider_channel_id: id,
+    }))
+    servePlatform([platformSlackBot({ agent_preset_id: "preset-2" })], routes)
+    renderPanel()
+    const card = await platformCard()
+    expect(await within(card).findByText("C3")).toBeInTheDocument()
+    expect(within(card).queryByText("C4")).toBeNull()
+    expect(card).toHaveTextContent("+2")
+  })
+
+  it("shows an install's status when it needs attention", async () => {
+    servePlatform([
+      platformSlackBot({}, { update_needed: true, missing_scopes: ["a"] }),
+    ])
+    renderPanel()
+    const card = await platformCard()
+    expect(within(card).getByText("Update needed")).toBeInTheDocument()
+  })
+
+  it("gives a member without agent:update a view link, not edit actions", async () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    servePlatform()
+    renderPanel()
+    const card = await platformCard()
+    expect(
+      within(card).getByRole("link", { name: "View channels" })
+    ).toHaveAttribute("href", CHANNELS_HREF)
+    expect(
+      within(card).queryByRole("link", { name: "Edit channels" })
+    ).toBeNull()
+  })
+
+  it("offers to assign a channel when another agent answers every channel", async () => {
     servePlatform(
       [platformSlackBot({ agent_preset_id: "preset-2" })],
       [route("preset-2")]
     )
     renderPanel()
-    await screen.findByRole("group", { name: "Custom Slack app" })
-    await waitFor(() => expect(api.listRoutes).toHaveBeenCalled())
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    expect(screen.queryByText(/Answers in Slack via/)).toBeNull()
+    const card = await platformCard()
+    expect(
+      await within(card).findByText("Not answering in any channel yet.")
+    ).toBeInTheDocument()
+    expect(
+      within(card).getByRole("link", { name: "Assign a channel" })
+    ).toHaveAttribute("href", CHANNELS_HREF)
   })
 
-  it("says nothing when the install is disconnected", async () => {
+  it("points to Add to Slack when the workspace has no install", async () => {
     servePlatform([
       platformSlackBot({ status: "disconnected", provider_app_id: null }),
     ])
     renderPanel()
+    const card = await platformCard()
+    expect(
+      within(card).getByText("Not added to this workspace's Slack yet.")
+    ).toBeInTheDocument()
+    expect(
+      within(card).getByRole("link", { name: "Add to Slack" })
+    ).toHaveAttribute("href", CHANNELS_HREF)
+    expect(api.listRoutes).not.toHaveBeenCalled()
+  })
+
+  it("shows no Tracecat for Slack card when the deployment registers no app", async () => {
+    serveBots([])
+    renderPanel()
     await screen.findByRole("group", { name: "Custom Slack app" })
-    await waitFor(() => expect(api.listBots).toHaveBeenCalledTimes(2))
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(screen.queryByText(/Answers in Slack via/)).toBeNull()
-    expect(api.listRoutes).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole("group", { name: "Tracecat for Slack" })
+    ).toBeNull()
   })
 })

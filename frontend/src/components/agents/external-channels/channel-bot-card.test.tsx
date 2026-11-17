@@ -161,9 +161,15 @@ describe.each(PROVIDERS)(
       serveBots([installed({ status: "needs_reconnect" })])
       renderPanel()
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Ask someone who can edit this agent"
-      )
+      const row = await screen.findByRole("group", { name: title })
+      expect(
+        within(row).getByText(
+          "Ask someone who can edit this agent to connect it again."
+        )
+      ).toBeInTheDocument()
+      expect(
+        within(row).getByRole("button", { name: "Reconnect" })
+      ).toBeDisabled()
     })
 
     it("flags a bot that needs reconnecting", async () => {
@@ -172,7 +178,14 @@ describe.each(PROVIDERS)(
       const row = await screen.findByRole("group", { name: title })
 
       expect(within(row).getByText("Needs reconnect")).toBeInTheDocument()
-      expect(screen.getByRole("alert")).toHaveTextContent(/reconnect/i)
+      expect(
+        within(row).getByText("Not answering in Slack until you reconnect.")
+      ).toBeInTheDocument()
+      // One status and one action; no separate notice repeats it.
+      expect(within(row).queryByRole("alert")).toBeNull()
+      expect(
+        within(row).getByRole("button", { name: "Reconnect" })
+      ).toBeEnabled()
     })
   }
 )

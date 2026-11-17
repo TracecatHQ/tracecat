@@ -13,10 +13,10 @@ import {
   CHANNEL_BOT_PROVIDER_NAMES,
   type ChannelConventions,
   channelConventions,
-  channelLabel,
   channelName,
   isChannelListingNeedsReinstall,
   isChannelListingNotSupported,
+  routeChannelLabel,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import {
   ChannelIcon,
@@ -99,22 +99,39 @@ function routeMembership(
 }
 
 /** Why the channels cannot be picked, or null while the picker works. */
-function listingNote(
+function listingFailure(
   providerName: string,
+  running: boolean,
   channels: ChannelBotChannel[] | undefined,
   error: unknown
-): string | null {
+): { message: string; canRetry: boolean } | null {
+  // The API lists channels only for a running install.
+  if (!running) {
+    return {
+      message: `Channel names load while Tracecat for ${providerName} is active.`,
+      canRetry: false,
+    }
+  }
   // A failed first page falls back to typing the ID; a failed later page keeps the picker.
   if (!error || channels) {
     return null
   }
   if (isChannelListingNotSupported(error)) {
-    return `${providerName} channels can't be listed here.`
+    return {
+      message: `${providerName} channels can't be listed here.`,
+      canRetry: false,
+    }
   }
   if (isChannelListingNeedsReinstall(error)) {
-    return `Reinstall Tracecat for ${providerName} to list channels.`
+    return {
+      message: `Reconnect Tracecat for ${providerName} to load channel names.`,
+      canRetry: false,
+    }
   }
-  return "Could not load channels."
+  return {
+    message: `Couldn't load channel names from ${providerName}.`,
+    canRetry: true,
+  }
 }
 
 /** One routed channel, its agent, and a hint when the bot is not in it yet. */
@@ -141,10 +158,7 @@ function RouteRow({
 }) {
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[provider]
   const { inviteCommand } = conventions
-  const label = known
-    ? channelLabel(provider, known)
-    : route.provider_channel_id
-  const where = known ? label : "this channel"
+  const label = routeChannelLabel(provider, route.provider_channel_id, known)
   return (
     <li className="space-y-1">
       <div className="flex items-center gap-2">
@@ -178,15 +192,19 @@ function RouteRow({
       </div>
       {membership === "not_member" && (
         <p className="flex items-center gap-2 pl-[22px] text-xs text-muted-foreground">
-          {inviteCommand
-            ? `Tracecat isn't in ${where} yet. Invite @Tracecat to start answering there.`
-            : `Tracecat isn't in ${where} yet. Add it in ${providerName} to start answering there.`}
-          {inviteCommand && (
-            <CopyButton
-              value={inviteCommand}
-              toastMessage="Invite command copied"
-              tooltipMessage={`Copy ${inviteCommand}`}
-            />
+          {inviteCommand ? (
+            <>
+              <span>
+                Not in this channel yet. Run <code>{inviteCommand}</code> there.
+              </span>
+              <CopyButton
+                value={inviteCommand}
+                toastMessage="Invite command copied"
+                tooltipMessage={`Copy ${inviteCommand}`}
+              />
+            </>
+          ) : (
+            `Not in this channel yet. Add Tracecat in ${providerName} to start answering there.`
           )}
         </p>
       )}
@@ -208,6 +226,7 @@ export function PlatformChannelRoutes({
   canUpdate: boolean
 }) {
   const { presets } = useAgentPresets(workspaceId)
+  const running = install.status === "active"
   const {
     routes,
     routesIsLoading,
@@ -227,7 +246,10 @@ export function PlatformChannelRoutes({
     hasMoreChannels,
     loadingMoreChannels,
     loadMoreChannels,
-  } = useChannelBotRoutableChannels(workspaceId, install.id)
+    retryChannels,
+  } = useChannelBotRoutableChannels(workspaceId, install.id, {
+    enabled: running,
+  })
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(
@@ -248,7 +270,7 @@ export function PlatformChannelRoutes({
   const taken = routedIds.has(newChannel)
   const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
   const unrouted = (channels ?? []).filter((c) => !routedIds.has(c.id))
-  const note = listingNote(providerName, channels, channelsError)
+  const failure = listingFailure(providerName, running, channels, channelsError)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
     newChannel !== "" && !/\s/.test(newChannel) && !taken && !!agentPresetId
@@ -301,7 +323,7 @@ export function PlatformChannelRoutes({
     )
   } else if (routes && routes.length > 0) {
     routeList = (
-      <ul className="space-y-2" aria-label="Channels">
+      <ul className="space-y-2" aria-label="Channel agents">
         {routes.map((r) => {
           const known = channelsById.get(r.provider_channel_id)
           return (
@@ -366,7 +388,7 @@ export function PlatformChannelRoutes({
         <div className="min-w-48 flex-1">
           <p className="text-xs font-medium">Default agent</p>
           <p className="text-xs text-muted-foreground">
-            Answers DMs and any channel not listed below.
+            Answers DMs and any channel without its own agent.
           </p>
         </div>
         <AgentSelect
@@ -378,15 +400,36 @@ export function PlatformChannelRoutes({
         />
       </div>
       <div className="space-y-2">
-        <p className="text-xs font-medium">Channels</p>
+        <div>
+          <p className="text-xs font-medium">Channel agents</p>
+          <p className="text-xs text-muted-foreground">
+            Give a channel its own agent instead of the default.
+          </p>
+        </div>
+        {failure ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-xs">
+            {failure.message}
+            {failure.canRetry ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="link"
+                className="h-auto px-0 text-xs"
+                onClick={retryChannels}
+              >
+                Try again
+              </Button>
+            ) : null}
+          </p>
+        ) : null}
         {routeList}
         {routesErrorLine}
         <form className="flex flex-wrap items-end gap-2" onSubmit={addRoute}>
           <div className="min-w-40 flex-1 space-y-1">
             <Label htmlFor={channelInputId} className="text-xs">
-              {note ? "Channel ID" : "Channel"}
+              {failure ? "Channel ID" : "Channel"}
             </Label>
-            {note ? (
+            {failure ? (
               <Input
                 id={channelInputId}
                 value={channel}
@@ -432,8 +475,8 @@ export function PlatformChannelRoutes({
           </Button>
         </form>
         <p className="text-xs text-muted-foreground">
-          {note
-            ? `${note} Copy a channel's ID from its details in ${providerName}. Threads already started keep their agent.`
+          {failure
+            ? `In ${providerName}, a channel's ID is at the bottom of its details. Threads already started keep their agent.`
             : "Threads already started keep their agent."}
         </p>
       </div>
