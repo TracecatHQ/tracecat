@@ -18,8 +18,7 @@ from tracecat.auth.api_keys import (
 )
 from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope, require_scope
-from tracecat.authz.scopes import DEPRECATED_SCOPES
+from tracecat.authz.controls import can_grant_scope, require_scope
 from tracecat.db.models import Scope, ServiceAccount, ServiceAccountApiKey
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -280,8 +279,7 @@ async def _ensure_role_can_assign_scopes(role: Role, scopes: list[Scope]) -> Non
     denied = [
         scope.name
         for scope in scopes
-        if scope.name not in DEPRECATED_SCOPES
-        and not has_scope(effective_scopes, scope.name)
+        if not can_grant_scope(effective_scopes, scope.name)
     ]
     if denied:
         joined = ", ".join(sorted(denied))

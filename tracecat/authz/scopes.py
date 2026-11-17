@@ -24,10 +24,17 @@ from tracecat.identifiers import InternalServiceID
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
 
-# Replaced by `workspace_sync:push` and `workspace_sync:pull`. They grant nothing,
-# but migrated custom roles and service accounts keep them until a contract
-# migration drops them, so grant ceilings skip them.
-DEPRECATED_SCOPES: frozenset[str] = frozenset({"workflow:sync", "workspace_sync:sync"})
+# Replaced by `workspace_sync:push` and `workspace_sync:pull`. They grant nothing
+# in this version, but migrated custom roles and service accounts keep them
+# until a contract migration drops them, and the previous app version still
+# honors them. Grant ceilings treat them as held when the caller holds both
+# replacements.
+DEPRECATED_SYNC_SCOPES: frozenset[str] = frozenset(
+    {"workflow:sync", "workspace_sync:sync"}
+)
+SYNC_REPLACEMENT_SCOPES: frozenset[str] = frozenset(
+    {"workspace_sync:push", "workspace_sync:pull"}
+)
 
 # =============================================================================
 # Workspace Role Scopes

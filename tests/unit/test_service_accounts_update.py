@@ -237,15 +237,16 @@ async def test_update_service_account_rejects_scopes_not_held_by_caller(
 
 
 @pytest.mark.anyio
-async def test_service_account_ceiling_skips_deprecated_sync_scopes(
+async def test_service_account_ceiling_needs_both_sync_replacements(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Re-saving a migrated service account resubmits its deprecated sync
-    # scopes, which preset admins no longer hold.
+    # scopes, which preset admins no longer hold but which they replace.
+    effective_scopes = AsyncMock(
+        return_value=frozenset({"workspace_sync:push", "workspace_sync:pull"})
+    )
     monkeypatch.setattr(
-        service_accounts_service,
-        "compute_effective_scopes",
-        AsyncMock(return_value=frozenset({"workspace_sync:push"})),
+        service_accounts_service, "compute_effective_scopes", effective_scopes
     )
     role = Role(
         type="user",
@@ -265,12 +266,16 @@ async def test_service_account_ceiling_skips_deprecated_sync_scopes(
         )
 
     await service_accounts_service._ensure_role_can_assign_scopes(
-        role, [scope("workflow:sync"), scope("workspace_sync:push")]
+        role, [scope("workflow:sync"), scope("workspace_sync:sync")]
     )
+
+    # Old app pods still honor the deprecated names: a caller without pull
+    # must not be able to grant them.
+    effective_scopes.return_value = frozenset({"workspace_sync:push"})
     with pytest.raises(
         TracecatAuthorizationError,
-        match="not held by the caller: workspace_sync:pull",
+        match="not held by the caller: workspace_sync:sync",
     ):
         await service_accounts_service._ensure_role_can_assign_scopes(
-            role, [scope("workspace_sync:sync"), scope("workspace_sync:pull")]
+            role, [scope("workspace_sync:sync"), scope("workspace_sync:push")]
         )
