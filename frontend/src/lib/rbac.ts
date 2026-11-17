@@ -171,10 +171,25 @@ export function getScopeActionLabel(scope: ScopeRead): string {
 }
 
 // Replaced by `workspace_sync:push` and `workspace_sync:pull`. Migrated roles
-// keep them until a contract migration, so categories still list them (setting
-// a level removes them) but the displayed level ignores them when push or pull
-// is also selected.
+// keep them until a contract migration, and older app versions still honor them
+// as push and pull. The editors list them under Git sync, show Custom while one
+// is selected, and drop them on any edit.
 const DEPRECATED_SCOPE_NAMES = new Set(["workflow:sync", "workspace_sync:sync"])
+
+/**
+ * Return `selected` without deprecated sync scopes. The permission editors
+ * call it on every edit so a saved role never keeps legacy Git sync access the
+ * editor did not show.
+ */
+export function withoutDeprecatedScopes(
+  selected: Iterable<string>,
+  scopes: ScopeRead[]
+): Set<string> {
+  const deprecatedIds = new Set(
+    scopes.filter((s) => DEPRECATED_SCOPE_NAMES.has(s.name)).map((s) => s.id)
+  )
+  return new Set([...selected].filter((id) => !deprecatedIds.has(id)))
+}
 
 /**
  * Get scopes that match a category's resources
@@ -236,11 +251,9 @@ export function getCategoryPermissionLevel(
     selectedScopeIds.has(s.id)
   )
 
-  // A deprecated scope on its own still grants access on older app versions,
-  // so it must not read as None.
-  if (selectedInCategory.length === 0) {
-    return hasDeprecatedSelected ? "mixed" : "none"
-  }
+  // Older app versions still honor a deprecated scope as push and pull.
+  if (hasDeprecatedSelected) return "mixed"
+  if (selectedInCategory.length === 0) return "none"
   if (selectedInCategory.length === categoryScopes.length) return "admin"
 
   // Check each level by comparing selected scopes to expected scopes for that level

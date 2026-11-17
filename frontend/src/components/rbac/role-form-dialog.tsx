@@ -21,6 +21,7 @@ import {
   getCategoryScopes,
   type PermissionLevel,
   RESOURCE_CATEGORIES,
+  withoutDeprecatedScopes,
 } from "@/lib/rbac"
 
 export interface RoleFormDialogProps {
@@ -57,22 +58,25 @@ export function RoleFormDialog({
     new Set(initialData?.scopes?.map((s) => s.id) ?? [])
   )
 
-  const toggleScope = useCallback((scopeId: string, checked: boolean) => {
-    setSelectedScopeIds((prev) => {
-      const next = new Set(prev)
-      if (checked) {
-        next.add(scopeId)
-      } else {
-        next.delete(scopeId)
-      }
-      return next
-    })
-  }, [])
+  const toggleScope = useCallback(
+    (scopeId: string, checked: boolean) => {
+      setSelectedScopeIds((prev) => {
+        const next = withoutDeprecatedScopes(prev, scopes)
+        if (checked) {
+          next.add(scopeId)
+        } else {
+          next.delete(scopeId)
+        }
+        return next
+      })
+    },
+    [scopes]
+  )
 
   const handleLevelChange = useCallback(
     (categoryResources: string[], level: PermissionLevel) => {
       setSelectedScopeIds((prev) => {
-        const next = new Set(prev)
+        const next = withoutDeprecatedScopes(prev, scopes)
         // Get all scopes for this category
         const categoryScopes = getCategoryScopes(categoryResources, scopes)
         // Remove all scopes from this category

@@ -9,6 +9,7 @@ import {
   RESOURCE_CATEGORIES,
   rolesForAssignmentEdit,
   rolesForScope,
+  withoutDeprecatedScopes,
 } from "@/lib/rbac"
 
 const integrationReadScope: ScopeRead = {
@@ -170,15 +171,24 @@ describe("Git sync category", () => {
     ])
   })
 
-  it("ignores deprecated scopes when push or pull is selected", () => {
+  it("reads as Custom while a deprecated scope is selected", () => {
+    // Older app versions still honor them as push and pull.
     const migrated = new Set(scopes.map((s) => s.id))
     expect(getCategoryPermissionLevel(resources, scopes, migrated)).toBe(
-      "admin"
+      "mixed"
     )
-    // On their own they still grant access on older app versions.
     expect(
       getCategoryPermissionLevel(resources, scopes, new Set(["workflow:sync"]))
     ).toBe("mixed")
+  })
+
+  it("drops deprecated scopes from a selection", () => {
+    const migrated = scopes.map((s) => s.id)
+    expect([...withoutDeprecatedScopes(migrated, scopes)]).toEqual([
+      "workspace_sync:push",
+      "workspace_sync:pull",
+      "workflow:read",
+    ])
   })
 
   it.each([

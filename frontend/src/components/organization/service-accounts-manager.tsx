@@ -82,6 +82,7 @@ import {
   getCategoryScopes,
   type PermissionLevel,
   RESOURCE_CATEGORIES,
+  withoutDeprecatedScopes,
 } from "@/lib/rbac"
 import { cn } from "@/lib/utils"
 
@@ -726,19 +727,28 @@ export function ServiceAccountsManager({
     setDialogOpen(true)
   }
 
-  const toggleScope = useCallback((scopeId: string, checked: boolean) => {
-    setDraft((current) => ({
-      ...current,
-      scopeIds: checked
-        ? [...current.scopeIds, scopeId]
-        : current.scopeIds.filter((id) => id !== scopeId),
-    }))
-  }, [])
+  const toggleScope = useCallback(
+    (scopeId: string, checked: boolean) => {
+      setDraft((current) => {
+        const next = withoutDeprecatedScopes(current.scopeIds, permissionScopes)
+        if (checked) {
+          next.add(scopeId)
+        } else {
+          next.delete(scopeId)
+        }
+        return { ...current, scopeIds: Array.from(next) }
+      })
+    },
+    [permissionScopes]
+  )
 
   const handleLevelChange = useCallback(
     (categoryResources: string[], level: PermissionLevel) => {
       setDraft((current) => {
-        const nextScopeIds = new Set(current.scopeIds)
+        const nextScopeIds = withoutDeprecatedScopes(
+          current.scopeIds,
+          permissionScopes
+        )
         const categoryScopes = getCategoryScopes(
           categoryResources,
           permissionScopes
