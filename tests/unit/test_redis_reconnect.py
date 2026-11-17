@@ -124,7 +124,15 @@ async def redis_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[RedisCl
     """A fresh RedisClient singleton on this worker's test database."""
     monkeypatch.setattr(redis_client_module, "REDIS_URL", os.environ["REDIS_URL"])
     monkeypatch.setattr(redis_client_module, "REDIS_URL__ARN", None)
-    await RedisClient().close()
+    if RedisClient._loop not in (None, asyncio.get_running_loop()):
+        # An earlier test on this worker left the singleton on its own event
+        # loop, which has since closed. Its connections cannot be awaited from
+        # this loop, so drop them instead of closing them.
+        RedisClient._client = None
+        RedisClient._pool = None
+        RedisClient._loop = None
+    else:
+        await RedisClient().close()
     RedisClient._instance = None
     client = RedisClient()
     try:
