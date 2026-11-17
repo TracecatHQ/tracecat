@@ -16,7 +16,8 @@ export const LEVEL_ACTIONS: Record<
 > = {
   none: [],
   read: ["read"],
-  write: ["read", "create", "update"],
+  // Git sync mirrors the presets: editors push, admins also pull.
+  write: ["read", "create", "update", "push"],
   // `submit` is how a form is executed: `form:submit`.
   execute: ["read", "execute", "submit"],
   admin: [
@@ -28,6 +29,8 @@ export const LEVEL_ACTIONS: Record<
     "remove",
     "manage",
     "execute",
+    "push",
+    "pull",
     "submit",
   ],
 }
@@ -71,6 +74,11 @@ export const RESOURCE_CATEGORIES: Record<
     label: "Integrations",
     description: "OAuth and MCP integration management",
     resources: ["integration"],
+  },
+  gitSync: {
+    label: "Git sync",
+    description: "Push workspace resources to Git and pull them back",
+    resources: ["workspace_sync"],
   },
   workspace: {
     label: "Workspace",

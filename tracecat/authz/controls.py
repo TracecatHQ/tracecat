@@ -7,6 +7,7 @@ from fnmatch import fnmatch
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import DEPRECATED_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 from tracecat.logger import logger
@@ -161,7 +162,11 @@ def ensure_can_grant_scopes(
         TracecatAuthorizationError: If any scope is outside the caller's ceiling.
     """
     denied = sorted(
-        {name for name in scope_names if not has_scope(caller_scopes, name)}
+        {
+            name
+            for name in scope_names
+            if name not in DEPRECATED_SCOPES and not has_scope(caller_scopes, name)
+        }
     )
     if denied:
         raise TracecatAuthorizationError(

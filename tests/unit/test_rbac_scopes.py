@@ -217,6 +217,21 @@ class TestEnsureCanGrantScopes:
         with pytest.raises(TracecatAuthorizationError):
             ensure_can_grant_scopes(frozenset(), ["org:member:read"])
 
+    def test_deprecated_sync_scopes_skip_the_ceiling(self):
+        # Migrated custom roles keep the deprecated names; preset admins no
+        # longer hold them but must still be able to assign those roles.
+        ensure_can_grant_scopes(
+            ORG_ADMIN_SCOPES,
+            ["workflow:sync", "workspace_sync:sync", "workspace_sync:pull"],
+        )
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller: workspace_sync:pull",
+        ):
+            ensure_can_grant_scopes(
+                EDITOR_SCOPES, ["workspace_sync:sync", "workspace_sync:pull"]
+            )
+
 
 class TestSystemRoleScopes:
     """Tests for system role scope definitions."""

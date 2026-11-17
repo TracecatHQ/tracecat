@@ -234,3 +234,43 @@ async def test_update_service_account_rejects_scopes_not_held_by_caller(
             description_provided=False,
             scope_ids=[uuid.uuid4()],
         )
+
+
+@pytest.mark.anyio
+async def test_service_account_ceiling_skips_deprecated_sync_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Re-saving a migrated service account resubmits its deprecated sync
+    # scopes, which preset admins no longer hold.
+    monkeypatch.setattr(
+        service_accounts_service,
+        "compute_effective_scopes",
+        AsyncMock(return_value=frozenset({"workspace_sync:push"})),
+    )
+    role = Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        organization_id=uuid.uuid4(),
+    )
+
+    def scope(name: str) -> Scope:
+        resource, action = name.split(":")
+        return Scope(
+            id=uuid.uuid4(),
+            name=name,
+            resource=resource,
+            action=action,
+            source=ScopeSource.PLATFORM,
+        )
+
+    await service_accounts_service._ensure_role_can_assign_scopes(
+        role, [scope("workflow:sync"), scope("workspace_sync:push")]
+    )
+    with pytest.raises(
+        TracecatAuthorizationError,
+        match="not held by the caller: workspace_sync:pull",
+    ):
+        await service_accounts_service._ensure_role_can_assign_scopes(
+            role, [scope("workspace_sync:sync"), scope("workspace_sync:pull")]
+        )

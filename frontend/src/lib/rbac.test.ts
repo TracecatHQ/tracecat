@@ -138,3 +138,34 @@ describe("organizationTier", () => {
     expect(organizationTier(undefined)).toBe("Member")
   })
 })
+
+describe("Git sync category", () => {
+  const scopes = ["workspace_sync:push", "workspace_sync:pull"].map((id) => ({
+    ...integrationReadScope,
+    id,
+    name: id,
+    resource: "workspace_sync",
+    action: id.slice(id.indexOf(":") + 1),
+  }))
+  const { resources } = RESOURCE_CATEGORIES.gitSync
+
+  it("lists both Git sync scopes", () => {
+    expect(getCategoryScopes(resources, scopes)).toEqual(scopes)
+  })
+
+  it.each([
+    // Editors push; admins also pull.
+    ["write", ["workspace_sync:push"]],
+    ["admin", ["workspace_sync:push", "workspace_sync:pull"]],
+  ] as const)(
+    "maps the %s level to its Git sync scopes and back",
+    (level, expected) => {
+      const selected = getScopesForLevel(resources, scopes, level)
+
+      expect(selected).toEqual(expected)
+      expect(
+        getCategoryPermissionLevel(resources, scopes, new Set(selected))
+      ).toBe(level)
+    }
+  )
+})
