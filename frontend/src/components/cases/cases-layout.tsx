@@ -29,7 +29,7 @@ import {
   CasesAccordion,
   orderCasesForDisplay,
 } from "@/components/cases/cases-accordion"
-import { CasesHeader } from "@/components/cases/cases-header"
+import { CasesHeader, type CasesViewBar } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import type {
   FilterMode,
@@ -45,8 +45,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { useToast } from "@/components/ui/use-toast"
-import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import type { CaseDateFilterValue, UseCasesFilters } from "@/lib/case-query"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"
@@ -105,6 +105,8 @@ interface CasesLayoutProps {
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
+  /** Saved-view controls for the header. */
+  viewBar?: CasesViewBar
 }
 
 /** Workspace case list with a promoted exact match and filtered results. */
@@ -154,6 +156,7 @@ export function CasesLayout({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  viewBar,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -468,6 +471,7 @@ export function CasesLayout({
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
+    viewBar,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
     isCountsError,

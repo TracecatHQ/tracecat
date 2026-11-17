@@ -319,7 +319,7 @@ describe("exact-first case search UI", () => {
         requestBody: expect.objectContaining({
           search_term: "CASE-0042",
           promote_exact_match: true,
-          start_time: expect.any(String),
+          created_within: { amount: 1, unit: "month" },
         }),
       })
     )
@@ -369,7 +369,7 @@ describe("exact-first case search UI", () => {
         })
       )
     )
-    await user.click(screen.getByRole("button", { name: "Reset" }))
+    await user.click(screen.getByRole("button", { name: "Clear" }))
     expect(sortControl).toHaveTextContent("Updated")
     await waitFor(() =>
       expect(casesQueryCases).toHaveBeenLastCalledWith(
@@ -455,7 +455,7 @@ describe("exact-first case search UI", () => {
     expect(mockToast).not.toHaveBeenCalled()
   })
 
-  it("restores relevance for the next words search after Reset", async () => {
+  it("restores relevance for the next words search after Clear", async () => {
     const user = userEvent.setup()
     setup({ lexicalControls: true })
     const searchInput = screen.getByRole("textbox", { name: "Search cases" })
@@ -472,7 +472,7 @@ describe("exact-first case search UI", () => {
         })
       )
     )
-    await user.click(screen.getByRole("button", { name: "Reset" }))
+    await user.click(screen.getByRole("button", { name: "Clear" }))
     expect(searchInput).toHaveValue("")
     fireEvent.change(searchInput, { target: { value: "next words" } })
     await waitFor(() =>
@@ -582,7 +582,7 @@ describe("exact-first case search UI", () => {
     expect(casesQueryCases).toHaveBeenLastCalledWith(
       expect.objectContaining({
         requestBody: expect.objectContaining({
-          start_time: expect.any(String),
+          created_within: { amount: 1, unit: "month" },
         }),
       })
     )

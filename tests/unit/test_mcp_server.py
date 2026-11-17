@@ -23,6 +23,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
+from tracecat_ee.cases.views.schemas import CaseViewCreate, CaseViewRead, CaseViewUpdate
+from tracecat_ee.cases.views.service import CaseViewPermissionError
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
@@ -46,7 +48,8 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
-from tracecat.cases.search_schemas import CaseSearchRequest
+from tracecat.cases.enums import CaseViewVisibility
+from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
@@ -4111,6 +4114,293 @@ async def test_search_cases_forwards_canonical_request(
     assert request.tags == ["synthetic-tag"] and request.dropdown == [
         "verdict:selected"
     ]
+
+
+@pytest.mark.anyio
+async def test_search_cases_forwards_view_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    result = CursorPaginatedResponse(items=[], total_estimate=None)
+    query = AsyncMock(return_value=result)
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    await _tool(mcp_server.search_cases)(
+        workspace_id=workspace_id,
+        view_id="assigned_to_me",
+        filters={"field": "status", "op": "eq", "value": "new"},
+    )
+    assert query.await_args is not None
+    request = query.await_args.args[0]
+    assert request.view_id == "assigned_to_me"
+    assert request.model_dump(mode="json", exclude_none=True)["filters"] == {
+        "field": "status",
+        "op": "eq",
+        "value": "new",
+    }
+
+
+@pytest.mark.anyio
+async def test_list_case_views_returns_builtins_separately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    builtin = CaseViewRead(
+        id="assigned_to_me",
+        kind="builtin",
+        name="Assigned to me",
+        visibility=CaseViewVisibility.WORKSPACE,
+        query=CaseQuery(),
+        can_edit=False,
+    )
+    saved = CaseViewRead(
+        id=str(uuid.uuid4()),
+        kind="custom",
+        name="Synthetic view",
+        visibility=CaseViewVisibility.PERSONAL,
+        query=CaseQuery(),
+        can_edit=True,
+    )
+    list_views = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: CursorPaginatedResponse(items=[saved])
+    )
+    list_builtins = AsyncMock(
+        side_effect=lambda *, pinned_only: [] if pinned_only else [builtin]
+    )
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseViewsService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(
+                SimpleNamespace(list_views=list_views, list_builtins=list_builtins)
+            )
+        ),
+    )
+    first = await _tool(mcp_server.list_case_views)(workspace_id=workspace_id)
+    later = await _tool(mcp_server.list_case_views)(
+        workspace_id=workspace_id, cursor="synthetic-cursor"
+    )
+    pinned = await _tool(mcp_server.list_case_views)(
+        workspace_id=workspace_id, pinned=True
+    )
+
+    # Built-ins come back separately, so saved pages keep their size.
+    assert [view.id for view in first.builtins] == ["assigned_to_me"]
+    assert [view.id for view in first.saved.items] == [saved.id]
+    assert [view.id for view in later.saved.items] == [saved.id]
+    assert [view.id for view in later.builtins] == ["assigned_to_me"]
+    assert pinned.builtins == []
+    assert [view.id for view in pinned.saved.items] == [saved.id]
+    assert [call.kwargs for call in list_views.await_args_list] == [
+        {"pinned_only": False},
+        {"pinned_only": False},
+        {"pinned_only": True},
+    ]
+    assert [call.kwargs for call in list_builtins.await_args_list] == [
+        {"pinned_only": False},
+        {"pinned_only": False},
+        {"pinned_only": True},
+    ]
+
+
+def _case_view_tool_env(
+    monkeypatch: pytest.MonkeyPatch, service: SimpleNamespace
+) -> uuid.UUID:
+    """Route the case view tools to a stub service for a user role."""
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseViewsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(service)),
+    )
+    return workspace_id
+
+
+_TOOL_VIEW = CaseViewRead(
+    id=str(uuid.uuid4()),
+    kind="custom",
+    name="Open phishing",
+    visibility=CaseViewVisibility.WORKSPACE,
+    query=CaseCriteria(),
+    can_edit=True,
+)
+
+
+@pytest.mark.anyio
+async def test_create_case_view_validates_and_saves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_view = AsyncMock(return_value=_TOOL_VIEW)
+    workspace_id = _case_view_tool_env(
+        monkeypatch, SimpleNamespace(create_view=create_view)
+    )
+
+    result = await _tool(mcp_server.create_case_view)(
+        workspace_id=workspace_id,
+        name="Open phishing",
+        query={"status": ["new"], "tags": ["phishing"]},
+        visibility="workspace",
+        order_by="created_at",
+        sort="asc",
+    )
+
+    assert result == _TOOL_VIEW
+    (params,) = create_view.await_args_list[0].args
+    assert isinstance(params, CaseViewCreate)
+    assert params.visibility == CaseViewVisibility.WORKSPACE
+    assert params.query.tags == ["phishing"]
+    assert (params.order_by, params.sort) == ("created_at", "asc")
+
+
+@pytest.mark.anyio
+async def test_create_case_view_rejects_search_only_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_view = AsyncMock(return_value=_TOOL_VIEW)
+    workspace_id = _case_view_tool_env(
+        monkeypatch, SimpleNamespace(create_view=create_view)
+    )
+
+    with pytest.raises(ToolError, match="Extra inputs"):
+        await _tool(mcp_server.create_case_view)(
+            workspace_id=workspace_id,
+            name="Nested",
+            query={"view_id": "assigned_to_me"},
+        )
+    create_view.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_update_case_view_sends_only_the_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    update_view = AsyncMock(return_value=_TOOL_VIEW)
+    workspace_id = _case_view_tool_env(
+        monkeypatch, SimpleNamespace(update_view=update_view)
+    )
+
+    await _tool(mcp_server.update_case_view)(
+        workspace_id=workspace_id,
+        view_id=_TOOL_VIEW.id,
+        changes={"visibility": "workspace", "order_by": None},
+    )
+
+    view_id, params = update_view.await_args_list[0].args
+    assert view_id == _TOOL_VIEW.id
+    assert isinstance(params, CaseViewUpdate)
+    assert params.model_fields_set == {"visibility", "order_by"}
+
+
+@pytest.mark.anyio
+async def test_pin_and_unpin_case_view(monkeypatch: pytest.MonkeyPatch) -> None:
+    pin_view = AsyncMock(return_value=_TOOL_VIEW)
+    unpin_view = AsyncMock(return_value=None)
+    workspace_id = _case_view_tool_env(
+        monkeypatch, SimpleNamespace(pin_view=pin_view, unpin_view=unpin_view)
+    )
+
+    await _tool(mcp_server.pin_case_view)(
+        workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=0
+    )
+    message = await _tool(mcp_server.unpin_case_view)(
+        workspace_id=workspace_id, view_id=_TOOL_VIEW.id
+    )
+
+    pin_view.assert_awaited_once_with(_TOOL_VIEW.id, position=0)
+    unpin_view.assert_awaited_once_with(_TOOL_VIEW.id)
+    assert _TOOL_VIEW.id in message.message
+
+
+@pytest.mark.anyio
+async def test_pin_case_view_rejects_an_out_of_range_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pin_view = AsyncMock(return_value=_TOOL_VIEW)
+    workspace_id = _case_view_tool_env(monkeypatch, SimpleNamespace(pin_view=pin_view))
+
+    with pytest.raises(ToolError, match="greater than or equal to 0"):
+        await _tool(mcp_server.pin_case_view)(
+            workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=-1
+        )
+    with pytest.raises(ToolError, match="less than or equal to 10000"):
+        await _tool(mcp_server.pin_case_view)(
+            workspace_id=workspace_id, view_id=_TOOL_VIEW.id, position=3_000_000_000
+        )
+    pin_view.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_case_view_tools_report_a_missing_entitlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pin_view = AsyncMock(side_effect=EntitlementRequired("case_addons"))
+    workspace_id = _case_view_tool_env(monkeypatch, SimpleNamespace(pin_view=pin_view))
+
+    with pytest.raises(ToolError, match="case add-ons entitlement"):
+        await _tool(mcp_server.pin_case_view)(
+            workspace_id=workspace_id, view_id=_TOOL_VIEW.id
+        )
+
+
+@pytest.mark.anyio
+async def test_case_view_tools_report_permission_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    update_view = AsyncMock(
+        side_effect=CaseViewPermissionError("Only the owner can change this view")
+    )
+    workspace_id = _case_view_tool_env(
+        monkeypatch, SimpleNamespace(update_view=update_view)
+    )
+
+    with pytest.raises(ToolError, match="Only the owner"):
+        await _tool(mcp_server.update_case_view)(
+            workspace_id=workspace_id,
+            view_id=_TOOL_VIEW.id,
+            changes={"name": "Renamed"},
+        )
 
 
 @pytest.mark.anyio
@@ -8609,9 +8899,9 @@ def test_dsl_reference_documents_action_description() -> None:
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:
     # Raised from 15500 for the "Form Trigger" section, then from 17900 for the
-    # sub-case actions, then from 17960 for the tag deletion actions in the
-    # action catalog.
-    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 18000
+    # sub-case actions, then from 17960 for the tag deletion actions, then from
+    # 18000 for core.cases.list_case_views in the action catalog.
+    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 18100
 
 
 @pytest.mark.anyio

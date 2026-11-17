@@ -2,13 +2,17 @@
  * @jest-environment jsdom
  */
 
-import { render } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
 import CasesPage from "@/app/workspaces/[workspaceId]/cases/page"
 
 const mockUseCaseColumnVisibility = jest.fn()
 const mockUseCases = jest.fn()
+const mockUseActiveCaseView = jest.fn()
+const mockCasesLayout = jest.fn()
 
 let mockEntitlementsLoaded = true
+let mockEntitlementsFailed = false
+let mockSearchParams = new URLSearchParams()
 let mockCaseAddonsEnabled = true
 let mockDropdownDefinitions:
   | Array<{
@@ -39,8 +43,13 @@ jest.mock("@/hooks/use-entitlements", () => ({
     hasEntitlement: (entitlement: string) =>
       entitlement === "case_addons" ? mockCaseAddonsEnabled : false,
     hasEntitlementData: mockEntitlementsLoaded,
-    isLoading: !mockEntitlementsLoaded,
+    // A failed request is neither loading nor loaded.
+    isLoading: !mockEntitlementsLoaded && !mockEntitlementsFailed,
   }),
+}))
+
+jest.mock("next/navigation", () => ({
+  useSearchParams: () => mockSearchParams,
 }))
 
 jest.mock("@/hooks/use-workspace", () => ({
@@ -76,14 +85,64 @@ jest.mock("@/lib/hooks", () => ({
   }),
 }))
 
+jest.mock("@/hooks/use-case-view-state", () => ({
+  VIEW_PARAM: "view",
+  // No saved view is open: the page uses the personal column selection.
+  useActiveCaseView: (...args: unknown[]) => {
+    mockUseActiveCaseView(...args)
+    return {
+      viewId: null,
+      view: null,
+      mapped: null,
+      isLoading: false,
+      isError: false,
+      selectView: jest.fn(),
+    }
+  },
+  useViewColumns: ({
+    personalColumns,
+    togglePersonalColumn,
+  }: {
+    personalColumns: string[]
+    togglePersonalColumn: (columnId: string) => void
+  }) => ({
+    columns: null,
+    visibleColumnIds: personalColumns,
+    toggleColumn: togglePersonalColumn,
+    resetColumns: jest.fn(),
+  }),
+  useCaseViewControls: () => ({
+    isModified: false,
+    saveBlockedReason: null,
+  }),
+}))
+
+jest.mock("@/components/cases/case-view-switcher", () => ({
+  CaseViewActions: () => null,
+  CaseViewChips: () => null,
+  CaseViewEditorPanel: () => null,
+  CaseViewMenu: () => <div data-testid="case-view-menu" />,
+  useCaseViewEditor: () => ({ mode: null, open: jest.fn(), close: jest.fn() }),
+}))
+
+jest.mock("@/components/cases/case-view-header-slot", () => ({
+  CaseViewHeaderPortal: ({ children }: { children: React.ReactNode }) =>
+    children,
+}))
+
 jest.mock("@/components/cases/cases-layout", () => ({
-  CasesLayout: () => null,
+  CasesLayout: (props: { viewBar?: unknown }) => {
+    mockCasesLayout(props)
+    return null
+  },
 }))
 
 describe("CasesPage", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEntitlementsLoaded = true
+    mockEntitlementsFailed = false
+    mockSearchParams = new URLSearchParams()
     mockCaseAddonsEnabled = true
     mockDropdownDefinitions = undefined
     mockDropdownDefinitionsIsFetching = false
@@ -196,5 +255,40 @@ describe("CasesPage", () => {
         "duration:fresh-duration",
       ])
     )
+  })
+
+  it("offers case views only with the case add-ons entitlement", () => {
+    mockEntitlementsLoaded = true
+    mockCaseAddonsEnabled = false
+
+    const { rerender } = render(<CasesPage />)
+
+    expect(mockUseActiveCaseView).toHaveBeenLastCalledWith("workspace-1", false)
+    expect(screen.queryByTestId("case-view-menu")).not.toBeInTheDocument()
+    expect(mockCasesLayout).toHaveBeenLastCalledWith(
+      expect.objectContaining({ viewBar: undefined })
+    )
+
+    mockCaseAddonsEnabled = true
+    rerender(<CasesPage />)
+
+    expect(mockUseActiveCaseView).toHaveBeenLastCalledWith("workspace-1", true)
+    expect(screen.getByTestId("case-view-menu")).toBeInTheDocument()
+    expect(mockCasesLayout.mock.lastCall?.[0].viewBar).toBeDefined()
+  })
+
+  it("holds a view link while entitlements load, then falls back if they fail", () => {
+    mockSearchParams = new URLSearchParams({ view: "assigned_to_me" })
+    mockEntitlementsLoaded = false
+    mockCaseAddonsEnabled = false
+
+    const { rerender } = render(<CasesPage />)
+    expect(mockCasesLayout).not.toHaveBeenCalled()
+
+    mockEntitlementsFailed = true
+    rerender(<CasesPage />)
+
+    expect(mockUseActiveCaseView).toHaveBeenLastCalledWith("workspace-1", false)
+    expect(mockCasesLayout).toHaveBeenCalled()
   })
 })

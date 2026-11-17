@@ -70,6 +70,7 @@ import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
+import { CaseViewHeaderSlot } from "@/components/cases/case-view-header-slot"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -2868,6 +2869,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         ) : (
           titleContent
         )}
+        {isCasesListPage && <CaseViewHeaderSlot />}
       </div>
 
       {/* Middle section: bulk selection actions */}

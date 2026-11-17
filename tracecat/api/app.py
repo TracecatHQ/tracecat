@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.cases.views.router import router as case_views_router
 from tracecat_ee.scim.protocol import (
     is_scim_path,
     scim_error_response,
@@ -835,6 +836,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, case_fields_router)
     _include_workspace_scoped_router(app, case_tags_router)
     _include_workspace_scoped_router(app, case_tag_definitions_router)
+    _include_workspace_scoped_router(app, case_views_router)
     _include_workspace_scoped_router(app, case_attachments_router)
     _include_workspace_scoped_router(app, case_dropdowns_router)
     _include_workspace_scoped_router(app, case_dropdown_values_router)

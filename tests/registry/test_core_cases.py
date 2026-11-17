@@ -30,6 +30,7 @@ from tracecat_registry.core.cases import (
     get_case,
     get_comment_thread,
     list_attachments,
+    list_case_views,
     list_cases,
     list_cases_by_row,
     list_comment_threads,
@@ -46,6 +47,7 @@ from tracecat_registry.core.cases import (
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
+from tracecat_registry.sdk.types import UNSET
 
 
 @pytest.fixture
@@ -752,6 +754,17 @@ class TestCoreListCases:
 @pytest.mark.anyio
 class TestCoreSearchCases:
     """Test cases for search_cases UDF behavior."""
+
+    async def test_search_cases_forwards_view_id(self, mock_cases_client: AsyncMock):
+        """A view ID and a narrowing filter tree reach the SDK together."""
+        mock_cases_client.search_cases.return_value = {"items": []}
+        filters = {"field": "status", "op": "eq", "value": "new"}
+
+        assert await search_cases(view_id="assigned_to_me", filters=filters) == []
+
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=100, view_id="assigned_to_me", filters=filters
+        )
 
     async def test_search_cases_forwards_short_id(self, mock_cases_client: AsyncMock):
         """Exact short IDs reach the SDK and preserve item-only results."""
@@ -1519,3 +1532,45 @@ async def test_sub_case_actions_skip_empty_case_ids(
     assert await remove_sub_cases(case_ids=[]) == empty
     mock_cases_client.batch_set_parent.assert_not_called()
     mock_cases_client.batch_clear_parent.assert_not_called()
+
+
+@pytest.mark.anyio
+class TestCoreListCaseViews:
+    """Test cases for the list_case_views UDF."""
+
+    async def test_lists_builtins_then_saved_views(
+        self, mock_cases_client: AsyncMock
+    ) -> None:
+        builtin = {"id": "assigned_to_me", "kind": "builtin"}
+        saved = {"id": "00000000-0000-0000-0000-000000000001", "kind": "custom"}
+        mock_cases_client.list_builtin_views.return_value = [builtin]
+        mock_cases_client.list_views.return_value = {"items": [saved]}
+
+        assert await list_case_views(limit=10) == [builtin, saved]
+        mock_cases_client.list_views.assert_called_once_with(limit=10, cursor=UNSET)
+
+    async def test_can_skip_builtins(self, mock_cases_client: AsyncMock) -> None:
+        saved = {"id": "00000000-0000-0000-0000-000000000003", "kind": "custom"}
+        mock_cases_client.list_views.return_value = {"items": [saved]}
+
+        assert await list_case_views(include_builtins=False) == [saved]
+        mock_cases_client.list_builtin_views.assert_not_called()
+        mock_cases_client.list_views.assert_awaited_once()
+
+    async def test_follows_the_cursor_until_limit(
+        self, mock_cases_client: AsyncMock
+    ) -> None:
+        first = {"id": "00000000-0000-0000-0000-000000000001", "kind": "custom"}
+        second = {"id": "00000000-0000-0000-0000-000000000002", "kind": "custom"}
+        mock_cases_client.list_views.side_effect = [
+            {"items": [first], "has_more": True, "next_cursor": "page-2"},
+            {"items": [second], "has_more": False, "next_cursor": None},
+        ]
+
+        views = await list_case_views(include_builtins=False, limit=5)
+
+        assert views == [first, second]
+        assert mock_cases_client.list_views.await_args_list[1].kwargs == {
+            "limit": 4,
+            "cursor": "page-2",
+        }
