@@ -163,10 +163,10 @@ async def _sync_as_leader(
         )
         return
 
-    # Version doesn't exist - sync it (with retries) and promote it after the
-    # artifact build. Versions are not ordered: a never-seen version is promoted
-    # even if it sorts lower than the current one (e.g. a main build stamped
-    # 1.0.0.post<...> after a 1.5.0-alpha release).
+    # Version doesn't exist - sync it (with retries). Fresh installs promote during
+    # sync; existing installs promote after the artifact build. Versions are not
+    # ordered: a never-seen version is promoted even if it sorts lower than the
+    # current one (e.g. a main build stamped 1.0.0.post<...> after a 1.5.0-alpha).
     sync_service = PlatformRegistrySyncService(session)
 
     for attempt in range(1, MAX_SYNC_RETRIES + 1):
