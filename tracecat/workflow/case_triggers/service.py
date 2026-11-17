@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.audit.logger import AuditEventDetails, audit_log
-from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.cases.tags.service import CaseTagsService
+from tracecat.db.models import CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
@@ -344,44 +346,11 @@ class CaseTriggersService(BaseWorkspaceService):
             seen.add(ref)
             deduped.append(ref)
 
-        canonical = await self._canonical_tag_refs(deduped)
-        missing = [ref for ref in deduped if ref not in canonical]
-
-        if missing and not create_missing:
-            raise TracecatNotFoundError(f"Case tag(s) not found: {', '.join(missing)}")
-
-        if missing:
-            # Concurrent requests may create the same tag; reuse whichever won.
-            await self.session.execute(
-                insert(CaseTag)
-                .values(
-                    [
-                        {"workspace_id": self.workspace_id, "name": ref, "ref": ref}
-                        for ref in missing
-                    ]
-                )
-                .on_conflict_do_nothing()
+        tags_service = CaseTagsService(self.session, role=self.role)
+        try:
+            tags = await tags_service.resolve_tags(
+                deduped, create_if_missing=create_missing
             )
-            canonical = await self._canonical_tag_refs(deduped)
-
-        return list(dict.fromkeys(canonical[ref] for ref in deduped))
-
-    async def _canonical_tag_refs(self, values: list[str]) -> dict[str, str]:
-        """Map each value to the ref of the tag whose ref or name matches it."""
-        result = await self.session.execute(
-            select(CaseTag.ref, CaseTag.name).where(
-                CaseTag.workspace_id == self.workspace_id,
-                or_(CaseTag.ref.in_(values), CaseTag.name.in_(values)),
-            )
-        )
-        by_name: dict[str, str] = {}
-        by_ref: dict[str, str] = {}
-        for ref, name in result.tuples():
-            by_ref[ref] = ref
-            by_name[name] = ref
-        # A ref match takes precedence over a name match.
-        return {
-            value: by_ref.get(value) or by_name[value]
-            for value in values
-            if value in by_ref or value in by_name
-        }
+        except NoResultFound as exc:
+            raise TracecatNotFoundError(str(exc)) from exc
+        return list(dict.fromkeys(tag.ref for tag in tags))

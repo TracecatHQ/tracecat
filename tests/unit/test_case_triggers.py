@@ -219,7 +219,12 @@ async def test_case_trigger_resolves_tag_names_to_existing_refs(
     config = CaseTriggerConfig(
         status="offline",
         event_types=[],
-        tag_filters=["Suspicious Login", "suspicious-login", "new-tag"],
+        tag_filters=[
+            "Suspicious Login",
+            "suspicious login",
+            "suspicious-login",
+            "New Tag",
+        ],
     )
     trigger = await service.upsert_case_trigger(
         WorkflowUUID.new(workflow.id), config, create_missing_tags=True
