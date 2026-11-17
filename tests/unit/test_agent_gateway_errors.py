@@ -30,7 +30,7 @@ from openai import AsyncOpenAI
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from tracecat.agent.gateway import TracecatCallbackHandler, _retry_after_seconds
+from tracecat.agent.gateway import TracecatCallbackHandler
 from tracecat.agent.sandbox.llm_proxy import (
     _error_object_retry_after,
     _http_error_classification,
@@ -126,9 +126,6 @@ async def test_router_unavailability_is_not_provider_throttling_or_auth(
     body = bytes(failure.body)
     assert orjson.loads(body)["error"]["type"] == "tracecat_llm_deployment_unavailable"
     assert b"synthetic-sensitive" not in body
-    if endpoint == "anthropic":
-        # The socket proxy's /v1/messages path drops headers; the body keeps the hint.
-        assert _error_object_retry_after(body) == "5"
     classification = _http_error_classification(503, route_is_direct=False, body=body)
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
     assert classification.owner is RuntimeErrorOwner.PLATFORM
@@ -314,18 +311,9 @@ async def test_provider_rate_limit_carries_numeric_retry_after(
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
 
 
-class _WrappedThrottle(Exception):
-    """Stand-in for LiteLLM's mid-stream wrapper around provider throttling."""
-
-    def __init__(self, original_exception: Exception, status_code: int) -> None:
-        super().__init__("synthetic-sensitive-detail")
-        self.original_exception = original_exception
-        self.status_code = status_code
-
-
-@pytest.mark.parametrize(("status_code", "expected"), [(429, 9), (503, None)])
-def test_retry_after_unwraps_mid_stream_throttling(
-    status_code: int, expected: int | None
+@pytest.mark.anyio
+async def test_mid_stream_wrapped_rate_limit_carries_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     response = httpx.Response(
         429,
@@ -339,7 +327,12 @@ def test_retry_after_unwraps_mid_stream_throttling(
         response=response,
     )
 
-    assert _retry_after_seconds(_WrappedThrottle(throttle, status_code)) == expected
+    failure = await _anthropic_failure(_mid_stream_wrap(throttle), monkeypatch)
+
+    assert failure.status_code == 429
+    body = bytes(failure.body)
+    assert orjson.loads(body)["error"]["type"] == "throttling_error"
+    assert _error_object_retry_after(body) == "9"
 
 
 @pytest.mark.anyio

@@ -540,11 +540,18 @@ def _provider_rate_limit(error: Exception) -> Exception | None:
     return None
 
 
-def _anthropic_error_message(error_type: str, message: str) -> str:
-    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
-    return orjson.dumps(
-        {"type": "error", "error": {"type": error_type, "message": message}}
-    ).decode()
+def _anthropic_error_message(
+    error_type: str, message: str, retry_after: int | None = None
+) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer.
+
+    LiteLLM's ``/v1/messages`` error path drops upstream response headers, so a
+    provider's wait hint reaches the LLM socket proxy as ``error.retry_after``.
+    """
+    error: dict[str, str | int] = {"type": error_type, "message": message}
+    if retry_after is not None:
+        error["retry_after"] = retry_after
+    return orjson.dumps({"type": "error", "error": error}).decode()
 
 
 def _trace_request_id(data: dict[str, Any]) -> str | None:
@@ -572,47 +579,18 @@ def _numeric_seconds(value: object) -> float | None:
     return seconds if math.isfinite(seconds) else None
 
 
-def _retry_after_seconds(error: Exception) -> int | None:
-    """Whole seconds to wait before retrying, from numeric wait hints only.
-
-    LiteLLM's ``/v1/messages`` error path drops upstream response headers, so
-    the hint is carried in the error body instead.
-    """
-    wrapped = getattr(error, "original_exception", None)
-    if isinstance(wrapped, Exception) and getattr(error, "status_code", None) == 429:
-        # MidStreamFallbackError wrapping provider throttling.
-        error = wrapped
-    if isinstance(error, RouterRateLimitError):
-        seconds: float | None = float(error.cooldown_time)
+def _retry_after_seconds(rate_limit: Exception) -> int | None:
+    """Whole seconds from the provider's numeric wait headers; never other text."""
+    headers = getattr(getattr(rate_limit, "response", None), "headers", None)
+    if headers is None:
+        return None
+    if (millis := _numeric_seconds(headers.get("retry-after-ms"))) is not None:
+        seconds = millis / 1000
     else:
-        headers = getattr(getattr(error, "response", None), "headers", None)
-        if headers is None:
-            return None
-        if (millis := _numeric_seconds(headers.get("retry-after-ms"))) is not None:
-            seconds = millis / 1000
-        else:
-            seconds = _numeric_seconds(headers.get("retry-after"))
-    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+        seconds = _numeric_seconds(headers.get("retry-after"))
+    if seconds is None or seconds <= 0:
         return None
     return min(math.ceil(seconds), _MAX_RETRY_AFTER_SECONDS)
-
-
-def _anthropic_error_message_with_retry_after(
-    error_type: str, message: str, retry_after: int | None
-) -> str:
-    """Like ``_anthropic_error_message``, plus the socket proxy's retry hint."""
-    if retry_after is None:
-        return _anthropic_error_message(error_type, message)
-    return orjson.dumps(
-        {
-            "type": "error",
-            "error": {
-                "type": error_type,
-                "message": message,
-                "retry_after": retry_after,
-            },
-        }
-    ).decode()
 
 
 class TracecatCallbackHandler(CustomLogger):
@@ -644,6 +622,7 @@ class TracecatCallbackHandler(CustomLogger):
                     original_exception.type, original_exception.message
                 )
             return None
+        retry_after: int | None = None
         if isinstance(original_exception, RouterRateLimitError):
             # LiteLLM otherwise serializes this ValueError as a 429. Its
             # deployment-scoped cooldown state is shared across credentials;
@@ -670,17 +649,17 @@ class TracecatCallbackHandler(CustomLogger):
                 detail="The LLM provider rejected authentication or access",
             )
         elif (rate_limit := _provider_rate_limit(original_exception)) is not None:
-            replacement = (
-                _ProviderQuotaHTTPException(
+            if _is_provider_quota_exceeded(rate_limit):
+                replacement = _ProviderQuotaHTTPException(
                     status_code=429,
                     detail="LLM provider quota exhausted; check billing or usage limits",
                 )
-                if _is_provider_quota_exceeded(rate_limit)
-                else _ProviderRateLimitHTTPException(
+            else:
+                replacement = _ProviderRateLimitHTTPException(
                     status_code=429,
                     detail="LLM provider rate limit exceeded; retry later",
                 )
-            )
+                retry_after = _retry_after_seconds(rate_limit)
         elif isinstance(
             original_exception,
             APIConnectionError
@@ -712,17 +691,9 @@ class TracecatCallbackHandler(CustomLogger):
         # so its status-based mapping cannot erase auth origin or quota codes.
         # RouterRateLimitError lacks these wire attributes; attach them for
         # LiteLLM's duck-typed endpoint serializer.
-        retry_after = (
-            _retry_after_seconds(original_exception)
-            if isinstance(
-                replacement,
-                _ProviderRateLimitHTTPException | _GatewayUnavailableHTTPException,
-            )
-            else None
-        )
         original_exception.__dict__.update(
             type=replacement.type,
-            message=_anthropic_error_message_with_retry_after(
+            message=_anthropic_error_message(
                 replacement.type, str(replacement.detail), retry_after
             ),
             status_code=replacement.status_code,
