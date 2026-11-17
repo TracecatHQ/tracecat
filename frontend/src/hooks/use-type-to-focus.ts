@@ -8,9 +8,27 @@ interface TypeToFocusTarget {
   priority: number
 }
 
+interface DoubleTapKey {
+  key: string
+  windowMs: number
+}
+
 const targets: TypeToFocusTarget[] = []
+const doubleTapKeys: DoubleTapKey[] = []
 let priorityCounter = 0
 let detachListeners: (() => void) | null = null
+/** A first tap of a double-tap shortcut, waiting to see if the second follows. */
+let heldKey: { key: string; timer: number } | null = null
+
+function takeHeldKey(): string {
+  if (!heldKey) {
+    return ""
+  }
+  window.clearTimeout(heldKey.timer)
+  const { key } = heldKey
+  heldKey = null
+  return key
+}
 
 /**
  * Returns `true` when a keystroke on `target` is already typing somewhere or
@@ -115,14 +133,30 @@ function pickTarget(
   return null
 }
 
+/** Types `text` into the composer that should catch a keystroke on the page. */
+function routeText(text: string, eventTarget: EventTarget | null): void {
+  // A burst of keys can all be queued before the first one moves focus;
+  // later keys follow it into the same field instead of being dropped.
+  const active = document.activeElement
+  const activeField = targets.find(({ ref }) => ref.current === active)?.ref
+    .current
+  if (activeField) {
+    if (isEligible(activeField)) {
+      insertText(activeField, text)
+    }
+    return
+  }
+  if (active !== eventTarget && isEditableTarget(active)) {
+    return
+  }
+  const field = pickTarget(eventTarget)
+  if (field) {
+    insertText(field, text)
+  }
+}
+
 function handleKeyDown(event: KeyboardEvent): void {
-  if (
-    event.defaultPrevented ||
-    event.isComposing ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.altKey
-  ) {
+  if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
     return
   }
   // Printable characters only. Whitespace keeps its native meaning (space
@@ -139,27 +173,28 @@ function handleKeyDown(event: KeyboardEvent): void {
   // Wait for the dispatch to finish so any handler that claims the key with
   // `preventDefault` wins over typing into the chat.
   window.setTimeout(() => {
+    const held = takeHeldKey()
     if (event.defaultPrevented) {
+      // A shortcut claimed this key. If it was the second tap of a
+      // double-tap shortcut, the held first tap belonged to it as well.
       return
     }
-    // A burst of keys can all be queued before the first one moves focus;
-    // later keys follow it into the same field instead of being dropped.
-    const active = document.activeElement
-    const activeField = targets.find(({ ref }) => ref.current === active)?.ref
-      .current
-    if (activeField) {
-      if (isEligible(activeField)) {
-        insertText(activeField, key)
+    const doubleTap = doubleTapKeys.find((entry) => entry.key === key)
+    if (!held && doubleTap) {
+      // Hold the first tap: typing it now would move focus into the
+      // composer and swallow the second tap of the shortcut.
+      heldKey = {
+        key,
+        timer: window.setTimeout(() => {
+          const lone = takeHeldKey()
+          if (lone) {
+            routeText(lone, eventTarget)
+          }
+        }, doubleTap.windowMs),
       }
       return
     }
-    if (active !== eventTarget && isEditableTarget(active)) {
-      return
-    }
-    const field = pickTarget(eventTarget)
-    if (field) {
-      insertText(field, key)
-    }
+    routeText(held + key, eventTarget)
   }, 0)
 }
 
@@ -180,6 +215,25 @@ function attachListeners(): void {
   detachListeners = () => {
     window.removeEventListener("keydown", handleKeyDown)
     document.removeEventListener("focusin", handleFocusIn)
+  }
+}
+
+/**
+ * Registers `key` as a double-tap page shortcut (such as `cc` to toggle chat)
+ * so its first tap is held back instead of typed into a composer. A held tap
+ * is dropped if the shortcut claims the second tap with `preventDefault`, and
+ * typed otherwise: with the next key, or alone once `windowMs` passes.
+ *
+ * Returns a function that removes the registration.
+ */
+export function holdDoubleTapKey(key: string, windowMs: number): () => void {
+  const entry: DoubleTapKey = { key, windowMs }
+  doubleTapKeys.push(entry)
+  return () => {
+    const index = doubleTapKeys.indexOf(entry)
+    if (index !== -1) {
+      doubleTapKeys.splice(index, 1)
+    }
   }
 }
 
@@ -216,6 +270,7 @@ export function useTypeToFocus(
         targets.splice(index, 1)
       }
       if (targets.length === 0) {
+        takeHeldKey()
         detachListeners?.()
         detachListeners = null
       }

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { useRef, useState } from "react"
-import { useTypeToFocus } from "@/hooks/use-type-to-focus"
+import { holdDoubleTapKey, useTypeToFocus } from "@/hooks/use-type-to-focus"
 
 function Composer({
   label,
@@ -28,7 +28,7 @@ function Composer({
 function typeOnBody(key: string, init: KeyboardEventInit = {}) {
   act(() => {
     fireEvent.keyDown(document.body, { key, ...init })
-    jest.runOnlyPendingTimers()
+    jest.advanceTimersByTime(0)
   })
 }
 
@@ -120,6 +120,78 @@ describe("useTypeToFocus", () => {
     dialog.remove()
 
     expect(textarea.value).toBe("")
+  })
+
+  describe("with a double-tap shortcut key", () => {
+    let release: () => void
+    let toggles: number
+    let pendingAt: number | null
+    // Mirrors the `cc` chat toggle in `ControlsHeader`.
+    function toggleOnDoubleTap(event: KeyboardEvent) {
+      if (event.key !== "c") {
+        pendingAt = null
+        return
+      }
+      if (pendingAt === null) {
+        pendingAt = Date.now()
+        return
+      }
+      pendingAt = null
+      event.preventDefault()
+      toggles += 1
+    }
+
+    beforeEach(() => {
+      toggles = 0
+      pendingAt = null
+      release = holdDoubleTapKey("c", 1200)
+      window.addEventListener("keydown", toggleOnDoubleTap)
+    })
+
+    afterEach(() => {
+      window.removeEventListener("keydown", toggleOnDoubleTap)
+      release()
+    })
+
+    it("lets the shortcut fire without typing into the composer", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("c")
+      typeOnBody("c")
+      act(() => {
+        jest.advanceTimersByTime(2000)
+      })
+
+      expect(toggles).toBe(1)
+      expect(textarea.value).toBe("")
+      expect(textarea).not.toHaveFocus()
+    })
+
+    it("types the held key ahead of the next one", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("c")
+      expect(textarea.value).toBe("")
+      typeOnBody("a")
+
+      expect(toggles).toBe(0)
+      expect(textarea.value).toBe("ca")
+    })
+
+    it("types a lone held key once the window passes", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("c")
+      act(() => {
+        jest.advanceTimersByTime(1200)
+      })
+
+      expect(textarea).toHaveFocus()
+      expect(textarea.value).toBe("c")
+    })
   })
 
   it("skips disabled composers and prefers the last focused one", () => {
