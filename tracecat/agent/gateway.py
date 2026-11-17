@@ -581,6 +581,8 @@ def _numeric_seconds(value: object) -> float | None:
 
 def _retry_after_seconds(rate_limit: Exception) -> int | None:
     """Whole seconds from the provider's numeric wait headers; never other text."""
+    # LiteLLM exception types share no typed response interface, and some
+    # (e.g. a wrapped stream APIError) carry no response at all.
     headers = getattr(getattr(rate_limit, "response", None), "headers", None)
     if headers is None:
         return None

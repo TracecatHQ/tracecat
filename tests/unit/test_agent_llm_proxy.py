@@ -2435,6 +2435,40 @@ async def test_forward_request_bounds_managed_rate_limit_wait(
 
 
 @pytest.mark.anyio
+async def test_forward_request_retries_connection_drop_after_rate_limit_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 0.01)
+    monkeypatch.setattr(llm_proxy, "_MANAGED_RATE_LIMIT_MAX_WAIT_SECONDS", 0.025)
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 3:
+            return httpx.Response(
+                429,
+                json={
+                    "error": {
+                        "type": "throttling_error",
+                        "message": "x",
+                        "retry_after": 1,
+                    }
+                },
+            )
+        if attempts == 4:
+            # The rate-limit wait budget is spent; the drop has its own retry.
+            raise httpx.ConnectError("connection refused", request=request)
+        return _ok(request)
+
+    response_text, errors = await _forward(tmp_path, handler)
+
+    assert attempts == 5
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert errors == []
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("headers", "body_retry_after", "expected"),
     [

@@ -1801,7 +1801,6 @@ class LLMSocketProxy:
                 )
 
             def rate_limit_budget_exhausted(retry_state: RetryCallState) -> bool:
-                # The single connection-drop retry has its own budget.
                 rate_limit_attempt = retry_state.attempt_number - int(
                     connection_drop_retried
                 )
@@ -1812,8 +1811,18 @@ class LLMSocketProxy:
                     and retry_state.idle_for >= _MANAGED_RATE_LIMIT_MAX_WAIT_SECONDS
                 )
 
+            def stop_retrying(retry_state: RetryCallState) -> bool:
+                outcome = retry_state.outcome
+                if outcome is not None and isinstance(
+                    outcome.exception(), _UpstreamConnectionDropped
+                ):
+                    # The single connection-drop retry has its own budget,
+                    # enforced by connection_drop_retried.
+                    return False
+                return rate_limit_budget_exhausted(retry_state)
+
             async for attempt in AsyncRetrying(
-                stop=rate_limit_budget_exhausted,
+                stop=stop_retrying,
                 wait=_rate_limit_wait,
                 retry=retry_if_exception_type(
                     (_UpstreamRateLimited, _UpstreamConnectionDropped)
