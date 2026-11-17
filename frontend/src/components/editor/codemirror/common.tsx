@@ -1845,6 +1845,12 @@ export function createEnvCompletion() {
         hasChildren: false,
       },
       {
+        label: "workspace_id",
+        detail: "Workspace ID",
+        info: "ID of the workspace the workflow runs in",
+        hasChildren: false,
+      },
+      {
         label: "registry_version",
         detail: "Registry version",
         info: "The registry version used for this workflow",

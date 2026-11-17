@@ -5299,6 +5299,7 @@ export type DSLEnvironment = {
     [key: string]: unknown
   }
   environment?: string
+  workspace_id?: string
   variables?: {
     [key: string]: unknown
   }

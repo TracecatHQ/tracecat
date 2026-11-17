@@ -2850,7 +2850,8 @@ Expressions are wrapped in `${{ }}` and can reference:
 - `ACTIONS.<ref>.result` — output from a completed action
 - `SECRETS.<secret_name>.<KEY>` — secret value from the workspace/org
 - `VARS.<variable_name>.<key>` — workspace variable value
-- `ENV.<name>` — environment variable
+- `ENV.<field>` — workflow run metadata, e.g. `ENV.workflow.execution_id`,
+  `ENV.environment`, `ENV.workspace_id`
 - `var.<key>` — current `for_each` iteration item, bound by
   `for var.<key> in <list>`. There is no `LOCAL` context.
 

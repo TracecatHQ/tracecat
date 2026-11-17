@@ -18078,6 +18078,10 @@ export const $DSLEnvironment = {
       type: "string",
       title: "Environment",
     },
+    workspace_id: {
+      type: "string",
+      title: "Workspace Id",
+    },
     variables: {
       additionalProperties: true,
       type: "object",

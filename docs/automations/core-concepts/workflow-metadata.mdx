@@ -1,11 +1,11 @@
 ---
 title: "Workflow metadata"
-description: "Read workflow run metadata in Tracecat expressions with the ENV context: execution IDs, timestamps, trigger type, and the active Workflow environment."
+description: "Read workflow run metadata in Tracecat expressions with the ENV context: execution IDs, timestamps, trigger type, the active Workflow environment, and the workspace ID."
 ---
 
 ## Overview
 
-The `ENV` context exposes metadata about the current workflow run: execution IDs, run timestamps, the trigger type, and the active Workflow environment.
+The `ENV` context exposes metadata about the current workflow run: execution IDs, run timestamps, the trigger type, the active Workflow environment, and the workspace ID.
 
 ## Using workflow metadata in expressions
 
@@ -40,6 +40,14 @@ Use workflow metadata to:
 ## Workflow environment
 
 `ENV.environment` resolves to the [Workflow environment](/automations/workflows#environments) the run executes in, the same environment that scopes [secrets](/automations/core-concepts/secrets) and [variables](/automations/core-concepts/variables).
+
+## Workspace ID
+
+`ENV.workspace_id` resolves to the ID of the workspace the run executes in. Use it to build links back into Tracecat, such as a case URL in a Slack message:
+
+```yaml
+text: "https://app.example.com/workspaces/${{ ENV.workspace_id }}/cases/${{ TRIGGER.case_id }}"
+```
 
 ## Related pages
 

@@ -626,6 +626,7 @@ class DSLWorkflow:
                     "trigger_type": get_trigger_type(wf_info),
                 },
                 environment=self.runtime_config.environment,
+                workspace_id=str(self.workspace_id),
                 variables={},
             ),
         )
