@@ -264,6 +264,16 @@ Default: `null`.
 
 Search selected text without changing literal search_rows behavior.
 
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Searches the TEXT columns that have vector search enabled. It needs
+the semantic search entitlement and a configured embedding provider.
+Use `core.table.search_rows` for literal text search.
+
+By default the search fails while the table's index is still being
+built. Set `allow_partial` to `true` to search the rows that are
+already indexed.
+
 ### Inputs
 
 <ParamField path="query" type="string" required>

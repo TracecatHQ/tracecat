@@ -629,7 +629,7 @@ Default: `null`.
 
 <ParamField path="view_id" type="string | null">
 
-Run a saved case view (its UUID) or the built-in assigned_to_me view. The view replaces the matching criteria: `filters` is ANDed with it and other matching inputs are rejected, while paging, order_by/sort, and result options still apply. Views that use 'me', such as assigned_to_me, fail in workflows because a workflow has no signed-in user.
+Run a saved case view (its UUID) or the built-in assigned_to_me view. The view replaces the matching criteria: `filters` is ANDed with it and other matching inputs are rejected. Pass order_by to replace the view's saved order; without it the view's order applies and sort only sets the direction. Paging and result options still apply. Views that use 'me', such as assigned_to_me, fail in workflows because a workflow has no signed-in user.
 
 Default: `null`.
 
@@ -653,6 +653,14 @@ Default: `null`.
 ## `core.cases.list_case_views`
 
 List built-in and shared saved case views.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Returns the read-only built-in `assigned_to_me` view, unless
+`include_builtins` is `false`, followed by shared saved views.
+Workflows run without a signed-in user, so they can run shared views
+only, and a view that filters on `me` fails. See
+[Case views](/automations/cases/views).
 
 ### Inputs
 

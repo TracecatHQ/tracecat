@@ -93,7 +93,8 @@ Use `core.cases.list_case_views` to list views, then pass a view's `id` to `core
 - Workflows can run shared views only.
 - A view that filters on `Me`, including `Assigned to me`, fails in a workflow, because a workflow runs without a signed-in user.
 - `view_id` sets the search criteria. Add `filters` to narrow the view. Other matching inputs, such as `status`, are rejected.
-- Paging, `order_by`, and `sort` still apply.
+- The view's saved order applies unless you pass `order_by`. Without `order_by`, `sort` only changes the direction.
+- Paging and result options such as `limit` still apply.
 
 ## Use views from MCP
 
