@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Annotated, Any, cast, get_args
 from unittest.mock import AsyncMock, Mock, patch
@@ -38,6 +39,7 @@ from tracecat.agent.session.router import (
     cancel_session,
     control_session,
     create_session,
+    delete_session,
     fork_session,
     get_session,
     get_session_vercel,
@@ -346,7 +348,7 @@ async def test_update_session_rejects_teammate_session() -> None:
     assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
     assert exc_info.value.detail == {
         "code": "session_read_only",
-        "message": "Teammate sessions are read-only.",
+        "message": "Only the session's creator can change it.",
     }
     fake_svc.update_session.assert_not_awaited()
 
@@ -1005,61 +1007,71 @@ async def test_send_message_rejects_teammate_session() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("deciding", [True, False])
-async def test_a_member_may_only_decide_on_a_channel_session(deciding: bool) -> None:
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        user_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute"}),
+@pytest.mark.parametrize(
+    ("entity_type", "ownerless", "may_message", "may_decide"),
+    [
+        # Anyone in a channel may decide on its session, but only decide.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, False, False, False),
+        # A workflow-started session belongs to the workspace.
+        (AgentSessionEntity.WORKFLOW, True, True, True),
+        (AgentSessionEntity.WORKFLOW, False, True, True),
+        (AgentSessionEntity.CASE, False, False, False),
+        (AgentSessionEntity.AGENT_PRESET, False, False, False),
+    ],
+)
+async def test_a_teammate_may_message_or_decide_only_on_shared_sessions(
+    entity_type: AgentSessionEntity,
+    ownerless: bool,
+    may_message: bool,
+    may_decide: bool,
+    deciding: bool,
+) -> None:
+    agent_session = _agent_session_stub(
+        entity_type=entity_type, created_by=None if ownerless else uuid.uuid4()
     )
+    role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
     request = (
         ContinueRunRequest(
             decisions=[ApprovalDecision(tool_call_id="tool_call_123", action="approve")]
         )
         if deciding
-        else VercelChatRequest(
-            message=UIMessage(
-                id="msg-1", role="user", parts=[{"type": "text", "text": "hi"}]
-            ),
-            model="gpt-4o-mini",
-            model_provider="openai",
-        )
+        else _vercel_chat_request()
     )
-    channel_session = _agent_session_stub(
-        created_by=None, entity_type=AgentSessionEntity.EXTERNAL_CHANNEL
-    )
+    allowed = may_decide if deciding else may_message
     fake_svc = SimpleNamespace(
         session=Mock(),
         is_legacy_session=AsyncMock(return_value=False),
-        validate_turn_request=AsyncMock(return_value=channel_session),
-        # Reaching the turn is enough: the write gate already passed.
+        validate_turn_request=AsyncMock(return_value=agent_session),
+        # Reaching the turn is enough: the access gate already passed.
         run_turn=AsyncMock(side_effect=TracecatConflictError("already recorded")),
+        is_first_prompt_for_session=AsyncMock(return_value=False),
+        clear_active_turn=AsyncMock(),
     )
     with (
         patch(
             "tracecat.agent.session.router.AgentSessionService.with_session",
             return_value=_AsyncContext(fake_svc),
         ),
+        patch("tracecat.agent.session.router.AgentStream.new", AsyncMock()),
         patch(
             "tracecat.agent.session.router._require_workspace_chat_entitlement_for_session_tree",
             AsyncMock(return_value=None),
         ),
+        pytest.raises(HTTPException) as exc_info,
     ):
-        with pytest.raises(HTTPException) as exc_info:
-            await cast(Any, send_message).__wrapped__(
-                session_id=channel_session.id,
-                request=request,
-                role=role,
-                http_request=cast(
-                    Any,
-                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
-                ),
-            )
+        await cast(Any, send_message).__wrapped__(
+            session_id=agent_session.id,
+            request=request,
+            role=role,
+            http_request=cast(
+                Any,
+                SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+            ),
+        )
 
-    assert exc_info.value.status_code == (409 if deciding else 403)
-    assert fake_svc.run_turn.await_count == (1 if deciding else 0)
+    assert exc_info.value.status_code == (409 if allowed else 403)
+    assert fake_svc.run_turn.await_count == (1 if allowed else 0)
 
 
 @pytest.mark.anyio
@@ -1976,32 +1988,21 @@ def test_session_read_reports_backend_controls(
     assert read.capabilities.withdrawing is (enabled and withdrawing)
 
 
-@pytest.mark.parametrize(
-    ("entity_type", "created_by", "enabled", "can_decide"),
-    [
-        (AgentSessionEntity.EXTERNAL_CHANNEL, None, True, True),
-        (AgentSessionEntity.EXTERNAL_CHANNEL, None, False, False),
-        (AgentSessionEntity.AGENT_PRESET, None, True, False),
-        (AgentSessionEntity.EXTERNAL_CHANNEL, uuid.uuid4(), True, False),
-    ],
-)
-def test_members_decide_approvals_only_on_ownerless_channel_sessions(
-    entity_type: AgentSessionEntity,
-    created_by: uuid.UUID | None,
-    enabled: bool,
-    can_decide: bool,
-) -> None:
-    session_stub = _agent_session_stub(
-        backend_id="external", entity_type=entity_type, created_by=created_by
-    )
-    role = Role(
+def _teammate_role(workspace_id: uuid.UUID, scopes: frozenset[str] | None) -> Role:
+    """A workspace member who did not create the session."""
+    return Role(
         type="user",
         service_id="tracecat-api",
         user_id=uuid.uuid4(),
-        workspace_id=session_stub.workspace_id,
+        workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:execute"}),
+        scopes=scopes,
     )
+
+
+def _session_read(
+    session_stub: SimpleNamespace, role: Role, *, enabled: bool = True
+) -> Any:
     provider = DefaultBackend()
     with (
         patch.object(
@@ -2009,11 +2010,52 @@ def test_members_decide_approvals_only_on_ownerless_channel_sessions(
         ),
         patch.object(provider, "is_enabled", return_value=enabled),
     ):
-        read = build_session_read(cast(Any, session_stub), role)
-    assert read.is_readonly is True
+        return build_session_read(cast(Any, session_stub), role)
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "ownerless", "subagent", "enabled", "readonly", "can_decide"),
+    [
+        # Anyone in a channel may decide on its session, but only decide.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True, True, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, False, True, False),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, False, False, True, True, False),
+        # A workflow-started session belongs to the workspace.
+        (AgentSessionEntity.WORKFLOW, True, False, True, False, True),
+        (AgentSessionEntity.WORKFLOW, False, False, True, False, True),
+        (AgentSessionEntity.WORKFLOW, False, False, False, True, False),
+        (AgentSessionEntity.WORKFLOW, False, True, True, True, False),
+        # Every other session stays its owner's.
+        (AgentSessionEntity.AGENT_PRESET, True, False, True, True, False),
+        (AgentSessionEntity.CASE, False, False, True, True, False),
+        (AgentSessionEntity.WORKSPACE_CHAT, False, False, True, True, False),
+        (AgentSessionEntity.APPROVAL, False, False, True, True, False),
+    ],
+)
+def test_a_teammate_may_act_only_on_shared_sessions(
+    entity_type: AgentSessionEntity,
+    ownerless: bool,
+    subagent: bool,
+    enabled: bool,
+    readonly: bool,
+    can_decide: bool,
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        entity_type=entity_type,
+        created_by=None if ownerless else uuid.uuid4(),
+        spawned_by_session_id=uuid.uuid4() if subagent else None,
+    )
+    read = _session_read(
+        session_stub,
+        _teammate_role(session_stub.workspace_id, EXECUTE_ONLY),
+        enabled=enabled,
+    )
+    assert read.is_readonly is readonly
     assert read.can_decide_approvals is can_decide
 
 
+@pytest.mark.parametrize("teammate", [False, True])
 @pytest.mark.parametrize(
     ("scopes", "can_decide"),
     [
@@ -2023,27 +2065,22 @@ def test_members_decide_approvals_only_on_ownerless_channel_sessions(
     ],
 )
 def test_deciding_approvals_needs_the_execute_scope(
-    scopes: frozenset[str] | None, can_decide: bool
+    scopes: frozenset[str] | None, can_decide: bool, teammate: bool
 ) -> None:
-    user_id = uuid.uuid4()
-    session_stub = _agent_session_stub(backend_id="external", created_by=user_id)
-    role = Role(
-        type="user",
-        service_id="tracecat-api",
-        user_id=user_id,
-        workspace_id=session_stub.workspace_id,
-        organization_id=uuid.uuid4(),
-        scopes=scopes,
-    )
-    provider = DefaultBackend()
-    with (
-        patch.object(
-            registry, "get_agent_backends", return_value={"external": provider}
+    """Holds for the owner of any session and for a teammate on a workflow one."""
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        entity_type=(
+            AgentSessionEntity.WORKFLOW if teammate else AgentSessionEntity.AGENT_PRESET
         ),
-        patch.object(provider, "is_enabled", return_value=True),
-    ):
-        read = build_session_read(cast(Any, session_stub), role)
+    )
+    role = _teammate_role(session_stub.workspace_id, scopes)
+    if not teammate:
+        session_stub.created_by = role.user_id
+    read = _session_read(session_stub, role)
     assert read.can_decide_approvals is can_decide
+    # A workflow session is shared only with members who may run the agent.
+    assert read.is_readonly is (teammate and not can_decide)
 
 
 class _TrackedSession:
@@ -2518,3 +2555,190 @@ async def test_forking_into_a_builder_session_requires_agent_update() -> None:
             ),
         )
     fake_svc.fork_session.assert_not_awaited()
+
+
+SHARING = pytest.mark.parametrize(
+    ("entity_type", "shared"),
+    [(AgentSessionEntity.WORKFLOW, True), (AgentSessionEntity.CASE, False)],
+)
+
+
+def _refused_unless(shared: bool) -> Any:
+    """Expect the read-only refusal unless the workspace shares the session."""
+    if shared:
+        return nullcontext()
+    return pytest.raises(HTTPException, match="session_read_only")
+
+
+@SHARING
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"type": "steer", "id": str(uuid.UUID(int=1)), "text": "Stop"},
+        {"type": "withdraw", "id": str(uuid.UUID(int=2))},
+        {"type": "cancel", "id": str(uuid.UUID(int=3))},
+    ],
+    ids=["steer", "withdraw", "cancel"],
+)
+def test_a_teammate_may_control_only_shared_sessions(
+    entity_type: AgentSessionEntity, shared: bool, body: dict[str, str]
+) -> None:
+    agent_session = _agent_session_stub(
+        entity_type=entity_type, curr_run_id=uuid.uuid4()
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        control=AsyncMock(
+            return_value=AgentControlReceipt(
+                id=uuid.UUID(body["id"]),
+                type=cast(Any, body["type"]),
+                run_id=agent_session.curr_run_id,
+                status="accepted",
+            )
+        ),
+    )
+    app = _scoped_app(_teammate_role(agent_session.workspace_id, EXECUTE_ONLY))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(f"/agent/sessions/{agent_session.id}/control", json=body)
+
+    assert response.status_code == (200 if shared else 403)
+    assert fake_svc.control.await_count == (1 if shared else 0)
+
+
+@SHARING
+@pytest.mark.anyio
+async def test_a_teammate_may_cancel_only_shared_sessions(
+    entity_type: AgentSessionEntity, shared: bool
+) -> None:
+    agent_session = _agent_session_stub(entity_type=entity_type)
+    role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session), request_cancel=AsyncMock()
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router._require_workspace_chat_entitlement_for_session_tree",
+            AsyncMock(return_value=None),
+        ),
+        _refused_unless(shared),
+    ):
+        await cast(Any, cancel_session).__wrapped__(
+            session_id=agent_session.id, role=role, session=AsyncMock()
+        )
+    assert fake_svc.request_cancel.await_count == (1 if shared else 0)
+
+
+@SHARING
+@pytest.mark.anyio
+async def test_a_teammate_may_fork_only_shared_sessions(
+    entity_type: AgentSessionEntity, shared: bool
+) -> None:
+    """The inbox sends a follow-up on a workflow session by forking it."""
+    source = _agent_session_stub(entity_type=entity_type)
+    role = _teammate_role(source.workspace_id, EXECUTE_ONLY)
+    forked = _agent_session_stub(
+        workspace_id=source.workspace_id,
+        entity_type=AgentSessionEntity.APPROVAL,
+        created_by=role.user_id,
+        forked_from_session_id=source.id,
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=source),
+        fork_session=AsyncMock(return_value=forked),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.agent.session.router._require_workspace_chat_entitlement_for_session_tree",
+            AsyncMock(return_value=None),
+        ),
+        _refused_unless(shared),
+    ):
+        await cast(Any, fork_session).__wrapped__(
+            session_id=source.id,
+            role=role,
+            session=AsyncMock(),
+            request=AgentSessionForkRequest(entity_type=AgentSessionEntity.APPROVAL),
+        )
+    assert fake_svc.fork_session.await_count == (1 if shared else 0)
+
+
+@pytest.mark.anyio
+async def test_a_teammate_still_cannot_manage_a_workflow_session() -> None:
+    """Sharing a workflow session covers acting on it, not managing it."""
+    agent_session = _agent_session_stub(entity_type=AgentSessionEntity.WORKFLOW)
+    role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        get_session=AsyncMock(return_value=agent_session),
+        update_session=AsyncMock(),
+        delete_session=AsyncMock(),
+        remove_artifact=AsyncMock(),
+        create_session=AsyncMock(),
+    )
+    attempts = [
+        (
+            update_session,
+            {"session_id": agent_session.id, "params": AgentSessionUpdate(title="x")},
+        ),
+        (delete_session, {"session_id": agent_session.id}),
+        (
+            remove_session_artifact,
+            {
+                "session_id": agent_session.id,
+                "artifact_type": "case",
+                "artifact_id": str(uuid.uuid4()),
+            },
+        ),
+        (
+            create_session,
+            {
+                "request": AgentSessionCreate(
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
+                    spawned_by_session_id=agent_session.id,
+                )
+            },
+        ),
+    ]
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        for route, kwargs in attempts:
+            with pytest.raises(HTTPException) as exc_info:
+                await cast(Any, route).__wrapped__(
+                    **kwargs, role=role, session=AsyncMock()
+                )
+            assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+            assert "session_read_only" in str(exc_info.value.detail)
+    for method in (
+        "update_session",
+        "delete_session",
+        "remove_artifact",
+        "create_session",
+    ):
+        getattr(fake_svc, method).assert_not_awaited()

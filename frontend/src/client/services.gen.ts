@@ -9264,8 +9264,7 @@ export const agentSessionsStreamSessionFeed = (
  *
  * Covers steers waiting to join the running turn and messages queued for a
  * later turn. The list is short-lived and small, so it is not paginated. Only
- * the session's owner sees it: the messages are theirs until the model reads
- * them.
+ * actors who may act on the session see it.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
