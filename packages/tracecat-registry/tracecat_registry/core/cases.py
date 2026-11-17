@@ -742,9 +742,9 @@ async def search_cases(
             "The view replaces the matching criteria: `filters` is ANDed with it and "
             "other matching inputs are rejected. Pass order_by to replace the view's "
             "saved order; without it the view's order applies and sort only sets the "
-            "direction. Paging and result options still apply. Views that use 'me', "
-            "such as assigned_to_me, fail in workflows because a workflow has no "
-            "signed-in user."
+            "direction. Paging and result options still apply. A workflow has no "
+            "signed-in user, so it can run shared views only, and views that use "
+            "'me', such as assigned_to_me, fail there."
         ),
     ] = None,
     search_term: Annotated[
