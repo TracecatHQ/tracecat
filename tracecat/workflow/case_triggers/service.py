@@ -9,7 +9,7 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
@@ -346,10 +346,27 @@ class CaseTriggersService(BaseWorkspaceService):
             seen.add(ref)
             deduped.append(ref)
 
+        # Exact refs win; the tags service reads UUID-shaped input only as an ID.
+        tag_ids_by_ref = dict(
+            (
+                await self.session.execute(
+                    select(CaseTag.ref, CaseTag.id).where(
+                        CaseTag.workspace_id == self.workspace_id,
+                        CaseTag.ref.in_(deduped),
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        identifiers = [
+            str(tag_id) if (tag_id := tag_ids_by_ref.get(ref)) else ref
+            for ref in deduped
+        ]
         tags_service = CaseTagsService(self.session, role=self.role)
         try:
             tags = await tags_service.resolve_tags(
-                deduped, create_if_missing=create_missing
+                identifiers, create_if_missing=create_missing
             )
         except NoResultFound as exc:
             raise TracecatNotFoundError(str(exc)) from exc

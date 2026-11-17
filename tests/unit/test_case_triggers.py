@@ -236,6 +236,32 @@ async def test_case_trigger_resolves_tag_names_to_existing_refs(
 
 
 @pytest.mark.anyio
+async def test_case_trigger_resolves_uuid_shaped_ref_by_ref(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger UUID Ref",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    tags_service = CaseTagsService(session, role=svc_role)
+    other = await tags_service.create_tag(TagCreate(name="Other Tag"))
+    uuid_ref = str(other.id)
+    uuid_named = await tags_service.create_tag(TagCreate(name=uuid_ref))
+    assert uuid_named.ref == uuid_ref
+
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=[uuid_ref])
+    trigger = await service.upsert_case_trigger(WorkflowUUID.new(workflow.id), config)
+
+    assert trigger.tag_filters == [uuid_ref]
+
+
+@pytest.mark.anyio
 async def test_case_trigger_rejects_invalid_new_tag_name(
     session: AsyncSession, svc_role
 ):
