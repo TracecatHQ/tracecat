@@ -236,9 +236,7 @@ async def test_case_trigger_resolves_tag_names_to_existing_refs(
 
 
 @pytest.mark.anyio
-async def test_case_trigger_resolves_uuid_shaped_ref_by_ref(
-    session: AsyncSession, svc_role
-):
+async def test_case_trigger_exact_ref_beats_tag_id(session: AsyncSession, svc_role):
     workflow = Workflow(
         title="Case Trigger UUID Ref",
         description="Test workflow",
@@ -275,11 +273,60 @@ async def test_case_trigger_rejects_invalid_new_tag_name(
     await session.commit()
 
     service = CaseTriggersService(session, role=svc_role)
-    config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=["x" * 51])
-    with pytest.raises(TracecatValidationError):
-        await service.upsert_case_trigger(
-            WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+    for tag_filter in ("Long Tag Name " * 4, "🔥"):
+        config = CaseTriggerConfig(
+            status="offline", event_types=[], tag_filters=[tag_filter]
         )
+        with pytest.raises(TracecatValidationError):
+            await service.upsert_case_trigger(
+                WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+            )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_imports_long_refs_verbatim(session: AsyncSession, svc_role):
+    workflow = Workflow(
+        title="Case Trigger Long Ref",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    long_ref = "zhong-wen-biao-qian-" * 4
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=[long_ref])
+    trigger = await service.upsert_case_trigger(
+        WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+    )
+
+    assert trigger.tag_filters == [long_ref]
+    tags = await CaseTagsService(session, role=svc_role).list_workspace_tags()
+    assert [tag.ref for tag in tags] == [long_ref]
+
+
+@pytest.mark.anyio
+async def test_case_trigger_resolves_tag_id_to_ref(session: AsyncSession, svc_role):
+    workflow = Workflow(
+        title="Case Trigger Tag ID",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    tag = await CaseTagsService(session, role=svc_role).create_tag(
+        TagCreate(name="Malware")
+    )
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(
+        status="offline", event_types=[], tag_filters=[str(tag.id)]
+    )
+    trigger = await service.upsert_case_trigger(WorkflowUUID.new(workflow.id), config)
+
+    assert trigger.tag_filters == ["malware"]
 
 
 @pytest.mark.anyio

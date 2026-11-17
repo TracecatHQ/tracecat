@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from slugify import slugify
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import NoResultFound
 
@@ -13,7 +14,7 @@ from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinitio
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
-from tracecat.managed_resources.guard import ensure_unmanaged
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
@@ -334,42 +335,70 @@ class CaseTriggersService(BaseWorkspaceService):
     async def _resolve_tag_filters(
         self, tag_filters: Iterable[str], *, create_missing: bool = False
     ) -> list[str]:
-        refs = [ref.strip() for ref in tag_filters if ref and ref.strip()]
+        refs = list(dict.fromkeys(f.strip() for f in tag_filters if f and f.strip()))
         if not refs:
             return []
-        # Deduplicate while preserving order
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for ref in refs:
-            if ref in seen:
-                continue
-            seen.add(ref)
-            deduped.append(ref)
 
-        # Exact refs win; the tags service reads UUID-shaped input only as an ID.
-        tag_ids_by_ref = dict(
-            (
-                await self.session.execute(
-                    select(CaseTag.ref, CaseTag.id).where(
-                        CaseTag.workspace_id == self.workspace_id,
-                        CaseTag.ref.in_(deduped),
-                    )
+        # Stored refs pass through; only unmatched entries resolve by name or ID.
+        existing = set(
+            await self.session.scalars(
+                select(CaseTag.ref).where(
+                    CaseTag.workspace_id == self.workspace_id,
+                    CaseTag.ref.in_(refs),
                 )
             )
-            .tuples()
-            .all()
         )
-        identifiers = [
-            str(tag_id) if (tag_id := tag_ids_by_ref.get(ref)) else ref
-            for ref in deduped
-        ]
-        tags_service = CaseTagsService(self.session, role=self.role)
+        misses = [ref for ref in refs if ref not in existing]
+        if not misses:
+            return refs
+        resolved: dict[str, str] = {}
+        if create_missing:
+            if blank := [ref for ref in misses if not slugify(ref)]:
+                raise TracecatValidationError(
+                    f"Case tag filters need letters or digits: {', '.join(blank)}"
+                )
+            # Exported refs can outgrow the tag name limit; recreate them verbatim.
+            long_refs = [r for r in misses if len(r) > 50 and slugify(r) == r]
+            resolved |= await self._create_verbatim_tags(long_refs)
+            misses = [r for r in misses if r not in resolved]
         try:
-            tags = await tags_service.resolve_tags(
-                identifiers, create_if_missing=create_missing
+            tags = await CaseTagsService(self.session, role=self.role).resolve_tags(
+                misses, create_if_missing=create_missing
             )
         except NoResultFound as exc:
             raise TracecatNotFoundError(str(exc)) from exc
         except ValidationError as exc:
-            raise TracecatValidationError(f"Invalid case tag filter: {exc}") from exc
-        return list(dict.fromkeys(tag.ref for tag in tags))
+            value = exc.errors()[0]["input"]
+            raise TracecatValidationError(
+                f"Case tag names must be 1-50 characters: {value!r}"
+            ) from exc
+        resolved |= {miss: tag.ref for miss, tag in zip(misses, tags, strict=True)}
+        return list(dict.fromkeys(resolved.get(ref, ref) for ref in refs))
+
+    async def _create_verbatim_tags(self, refs: list[str]) -> dict[str, str]:
+        if not refs:
+            return {}
+        await hold_for_customer_write(self.session, self.workspace_id)
+        await self.session.execute(
+            insert(CaseTag)
+            .values(
+                [
+                    {"workspace_id": self.workspace_id, "name": ref, "ref": ref}
+                    for ref in refs
+                ]
+            )
+            .on_conflict_do_nothing()
+        )
+        # A synced tag can hold this name under a different ref.
+        rows = await self.session.execute(
+            select(CaseTag.ref, CaseTag.name).where(
+                CaseTag.workspace_id == self.workspace_id,
+                or_(CaseTag.ref.in_(refs), CaseTag.name.in_(refs)),
+            )
+        )
+        by_ref: dict[str, str] = {}
+        by_name: dict[str, str] = {}
+        for ref, name in rows.tuples():
+            by_ref[ref] = ref
+            by_name[name] = ref
+        return {ref: by_ref.get(ref) or by_name[ref] for ref in refs}
