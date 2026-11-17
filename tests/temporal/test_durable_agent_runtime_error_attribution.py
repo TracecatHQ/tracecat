@@ -326,7 +326,6 @@ _EXECUTION_FAILED = RuntimeErrorKind.AGENT_EXECUTION_FAILED
 _UNCLASSIFIED = RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 _TIMED_OUT = RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
 _LLM_READ_TIMEOUT = RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
-_LLM_STREAM_INTERRUPTED = RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
 _LLM_PROVIDER_AUTH_FAILED = RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
 _LLM_RATE_LIMITED = RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
 _RETRYABLE = RetryDisposition.RETRYABLE
@@ -507,13 +506,8 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         _RETRYABLE,
         provider_configuration="custom",
     ),
-    _GatewayExpectation(
-        harness.GatewayRoute.MANAGED_LITELLM,
-        harness.GatewayFailureMode.STREAM_DISCONNECT,
-        _PLATFORM,
-        _LLM_STREAM_INTERRUPTED,
-        _RETRYABLE,
-    ),
+    # A managed STREAM_DISCONNECT is not terminal: the proxy ends the stream
+    # and the Claude Code CLI recovers the model call itself.
 )
 
 

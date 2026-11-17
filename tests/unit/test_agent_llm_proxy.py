@@ -46,7 +46,6 @@ from tracecat.agent.sandbox.llm_proxy import (
     _UpstreamRateLimited,
     build_llm_routing_plan,
 )
-from tracecat.agent.sandbox.tool_use_rewrite import ToolUseStreamRewriter
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.observability.otel import (
     get_platform_tracing,
@@ -89,11 +88,16 @@ class _FakeWriter:
 
 
 class _FailingResponseStream(httpx.AsyncByteStream):
-    def __init__(self, request: httpx.Request) -> None:
+    def __init__(
+        self,
+        request: httpx.Request,
+        error: type[httpx.TransportError] = httpx.ReadError,
+    ) -> None:
         self._request = request
+        self._error = error
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
-        raise httpx.ReadError("provider disconnected", request=self._request)
+        raise self._error("provider disconnected", request=self._request)
         yield b""  # pragma: no cover
 
 
@@ -544,11 +548,6 @@ async def test_write_stream_response_emits_error_after_headers_sent(
             RuntimeErrorOwner.USER,
         ),
         (
-            "tracecat_llm_provider_unavailable",
-            RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE,
-            RuntimeErrorOwner.USER,
-        ),
-        (
             "tracecat_llm_deployment_unavailable",
             RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE,
             RuntimeErrorOwner.PLATFORM,
@@ -584,7 +583,9 @@ async def test_write_stream_response_classifies_typed_upstream_error_event(
         status_code=200,
         reason_phrase="OK",
         headers={"Content-Type": "text/event-stream"},
-        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), ToolUseStreamRewriter()),
+        body_chunks=llm_proxy._rewrite_sse_stream(
+            upstream(), llm_proxy._sse_rewriter()
+        ),
         trace_request_id="trace-test-upstream-error",
         path="/v1/messages",
     )
@@ -622,7 +623,9 @@ async def test_write_stream_response_forwards_untyped_upstream_error_event(
         status_code=200,
         reason_phrase="OK",
         headers={"Content-Type": "text/event-stream"},
-        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), ToolUseStreamRewriter()),
+        body_chunks=llm_proxy._rewrite_sse_stream(
+            upstream(), llm_proxy._sse_rewriter()
+        ),
         trace_request_id="trace-test-overloaded",
         path="/v1/messages",
     )
@@ -2022,7 +2025,7 @@ async def test_restart_reports_active_stream_failure(short_socket_path: Path) ->
                 reason_phrase="OK",
                 headers={"Content-Type": "text/event-stream"},
                 body_chunks=_FailingResponseStream(
-                    httpx.Request("POST", "http://example.com")
+                    httpx.Request("POST", "http://example.com"), httpx.ReadTimeout
                 ),
                 path="/v1/messages",
             )
@@ -2449,11 +2452,17 @@ class _CutSSEStream(httpx.AsyncByteStream):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("error", [httpx.RemoteProtocolError, httpx.ReadError])
-async def test_managed_stream_cut_after_headers_is_stream_interrupted(
+async def test_managed_stream_cut_after_headers_ends_stream_for_runtime_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     error: type[httpx.TransportError],
 ) -> None:
+    """A managed mid-stream cut is not fatal and reaches the runtime as EOF.
+
+    The Claude Code CLI recovers on its own from a clean EOF (re-stream, or keep
+    completed blocks and continue). The fatal callback would cancel the turn
+    first, and an SSE error event would force a non-streaming fallback.
+    """
     log = Mock()
     monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
     upstream_request_ids: list[str | None] = []
@@ -2479,23 +2488,19 @@ async def test_managed_stream_cut_after_headers_is_stream_interrupted(
     assert len(upstream_request_ids) == 1
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert response_text.count("HTTP/1.1") == 1
-    assert "event: message_start" in response_text
-    assert "event: error" in response_text
-    # Raw transport text is not source-owned, so neither the runtime nor the
-    # terminal error sees it.
-    assert "peer closed connection" not in response_text
-    assert len(errors) == 1
-    classification = errors[0].classification
-    assert errors[0].message == classification.message
-    assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
-    assert classification.retry_disposition is RetryDisposition.RETRYABLE
-    assert classification.cause_type == error.__name__
+    # The forwarded events end cleanly: nothing is appended after the cut.
+    assert response_text.endswith(_SSE_MESSAGE_START.decode())
+    assert "event: error" not in response_text
+    assert errors == []
 
     stream_log = next(
         call
         for call in log.warning.call_args_list
-        if call.args == ("Stream error after headers sent, emitting SSE error event",)
+        if call.args
+        == (
+            "LLM stream interrupted after headers sent, ending stream "
+            "for runtime recovery",
+        )
     )
     trace_request_id = upstream_request_ids[0]
     assert trace_request_id is not None
@@ -2512,6 +2517,280 @@ async def test_managed_stream_cut_after_headers_is_stream_interrupted(
     assert stream_log.kwargs["stream_duration_ms"] >= 0
     # Progress fields stay content-free.
     assert "hello" not in str(log.mock_calls)
+
+
+_PROVIDER_DROP_EVENT = (
+    b"event: error\ndata: "
+    + orjson.dumps(
+        {
+            "type": "error",
+            "error": {
+                "type": "tracecat_llm_provider_unavailable",
+                "message": "The LLM provider is temporarily unavailable; retry later",
+            },
+        }
+    )
+    + b"\n\n"
+)
+_SSE_MESSAGE_STOP = b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+
+async def _write_managed_stream(
+    socket_proxy: LLMSocketProxy,
+    events: list[bytes],
+    *,
+    cut: type[httpx.TransportError] | None = None,
+) -> bytes:
+    """Stream ``events`` through the proxy once; optionally cut the body after."""
+
+    async def upstream() -> AsyncIterator[bytes]:
+        for event in events:
+            yield event
+        if cut is not None:
+            raise cut("peer closed connection without sending complete message")
+
+    writer = _FakeWriter()
+    rewriter = llm_proxy._sse_rewriter()
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), rewriter),
+        trace_request_id="trace-test-stream-drop",
+        path="/v1/messages",
+        stream_rewriter=rewriter,
+    )
+    return bytes(writer.buffer)
+
+
+@pytest.mark.anyio
+async def test_provider_stream_drop_recovers_then_fails_as_provider_unavailable(
+    tmp_path: Path,
+) -> None:
+    """A provider mid-stream drop ends the stream cleanly, up to the bound.
+
+    The gateway's typed error is held back so the Claude Code CLI sees a clean
+    EOF and re-streams. Once the recoveries run out, the event is forwarded and
+    the turn fails with the provider's own classification.
+    """
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+
+    for _ in range(llm_proxy._MAX_STREAM_RECOVERIES):
+        body = await _write_managed_stream(
+            socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+        )
+        assert body.endswith(_SSE_MESSAGE_START)
+        assert b"event: error" not in body
+        assert errors == []
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+    )
+
+    assert body.endswith(_SSE_MESSAGE_START + _PROVIDER_DROP_EVENT)
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_completed_stream_resets_stream_recoveries(tmp_path: Path) -> None:
+    """The bound counts drops in a row; a completed response starts it over."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+
+    for _ in range(llm_proxy._MAX_STREAM_RECOVERIES):
+        await _write_managed_stream(
+            socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+        )
+    await _write_managed_stream(socket_proxy, [_SSE_MESSAGE_START, _SSE_MESSAGE_STOP])
+    for _ in range(llm_proxy._MAX_STREAM_RECOVERIES):
+        body = await _write_managed_stream(
+            socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+        )
+        assert b"event: error" not in body
+
+    assert errors == []
+
+
+@pytest.mark.anyio
+async def test_completed_json_response_resets_stream_recoveries(
+    tmp_path: Path,
+) -> None:
+    """A successful non-streaming model call also ends the run of drops."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+
+    for _ in range(llm_proxy._MAX_STREAM_RECOVERIES):
+        await _write_managed_stream(
+            socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+        )
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, _FakeWriter()),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "application/json"},
+        body_chunks=[b'{"type":"message","content":[]}'],
+        method="POST",
+        path="/v1/messages",
+    )
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT]
+    )
+
+    assert b"event: error" not in body
+    assert errors == []
+
+
+@pytest.mark.anyio
+async def test_managed_stream_cut_fails_as_stream_interrupted_after_recoveries(
+    tmp_path: Path,
+) -> None:
+    """Gateway connection cuts share the bound and fail as platform-owned."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+
+    for _ in range(llm_proxy._MAX_STREAM_RECOVERIES):
+        body = await _write_managed_stream(
+            socket_proxy, [_SSE_MESSAGE_START], cut=httpx.ReadError
+        )
+        assert b"event: error" not in body
+        assert errors == []
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START], cut=httpx.ReadError
+    )
+
+    assert b"event: error" in body
+    assert b"peer closed connection" not in body
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_held_error_classifies_even_when_a_later_error_follows(
+    tmp_path: Path,
+) -> None:
+    """A second error event in the same chunk cannot replace the held one."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._stream_recoveries = llm_proxy._MAX_STREAM_RECOVERIES
+    overloaded_event = (
+        b'event: error\ndata: {"type":"error","error":'
+        b'{"type":"overloaded_error","message":"synthetic"}}\n\n'
+    )
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, _PROVIDER_DROP_EVENT + overloaded_event]
+    )
+
+    assert body.endswith(_PROVIDER_DROP_EVENT)
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    )
+
+
+@pytest.mark.anyio
+async def test_drop_after_completed_tool_call_is_not_recovered(
+    tmp_path: Path,
+) -> None:
+    """The CLI would run a kept tool call without message_stop; fail instead."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    tool_block = (
+        b"event: content_block_start\ndata: "
+        + orjson.dumps(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "mcp__tracecat-registry__core__http_request",
+                    "input": {},
+                },
+            }
+        )
+        + b"\n\nevent: content_block_stop\ndata: "
+        + orjson.dumps({"type": "content_block_stop", "index": 0})
+        + b"\n\n"
+    )
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, tool_block, _PROVIDER_DROP_EVENT]
+    )
+
+    assert body.endswith(_PROVIDER_DROP_EVENT)
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_UNAVAILABLE
+    )
+
+
+@pytest.mark.anyio
+async def test_other_typed_stream_errors_are_not_recovered(tmp_path: Path) -> None:
+    """Only provider drops re-stream; gateway capacity errors still fail at once."""
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    deployment_event = (
+        b"event: error\ndata: "
+        + orjson.dumps(
+            {
+                "type": "error",
+                "error": {
+                    "type": "tracecat_llm_deployment_unavailable",
+                    "message": "synthetic",
+                },
+            }
+        )
+        + b"\n\n"
+    )
+
+    body = await _write_managed_stream(
+        socket_proxy, [_SSE_MESSAGE_START, deployment_event]
+    )
+
+    assert body.endswith(deployment_event)
+    assert len(errors) == 1
+    assert (
+        errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_GATEWAY_UNAVAILABLE
+    )
 
 
 @pytest.mark.anyio
@@ -2910,7 +3189,8 @@ async def test_upstream_span_fails_on_stream_cut_after_headers(
         _request({"stream": True, "messages": _HELLO}, headers=_LLM_HEADERS),
     )
 
-    assert len(errors) == 1
+    # The cut is recovered by the runtime, but the upstream call still failed.
+    assert errors == []
     [span] = _upstream_spans(span_exporter)
     attributes = span.attributes or {}
     assert span.status.status_code is StatusCode.ERROR
