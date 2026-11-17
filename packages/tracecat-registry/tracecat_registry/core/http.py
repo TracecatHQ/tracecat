@@ -285,9 +285,10 @@ def httpx_to_response(
             data=base64.b64encode(response.content).decode(),
         )
 
-    # Parse response based on content type
+    # Parse response based on content type. HEAD and 304 responses carry
+    # representation headers without a body, so skip JSON parsing when empty.
     content_type = response.headers.get("Content-Type")
-    if _is_json_content_type(content_type):
+    if response.content and _is_json_content_type(content_type):
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),

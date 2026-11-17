@@ -120,6 +120,21 @@ def test_httpx_to_response_non_json_media_types(content_type: str) -> None:
     assert result["data"] == '{"a": 1}'
 
 
+@pytest.mark.parametrize("status_code", [200, 304])
+@pytest.mark.parametrize(
+    "content_type", ["application/json", "application/vnd.api+json"]
+)
+def test_httpx_to_response_empty_json_body(status_code: int, content_type: str) -> None:
+    """Bodyless JSON responses (e.g. HEAD, 304) return empty text instead of raising."""
+    response = httpx.Response(
+        status_code=status_code,
+        headers={"Content-Type": content_type},
+        content=b"",
+    )
+    result = httpx_to_response(response)
+    assert result["data"] == ""
+
+
 def test_httpx_to_response_no_content(mock_no_content_response: httpx.Response) -> None:
     """Test converting 204 response to HTTPResponse."""
     result = httpx_to_response(mock_no_content_response)
