@@ -194,6 +194,11 @@ describe("PlatformSlackAppSettings", () => {
       name: "Turn on public distribution",
     })
     // Self-hosted installs in one Slack workspace; distribution is not required.
+    expect(
+      within(distribution).getByRole("heading", {
+        name: "Turn on public distribution (optional)",
+      })
+    ).toBeInTheDocument()
     expect(distribution).toHaveTextContent(
       "Until it's on, workspaces outside the one the app was created in can't add Tracecat."
     )
