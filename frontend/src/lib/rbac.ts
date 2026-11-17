@@ -170,8 +170,9 @@ export function getScopeActionLabel(scope: ScopeRead): string {
   return target
 }
 
-// Replaced by `workspace_sync:push` and `workspace_sync:pull`; they grant
-// nothing, so the permission editors do not offer them.
+// Replaced by `workspace_sync:push` and `workspace_sync:pull`. Migrated roles
+// keep them until a contract migration, so categories still list them (setting
+// a level removes them) but the displayed level ignores them.
 const DEPRECATED_SCOPE_NAMES = new Set(["workflow:sync", "workspace_sync:sync"])
 
 /**
@@ -181,12 +182,10 @@ export function getCategoryScopes(
   categoryResources: string[],
   scopes: ScopeRead[]
 ): ScopeRead[] {
-  return scopes.filter(
-    (s) =>
-      !DEPRECATED_SCOPE_NAMES.has(s.name) &&
-      categoryResources.some(
-        (r) => s.resource === r || s.resource.startsWith(`${r}:`)
-      )
+  return scopes.filter((s) =>
+    categoryResources.some(
+      (r) => s.resource === r || s.resource.startsWith(`${r}:`)
+    )
   )
 }
 
@@ -221,7 +220,9 @@ export function getCategoryPermissionLevel(
   scopes: ScopeRead[],
   selectedScopeIds: Set<string>
 ): PermissionLevel {
-  const categoryScopes = getCategoryScopes(categoryResources, scopes)
+  const categoryScopes = getCategoryScopes(categoryResources, scopes).filter(
+    (s) => !DEPRECATED_SCOPE_NAMES.has(s.name)
+  )
 
   if (categoryScopes.length === 0) return "none"
 

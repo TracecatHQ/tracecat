@@ -155,16 +155,26 @@ describe("Git sync category", () => {
   ].map(toScope)
   const { resources } = RESOURCE_CATEGORIES.gitSync
 
-  it("lists push and pull but not the deprecated scope", () => {
-    expect(getCategoryScopes(resources, scopes).map((s) => s.id)).toEqual([
-      "workspace_sync:push",
-      "workspace_sync:pull",
-    ])
+  it("lists the deprecated scope so setting a level removes it", () => {
+    expect(getCategoryScopes(resources, scopes)).toEqual(scopes)
+  })
+
+  it("ignores the deprecated scope when reading the level", () => {
+    const migrated = new Set(scopes.map((s) => s.id))
+    expect(getCategoryPermissionLevel(resources, scopes, migrated)).toBe(
+      "admin"
+    )
     expect(
-      getCategoryScopes(RESOURCE_CATEGORIES.workflows.resources, [
-        toScope("workflow:sync"),
-      ])
-    ).toEqual([])
+      getCategoryPermissionLevel(
+        RESOURCE_CATEGORIES.workflows.resources,
+        [
+          toScope("workflow:read"),
+          toScope("workflow:update"),
+          toScope("workflow:sync"),
+        ],
+        new Set(["workflow:read", "workflow:sync"])
+      )
+    ).toBe("read")
   })
 
   it.each([
