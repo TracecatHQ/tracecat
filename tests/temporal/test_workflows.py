@@ -745,6 +745,69 @@ async def test_workflow_default_environment_correct(
     assert await to_data(result) == "default"
 
 
+@pytest.mark.anyio
+async def test_workflow_env_workspace_id(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+):
+    """ENV.workspace_id resolves to the run's workspace in workflows and subflows."""
+    test_name = test_workflow_env_workspace_id.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    child_dsl = DSLInput(
+        title=f"{test_name}:child",
+        description="Return the workspace ID from ENV",
+        entrypoint=DSLEntrypoint(ref="a", expects={}),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": "${{ ENV.workspace_id }}"},
+            )
+        ],
+        returns="${{ ACTIONS.a.result }}",
+    )
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+
+    parent_dsl = DSLInput(
+        title=f"{test_name}:parent",
+        description="Return the workspace ID from ENV in the parent and a subflow",
+        entrypoint=DSLEntrypoint(ref="parent", expects={}),
+        actions=[
+            ActionStatement(
+                ref="parent",
+                action="core.transform.reshape",
+                args={"value": "${{ ENV.workspace_id }}"},
+            ),
+            ActionStatement(
+                ref="child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                    "trigger_inputs": {},
+                },
+            ),
+        ],
+        returns={
+            "parent": "${{ ACTIONS.parent.result }}",
+            "child": "${{ ACTIONS.child.result }}",
+        },
+    )
+
+    run_args = DSLRunArgs(dsl=parent_dsl, role=test_role, wf_id=TEST_WF_ID)
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+    expected_workspace_id = str(test_role.workspace_id)
+    assert await to_data(result) == {
+        "parent": expected_workspace_id,
+        "child": expected_workspace_id,
+    }
+
+
 """Child workflow"""
 
 

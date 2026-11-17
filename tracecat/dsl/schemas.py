@@ -450,6 +450,9 @@ class DSLEnvironment(TypedDict, total=False):
     environment: str
     """Target environment for the workflow."""
 
+    workspace_id: str
+    """ID of the workspace the workflow runs in."""
+
     variables: dict[str, Any]
     """Environment variables."""
 
