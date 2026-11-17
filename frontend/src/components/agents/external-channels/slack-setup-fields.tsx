@@ -11,6 +11,25 @@ import { CopyField } from "@/components/copy-field"
 import { Button } from "@/components/ui/button"
 import { copyToClipboard } from "@/lib/utils"
 
+/** Opens the setup instructions for the custom Slack app flow on screen. */
+export function CustomSlackAppDocsLink({
+  legacy = false,
+}: {
+  legacy?: boolean
+}) {
+  const section = legacy ? "earlier-setup-flow" : "connect-a-slack-app"
+  return (
+    <a
+      href={`https://docs.tracecat.com/agents/channels#${section}`}
+      target="_blank"
+      rel="noreferrer"
+      className="underline underline-offset-2"
+    >
+      Custom Slack app setup guide
+    </a>
+  )
+}
+
 /** Where each credential lives in the Slack app's Basic Information page. */
 export const SLACK_CREDENTIAL_HINTS = {
   appId: "App Credentials → App ID",

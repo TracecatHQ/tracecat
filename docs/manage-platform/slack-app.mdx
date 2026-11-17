@@ -1,0 +1,43 @@
+---
+title: "Set up the platform Slack app"
+description: "Register one Slack app for your Tracecat deployment so workspace teams can install it with Add to Slack."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+On self-hosted Tracecat Enterprise, a platform superuser registers one Slack app for the deployment. On Tracecat Cloud, Tracecat manages the app for each region. If your workspace already shows `Add to Slack`, start with the [Slack quickstart](/agents/ai-slackbot).
+
+## Prepare your deployment
+
+If you self-host, configure the API service before creating the app. Tracecat uses these settings to generate the Slack manifest.
+
+- Set `TRACECAT__PUBLIC_API_URL` to your HTTPS API base URL, such as `https://tracecat.example.com/api`. The installer's browser must be able to reach this address for the OAuth callback.
+- HTTP is the default. Slack must also be able to reach the API to deliver events. For Socket Mode, set `TRACECAT__SLACK_INGRESS_MODE=socket` on the API service. Tracecat then opens an outbound connection to Slack. Apply any deployment changes before opening the admin page.
+
+## Create the app
+
+1. Sign in to Tracecat as a platform superuser and open `Admin → Agent → Slack App`.
+2. Click `Create in Slack`. Choose a Slack workspace where your team can create and manage apps, review the prefilled manifest, and click `Create`. If you already created an unused app for this deployment, copy the manifest from `Create the app by hand instead`, apply it to that app in Slack, and select `I already have the app` in Tracecat.
+3. In Slack, open `Basic Information → App Credentials`. Copy the `App ID`, `Client ID`, `Client Secret`, and `Signing Secret` into the matching fields in Tracecat.
+
+![Tracecat platform admin showing where to create the Slack app and enter its credentials](/img/manage-platform/slack-app-setup.png)
+
+## Connect Slack to your deployment
+
+- With HTTP, the manifest uses the same `Request URL` for `Event Subscriptions` and `Interactivity`. If Slack asks you to verify it, save the credentials in Tracecat first, then retry verification in Slack.
+- With Socket Mode, open `Basic Information → App-Level Tokens → Generate Token and Scopes` in Slack. Add `connections:write` and generate the token. Copy the rotating access token (`xoxe.xapp-…`) and its refresh token into Tracecat while Slack shows them.
+
+Click `Save` in Tracecat and complete the security key prompt if it appears. The card shows `Registered`.
+
+## Let other workspaces install the app
+
+For an internal app used only in the Slack workspace where you created it, you can skip public distribution. Slack requires HTTP for Marketplace listings. Before distributing your app to customers, review [Slack's distribution requirements](https://docs.slack.dev/app-management/distribution/), [Socket Mode limitations](https://docs.slack.dev/apis/events-api/using-socket-mode/), and [API rate limits](https://docs.slack.dev/apis/web-api/rate-limits/).
+
+1. From the registered app in Tracecat, click `Open Manage Distribution`.
+2. In Slack, complete the checklist under `Share Your App with Other Workspaces` and click `Activate Public Distribution`. Until you activate it, only the Slack workspace where you created the app can install it.
+3. Return to Tracecat and click `Mark done` next to `Turn on public distribution`. The checkmark records the change you made in Slack.
+
+![Registered Slack app showing the distribution checklist and the link to Slack's settings](/img/manage-platform/slack-app-distribution.png)
+
+Give workspace teams the [Slack quickstart](/agents/ai-slackbot) to install the app and test their first mention. To update a secret for the same app later, select `Replace credentials`. Before you remove the registration or change its app ID, disconnect all workspace installations.
