@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from pydantic import ValidationError
 from slugify import slugify
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import NoResultFound
 
@@ -14,7 +14,7 @@ from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinitio
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
-from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
@@ -355,16 +355,10 @@ class CaseTriggersService(BaseWorkspaceService):
         misses = [ref for ref in refs if ref not in existing]
         if not misses:
             return refs
-        resolved: dict[str, str] = {}
-        if create_missing:
-            if blank := [ref for ref in misses if not slugify(ref)]:
-                raise TracecatValidationError(
-                    f"Case tag filters need letters or digits: {', '.join(blank)}"
-                )
-            # Exported refs can outgrow the tag name limit; recreate them verbatim.
-            long_refs = [r for r in misses if len(r) > 50 and slugify(r) == r]
-            resolved |= await self._create_verbatim_tags(long_refs)
-            misses = [r for r in misses if r not in resolved]
+        if create_missing and (blank := [r for r in misses if not slugify(r)]):
+            raise TracecatValidationError(
+                f"Case tag filters need letters or digits: {', '.join(blank)}"
+            )
         try:
             tags = await CaseTagsService(self.session, role=self.role).resolve_tags(
                 misses, create_if_missing=create_missing
@@ -376,34 +370,5 @@ class CaseTriggersService(BaseWorkspaceService):
             raise TracecatValidationError(
                 f"Case tag names must be 1-50 characters: {value!r}"
             ) from exc
-        resolved |= {miss: tag.ref for miss, tag in zip(misses, tags, strict=True)}
+        resolved = {miss: tag.ref for miss, tag in zip(misses, tags, strict=True)}
         return list(dict.fromkeys(resolved.get(ref, ref) for ref in refs))
-
-    async def _create_verbatim_tags(self, refs: list[str]) -> dict[str, str]:
-        if not refs:
-            return {}
-        await hold_for_customer_write(self.session, self.workspace_id)
-        await self.session.execute(
-            insert(CaseTag)
-            .values(
-                [
-                    {"workspace_id": self.workspace_id, "name": ref, "ref": ref}
-                    # Insert in a fixed order so concurrent imports can't deadlock.
-                    for ref in sorted(refs)
-                ]
-            )
-            .on_conflict_do_nothing()
-        )
-        # A synced tag can hold this name under a different ref.
-        rows = await self.session.execute(
-            select(CaseTag.ref, CaseTag.name).where(
-                CaseTag.workspace_id == self.workspace_id,
-                or_(CaseTag.ref.in_(refs), CaseTag.name.in_(refs)),
-            )
-        )
-        by_ref: dict[str, str] = {}
-        by_name: dict[str, str] = {}
-        for ref, name in rows.tuples():
-            by_ref[ref] = ref
-            by_name[name] = ref
-        return {ref: by_ref.get(ref) or by_name[ref] for ref in refs}

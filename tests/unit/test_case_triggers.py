@@ -284,29 +284,6 @@ async def test_case_trigger_rejects_invalid_new_tag_name(
 
 
 @pytest.mark.anyio
-async def test_case_trigger_imports_long_refs_verbatim(session: AsyncSession, svc_role):
-    workflow = Workflow(
-        title="Case Trigger Long Ref",
-        description="Test workflow",
-        status="offline",
-        workspace_id=svc_role.workspace_id,
-    )
-    session.add(workflow)
-    await session.commit()
-
-    long_ref = "-".join(["zhong-wen-biao-qian"] * 4)
-    service = CaseTriggersService(session, role=svc_role)
-    config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=[long_ref])
-    trigger = await service.upsert_case_trigger(
-        WorkflowUUID.new(workflow.id), config, create_missing_tags=True
-    )
-
-    assert trigger.tag_filters == [long_ref]
-    tags = await CaseTagsService(session, role=svc_role).list_workspace_tags()
-    assert [tag.ref for tag in tags] == [long_ref]
-
-
-@pytest.mark.anyio
 async def test_case_trigger_resolves_tag_id_to_ref(session: AsyncSession, svc_role):
     workflow = Workflow(
         title="Case Trigger Tag ID",
