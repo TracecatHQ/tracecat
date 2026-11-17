@@ -294,7 +294,7 @@ async def test_case_trigger_imports_long_refs_verbatim(session: AsyncSession, sv
     session.add(workflow)
     await session.commit()
 
-    long_ref = "zhong-wen-biao-qian-" * 4
+    long_ref = "-".join(["zhong-wen-biao-qian"] * 4)
     service = CaseTriggersService(session, role=svc_role)
     config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=[long_ref])
     trigger = await service.upsert_case_trigger(
