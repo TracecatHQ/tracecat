@@ -24,6 +24,18 @@ from tracecat.identifiers import InternalServiceID
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
 
+# Replaced by `workspace_sync:push` and `workspace_sync:pull`. They grant nothing
+# in this version, but migrated custom roles and service accounts keep them
+# until a contract migration drops them, and the previous app version still
+# honors them. Grant ceilings treat them as held when the caller holds both
+# replacements.
+DEPRECATED_SYNC_SCOPES: frozenset[str] = frozenset(
+    {"workflow:sync", "workspace_sync:sync"}
+)
+SYNC_REPLACEMENT_SCOPES: frozenset[str] = frozenset(
+    {"workspace_sync:push", "workspace_sync:pull"}
+)
+
 # =============================================================================
 # Workspace Role Scopes
 # =============================================================================
@@ -61,8 +73,7 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
     {
         "form:create",
         "form:update",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
         "workflow:create",
         "workflow:update",
         "workflow:execute",
@@ -90,6 +101,8 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
 
 ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
     {
+        # Pulling overwrites workspace resources from Git, so editors can only push.
+        "workspace_sync:pull",
         "form:delete",
         "form:submission:delete",
         "workflow:delete",
@@ -189,8 +202,8 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "form:submission:read",
         "form:submission:delete",
         "workflow:read",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
+        "workspace_sync:pull",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -301,8 +314,8 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "form:submission:read",
         "form:submission:delete",
         "workflow:read",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
+        "workspace_sync:pull",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -431,8 +444,8 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "form:submission:delete",
         "inbox:read",
         "workflow:read",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
+        "workspace_sync:pull",
         "workflow:create",
         "workflow:update",
         "workflow:delete",

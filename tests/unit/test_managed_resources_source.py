@@ -239,9 +239,17 @@ def test_source_repository_role_is_narrow() -> None:
 
     assert role.organization_id == source.organization_id
     assert role.workspace_id == source.workspace_id
-    assert role.scopes == SOURCE_REPOSITORY_SCOPES == {"workspace_sync:sync"}
+    # Reads use either scope; cutting a release writes a tag.
+    assert (
+        role.scopes
+        == SOURCE_REPOSITORY_SCOPES
+        == {
+            "workspace_sync:push",
+            "workspace_sync:pull",
+        }
+    )
     assert not role.is_platform_superuser
-    check_scopes(role, "workspace_sync:sync")
+    check_scopes(role, "workspace_sync:push", "workspace_sync:pull")
     for scope in ("org:settings:read", "workflow:update", "workspace:update"):
         with pytest.raises(ScopeDeniedError):
             check_scopes(role, scope)

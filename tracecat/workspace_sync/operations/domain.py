@@ -389,6 +389,7 @@ class DurableSyncService(WorkspaceSyncService):
             transport.release_read_session = release_read_session
         target_exists = True
         if params := inputs.push:
+            self._require_push_scope()
             self._validate_export_params(params)
             target_exists = await transport.branch_exists(url=url, branch=params.branch)
             compare_ref = (
@@ -409,6 +410,7 @@ class DurableSyncService(WorkspaceSyncService):
         else:
             if inputs.pull is None:
                 raise TracecatValidationError("Missing pull inputs")
+            self._require_pull_scope()
             remote = await transport.read_files(
                 url=url, ref=inputs.pull.commit_sha, ref_kind="commit"
             )
@@ -427,6 +429,7 @@ class DurableSyncService(WorkspaceSyncService):
             raise StaleSyncPreviewError("Repository settings changed during fetch")
         remote = fetched.remote
         if params := inputs.push:
+            self._require_push_scope()
             self._validate_export_params(params)
             push = await self.project_push(
                 resources=params.resources,
@@ -468,6 +471,7 @@ class DurableSyncService(WorkspaceSyncService):
         params = inputs.pull
         if params is None:
             raise TracecatValidationError("Missing pull inputs")
+        self._require_pull_scope()
         snapshot, diagnostics = await self.parse_files(
             remote.files, commit_sha=remote.commit_sha, tree_sha=remote.tree_sha
         )
@@ -536,7 +540,7 @@ class DurableSyncService(WorkspaceSyncService):
             projection = prepared.projection
             if projection is None:
                 raise StaleSyncPreviewError("Missing prepared projection")
-            self._require_workspace_sync_scope()
+            self._require_push_scope()
             self._enforce_required_scopes(
                 sorted(
                     _export_read_scopes_for_projection(
@@ -683,7 +687,7 @@ class DurableSyncService(WorkspaceSyncService):
                 )
                 if not commits or commits[0].sha != prepared.compare_sha:
                     raise StaleSyncPreviewError("Source branch changed; preview again")
-            self._require_sync_operation_scope()
+            self._require_pull_scope()
             self._require_pull_scopes(snapshot.spec, dry_run=False)
             await self._require_spec_entitlements(snapshot.spec)
             result = await self.import_prepared_snapshot(

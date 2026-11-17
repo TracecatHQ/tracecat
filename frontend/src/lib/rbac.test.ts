@@ -9,6 +9,7 @@ import {
   RESOURCE_CATEGORIES,
   rolesForAssignmentEdit,
   rolesForScope,
+  withoutDeprecatedScopes,
 } from "@/lib/rbac"
 
 const integrationReadScope: ScopeRead = {
@@ -137,4 +138,72 @@ describe("organizationTier", () => {
     expect(organizationTier(null)).toBe("Member")
     expect(organizationTier(undefined)).toBe("Member")
   })
+})
+
+describe("Git sync category", () => {
+  // Upgraded databases keep the deprecated sync rows.
+  const toScope = (id: string) => ({
+    ...integrationReadScope,
+    id,
+    name: id,
+    resource: id.slice(0, id.indexOf(":")),
+    action: id.slice(id.indexOf(":") + 1),
+  })
+  const scopes = [
+    "workspace_sync:push",
+    "workspace_sync:pull",
+    "workspace_sync:sync",
+    "workflow:sync",
+    "workflow:read",
+  ].map(toScope)
+  const { resources } = RESOURCE_CATEGORIES.gitSync
+  const workflows = RESOURCE_CATEGORIES.workflows.resources
+
+  it("lists both deprecated scopes so setting a level removes them", () => {
+    expect(getCategoryScopes(resources, scopes).map((s) => s.id)).toEqual([
+      "workspace_sync:push",
+      "workspace_sync:pull",
+      "workspace_sync:sync",
+      "workflow:sync",
+    ])
+    expect(getCategoryScopes(workflows, scopes).map((s) => s.id)).toEqual([
+      "workflow:read",
+    ])
+  })
+
+  it("reads as Custom while a deprecated scope is selected", () => {
+    // Older app versions still honor them as push and pull.
+    const migrated = new Set(scopes.map((s) => s.id))
+    expect(getCategoryPermissionLevel(resources, scopes, migrated)).toBe(
+      "mixed"
+    )
+    expect(
+      getCategoryPermissionLevel(resources, scopes, new Set(["workflow:sync"]))
+    ).toBe("mixed")
+  })
+
+  it("drops deprecated scopes from a selection", () => {
+    const migrated = scopes.map((s) => s.id)
+    expect([...withoutDeprecatedScopes(migrated, scopes)]).toEqual([
+      "workspace_sync:push",
+      "workspace_sync:pull",
+      "workflow:read",
+    ])
+  })
+
+  it.each([
+    // Editors push; admins also pull.
+    ["write", ["workspace_sync:push"]],
+    ["admin", ["workspace_sync:push", "workspace_sync:pull"]],
+  ] as const)(
+    "maps the %s level to its Git sync scopes and back",
+    (level, expected) => {
+      const selected = getScopesForLevel(resources, scopes, level)
+
+      expect(selected).toEqual(expected)
+      expect(
+        getCategoryPermissionLevel(resources, scopes, new Set(selected))
+      ).toBe(level)
+    }
+  )
 })

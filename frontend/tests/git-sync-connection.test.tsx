@@ -791,7 +791,12 @@ describe("GitSyncConnectionPanel connected repository", () => {
 describe("GitSyncView connection", () => {
   it("asks non-admins to get a repository connected", () => {
     render(
-      <GitSyncView workspace={setup()} canSync canManageConnection={false} />
+      <GitSyncView
+        workspace={setup()}
+        canPush
+        canPull
+        canManageConnection={false}
+      />
     )
 
     expect(screen.getByText("No repository connected")).toBeInTheDocument()
@@ -806,7 +811,12 @@ describe("GitSyncView connection", () => {
 
   it("hides operation history without sync access", () => {
     render(
-      <GitSyncView workspace={setup()} canSync={false} canManageConnection />
+      <GitSyncView
+        workspace={setup()}
+        canPush={false}
+        canPull={false}
+        canManageConnection
+      />
     )
 
     expect(
@@ -815,7 +825,9 @@ describe("GitSyncView connection", () => {
   })
 
   it("renders the remote line inline for admins without a repository", () => {
-    render(<GitSyncView workspace={setup()} canSync canManageConnection />)
+    render(
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
+    )
 
     expect(
       screen.getByRole("heading", { name: "Connect a repository" })
@@ -832,7 +844,8 @@ describe("GitSyncView connection", () => {
           gitProvider: "github",
           branches: [{ name: "main", is_default: true }],
         })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )

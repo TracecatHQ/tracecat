@@ -49,6 +49,10 @@ WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
         "tunnel:update",
         "tunnel:delete",
         "workflow:read",
+        "workspace_sync:push",
+        "workspace_sync:pull",
+        # Deprecated: grant nothing since the push/pull split. Still accepted so
+        # service accounts migrated with them can be edited until they are dropped.
         "workflow:sync",
         "workspace_sync:sync",
         "workflow:create",

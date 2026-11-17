@@ -16,7 +16,8 @@ export const LEVEL_ACTIONS: Record<
 > = {
   none: [],
   read: ["read"],
-  write: ["read", "create", "update"],
+  // Git sync mirrors the presets: editors push, admins also pull.
+  write: ["read", "create", "update", "push"],
   // `submit` is how a form is executed: `form:submit`.
   execute: ["read", "execute", "submit"],
   admin: [
@@ -28,6 +29,8 @@ export const LEVEL_ACTIONS: Record<
     "remove",
     "manage",
     "execute",
+    "push",
+    "pull",
     "submit",
   ],
 }
@@ -71,6 +74,11 @@ export const RESOURCE_CATEGORIES: Record<
     label: "Integrations",
     description: "OAuth and MCP integration management",
     resources: ["integration"],
+  },
+  gitSync: {
+    label: "Git sync",
+    description: "Push workspace resources to Git and pull them back",
+    resources: ["workspace_sync"],
   },
   workspace: {
     label: "Workspace",
@@ -162,6 +170,27 @@ export function getScopeActionLabel(scope: ScopeRead): string {
   return target
 }
 
+// Replaced by `workspace_sync:push` and `workspace_sync:pull`. Migrated roles
+// keep them until a contract migration, and older app versions still honor them
+// as push and pull. The editors list them under Git sync, show Custom while one
+// is selected, and drop them on any edit.
+const DEPRECATED_SCOPE_NAMES = new Set(["workflow:sync", "workspace_sync:sync"])
+
+/**
+ * Return `selected` without deprecated sync scopes. The permission editors
+ * call it on every edit so a saved role never keeps legacy Git sync access the
+ * editor did not show.
+ */
+export function withoutDeprecatedScopes(
+  selected: Iterable<string>,
+  scopes: ScopeRead[]
+): Set<string> {
+  const deprecatedIds = new Set(
+    scopes.filter((s) => DEPRECATED_SCOPE_NAMES.has(s.name)).map((s) => s.id)
+  )
+  return new Set([...selected].filter((id) => !deprecatedIds.has(id)))
+}
+
 /**
  * Get scopes that match a category's resources
  */
@@ -169,11 +198,14 @@ export function getCategoryScopes(
   categoryResources: string[],
   scopes: ScopeRead[]
 ): ScopeRead[] {
-  return scopes.filter((s) =>
-    categoryResources.some(
-      (r) => s.resource === r || s.resource.startsWith(`${r}:`)
+  return scopes.filter((s) => {
+    // `workflow:sync` granted Git sync, so it lives with the Git sync scopes,
+    // where setting a level removes it.
+    const resource = s.name === "workflow:sync" ? "workspace_sync" : s.resource
+    return categoryResources.some(
+      (r) => resource === r || resource.startsWith(`${r}:`)
     )
-  )
+  })
 }
 
 /**
@@ -207,14 +239,20 @@ export function getCategoryPermissionLevel(
   scopes: ScopeRead[],
   selectedScopeIds: Set<string>
 ): PermissionLevel {
-  const categoryScopes = getCategoryScopes(categoryResources, scopes)
-
-  if (categoryScopes.length === 0) return "none"
+  const allCategoryScopes = getCategoryScopes(categoryResources, scopes)
+  const categoryScopes = allCategoryScopes.filter(
+    (s) => !DEPRECATED_SCOPE_NAMES.has(s.name)
+  )
+  const hasDeprecatedSelected = allCategoryScopes.some(
+    (s) => DEPRECATED_SCOPE_NAMES.has(s.name) && selectedScopeIds.has(s.id)
+  )
 
   const selectedInCategory = categoryScopes.filter((s) =>
     selectedScopeIds.has(s.id)
   )
 
+  // Older app versions still honor a deprecated scope as push and pull.
+  if (hasDeprecatedSelected) return "mixed"
   if (selectedInCategory.length === 0) return "none"
   if (selectedInCategory.length === categoryScopes.length) return "admin"
 

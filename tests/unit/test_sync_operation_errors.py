@@ -279,7 +279,7 @@ async def test_durable_pull_requires_explicit_confirmation_not_legacy_dry_run(
 async def test_legacy_sync_scope_rejects_push_before_persistence_but_allows_pull(
     session, svc_role
 ):
-    role = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
+    role = svc_role.model_copy(update={"scopes": frozenset({"workspace_sync:pull"})})
     service = SyncOperationService(session, role)
     app = FastAPI()
     app.include_router(router.router)
@@ -296,8 +296,8 @@ async def test_legacy_sync_scope_rejects_push_before_persistence_but_allows_pull
         assert response.status_code == 403
         denial = ScopeDeniedResponse.model_validate(response.json())
         assert denial.error.code == "insufficient_scope"
-        assert denial.error.required_scopes == ["workspace_sync:sync"]
-        assert denial.error.missing_scopes == ["workspace_sync:sync"]
+        assert denial.error.required_scopes == ["workspace_sync:push"]
+        assert denial.error.missing_scopes == ["workspace_sync:push"]
         assert (await service.list(PageParams())).items == []
         inputs = SyncOperationCreate.model_validate(
             {

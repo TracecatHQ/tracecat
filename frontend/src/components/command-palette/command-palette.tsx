@@ -246,7 +246,11 @@ function CommandPaletteContent({ onClose }: { onClose: () => void }) {
           icon: GitBranchIcon,
           visible:
             !scopesLoading &&
-            hasAnyScope(["workspace_sync:sync", "workspace:update"]),
+            hasAnyScope([
+              "workspace_sync:push",
+              "workspace_sync:pull",
+              "workspace:update",
+            ]),
         },
         {
           title: "Tunnels",

@@ -263,7 +263,7 @@ const PUSH_PREVIEW: WorkspaceSyncExportPreview = {
 describe("GitSyncView connected", () => {
   it("puts the tabs and repo status in the header and the target in the footer", () => {
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument()
@@ -296,7 +296,7 @@ describe("GitSyncView connected", () => {
   it("opens the connection panel in place and returns with Back", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("button", { name: "Edit connection" }))
@@ -315,7 +315,12 @@ describe("GitSyncView connected", () => {
 
   it("hides Edit without workspace update access", () => {
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection={false} />
+      <GitSyncView
+        workspace={setup()}
+        canPush
+        canPull
+        canManageConnection={false}
+      />
     )
 
     expect(
@@ -329,7 +334,8 @@ describe("GitSyncView connected", () => {
     renderWithTooltips(
       <GitSyncView
         workspace={setup({ preview: PUSH_PREVIEW })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )
@@ -379,7 +385,7 @@ describe("GitSyncView connected", () => {
       files: ["tracecat.json"],
     })
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("button", { name: "Preview" }))
@@ -434,7 +440,7 @@ describe("GitSyncView connected", () => {
       files: ["tracecat.json"],
     })
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
     expect(useWorkspaceSyncExportPreview).toHaveBeenLastCalledWith(
       "workspace-1",
@@ -474,7 +480,8 @@ describe("GitSyncView connected", () => {
             { name: "release", is_default: false },
           ],
         })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )
@@ -497,7 +504,7 @@ describe("GitSyncView connected", () => {
   it("creates a named branch from the picker", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("button", { name: /^Branch/ }))
@@ -524,7 +531,7 @@ describe("GitSyncView connected", () => {
   it("explains an invalid branch name before creating it", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("button", { name: /^Branch/ }))
@@ -542,7 +549,7 @@ describe("GitSyncView connected", () => {
   it("names the selected branch and commit for screen readers", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     expect(
@@ -577,7 +584,7 @@ describe("GitSyncView connected", () => {
       branchesError: branches ? null : new Error("unreachable"),
     } as unknown as ReturnType<typeof useRepositoryBranches>)
     renderWithTooltips(
-      <GitSyncView workspace={workspace} canSync canManageConnection />
+      <GitSyncView workspace={workspace} canPush canPull canManageConnection />
     )
 
     const bar = screen.getByRole("group", { name: "Push actions" })
@@ -599,7 +606,7 @@ describe("GitSyncView connected", () => {
     }
     const workspace = setup({ commits: [COMMITS[0], older] })
     const view = renderWithTooltips(
-      <GitSyncView workspace={workspace} canSync canManageConnection />
+      <GitSyncView workspace={workspace} canPush canPull canManageConnection />
     )
     await user.click(screen.getByRole("tab", { name: "Pull" }))
     await user.click(screen.getByRole("combobox", { name: /^Commit/ }))
@@ -626,7 +633,12 @@ describe("GitSyncView connected", () => {
     } as ReturnType<typeof useRepositoryCommits>)
     view.rerender(
       <TooltipProvider>
-        <GitSyncView workspace={workspace} canSync canManageConnection />
+        <GitSyncView
+          workspace={workspace}
+          canPush
+          canPull
+          canManageConnection
+        />
       </TooltipProvider>
     )
 
@@ -640,7 +652,7 @@ describe("GitSyncView connected", () => {
   it("blocks pushing to the default branch", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("button", { name: /^Branch/ }))
@@ -675,7 +687,8 @@ describe("GitSyncView connected", () => {
             { name: "feature", is_default: false },
           ],
         })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )
@@ -715,7 +728,8 @@ describe("GitSyncView connected", () => {
             { name: "release", is_default: false },
           ],
         })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )
@@ -759,7 +773,7 @@ describe("GitSyncView connected", () => {
       })
     )
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("tab", { name: "Pull" }))
@@ -859,7 +873,7 @@ describe("GitSyncView connected", () => {
         resource_diffs: [],
       })
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("tab", { name: "Pull" }))
@@ -1017,7 +1031,7 @@ describe("GitSyncView connected", () => {
         resource_counts: { workflow: { found: 1, imported: 1 } },
       })
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("tab", { name: "Pull" }))
@@ -1121,7 +1135,7 @@ describe("GitSyncView connected", () => {
       secret_store_mapping_requirements: [store("store-b")],
     })
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("tab", { name: "Pull" }))
@@ -1174,7 +1188,8 @@ describe("GitSyncView connected", () => {
     renderWithTooltips(
       <GitSyncView
         workspace={setup({ preview: PUSH_PREVIEW })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )
@@ -1226,7 +1241,7 @@ describe("GitSyncView connected", () => {
     }
     mockPullWorkflows.mockResolvedValue(preview)
     renderWithTooltips(
-      <GitSyncView workspace={setup()} canSync canManageConnection />
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
     )
 
     await user.click(screen.getByRole("tab", { name: "Pull" }))
@@ -1260,14 +1275,14 @@ it("clears an open push preview when an observed pull imports data", async () =>
   const user = userEvent.setup()
   const workspace = setup({ preview: PUSH_PREVIEW })
   const view = renderWithTooltips(
-    <GitSyncView workspace={workspace} canSync canManageConnection />
+    <GitSyncView workspace={workspace} canPush canPull canManageConnection />
   )
   await user.click(screen.getByRole("button", { name: "Preview" }))
   expect(await screen.findByText("Included in this push")).toBeInTheDocument()
   mockImportRevision = 1
   view.rerender(
     <TooltipProvider>
-      <GitSyncView workspace={workspace} canSync canManageConnection />
+      <GitSyncView workspace={workspace} canPush canPull canManageConnection />
     </TooltipProvider>
   )
   await waitFor(() =>

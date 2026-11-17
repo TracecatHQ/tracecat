@@ -217,6 +217,30 @@ class TestEnsureCanGrantScopes:
         with pytest.raises(TracecatAuthorizationError):
             ensure_can_grant_scopes(frozenset(), ["org:member:read"])
 
+    def test_deprecated_sync_scopes_need_both_replacements(self):
+        # Migrated custom roles keep the deprecated names; preset admins no
+        # longer hold them but hold push and pull, so they can assign them.
+        ensure_can_grant_scopes(
+            ORG_ADMIN_SCOPES,
+            ["workflow:sync", "workspace_sync:sync", "workspace_sync:pull"],
+        )
+        # The previous app version still honors the old names, so a caller
+        # without pull must not be able to hand them out.
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match=(
+                "Cannot grant scopes not held by the caller: "
+                "workflow:sync, workspace_sync:sync"
+            ),
+        ):
+            ensure_can_grant_scopes(
+                EDITOR_SCOPES, ["workflow:sync", "workspace_sync:sync"]
+            )
+        with pytest.raises(TracecatAuthorizationError):
+            ensure_can_grant_scopes(
+                frozenset({"org:rbac:update"}), ["workspace_sync:sync"]
+            )
+
 
 class TestSystemRoleScopes:
     """Tests for system role scope definitions."""
@@ -286,6 +310,15 @@ class TestOrgRoleScopes:
         assert "agent:execute" not in VIEWER_SCOPES
         assert "agent:execute" in EDITOR_SCOPES
         assert "agent:execute" in ADMIN_SCOPES
+
+    def test_editors_push_but_only_admins_pull_git_sync(self):
+        """Pulling overwrites workspace resources, so editors can only push."""
+        assert "workspace_sync:push" in EDITOR_SCOPES
+        assert "workspace_sync:pull" not in EDITOR_SCOPES
+        for scopes in (ADMIN_SCOPES, ORG_ADMIN_SCOPES, ORG_OWNER_SCOPES):
+            assert {"workspace_sync:push", "workspace_sync:pull"} <= scopes
+        for scopes in PRESET_ROLE_SCOPES.values():
+            assert not {"workflow:sync", "workspace_sync:sync"} & scopes
 
 
 _BOTH = ("workflow:read", "workflow:execute")
