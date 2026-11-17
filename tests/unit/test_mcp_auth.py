@@ -1960,6 +1960,7 @@ def _public_jwks(key: rsa.RSAPrivateKey) -> dict[str, object]:
 def _client_assertion(
     key: rsa.RSAPrivateKey,
     *,
+    client_id: str = _PRIVATE_KEY_JWT_CLIENT_ID,
     audience: str = _MCP_TOKEN_ENDPOINT,
     issued_at: float | None = None,
     lifetime_seconds: int = 60,
@@ -1967,8 +1968,8 @@ def _client_assertion(
     now = int(issued_at if issued_at is not None else time.time())
     return jwt.encode(
         {
-            "iss": _PRIVATE_KEY_JWT_CLIENT_ID,
-            "sub": _PRIVATE_KEY_JWT_CLIENT_ID,
+            "iss": client_id,
+            "sub": client_id,
             "aud": audience,
             "iat": now,
             "exp": now + lifetime_seconds,
@@ -2230,17 +2231,24 @@ async def test_private_key_jwt_rejects_unverifiable_cimd_document(
     monkeypatch: pytest.MonkeyPatch,
     client_id: str,
 ) -> None:
-    """A CIMD document that fails FastMCP's fetch checks never authenticates."""
+    """A CIMD document that fails FastMCP's fetch checks never authenticates.
+
+    The assertion is validly signed for the requested client, so the only
+    thing that can reject it is CIMD client resolution.
+    """
     auth = _build_test_auth(monkeypatch)
     key = _generate_rsa_key()
     jwks_fetches = _install_cimd_clients(monkeypatch, auth, jwks=_public_jwks(key))
 
     response = await _post_private_key_jwt_token_request(
-        auth, assertion=_client_assertion(key), client_id=client_id
+        auth,
+        assertion=_client_assertion(key, client_id=client_id),
+        client_id=client_id,
     )
 
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_client"
+    assert response.json()["error_description"] == "Invalid client_id"
     assert jwks_fetches == []
 
 
