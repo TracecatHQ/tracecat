@@ -32,15 +32,13 @@ Set `TRACECAT__PUBLIC_API_URL` on the API service before creating the app, for e
   For HTTP, use the manifest's request URL for both events and interactivity. If verification fails, save the signing secret in Tracecat and retry in Slack.
 </Accordion>
 
-## Allow other Slack workspaces (optional)
+<Accordion title="Allow other Slack workspaces (optional)" id="allow-other-slack-workspaces-optional">
+  Turn on public distribution only if you want other Slack workspaces to add Tracecat. Otherwise, only the workspace where you created the app can add it.
 
-Skip this section if you only use the Slack workspace where you created the app. Until you turn on public distribution, only that workspace can add Tracecat.
+  1. Click `Open Manage Distribution`. In Slack, complete the checklist and click `Activate Public Distribution`.
+  2. Return to Tracecat and click `Mark done` next to `Turn on public distribution (optional)`. Use `Undo` if you marked it by mistake.
 
-1. Click `Open Manage Distribution`. In Slack, complete the checklist and click `Activate Public Distribution`.
-2. Return to Tracecat and click `Mark done` next to `Turn on public distribution (optional)`. Use `Undo` if you marked it by mistake.
+  ![Public distribution checklist](/img/manage-platform/slack-app-distribution.png)
 
-![Public distribution checklist](/img/manage-platform/slack-app-distribution.png)
-
-<Accordion title="Slack distribution limits">
   Slack Marketplace listings require HTTP. See [Slack's distribution requirements](https://docs.slack.dev/app-management/distribution/), [Socket Mode limitations](https://docs.slack.dev/apis/events-api/using-socket-mode/), and [API rate limits](https://docs.slack.dev/apis/web-api/rate-limits/).
 </Accordion>
