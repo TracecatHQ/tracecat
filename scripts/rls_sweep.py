@@ -1632,12 +1632,27 @@ with engine.connect() as c:
         for view in ("foreign_org", "none"):
             if org_views[view][n]:
                 findings.append({"table": n, "issue": f"{view} sees org rows", "count": org_views[view][n]})
-    # Child tables with no tenant column of their own -> (foreign key, parent table).
+    # Child tables with no tenant column of their own -> (foreign key, parent table,
+    # parent column holding the tenant). One parent is enough to attribute a row;
+    # parents keyed by organization admit every workspace in that organization.
+    # Limit: rows are attributed through this one parent only, so the probe does
+    # not exercise a policy's other parent checks (a second tag, file, scope or
+    # option). tests/unit/test_parent_scoped_rls.py rejects writes through each
+    # of those parents.
     PARENTS = {
-        "service_account_api_key": ("service_account_id", "service_account"),
-        "service_account_scope": ("service_account_id", "service_account"),
-        "agent_tag_link": ("tag_id", "agent_tag"),
-        "skill_tag_link": ("tag_id", "skill_tag"),
+        "service_account_api_key": ("service_account_id", "service_account", "workspace_id"),
+        "service_account_scope": ("service_account_id", "service_account", "workspace_id"),
+        "agent_tag_link": ("tag_id", "agent_tag", "workspace_id"),
+        "skill_tag_link": ("tag_id", "skill_tag", "workspace_id"),
+        "case_attachment": ("case_id", "case", "workspace_id"),
+        "case_dropdown_option": ("definition_id", "case_dropdown_definition", "workspace_id"),
+        "case_dropdown_value": ("case_id", "case", "workspace_id"),
+        "case_tag_link": ("case_id", "case", "workspace_id"),
+        "workflow_tag_link": ("workflow_id", "workflow", "workspace_id"),
+        "table_column": ("table_id", "tables", "workspace_id"),
+        "role_scope": ("role_id", "role", "organization_id"),
+        # ownership has no foreign key: owner_id is the owning organization.
+        "ownership": ("owner_id", "organization", "id"),
     }
     unmapped = [n for n in parent_tables if n not in PARENTS]
     for n in unmapped:
@@ -1661,7 +1676,8 @@ with engine.connect() as c:
         with c.begin():
             ctx(c, bypass="on")
             parent_ids = {n: [str(x) for x in c.execute(text(
-                f'SELECT id FROM "{PARENTS[n][1]}" WHERE workspace_id = CAST(:w AS uuid)'), {"w": owner}).scalars()]
+                f'SELECT id FROM "{PARENTS[n][1]}" WHERE "{PARENTS[n][2]}" = CAST(:tenant AS uuid)'),
+                {"tenant": owner if PARENTS[n][2] == "workspace_id" else org}).scalars()]
                 for n in parent_tables if n in PARENTS}
         views = {
             "bypass": child_counts("on", "", "", parent_ids),
@@ -1678,7 +1694,10 @@ with engine.connect() as c:
                                  "bypass": total, "own": views["own"][n]})
             # Tag links follow workspace-only parents; service-account children
             # follow an org-optional parent and admit org-only sessions by design.
-            denied = ["other_workspace", "none", "foreign_org"]
+            # Organization-keyed parents admit every workspace in the organization.
+            denied = ["none", "foreign_org"]
+            if PARENTS[n][2] == "workspace_id":
+                denied.append("other_workspace")
             if PARENTS[n][1] in pure_ws:
                 denied.append("org_only")
             for view in denied:
