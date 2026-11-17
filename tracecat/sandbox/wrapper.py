@@ -403,6 +403,8 @@ if extra_index_urls:
         if url:
             cmd.extend(["--extra-index-url", url])
 
+# End option parsing so dependency strings cannot inject uv flags.
+cmd.append("--")
 cmd.extend(deps)
 
 result = subprocess.run(

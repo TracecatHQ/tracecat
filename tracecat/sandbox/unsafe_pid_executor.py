@@ -32,7 +32,7 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
 )
 from tracecat.sandbox.result_envelope import decode_result_envelope
-from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.types import PackageIndex, SandboxResult
 from tracecat.sandbox.utils import (
     communicate_process_group,
     pid_namespace_available,
@@ -273,12 +273,15 @@ class UnsafePidExecutor:
         self,
         dependencies: list[str],
         workspace_id: str | None = None,
+        package_index: PackageIndex | None = None,
     ) -> str:
         normalized = sorted(dep.lower().strip() for dep in dependencies)
         if workspace_id:
             hash_input = f"{workspace_id}\n" + "\n".join(normalized)
         else:
             hash_input = "\n".join(normalized)
+        if package_index is not None:
+            hash_input += f"\nindex:{package_index.cache_fingerprint}"
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
     @staticmethod
@@ -369,6 +372,7 @@ class UnsafePidExecutor:
         venv_path: Path,
         dependencies: list[str],
         timeout_seconds: int = 300,
+        package_index: PackageIndex | None = None,
     ) -> None:
         pip_cmd = [
             "uv",
@@ -377,22 +381,28 @@ class UnsafePidExecutor:
             "--python",
             str(venv_path / "bin" / "python"),
         ]
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "UV_CACHE_DIR": str(self.uv_cache),
+        }
 
-        if TRACECAT__SANDBOX_PYPI_INDEX_URL:
-            pip_cmd.extend(["--index-url", TRACECAT__SANDBOX_PYPI_INDEX_URL])
-        for extra_url in TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS:
-            pip_cmd.extend(["--extra-index-url", extra_url])
+        if package_index is not None:
+            # Credentials stay out of argv, which other host processes can read.
+            env.update(package_index.install_env())
+        else:
+            if TRACECAT__SANDBOX_PYPI_INDEX_URL:
+                pip_cmd.extend(["--index-url", TRACECAT__SANDBOX_PYPI_INDEX_URL])
+            for extra_url in TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS:
+                pip_cmd.extend(["--extra-index-url", extra_url])
+        pip_cmd.append("--")
         pip_cmd.extend(dependencies)
 
         process = await asyncio.create_subprocess_exec(
             *pip_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={
-                "PATH": os.environ.get("PATH", ""),
-                "HOME": os.environ.get("HOME", "/tmp"),
-                "UV_CACHE_DIR": str(self.uv_cache),
-            },
+            env=env,
             start_new_session=True,
         )
 
@@ -419,6 +429,7 @@ class UnsafePidExecutor:
         env_vars: dict[str, str] | None = None,
         python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
+        package_index: PackageIndex | None = None,
     ) -> SandboxResult:
         if timeout_seconds is None:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
@@ -439,7 +450,9 @@ class UnsafePidExecutor:
                 python_path_dirs or [],
             )
             if dependencies:
-                cache_key = self._compute_cache_key(dependencies, workspace_id)
+                cache_key = self._compute_cache_key(
+                    dependencies, workspace_id, package_index
+                )
                 cached_venv = self.package_cache / cache_key
                 if not (
                     cached_venv.exists() and (cached_venv / "bin" / "python").exists()
@@ -453,6 +466,7 @@ class UnsafePidExecutor:
                             temp_venv,
                             dependencies,
                             timeout_seconds=timeout_seconds,
+                            package_index=package_index,
                         )
                         try:
                             os.rename(temp_venv, cached_venv)

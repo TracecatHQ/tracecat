@@ -44,6 +44,7 @@ async def test_install_packages_rejoins_copy_before_cleanup_on_cancellation(
             job_dir: Path,  # noqa: ARG002
             cache_key: str,  # noqa: ARG002
             timeout_seconds: int,  # noqa: ARG002
+            package_index: object = None,  # noqa: ARG002
         ) -> Any:
             return SandboxResult(success=True, exit_code=0)
 
@@ -89,7 +90,7 @@ async def test_install_packages_rejoins_copy_before_cleanup_on_cancellation(
             cache_key="abc123",
         )
     )
-    await copy_started.wait()
+    await asyncio.wait_for(copy_started.wait(), timeout=10)
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
@@ -138,6 +139,7 @@ async def test_install_packages_discards_copy_worker_error_under_cancellation(
             job_dir: Path,  # noqa: ARG002
             cache_key: str,  # noqa: ARG002
             timeout_seconds: int,  # noqa: ARG002
+            package_index: object = None,  # noqa: ARG002
         ) -> Any:
             return SandboxResult(success=True, exit_code=0)
 
@@ -180,7 +182,7 @@ async def test_install_packages_discards_copy_worker_error_under_cancellation(
             cache_key="abc123",
         )
     )
-    await copy_started.wait()
+    await asyncio.wait_for(copy_started.wait(), timeout=10)
     task.cancel()  # Cancellation lands while the copy is still in flight.
     release.set()  # The worker then fails before the handler's join completes.
 
