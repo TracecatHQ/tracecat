@@ -140,17 +140,31 @@ describe("organizationTier", () => {
 })
 
 describe("Git sync category", () => {
-  const scopes = ["workspace_sync:push", "workspace_sync:pull"].map((id) => ({
+  // Upgraded databases keep the deprecated `workspace_sync:sync` row.
+  const toScope = (id: string) => ({
     ...integrationReadScope,
     id,
     name: id,
-    resource: "workspace_sync",
+    resource: id.slice(0, id.indexOf(":")),
     action: id.slice(id.indexOf(":") + 1),
-  }))
+  })
+  const scopes = [
+    "workspace_sync:push",
+    "workspace_sync:pull",
+    "workspace_sync:sync",
+  ].map(toScope)
   const { resources } = RESOURCE_CATEGORIES.gitSync
 
-  it("lists both Git sync scopes", () => {
-    expect(getCategoryScopes(resources, scopes)).toEqual(scopes)
+  it("lists push and pull but not the deprecated scope", () => {
+    expect(getCategoryScopes(resources, scopes).map((s) => s.id)).toEqual([
+      "workspace_sync:push",
+      "workspace_sync:pull",
+    ])
+    expect(
+      getCategoryScopes(RESOURCE_CATEGORIES.workflows.resources, [
+        toScope("workflow:sync"),
+      ])
+    ).toEqual([])
   })
 
   it.each([

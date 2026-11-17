@@ -170,6 +170,10 @@ export function getScopeActionLabel(scope: ScopeRead): string {
   return target
 }
 
+// Replaced by `workspace_sync:push` and `workspace_sync:pull`; they grant
+// nothing, so the permission editors do not offer them.
+const DEPRECATED_SCOPE_NAMES = new Set(["workflow:sync", "workspace_sync:sync"])
+
 /**
  * Get scopes that match a category's resources
  */
@@ -177,10 +181,12 @@ export function getCategoryScopes(
   categoryResources: string[],
   scopes: ScopeRead[]
 ): ScopeRead[] {
-  return scopes.filter((s) =>
-    categoryResources.some(
-      (r) => s.resource === r || s.resource.startsWith(`${r}:`)
-    )
+  return scopes.filter(
+    (s) =>
+      !DEPRECATED_SCOPE_NAMES.has(s.name) &&
+      categoryResources.some(
+        (r) => s.resource === r || s.resource.startsWith(`${r}:`)
+      )
   )
 }
 
