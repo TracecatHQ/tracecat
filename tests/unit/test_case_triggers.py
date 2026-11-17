@@ -11,6 +11,7 @@ from tracecat.db.models import CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.tags.schemas import TagCreate
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 
@@ -195,6 +196,38 @@ async def test_case_trigger_create_missing_tags(session: AsyncSession, svc_role)
     tags_service = CaseTagsService(session, role=svc_role)
     created = await tags_service.get_tag_by_ref("phishing")
     assert created.ref == "phishing"
+
+
+@pytest.mark.anyio
+async def test_case_trigger_resolves_tag_names_to_existing_refs(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Tag Names",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    tags_service = CaseTagsService(session, role=svc_role)
+    existing = await tags_service.create_tag(TagCreate(name="Suspicious Login"))
+    assert existing.ref == "suspicious-login"
+
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(
+        status="offline",
+        event_types=[],
+        tag_filters=["Suspicious Login", "suspicious-login", "new-tag"],
+    )
+    trigger = await service.upsert_case_trigger(
+        WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+    )
+
+    assert trigger.tag_filters == ["suspicious-login", "new-tag"]
+    tags = await tags_service.list_workspace_tags()
+    assert sorted(tag.ref for tag in tags) == ["new-tag", "suspicious-login"]
 
 
 @pytest.mark.anyio
