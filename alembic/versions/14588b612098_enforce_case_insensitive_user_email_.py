@@ -49,6 +49,11 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Block writes until the index exists. Otherwise a duplicate committed after
+    # the count fails the index build with an error that includes the email.
+    # Fail fast instead of queueing every user write behind a slow writer.
+    op.execute("SET LOCAL lock_timeout = '10s'")
+    op.execute('LOCK TABLE "user" IN SHARE MODE')
     duplicate_group_count = (
         op.get_bind()
         .execute(
