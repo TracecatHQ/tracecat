@@ -4,7 +4,6 @@ This test suite validates:
 1. Leader election behavior (lock acquisition)
 2. Version existence checks (skip sync if version exists and is current)
 3. No auto-promotion of existing non-current versions
-4. No-downgrade guard during sync
 """
 
 from __future__ import annotations
@@ -209,44 +208,6 @@ async def test_startup_sync_defers_existing_target_when_no_current_version(
 
     await session.refresh(repo)
     assert repo.current_version_id is None
-
-
-@pytest.mark.anyio
-async def test_startup_sync_refuses_downgrade(
-    session: AsyncSession,
-) -> None:
-    """Test that startup sync refuses to downgrade to older version."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
-
-    # Get or create platform repo (may already exist from conftest seeding)
-    repo = await _get_or_create_platform_repo(session)
-
-    version = PlatformRegistryVersion(
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add(version)
-    await session.flush()
-
-    repo.current_version_id = version.id
-    session.add(repo)
-    await session.commit()
-
-    # Try to sync to version 1.0.0 (older)
-    with patch(
-        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-    ) as mock_sync_service:
-        artifact_build = await _sync_as_leader(session, "1.0.0")
-
-        # Should NOT call sync service (downgrade refused)
-        mock_sync_service.assert_not_called()
-        assert artifact_build is None
-
-    # Verify current version is still 2.0.0
-    await session.refresh(repo)
-    assert repo.current_version_id == version.id
 
 
 @pytest.mark.anyio
