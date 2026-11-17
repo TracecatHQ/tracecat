@@ -70,8 +70,13 @@ def _role(
     )
 
 
+EXECUTE = frozenset({"agent:read", "agent:execute"})
+
+
 def _session(
-    backend_id: str = "external", created_by: uuid.UUID | None = None
+    backend_id: str = "external",
+    created_by: uuid.UUID | None = None,
+    entity_type: AgentSessionEntity = AgentSessionEntity.WORKSPACE_CHAT,
 ) -> AgentSession:
     workspace_id = uuid.uuid4()
     return AgentSession(
@@ -79,7 +84,7 @@ def _session(
         workspace_id=workspace_id,
         created_by=created_by,
         title="Test",
-        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_type=entity_type.value,
         entity_id=workspace_id,
         backend_id=backend_id,
         harness_type="claude_code",
@@ -187,17 +192,32 @@ def test_pending_route_lets_the_owner_read_their_pending_messages() -> None:
     assert response.status_code == 200
 
 
-def test_pending_route_hides_pending_messages_from_teammates() -> None:
-    """A teammate's unread messages stay theirs until the model reads them."""
-    agent_session = _session(created_by=uuid.uuid4())
+@pytest.mark.parametrize(
+    ("entity_type", "scopes", "visible"),
+    [
+        # A teammate's unread messages stay theirs until the model reads them.
+        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, False),
+        # A workflow session is shared with members who may act on it.
+        (AgentSessionEntity.WORKFLOW, EXECUTE, True),
+        (AgentSessionEntity.WORKFLOW, frozenset({"agent:read"}), False),
+    ],
+)
+def test_pending_route_shows_pending_messages_only_on_shared_sessions(
+    entity_type: AgentSessionEntity, scopes: frozenset[str], visible: bool
+) -> None:
+    agent_session = _session(created_by=uuid.uuid4(), entity_type=entity_type)
     backend = PendingBackend()
-    role = _role(agent_session.workspace_id, user_id=uuid.uuid4())
+    role = _role(agent_session.workspace_id, user_id=uuid.uuid4(), scopes=scopes)
 
     response = _get_pending(agent_session, {"external": backend}, role=role)
 
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "session_read_only"
-    assert backend.calls == []
+    if visible:
+        assert response.status_code == 200
+        assert backend.calls == [agent_session.id]
+    else:
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "session_read_only"
+        assert backend.calls == []
 
 
 def test_pending_route_requires_the_agent_read_scope() -> None:

@@ -9,21 +9,49 @@ from typing import NamedTuple
 
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.identifiers import UserID
 
 
-def is_session_readonly(role: Role, created_by: UserID | None) -> bool:
-    """Return whether an actor may modify a session with this creator.
+def is_session_owner(role: Role, created_by: UserID | None) -> bool:
+    """Return whether an actor owns a session with this creator.
 
-    User-backed actors can only modify sessions they created. Service accounts
-    own sessions without a user creator. Unbound internal services remain
-    writable so background execution is not blocked.
+    User-backed actors own the sessions they created. Service accounts own
+    sessions without a user creator. Unbound internal services own every
+    session so background execution is not blocked.
     """
     if role.type == "service_account":
-        return created_by is not None
+        return created_by is None
     if role.user_id is not None:
-        return created_by != role.user_id
-    return False
+        return created_by == role.user_id
+    return True
+
+
+def can_act_on_session(role: Role, entity_type: str, created_by: UserID | None) -> bool:
+    """Return whether an actor may act on a session: message, steer, stop it.
+
+    WORKFLOW-typed sessions belong to the workspace, so any member with
+    ``agent:execute`` may act on them. Every other session is its owner's.
+    """
+    if is_session_owner(role, created_by):
+        return True
+    return (
+        entity_type == AgentSessionEntity.WORKFLOW
+        and role.scopes is not None
+        and has_scope(role.scopes, "agent:execute")
+    )
+
+
+def can_decide_on_session(
+    role: Role, entity_type: str, created_by: UserID | None
+) -> bool:
+    """Return whether an actor may decide a session's pending approvals.
+
+    Anyone may decide on an ownerless channel session, as anyone in the channel can.
+    """
+    return can_act_on_session(
+        role, entity_type, created_by
+    ) or is_ownerless_channel_session(entity_type, created_by)
 
 
 def is_ownerless_channel_session(entity_type: str, created_by: UserID | None) -> bool:
