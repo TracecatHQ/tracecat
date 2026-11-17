@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -43,6 +44,7 @@ from tracecat.expressions.policy import build_provenance
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import OAuthGrantType
+from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import MASK_VALUE
@@ -278,6 +280,41 @@ async def test_resolve_action_secrets_reports_earliest_oauth_expiry(mocker):
     )
 
     assert resolved.expires_at == _OAUTH_EXPIRIES[OAuthGrantType.CLIENT_CREDENTIALS]
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_log_record_serializes(mocker):
+    """The secrets log record survives Loguru's built-in JSON serialization."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        messages.append,
+        level="INFO",
+        serialize=True,
+        catch=False,
+        filter=lambda record: record["message"] == "Handling secrets",
+    )
+    try:
+        await secrets_manager.resolve_action_secrets(
+            secret_exprs={
+                "azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+            },
+            action_secrets=_AZURE_OAUTH_SECRETS,
+        )
+    finally:
+        logger.remove(sink_id)
+
+    [message] = messages
+    extra = json.loads(message)["record"]["extra"]
+    assert extra["oauth_provider_ids"] == [
+        "azure_log_analytics (authorization_code)",
+        "azure_log_analytics (client_credentials)",
+    ]
+    assert extra["args_oauth_token_names"] == {
+        "azure_log_analytics (client_credentials)": "AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+    }
 
 
 @pytest.mark.parametrize(

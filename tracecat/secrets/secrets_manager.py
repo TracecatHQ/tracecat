@@ -202,8 +202,11 @@ async def resolve_action_secrets(
         "Handling secrets",
         required_basic_secrets=required_basic_secrets,
         optional_basic_secrets=optional_basic_secrets,
-        oauth_provider_ids=oauth_secrets,
-        args_oauth_token_names=args_oauth_token_names,
+        # Stringify ProviderKey dict keys: serializing sinks reject non-str keys.
+        oauth_provider_ids=sorted(str(key) for key in oauth_secrets),
+        args_oauth_token_names={
+            str(key): token_name for key, token_name in args_oauth_token_names.items()
+        },
         args_secrets=args_secrets,
         secrets_to_fetch=all_basic_secrets,
     )
