@@ -164,6 +164,14 @@ describe("Git sync category", () => {
     expect(getCategoryPermissionLevel(resources, scopes, migrated)).toBe(
       "admin"
     )
+    // On its own it still grants access on older app versions.
+    expect(
+      getCategoryPermissionLevel(
+        resources,
+        scopes,
+        new Set(["workspace_sync:sync"])
+      )
+    ).toBe("mixed")
     expect(
       getCategoryPermissionLevel(
         RESOURCE_CATEGORIES.workflows.resources,
