@@ -1,0 +1,77 @@
+type: action
+definition:
+  name: get_agent_hotfixes
+  namespace: tools.wazuh
+  title: Get agent hotfixes
+  description: "List the Microsoft hotfixes (KBs) installed on a Windows agent."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.syscollector_controller.get_hotfix_info
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    agent_id:
+      type: str
+      description: "Agent ID (e.g. `001`). Use `000` for the manager."
+    hotfix:
+      type: str | None
+      description: "Filter by hotfix (e.g. `KB5034441`)."
+      default: null
+    q:
+      type: str | None
+      description: "Wazuh query to filter results by (e.g. `status=active;os.platform=ubuntu`)."
+      default: null
+    search:
+      type: str | None
+      description: "Look for elements containing the specified string. Prefix with `-` for a complementary search."
+      default: null
+    select:
+      type: list[str] | None
+      description: "Fields to return. Use `.` for nested fields (e.g. `os.name`)."
+      default: null
+    sort:
+      type: str | None
+      description: "Fields to sort by, comma separated. Prefix with `+` or `-` for ascending or descending order."
+      default: null
+    limit:
+      type: int
+      description: "Maximum number of elements to return (up to 100000; Wazuh recommends 500 or fewer)."
+      default: 500
+    offset:
+      type: int
+      description: "First element to return in the collection."
+      default: 0
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/syscollector/${{ FN.url_encode(inputs.agent_id) }}/hotfixes
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+        params:
+          hotfix: ${{ inputs.hotfix }}
+          q: ${{ inputs.q }}
+          search: ${{ inputs.search }}
+          select: ${{ FN.join(inputs.select, ",") if inputs.select else None }}
+          sort: ${{ inputs.sort }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

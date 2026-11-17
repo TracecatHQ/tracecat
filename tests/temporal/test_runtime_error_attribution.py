@@ -508,6 +508,20 @@ ATTRIBUTION_SCENARIOS: tuple[_AttributionScenario, ...] = (
         ),
     ),
     _AttributionScenario(
+        id="subflow_preparation.missing_definition_with_cancelled_run_if",
+        topology=_Topology.CONCURRENT_ACTIONS,
+        fault_point=_FaultPoint.SUBFLOW_PREPARATION,
+        fault="missing child definition + sibling cancelled during run_if",
+        root=_ExecutionExpectation(_FAILED, RuntimeErrorOwner.USER),
+        envelope_owners=frozenset({RuntimeErrorOwner.USER}),
+        kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        attempts=1,
+        runner=_basic_runner(
+            child_harness.run_missing_subflow_with_cancelled_run_if_preserves_causal_owner
+        ),
+    ),
+    _AttributionScenario(
         id="gather.raise.preserves_platform_child",
         topology=_Topology.SCATTER_GATHER,
         fault_point=_FaultPoint.SUBFLOW_PREPARATION,

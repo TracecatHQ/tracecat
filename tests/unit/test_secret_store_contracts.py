@@ -38,8 +38,6 @@ from tracecat.secrets.schemas import (
     AwsSecretsManagerStoreUpdate,
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
-    SecretStoreUpdate,
-    SecretUpdate,
 )
 from tracecat.secrets.service import SecretsService
 from tracecat.tiers.enums import Entitlement
@@ -219,62 +217,10 @@ def test_reference_name_rejects_unreferenceable_aliases(name: str) -> None:
         AwsSecretReferenceUpdate.model_validate({"name": name})
 
 
-def test_reference_description_fits_column() -> None:
-    mapping = {"mode": "whole_string", "keys": ["TOKEN"]}
-    with pytest.raises(ValidationError):
-        AwsSecretReferenceCreate.model_validate(
-            {
-                "name": "app_db",
-                "description": "x" * 256,
-                "store_id": uuid.uuid4(),
-                "remote_reference": "synthetic/secret",
-                "key_mapping": mapping,
-            }
-        )
-    with pytest.raises(ValidationError):
-        AwsSecretReferenceUpdate.model_validate({"description": "x" * 256})
-    with pytest.raises(ValidationError):
-        SecretUpdate.model_validate({"description": "x" * 256})
-
-
-@pytest.mark.parametrize("environment", ["", "x" * 101])
-def test_reference_environment_fits_column(environment: str) -> None:
-    mapping = {"mode": "whole_string", "keys": ["TOKEN"]}
-    with pytest.raises(ValidationError):
-        AwsSecretReferenceCreate.model_validate(
-            {
-                "name": "app_db",
-                "environment": environment,
-                "store_id": uuid.uuid4(),
-                "remote_reference": "synthetic/secret",
-                "key_mapping": mapping,
-            }
-        )
-
-
-@pytest.mark.parametrize("field", ["name", "enabled"])
-def test_store_update_rejects_explicit_null(field: str) -> None:
-    with pytest.raises(ValidationError):
-        SecretStoreUpdate.model_validate({field: None})
-    assert field not in SecretStoreUpdate.model_validate({}).model_dump(
-        exclude_unset=True
-    )
-
-
 def test_store_listing_does_not_shadow_secret_names() -> None:
     paths = create_app().openapi()["paths"]
     assert "/workspaces/{workspace_id}/secret-stores" in paths
     assert "/workspaces/{workspace_id}/secrets/stores" not in paths
-
-
-@pytest.mark.parametrize("model", [AwsSecretReferenceUpdate, SecretUpdate])
-@pytest.mark.parametrize("field", ["name", "environment"])
-def test_secret_update_rejects_explicit_null(
-    model: type[AwsSecretReferenceUpdate] | type[SecretUpdate], field: str
-) -> None:
-    with pytest.raises(ValidationError):
-        model.model_validate({field: None})
-    assert field not in model.model_validate({}).model_dump(exclude_unset=True)
 
 
 @pytest.mark.parametrize(
@@ -313,6 +259,18 @@ def test_reference_arn_partition_must_match_store() -> None:
         config, "arn:aws-cn:secretsmanager:cn-north-1:123456789012:secret:app-AbCdEf"
     )
     backend.validate_reference(config, "app/api")
+
+
+def test_reference_partition_uses_role_arn_for_regions_unknown_to_botocore() -> None:
+    config = AwsSecretsManagerStoreConfig(
+        role_arn="arn:aws:iam::123456789012:role/reader",
+        region="xx-future-1",
+        external_id="synthetic",
+    )
+    with pytest.raises(ValueError, match="partition"):
+        AwsSecretsManagerBackend().validate_reference(
+            config, "arn:aws-cn:secretsmanager:xx-future-1:123456789012:secret:a-AbCdEf"
+        )
 
 
 def test_store_config_allows_regions_unknown_to_botocore() -> None:

@@ -27,7 +27,7 @@ export function AddWorkflowTagDialog({
           requestBody: params,
         })
       }}
-      title="Create new workflow tag"
+      title="Create tag"
       description="Enter a name for your new workflow tag."
     />
   )

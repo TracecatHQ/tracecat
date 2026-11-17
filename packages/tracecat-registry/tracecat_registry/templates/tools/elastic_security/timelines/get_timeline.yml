@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Get timeline
+  description: "Get an Elastic Security Timeline by `id`, or a Timeline template by `template_timeline_id`."
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-gettimeline
+  namespace: tools.elastic_security
+  name: get_timeline
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    id:
+      type: str | None
+      description: "The `savedObjectId` of the Timeline to retrieve."
+      default: null
+    template_timeline_id:
+      type: str | None
+      description: "The `savedObjectId` of the Timeline template to retrieve."
+      default: null
+    base_url:
+      type: str | None
+      description: "Kibana base URL (e.g. https://localhost:5601)."
+      default: null
+    space_id:
+      type: str | None
+      description: "Optional Kibana space ID. Omit for the default space."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "Whether to verify SSL certificates."
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          space_id: ${{ inputs.space_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(space_id):
+              path = f"/api/timeline"
+              if space_id:
+                  return f"/s/{quote(space_id, safe='')}{path}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
+        method: GET
+        params:
+          id: ${{ inputs.id }}
+          template_timeline_id: ${{ inputs.template_timeline_id }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+          kbn-xsrf: tracecat
+  returns: ${{ steps.request.result }}

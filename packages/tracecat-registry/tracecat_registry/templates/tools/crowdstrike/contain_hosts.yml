@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Contain hosts
+  description: >-
+    Network-contain hosts, stopping network communications except to the CrowdStrike
+    cloud and IPs allowed by the containment policy. Requires the Hosts: Write API
+    scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/hosts/#performactionv2
+  namespace: tools.crowdstrike
+  name: contain_hosts
+  expects:
+    ids:
+      type: list[str]
+      description: Host agent IDs (AIDs) to contain.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: contain_hosts
+      action: tools.falconpy.call_command
+      args:
+        operation_id: PerformActionV2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          action_name: contain
+          body:
+            ids: ${{ inputs.ids }}
+  returns: ${{ steps.contain_hosts.result }}

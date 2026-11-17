@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Search incidents
+  description: 'Search Strata Cloud Manager incidents with POST /incidents/v1/search. Filter rules use property, operator, and values, e.g. {"property": "status", "operator": "in", "values": ["Raised"]}.'
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/incidents/search-incidents/
+  namespace: tools.pan_strata
+  name: search_incidents
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    region:
+      type: str
+      description: Tenant region sent as the X-PANW-Region header, e.g. americas, europe, uk, or au.
+    filters:
+      type: list[dict[str, Any]] | None
+      description: Filter rules with property, operator, and values.
+      default: null
+    page_size:
+      type: int
+      description: Number of incidents per page.
+      default: 25
+    page_number:
+      type: int
+      description: Page number, starting at 1.
+      default: 1
+    order_by:
+      type: list[dict[str, Any]] | None
+      description: 'Sort order, e.g. [{"property": "updated_time", "order": "desc"}].'
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          filters: ${{ inputs.filters }}
+          page_size: ${{ inputs.page_size }}
+          page_number: ${{ inputs.page_number }}
+          order_by: ${{ inputs.order_by }}
+        script: |
+          def main(filters, page_size, page_number, order_by):
+              pagination = {"page_size": page_size, "page_number": page_number}
+              if order_by:
+                  pagination["order_by"] = order_by
+              payload = {"pagination": pagination}
+              if filters:
+                  payload["filter"] = {"rules": filters}
+              return payload
+    - ref: search
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/incidents/v1/search
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          X-PANW-Region: ${{ inputs.region }}
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.search.result }}

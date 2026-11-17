@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -232,73 +233,75 @@ function BitbucketConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent size="md" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Bitbucket workspace sync credential</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Account email</FormLabel>
-                  <FormControl>
-                    <Input placeholder="you@example.com" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Use the Atlassian account email associated with your API
-                    token.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="token"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credential token</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      placeholder="API token"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Create a scoped Bitbucket Cloud API token with repository
-                    read/write and pull request read/write permissions.{" "}
-                    <a
-                      className="underline"
-                      href="https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Token permissions
-                    </a>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveCredentials.isPending}>
-                {saveCredentials.isPending ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </form>
-        </Form>
+        <DialogBody>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Account email</FormLabel>
+                    <FormControl>
+                      <Input placeholder="you@example.com" {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Use the Atlassian account email associated with your API
+                      token.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="token"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Credential token</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="API token"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Create a scoped Bitbucket Cloud API token with repository
+                      read/write and pull request read/write permissions.{" "}
+                      <a
+                        className="underline"
+                        href="https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Token permissions
+                      </a>
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saveCredentials.isPending}>
+                  {saveCredentials.isPending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

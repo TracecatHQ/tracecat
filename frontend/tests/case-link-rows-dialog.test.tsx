@@ -36,12 +36,17 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
     rows,
     selectedRowIds,
     onSelectedRowIdsChange,
+    isPlaceholderData,
   }: {
     rows: readonly { id: string }[]
     selectedRowIds?: ReadonlySet<string>
     onSelectedRowIdsChange?: (rowIds: string[]) => void
+    isPlaceholderData?: boolean
   }) => (
-    <div data-testid="rows-grid">
+    <div
+      data-testid="rows-grid"
+      data-placeholder={String(Boolean(isPlaceholderData))}
+    >
       {rows.map((row) => (
         <input
           key={row.id}
@@ -68,10 +73,16 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
 jest.mock("@/components/tables/ag-grid-pagination", () => ({
   AgGridPagination: ({
     onPageSizeChange,
+    isLoading,
   }: {
     onPageSizeChange: (pageSize: number) => void
+    isLoading?: boolean
   }) => (
-    <button type="button" onClick={() => onPageSizeChange(50)}>
+    <button
+      type="button"
+      data-paging-blocked={String(Boolean(isLoading))}
+      onClick={() => onPageSizeChange(50)}
+    >
       Set page size 50
     </button>
   ),
@@ -247,20 +258,20 @@ describe("CaseLinkRowsDialog", () => {
     expect(screen.queryByTestId("row-a1")).not.toBeInTheDocument()
   })
 
-  it("counts ticked rows in the footer and the add button", async () => {
+  it("counts ticked rows in the footer and the link button", async () => {
     const user = userEvent.setup()
     renderDialog()
 
     expect(screen.getByText("0 selected")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Add rows" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Link rows" })).toBeDisabled()
 
     await user.click(screen.getByTestId("row-a1"))
     expect(screen.getByText("1 selected")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Add 1 row" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Link 1 row" })).toBeEnabled()
 
     await user.click(screen.getByTestId("row-a2"))
     expect(screen.getByText("2 selected")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Add 2 rows" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Link 2 rows" })).toBeEnabled()
   })
 
   it("keeps picks per table across a switch and links each table", async () => {
@@ -277,7 +288,7 @@ describe("CaseLinkRowsDialog", () => {
     expect(screen.getByTestId("row-a1")).toBeChecked()
     expect(screen.getByTestId("row-a2")).not.toBeChecked()
 
-    await user.click(screen.getByRole("button", { name: "Add 2 rows" }))
+    await user.click(screen.getByRole("button", { name: "Link 2 rows" }))
 
     await waitFor(() => {
       expect(mockLinkCaseRows).toHaveBeenCalledTimes(2)
@@ -305,7 +316,7 @@ describe("CaseLinkRowsDialog", () => {
     await user.click(screen.getByRole("button", { name: "Clear" }))
 
     expect(screen.getByText("0 selected")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Add rows" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Link rows" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Clear" })).toBeDisabled()
     expect(screen.getByTestId("row-b1")).not.toBeChecked()
     await pickTable(user, "Alpha")
@@ -322,7 +333,7 @@ describe("CaseLinkRowsDialog", () => {
 
     await user.click(screen.getByTestId("row-a1"))
     await user.click(screen.getByTestId("row-a2"))
-    await user.click(screen.getByRole("button", { name: "Add 2 rows" }))
+    await user.click(screen.getByRole("button", { name: "Link 2 rows" }))
 
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false)
@@ -343,7 +354,7 @@ describe("CaseLinkRowsDialog", () => {
     const { onOpenChange } = renderDialog()
 
     await user.click(screen.getByTestId("row-a1"))
-    await user.click(screen.getByRole("button", { name: "Add 1 row" }))
+    await user.click(screen.getByRole("button", { name: "Link 1 row" }))
 
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
@@ -377,7 +388,7 @@ describe("CaseLinkRowsDialog", () => {
     await user.click(screen.getByTestId("row-a2"))
     await pickTable(user, "Beta")
     await user.click(screen.getByTestId("row-b1"))
-    await user.click(screen.getByRole("button", { name: "Add 3 rows" }))
+    await user.click(screen.getByRole("button", { name: "Link 3 rows" }))
 
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
@@ -394,6 +405,23 @@ describe("CaseLinkRowsDialog", () => {
     await pickTable(user, "Alpha")
     expect(screen.getByTestId("row-a1")).not.toBeChecked()
     expect(screen.getByTestId("row-a2")).not.toBeChecked()
+  })
+
+  it("keeps the previous rows up with paging blocked while the next ones load", () => {
+    mockUseTablesPagination.mockImplementation(({ tableId, limit }) => ({
+      ...pageFor(tableId, limit ?? 20),
+      isPlaceholderData: true,
+    }))
+    renderDialog()
+
+    expect(screen.getByTestId("row-a1")).toBeInTheDocument()
+    expect(screen.getByTestId("rows-grid")).toHaveAttribute(
+      "data-placeholder",
+      "true"
+    )
+    expect(
+      screen.getByRole("button", { name: "Set page size 50" })
+    ).toHaveAttribute("data-paging-blocked", "true")
   })
 
   it("keeps picks when the page size changes", async () => {

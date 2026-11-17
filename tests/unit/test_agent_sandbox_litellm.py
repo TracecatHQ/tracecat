@@ -47,7 +47,6 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
-from tracecat.agent.diagnostics import LLMErrorDiagnostics, ProviderConfiguration
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -59,7 +58,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
-from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.otel_config import ResolvedAgentOtelConfig
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
@@ -80,7 +78,6 @@ from tracecat.agent.sandbox.llm_proxy import (
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
-from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
@@ -271,6 +268,7 @@ class _FakeClaudeOptions:
     agents: object = None
     settings: str | None = None
     plugins: list[SdkPluginConfig] = field(default_factory=list)
+    system_prompt: object = None
 
 
 def _agent_config(**kwargs: Any) -> AgentConfig:
@@ -696,8 +694,9 @@ class _FakeLLMSocketProxy:
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
         on_error: Callable[[llm_proxy_module.LLMProxyError], None] | None = None,
+        backend: str | None = None,
     ) -> None:
-        del on_error
+        del on_error, backend
         self.socket_path = socket_path
         self.routing_plan = routing_plan
         self.direct_routes = routing_plan.direct_routes
@@ -1309,7 +1308,8 @@ async def _run_stdio_mcp_startup_burst_case(
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
             updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
         if (
-            config.resources.address_space_limit_mb
+            config.resources.address_space_mb is not None
+            and config.resources.address_space_mb
             < _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
         ):
             updates["address_space_mb"] = _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
@@ -1584,7 +1584,9 @@ async def _run_mcp_compression_initialize_case(
         request: dict[str, Any],
         timeout: float = 60.0,
     ) -> dict[str, Any]:
-        if request.get("subtype") == "initialize":
+        # Only accelerate the deliberate timeout. Successful sandbox startup
+        # needs the normal deadline when other smoke tests are running.
+        if request.get("subtype") == "initialize" and not expect_success:
             timeout = 1.0
         return await original_send_control_request(self, request, timeout=timeout)
 
@@ -1749,6 +1751,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     compose_env.setdefault("ADDRESS", "0.0.0.0")
     compose_env.setdefault("LOG_LEVEL", "INFO")
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     device_lines = (
         [
@@ -1777,8 +1780,14 @@ def _run_nsjail_harness_in_docker_or_skip(
             [
                 "services:",
                 "  api:",
-                "    build:",
-                "      target: test",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
                 '    user: "0:0"',
                 "    cgroup: private",
                 *privileged_lines,
@@ -1813,7 +1822,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
                 "python",
@@ -3064,9 +3073,19 @@ async def test_run_agent_activity_reproduces_mcp_compression_initialize_timeout_
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("make_input", "enable_internet_access"),
+    [
+        pytest.param(_make_executor_input, True, id="internet"),
+        pytest.param(_make_executor_input, False, id="isolated"),
+        pytest.param(_make_passthrough_executor_input, True, id="passthrough-internet"),
+    ],
+)
 async def test_executor_always_starts_llm_socket_proxy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    make_input: Callable[..., AgentExecutorInput],
+    enable_internet_access: bool,
 ) -> None:
     """The executor always creates the LLM socket proxy, even with internet access enabled."""
     (
@@ -3075,7 +3094,7 @@ async def test_executor_always_starts_llm_socket_proxy(
         fake_proxy,
         fake_broker,
     ) = await _run_executor_with_fake_broker(
-        executor_input=_make_executor_input(enable_internet_access=True),
+        executor_input=make_input(enable_internet_access=enable_internet_access),
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
@@ -3088,34 +3107,7 @@ async def test_executor_always_starts_llm_socket_proxy(
     assert fake_broker.requests[0].llm_socket_path == (
         tmp_path / "sockets" / LLM_SOCKET_NAME
     )
-    assert fake_broker.requests[0].enable_internet_access is True
-
-
-@pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    (
-        result,
-        created_socket_paths,
-        fake_proxy,
-        fake_broker,
-    ) = await _run_executor_with_fake_broker(
-        executor_input=_make_executor_input(enable_internet_access=False),
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-    assert result.success is True
-    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
-    assert fake_proxy.started is True
-    assert fake_proxy.stopped is True
-    assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].llm_socket_path == (
-        tmp_path / "sockets" / LLM_SOCKET_NAME
-    )
-    assert fake_broker.requests[0].enable_internet_access is False
+    assert fake_broker.requests[0].enable_internet_access is enable_internet_access
 
 
 @pytest.mark.anyio
@@ -3160,33 +3152,6 @@ async def test_executor_enables_runtime_network_when_subagent_has_stdio_mcp(
     assert result.success is True
     assert len(fake_broker.requests) == 1
     assert fake_broker.requests[0].init_payload.config.enable_internet_access is True
-    assert fake_broker.requests[0].enable_internet_access is True
-
-
-@pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    (
-        result,
-        created_socket_paths,
-        fake_proxy,
-        fake_broker,
-    ) = await _run_executor_with_fake_broker(
-        executor_input=_make_passthrough_executor_input(enable_internet_access=True),
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-    assert result.success is True
-    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
-    assert fake_proxy.started is True
-    assert fake_proxy.stopped is True
-    assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].llm_socket_path == (
-        tmp_path / "sockets" / LLM_SOCKET_NAME
-    )
     assert fake_broker.requests[0].enable_internet_access is True
 
 
@@ -3678,103 +3643,101 @@ async def test_broker_deadline_captures_source_before_stream_and_cancellation(
     assert len(broker.cancelled_session_ids) == 1
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    "root_provider, child_provider, root_configuration, child_configuration",
-    [
-        ("openai", "custom-model-provider", "builtin", "custom"),
-        ("custom-model-provider", "anthropic", "custom", "builtin"),
-    ],
-)
-async def test_executor_derives_diagnostics_from_root_and_subagent_providers(
-    root_provider: str,
-    child_provider: str,
-    root_configuration: ProviderConfiguration,
-    child_configuration: ProviderConfiguration,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    executor_input = _make_executor_input(enable_internet_access=False)
-    executor_input.config.model_name = "synthetic-root"
-    executor_input.config.model_provider = root_provider
-    executor_input.subagents = [
-        SandboxSubagentConfig(
-            alias="synthetic-child",
-            description="Synthetic child",
-            prompt="Synthetic prompt",
-            model_route="synthetic-child-route",
-            config=SandboxAgentConfig(
-                # The signed token, not a reconstructed config index, is authoritative.
-                model_name="synthetic-model",
-                model_provider=root_provider,
-            ),
-            mcp_auth_token="synthetic-token",
-        )
-    ]
-    monkeypatch.setattr(
-        app_config, "TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+def _make_system_prompt_transport(
+    tmp_path: Path, *, system_prompt: str | None, use_jailed_paths: bool
+) -> SandboxedCLITransport:
+    path_mapping = session_paths_module.AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_work_dir=tmp_path / "project",
     )
-    executor_input.llm_gateway_auth_token = mint_llm_token(
-        workspace_id=executor_input.workspace_id,
-        organization_id=uuid.uuid4(),
-        session_id=executor_input.session_id,
-        model="synthetic-root",
-        provider=root_provider,
-        routes={
-            "synthetic-child-route": LLMRouteClaim(
-                model="synthetic-model", provider=child_provider
-            )
-        },
-    )
-    plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
-    headers = {"authorization": f"Bearer {executor_input.llm_gateway_auth_token}"}
-    # Materialization preserves transport selection.
-    plan = await plan.materialize(None)
-    assert plan.error_diagnostics(
-        get_litellm_route_model(
-            model_provider=root_provider, model_name="synthetic-root"
+    return SandboxedCLITransport(
+        options=ClaudeAgentOptions(
+            env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"},
+            system_prompt=system_prompt,
         ),
-        headers,
-    ) == LLMErrorDiagnostics(route="managed", provider_configuration=root_configuration)
-    assert plan.error_diagnostics(
-        "synthetic-child-route", headers
-    ) == LLMErrorDiagnostics(
-        route="managed", provider_configuration=child_configuration
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "sockets" / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=use_jailed_paths,
     )
-    assert plan.error_diagnostics("unrecognized-route", headers) == LLMErrorDiagnostics(
-        route="managed", provider_configuration=root_configuration
-    )
-    assert (
-        plan.error_diagnostics(None, headers).provider_configuration
-        == root_configuration
-    )
-
-    selected = plan.resolve("synthetic-child-route")
-    assert selected is plan.managed_route
-    assert not selected.local_provider_cleanup
-    for model in (None, "unrecognized-route", 123):
-        assert plan.resolve(model) is plan.managed_route
-        assert (
-            plan.error_diagnostics(model, headers).provider_configuration
-            == root_configuration
-        )
-    body = b'{"model":"synthetic-child-route","thinking":{"type":"enabled"}}'
-    request = selected.prepare_forward_request(
-        path="/v1/messages",
-        headers={"Authorization": "Bearer synthetic-token"},
-        body=body,
-        data=orjson.loads(body),
-    )
-    assert request.url == plan.managed_route.forward_url("/v1/messages")
-    assert request.headers["Authorization"] == "Bearer synthetic-token"
-    assert request.body == body
 
 
 @pytest.mark.anyio
-async def test_invalid_diagnostic_token_does_not_block_forwarding() -> None:
-    executor_input = _make_executor_input(enable_internet_access=False)
-    executor_input.llm_gateway_auth_token = "synthetic-invalid-token"
-    plan = SandboxedAgentExecutor(input=executor_input)._llm_routing_plan()
-    assert plan.error_diagnostics(
-        "synthetic-model", {"Authorization": "Bearer synthetic-invalid-token"}
-    ) == LLMErrorDiagnostics(route="managed")
-    assert plan.resolve("synthetic-model") is plan.managed_route
+@pytest.mark.parametrize("use_jailed_paths", [False, True])
+async def test_transport_passes_system_prompt_by_file(
+    tmp_path: Path, use_jailed_paths: bool
+) -> None:
+    system_prompt = "case data " * 20_000
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=system_prompt, use_jailed_paths=use_jailed_paths
+    )
+
+    options = await transport._options_with_system_prompt_file(transport._options)
+
+    host_path = tmp_path / transport_module._SYSTEM_PROMPT_FILE_NAME
+    expected_path = (
+        session_paths_module.JAILED_AGENT_JOB_DIR
+        / transport_module._SYSTEM_PROMPT_FILE_NAME
+        if use_jailed_paths
+        else host_path
+    )
+    assert options.system_prompt == {"type": "file", "path": str(expected_path)}
+    assert host_path.read_text(encoding="utf-8") == system_prompt
+    assert transport._options.system_prompt == system_prompt
+
+
+@pytest.mark.anyio
+async def test_transport_keeps_empty_system_prompt_inline(tmp_path: Path) -> None:
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=None, use_jailed_paths=False
+    )
+
+    options = await transport._options_with_system_prompt_file(transport._options)
+
+    assert options is transport._options
+    assert not (tmp_path / transport_module._SYSTEM_PROMPT_FILE_NAME).exists()
+
+
+@pytest.mark.anyio
+async def test_transport_large_system_prompt_stays_out_of_claude_argv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A prompt above Linux's 128 KiB per-argument limit must not reach argv."""
+    monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
+    system_prompt = "x" * (256 * 1024)
+    transport = _make_system_prompt_transport(
+        tmp_path, system_prompt=system_prompt, use_jailed_paths=False
+    )
+    (tmp_path / "sockets").mkdir()
+    captured: dict[str, Path] = {}
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> object:
+        init_payload_path = kwargs["init_payload_path"]
+        assert isinstance(init_payload_path, Path)
+        captured["init_payload_path"] = init_payload_path
+        return nsjail_module.SpawnedRuntime(
+            process=cast(Any, _ConnectedFakeProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+    await transport.close()
+
+    command = orjson.loads(captured["init_payload_path"].read_bytes())["command"]
+    assert "--system-prompt" not in command
+    prompt_path = command[command.index("--system-prompt-file") + 1]
+    assert Path(prompt_path).read_text(encoding="utf-8") == system_prompt
+    assert max(len(arg.encode()) for arg in command) < 128 * 1024
+    assert transport._options.system_prompt == system_prompt

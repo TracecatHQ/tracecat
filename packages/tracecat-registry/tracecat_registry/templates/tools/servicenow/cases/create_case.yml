@@ -1,0 +1,98 @@
+type: action
+definition:
+  title: Create case
+  description: Create a Customer Service Management case with the Case API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/case-api.html#case-POST-case
+  namespace: tools.servicenow
+  name: create_case
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    short_description:
+      type: str
+      description: Brief summary of the case.
+    description:
+      type: str | None
+      description: Detailed description of the case.
+      default: null
+    account:
+      type: str | None
+      description: sys_id of the customer account (customer_account).
+      default: null
+    contact:
+      type: str | None
+      description: sys_id of the customer contact.
+      default: null
+    consumer:
+      type: str | None
+      description: sys_id of the consumer, for B2C cases.
+      default: null
+    product:
+      type: str | None
+      description: sys_id of the product (cmdb_model).
+      default: null
+    priority:
+      type: enum["1", "2", "3", "4"] | None
+      description: 'Priority: 1 (Critical), 2 (High), 3 (Moderate), 4 (Low).'
+      default: null
+    category:
+      type: str | None
+      description: Case category.
+      default: null
+    assignment_group:
+      type: str | None
+      description: sys_id of the assignment group.
+      default: null
+    assigned_to:
+      type: str | None
+      description: sys_id of the assignee.
+      default: null
+    contact_type:
+      type: str | None
+      description: Channel the case was reported through, e.g. email, phone, web.
+      default: null
+    fields:
+      type: dict[str, Any] | None
+      description: 'Additional case field values keyed by field name, e.g. {"u_custom_field": "value"}.'
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: build_body
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: ${{ inputs.fields }}
+        values:
+          short_description: ${{ inputs.short_description }}
+          description: ${{ inputs.description }}
+          account: ${{ inputs.account }}
+          contact: ${{ inputs.contact }}
+          consumer: ${{ inputs.consumer }}
+          product: ${{ inputs.product }}
+          priority: ${{ inputs.priority }}
+          category: ${{ inputs.category }}
+          assignment_group: ${{ inputs.assignment_group }}
+          assigned_to: ${{ inputs.assigned_to }}
+          contact_type: ${{ inputs.contact_type }}
+      script: |
+        def main(fields, values):
+            body = dict(fields or {})
+            body.update({k: v for k, v in values.items() if v is not None})
+            return body
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_customerservice/case
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_body.result }}
+  returns: ${{ steps.request.result }}

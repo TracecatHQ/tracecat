@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: List vulnerabilities
+  description: >-
+    Search Falcon Spotlight vulnerabilities and return full records. Requires the
+    Vulnerabilities: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/spotlight-vulnerabilities/#combinedqueryvulnerabilities
+  namespace: tools.crowdstrike
+  name: list_vulnerabilities
+  expects:
+    filter:
+      type: str
+      description: FQL filter, for example `status:'open'+cve.severity:'CRITICAL'`. Wildcards and empty filters are not supported.
+    limit:
+      type: int | None
+      description: Maximum number of vulnerabilities to return. Maximum 5000.
+      default: null
+    after:
+      type: str | None
+      description: Pagination token from the previous response's `meta.pagination.after`.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `created_timestamp|desc`.
+      default: null
+    facet:
+      type: list[str] | None
+      description: Extra detail to include, for example `cve`, `host_info`, `remediation`, `evaluation_logic`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_vulnerabilities
+      action: tools.falconpy.call_command
+      args:
+        operation_id: combinedQueryVulnerabilities
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+          sort: ${{ inputs.sort }}
+          facet: ${{ inputs.facet }}
+  returns: ${{ steps.list_vulnerabilities.result }}

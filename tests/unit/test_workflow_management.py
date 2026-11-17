@@ -9,12 +9,30 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.management import management
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    build_workflow_edit_document,
+    validate_workflow_edit_document,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
+
+
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a fake session that cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.ensure_unmanaged",
+        AsyncMock(return_value=None),
+    )
 
 
 class _ScalarResult:
@@ -121,6 +139,7 @@ async def test_restore_workflow_definition_serializes_expected_fields(
         title="Current workflow",
         description="Current description",
         expects={},
+        expects_order=None,
         config={},
         graph_version=1,
         version=1,
@@ -268,57 +287,39 @@ def _role() -> Role:
 
 
 @pytest.mark.anyio
-async def test_correlate_agent_catalog_ids_rewrites_nested_model(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("action", "flat"),
+    [
+        pytest.param("ai.agent", False, id="nested_model"),
+        pytest.param("ai.agent", True, id="flat_fields"),
+        pytest.param("ai.action", False, id="ai_action"),
+    ],
+)
+async def test_correlate_agent_catalog_ids_rewrites_catalog_id(
+    monkeypatch: pytest.MonkeyPatch, action: str, flat: bool
 ) -> None:
+    """``ai.agent`` and ``ai.action`` catalog_ids are remapped in nested and flat form."""
     old_id = uuid.uuid4()
     local_id = uuid.uuid4()
-    mapping = {("anthropic", "claude-opus-4-8"): local_id}
-    monkeypatch.setattr(
-        management,
-        "AgentCatalogService",
-        lambda session: _FakeCatalogService(session=session, mapping=mapping),
+    fake = _FakeCatalogService(mapping={("anthropic", "claude-opus-4-8"): local_id})
+    monkeypatch.setattr(management, "AgentCatalogService", lambda session: fake)
+    model = {
+        "model_name": "claude-opus-4-8",
+        "model_provider": "anthropic",
+        "catalog_id": str(old_id),
+    }
+    args = (
+        {"user_prompt": "hi", **model}
+        if flat
+        else {"user_prompt": "hi", "model": model}
     )
-    dsl = _agent_dsl(
-        {
-            "user_prompt": "hi",
-            "model": {
-                "model_name": "claude-opus-4-8",
-                "model_provider": "anthropic",
-                "catalog_id": str(old_id),
-            },
-        }
-    )
+    dsl = _agent_dsl(args, action=action)
 
     out = await _service(_role()).correlate_agent_catalog_ids(dsl)
 
-    assert out.actions[0].args["model"]["catalog_id"] == str(local_id)
-
-
-@pytest.mark.anyio
-async def test_correlate_agent_catalog_ids_rewrites_flat_fields(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    old_id = uuid.uuid4()
-    local_id = uuid.uuid4()
-    mapping = {("openai", "gpt-4.1"): local_id}
-    monkeypatch.setattr(
-        management,
-        "AgentCatalogService",
-        lambda session: _FakeCatalogService(session=session, mapping=mapping),
-    )
-    dsl = _agent_dsl(
-        {
-            "user_prompt": "hi",
-            "model_name": "gpt-4.1",
-            "model_provider": "openai",
-            "catalog_id": str(old_id),
-        }
-    )
-
-    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
-
-    assert out.actions[0].args["catalog_id"] == str(local_id)
+    selection = out.actions[0].args if flat else out.actions[0].args["model"]
+    assert selection["catalog_id"] == str(local_id)
+    assert fake.calls == [("anthropic", "claude-opus-4-8")]
 
 
 @pytest.mark.anyio
@@ -471,6 +472,7 @@ def _edit_document_workflow_source() -> SimpleNamespace:
         error_handler=None,
         entrypoint=None,
         expects=None,
+        expects_order=None,
         config=None,
         returns=None,
         trigger_position_x=None,
@@ -501,11 +503,7 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
     from tracecat.exceptions import TracecatValidationError
     from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
     from tracecat.workflow.management import draft as draft_module
-    from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        persist_workflow_edit_document,
-    )
+    from tracecat.workflow.management.draft import persist_workflow_edit_document
 
     role = _role()
     source = _edit_document_workflow_source()
@@ -557,73 +555,59 @@ async def test_persist_edit_document_wraps_case_trigger_validation_error(
 
 
 @pytest.mark.anyio
-async def test_correlate_agent_catalog_ids_keeps_id_on_no_match(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    old_id = uuid.uuid4()
-    monkeypatch.setattr(
-        management,
-        "AgentCatalogService",
-        lambda session: _FakeCatalogService(session=session, mapping={}),
-    )
-    dsl = _agent_dsl(
-        {
-            "user_prompt": "hi",
-            "model": {
-                "model_name": "claude-opus-4-8",
-                "model_provider": "anthropic",
-                "catalog_id": str(old_id),
+@pytest.mark.parametrize(
+    ("args", "action", "mapping"),
+    [
+        pytest.param(
+            {
+                "user_prompt": "hi",
+                "model": {
+                    "model_name": "claude-opus-4-8",
+                    "model_provider": "anthropic",
+                    "catalog_id": str(uuid.uuid4()),
+                },
             },
-        }
-    )
-
-    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
-
-    assert out.actions[0].args["model"]["catalog_id"] == str(old_id)
-
-
-@pytest.mark.anyio
-async def test_correlate_agent_catalog_ids_ignores_non_agent_actions(
+            "ai.agent",
+            {},
+            id="keeps_id_on_no_match",
+        ),
+        pytest.param(
+            {"value": "ok"},
+            "core.transform.reshape",
+            {("anthropic", "claude-opus-4-8"): uuid.uuid4()},
+            id="ignores_non_agent_actions",
+        ),
+        pytest.param(
+            {
+                "user_prompt": "hi",
+                "model": {
+                    "model_name": "claude-opus-4-8",
+                    "model_provider": "anthropic",
+                },
+            },
+            "ai.agent",
+            {("anthropic", "claude-opus-4-8"): uuid.uuid4()},
+            id="skips_when_no_catalog_id",
+        ),
+    ],
+)
+async def test_correlate_agent_catalog_ids_leaves_dsl_unchanged(
     monkeypatch: pytest.MonkeyPatch,
+    args: dict[str, Any],
+    action: str,
+    mapping: dict[tuple[str, str], uuid.UUID],
 ) -> None:
     monkeypatch.setattr(
         management,
         "AgentCatalogService",
-        lambda session: _FakeCatalogService(
-            session=session, mapping={("anthropic", "claude-opus-4-8"): uuid.uuid4()}
-        ),
+        lambda session: _FakeCatalogService(session=session, mapping=mapping),
     )
-    dsl = _agent_dsl({"value": "ok"}, action="core.transform.reshape")
+    dsl = _agent_dsl(args, action=action)
 
     out = await _service(_role()).correlate_agent_catalog_ids(dsl)
 
     assert out is dsl
-
-
-@pytest.mark.anyio
-async def test_correlate_agent_catalog_ids_skips_when_no_catalog_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        management,
-        "AgentCatalogService",
-        lambda session: _FakeCatalogService(
-            session=session, mapping={("anthropic", "claude-opus-4-8"): uuid.uuid4()}
-        ),
-    )
-    dsl = _agent_dsl(
-        {
-            "user_prompt": "hi",
-            "model": {
-                "model_name": "claude-opus-4-8",
-                "model_provider": "anthropic",
-            },
-        }
-    )
-
-    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
-
-    assert "catalog_id" not in out.actions[0].args["model"]
+    assert out.actions[0].args == args
 
 
 @pytest.mark.anyio
@@ -708,34 +692,6 @@ async def test_correlate_agent_catalog_ids_mixed_nested_and_flat_catalog_id(
 
 
 @pytest.mark.anyio
-async def test_correlate_agent_catalog_ids_rewrites_ai_action(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``ai.action`` uses the same model selection and must be correlated too."""
-    old_id = uuid.uuid4()
-    local_id = uuid.uuid4()
-    mapping = {("anthropic", "claude-opus-4-8"): local_id}
-    fake = _FakeCatalogService(mapping=mapping)
-    monkeypatch.setattr(management, "AgentCatalogService", lambda session: fake)
-    dsl = _agent_dsl(
-        {
-            "user_prompt": "hi",
-            "model": {
-                "model_name": "claude-opus-4-8",
-                "model_provider": "anthropic",
-                "catalog_id": str(old_id),
-            },
-        },
-        action="ai.action",
-    )
-
-    out = await _service(_role()).correlate_agent_catalog_ids(dsl)
-
-    assert fake.calls == [("anthropic", "claude-opus-4-8")]
-    assert out.actions[0].args["model"]["catalog_id"] == str(local_id)
-
-
-@pytest.mark.anyio
 async def test_correlate_agent_catalog_ids_preserves_already_local_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -786,9 +742,6 @@ async def test_validate_edit_document_runs_case_trigger_check_on_dry_run(
     from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
     from tracecat.workflow.management import draft as draft_module
     from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        validate_workflow_edit_document,
         workflow_edit_document_changed_sections,
     )
 
@@ -837,20 +790,17 @@ async def test_validate_edit_document_runs_case_trigger_check_on_dry_run(
 
 
 @pytest.mark.anyio
-async def test_validate_edit_document_rejects_taken_alias(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.parametrize("alias_taken", [True, False], ids=["taken", "free"])
+async def test_validate_edit_document_alias_uniqueness(alias_taken: bool) -> None:
     """Changing alias to one another workflow owns is a recoverable conflict.
 
     Regression: the edit path assigned the alias and committed with no
     IntegrityError handling, so a normal alias conflict surfaced as a 500 and a
     dry run could report it valid. ``validate_workflow_edit_document`` now
-    pre-checks uniqueness and raises WorkflowEditError (-> 400/409).
+    pre-checks uniqueness and raises WorkflowEditError (-> 400/409). A free
+    alias passes validation.
     """
     from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        validate_workflow_edit_document,
         workflow_edit_document_changed_sections,
     )
 
@@ -860,7 +810,7 @@ async def test_validate_edit_document_rejects_taken_alias(
     updated_document = original_document.model_copy(
         update={
             "metadata": original_document.metadata.model_copy(
-                update={"alias": "taken-alias"}
+                update={"alias": "taken-alias" if alias_taken else "free-alias"}
             )
         }
     )
@@ -869,11 +819,12 @@ async def test_validate_edit_document_rejects_taken_alias(
     )
     assert "metadata" in changed
 
-    # Another workflow already owns the alias -> scalar() returns an id.
-    other_id = uuid.uuid4()
-    session = SimpleNamespace(scalar=AsyncMock(return_value=other_id))
+    # scalar() returns the owning workflow's id when the alias is taken.
+    session = SimpleNamespace(
+        scalar=AsyncMock(return_value=uuid.uuid4() if alias_taken else None)
+    )
 
-    with pytest.raises(WorkflowEditError) as exc:
+    async def validate() -> None:
         await validate_workflow_edit_document(
             updated_document,
             workflow_id=WorkflowUUID.new(source.id),
@@ -881,44 +832,13 @@ async def test_validate_edit_document_rejects_taken_alias(
             session=cast(Any, session),
             role=role,
         )
-    assert "alias" in str(exc.value).lower()
-    session.scalar.assert_awaited_once()
 
-
-@pytest.mark.anyio
-async def test_validate_edit_document_allows_free_alias() -> None:
-    """A free alias passes validation (no other workflow owns it)."""
-    from tracecat.workflow.management.draft import (
-        build_workflow_edit_document,
-        validate_workflow_edit_document,
-        workflow_edit_document_changed_sections,
-    )
-
-    role = _role()
-    source = _edit_document_workflow_source()
-    original_document = build_workflow_edit_document(cast(Any, source))
-    updated_document = original_document.model_copy(
-        update={
-            "metadata": original_document.metadata.model_copy(
-                update={"alias": "free-alias"}
-            )
-        }
-    )
-    changed = workflow_edit_document_changed_sections(
-        original_document, updated_document
-    )
-
-    # No other workflow owns the alias -> scalar() returns None.
-    session = SimpleNamespace(scalar=AsyncMock(return_value=None))
-
-    # Should not raise.
-    await validate_workflow_edit_document(
-        updated_document,
-        workflow_id=WorkflowUUID.new(source.id),
-        changed_sections=changed,
-        session=cast(Any, session),
-        role=role,
-    )
+    if alias_taken:
+        with pytest.raises(WorkflowEditError) as exc:
+            await validate()
+        assert "alias" in str(exc.value).lower()
+    else:
+        await validate()
     session.scalar.assert_awaited_once()
 
 
@@ -933,15 +853,10 @@ async def test_persist_edit_document_maps_alias_integrity_error(
     IntegrityError -> WorkflowEditError mapping keeps that race recoverable
     instead of letting the unique violation escape as a 500.
     """
-    from asyncpg import UniqueViolationError
-    from sqlalchemy.exc import IntegrityError
 
+    from tests._db_error_utils import unique_violation
     from tracecat.db.common import DBConstraints
-    from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        persist_workflow_edit_document,
-    )
+    from tracecat.workflow.management.draft import persist_workflow_edit_document
 
     role = _role()
     source = _edit_document_workflow_source()
@@ -954,16 +869,7 @@ async def test_persist_edit_document_maps_alias_integrity_error(
         }
     )
 
-    # Build an IntegrityError whose root cause is the alias unique violation.
-    unique_violation = UniqueViolationError(
-        f"duplicate key value violates unique constraint "
-        f'"{DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE}"'
-    )
-    integrity_error = IntegrityError("stmt", {}, unique_violation)
-    # SQLAlchemy raises the IntegrityError ``from`` the DBAPI error, so the
-    # asyncpg cause is reachable via ``__cause__``; the constructor alone does
-    # not set it, so mirror real behavior for the cause-chain traversal.
-    integrity_error.__cause__ = unique_violation
+    integrity_error = unique_violation(DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE)
 
     commit_mock = AsyncMock(side_effect=integrity_error)
     session = SimpleNamespace(
@@ -985,25 +891,6 @@ async def test_persist_edit_document_maps_alias_integrity_error(
         )
     assert "alias" in str(exc.value).lower()
     session.rollback.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_publish_workflow_missing_raises_not_found() -> None:
-    """Publishing a non-existent workflow raises TracecatNotFoundError.
-
-    Callers (MCP tool -> ToolError, commit route -> 404, internal route -> 404)
-    rely on this distinct exception type rather than a structured-error result.
-    """
-    from tracecat.exceptions import TracecatNotFoundError
-    from tracecat.identifiers.workflow import WorkflowUUID
-
-    role = _role()
-    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
-    service = WorkflowsManagementService(cast(Any, session), role=role)
-    service.get_workflow = AsyncMock(return_value=None)  # type: ignore[method-assign]
-
-    with pytest.raises(TracecatNotFoundError):
-        await service.publish_workflow(WorkflowUUID.new(uuid.uuid4()))
 
 
 @pytest.mark.anyio
@@ -1051,9 +938,7 @@ def test_normalize_persisted_revision_adds_missing_layout_entries() -> None:
     causing the next edit to 409. The normalizer now adds the default entry so the
     dry-run and post-persist revisions agree.
     """
-    from tracecat.mcp.schemas import WorkflowEditDocument
     from tracecat.workflow.management.draft import (
-        build_workflow_edit_document,
         compute_workflow_edit_revision,
         normalize_workflow_edit_document_for_persisted_revision,
     )
@@ -1093,9 +978,7 @@ def test_normalize_persisted_revision_adds_missing_layout_entries() -> None:
 
 def test_normalize_persisted_revision_drops_orphan_layout_entries() -> None:
     """Layout entries for refs no longer in the definition are still dropped."""
-    from tracecat.mcp.schemas import WorkflowEditDocument
     from tracecat.workflow.management.draft import (
-        build_workflow_edit_document,
         normalize_workflow_edit_document_for_persisted_revision,
     )
 
@@ -1117,18 +1000,19 @@ def test_normalize_persisted_revision_drops_orphan_layout_entries() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_dsl(expects: dict[str, Any] | None = None) -> DSLInput:
-    """Minimal valid DSL for run_workflow tests, with an optional expects schema."""
+def _run_dsl(**stmt: Any) -> DSLInput:
+    """Minimal valid DSL with optional action overrides."""
     return DSLInput(
         **{
             "title": "run workflow test",
             "description": "",
-            "entrypoint": {"ref": "start", "expects": expects or {}},
+            "entrypoint": {"ref": "start", "expects": {}},
             "actions": [
                 {
                     "ref": "start",
                     "action": "core.transform.reshape",
                     "args": {"value": "ok"},
+                    **stmt,
                 }
             ],
         }
@@ -1173,41 +1057,128 @@ def _patch_exec_service(monkeypatch: pytest.MonkeyPatch) -> _FakeExecService:
     return fake
 
 
+def _locked_session(actions: list[Any]) -> Any:
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = actions
+    return SimpleNamespace(execute=AsyncMock(return_value=result))
+
+
 @pytest.mark.anyio
-async def test_run_workflow_draft_builds_and_dispatches_draft(
+async def test_locked_action_results_without_locks_skips_exec_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(_role())
+    service.session = _locked_session([])
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    assert (
+        await service.locked_action_results(WorkflowUUID.new_uuid4(), _run_dsl()) == {}
+    )
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_locked_action_results_skips_unusable_locks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     wf_id = WorkflowUUID.new_uuid4()
-    dsl = _run_dsl()
+    other_wf = WorkflowUUID.new_uuid4()
+    good = f"{wf_id.short()}/exec_good"
+    gone = f"{wf_id.short()}/exec_gone"
+    foreign = f"{other_wf.short()}/exec_other"
     service = _service(_role())
-
-    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
-    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
-    # No validation errors from the tiered validator.
-    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    service.session = _locked_session(
+        [
+            SimpleNamespace(ref="a", locked_execution_id=good),
+            SimpleNamespace(ref="b", locked_execution_id=gone),
+            SimpleNamespace(ref="c", locked_execution_id=foreign),
+        ]
+    )
     fake_exec = _patch_exec_service(monkeypatch)
+    sources: dict[str, Any] = {good: object()}
 
-    resp = await service.run_workflow(wf_id, inputs={"a": 1}, use_draft=True)
+    async def _get_rerun_source(exec_id: str) -> Any:
+        if exec_id not in sources:
+            raise TracecatNotFoundError("gone")
+        return sources[exec_id]
 
-    assert resp["wf_exec_id"] == "wf-exec-draft"
-    assert [name for name, _ in fake_exec.calls] == ["draft"]
-    _, kwargs = fake_exec.calls[0]
-    assert kwargs["wf_id"] == wf_id
-    assert kwargs["payload"] == {"a": 1}
-    # Draft runs resolve the registry lock dynamically (not passed here).
-    assert "registry_lock" not in kwargs
+    fake_exec.get_rerun_source = _get_rerun_source  # type: ignore[attr-defined]
+    fixed = object()
+    match = MagicMock(return_value=SimpleNamespace(fixed={"a": fixed}))
+    monkeypatch.setattr(management, "match_rerun_actions", match)
+
+    dsl = _run_dsl()
+    results = await service.locked_action_results(wf_id, dsl)
+
+    assert results == {"a": fixed}
+    match.assert_called_once_with(sources[good], dsl, fixed_action_refs=["a"])
 
 
 @pytest.mark.anyio
-async def test_run_workflow_draft_missing_workflow_raises_not_found(
+async def test_locked_action_results_scopes_actions_to_workspace() -> None:
+    role = _role()
+    service = _service(role)
+    service.session = _locked_session([])
+
+    await service.locked_action_results(WorkflowUUID.new_uuid4(), _run_dsl())
+
+    stmt = service.session.execute.await_args.args[0]
+    assert "action.workspace_id = :workspace_id_1" in str(stmt)
+    assert stmt.compile().params["workspace_id_1"] == role.workspace_id
+
+
+@pytest.mark.anyio
+async def test_list_lock_statuses_flags_only_missing_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = _service(_role())
-    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=None))
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    wf_id = WorkflowUUID.new_uuid4()
+    ok = f"{wf_id.short()}/exec_ok"
+    gone = f"{wf_id.short()}/exec_gone"
+    flaky = f"{wf_id.short()}/exec_flaky"
+    service = WorkflowActionService(cast(Any, object()), role=_role())
+    service.session = _locked_session(
+        [
+            SimpleNamespace(ref="a", locked_execution_id=ok),
+            SimpleNamespace(ref="b", locked_execution_id=gone),
+            SimpleNamespace(ref="c", locked_execution_id=flaky),
+            SimpleNamespace(ref="d", locked_execution_id=ok),
+        ]
+    )
+    fake_exec = _patch_exec_service(monkeypatch)
+    checked: list[str] = []
+
+    async def _get_execution(exec_id: str) -> Any:
+        checked.append(exec_id)
+        if exec_id == flaky:
+            raise RuntimeError("temporal unavailable")
+        return None if exec_id == gone else object()
+
+    fake_exec.get_execution = _get_execution  # type: ignore[attr-defined]
+
+    statuses = await service.list_lock_statuses(wf_id)
+
+    assert {s.ref: s.available for s in statuses} == {
+        "a": True,
+        "b": False,
+        "c": True,
+        "d": True,
+    }
+    assert sorted(checked) == sorted({ok, gone, flaky})
+
+
+@pytest.mark.anyio
+async def test_list_lock_statuses_without_locks_skips_exec_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    service = WorkflowActionService(cast(Any, object()), role=_role())
+    service.session = _locked_session([])
     fake_exec = _patch_exec_service(monkeypatch)
 
-    with pytest.raises(TracecatNotFoundError):
-        await service.run_workflow(WorkflowUUID.new_uuid4(), use_draft=True)
+    assert await service.list_lock_statuses(WorkflowUUID.new_uuid4()) == []
     assert fake_exec.calls == []
 
 
@@ -1245,7 +1216,7 @@ async def test_run_workflow_published_latest_uses_definition_lock(
         "actions": {"core.transform.reshape": "tracecat_registry"},
         "origin_fingerprints": {},
     }
-    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock)
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock, version=1)
 
     captured: dict[str, Any] = {}
 
@@ -1269,79 +1240,6 @@ async def test_run_workflow_published_latest_uses_definition_lock(
     assert [name for name, _ in fake_exec.calls] == ["published"]
     _, kwargs = fake_exec.calls[0]
     assert isinstance(kwargs["registry_lock"], RegistryLock)
-
-
-@pytest.mark.anyio
-async def test_run_workflow_published_version_is_forwarded(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    dsl = _run_dsl()
-    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None)
-    captured: dict[str, Any] = {}
-
-    class _FakeDefnService:
-        def __init__(self, session: Any, role: Any) -> None:
-            pass
-
-        async def get_definition_by_workflow_id(
-            self, workflow_id: Any, *, version: int | None = None
-        ):
-            captured["version"] = version
-            return defn
-
-    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
-    fake_exec = _patch_exec_service(monkeypatch)
-
-    await _service(_role()).run_workflow(
-        WorkflowUUID.new_uuid4(), use_draft=False, version=3
-    )
-
-    assert captured["version"] == 3
-    _, kwargs = fake_exec.calls[0]
-    # No registry lock on the definition -> None passed through.
-    assert kwargs["registry_lock"] is None
-
-
-@pytest.mark.anyio
-async def test_run_workflow_missing_version_raises_not_found(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FakeDefnService:
-        def __init__(self, session: Any, role: Any) -> None:
-            pass
-
-        async def get_definition_by_workflow_id(
-            self, workflow_id: Any, *, version: int | None = None
-        ):
-            return None
-
-    monkeypatch.setattr(management, "WorkflowDefinitionsService", _FakeDefnService)
-    fake_exec = _patch_exec_service(monkeypatch)
-
-    with pytest.raises(TracecatNotFoundError):
-        await _service(_role()).run_workflow(
-            WorkflowUUID.new_uuid4(), use_draft=False, version=99
-        )
-    assert fake_exec.calls == []
-
-
-@pytest.mark.anyio
-async def test_run_workflow_invalid_inputs_raise_before_dispatch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # DSL requires an integer `count`; a string should fail validation.
-    dsl = _run_dsl(expects={"count": {"type": "int"}})
-    service = _service(_role())
-    monkeypatch.setattr(service, "get_workflow", AsyncMock(return_value=object()))
-    monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
-    monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
-    fake_exec = _patch_exec_service(monkeypatch)
-
-    with pytest.raises(TracecatValidationError):
-        await service.run_workflow(
-            WorkflowUUID.new_uuid4(), inputs={"count": "not-an-int"}, use_draft=True
-        )
-    assert fake_exec.calls == []
 
 
 @pytest.mark.anyio
@@ -1377,3 +1275,94 @@ async def test_create_actions_from_dsl_persists_action_environment() -> None:
     by_ref = {a.ref: a for a in actions}
     assert by_ref["a"].control_flow["environment"] == "prod"
     assert by_ref["b"].control_flow["environment"] is None
+
+
+_OVERLONG_EXPRESSION = "${{ " + " && ".join(["True"] * 250) + " }}"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("run_if", _OVERLONG_EXPRESSION, id="run_if"),
+        pytest.param("for_each", _OVERLONG_EXPRESSION, id="for_each"),
+        pytest.param("wait_until", "not a date", id="wait_until"),
+    ],
+)
+def test_control_flow_from_statement_raises_user_facing_error(
+    field: str, value: str
+) -> None:
+    stmt = _run_dsl(**{field: value}).actions[0]
+
+    with pytest.raises(TracecatValidationError) as exc:
+        ActionControlFlow.from_statement(stmt)
+
+    message = str(exc.value)
+    assert "'start'" in message
+    assert value not in message
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    assert [detail.loc for detail in exc.value.detail or []] == [(field,)]
+
+
+def test_control_flow_from_statement_copies_every_field() -> None:
+    stmt = ActionStatement(
+        ref="notify",
+        action="core.transform.reshape",
+        run_if="${{ True }}",
+        for_each="${{ for var.x in [1] }}",
+        retry_policy=ActionRetryPolicy(max_attempts=3),
+        start_delay=5.0,
+        wait_until="tomorrow",
+        join_strategy=JoinStrategy.ANY,
+        environment="prod",
+        tunnel="edge",
+        mask_output=True,
+        unsafe_disable_secret_error_withholding=True,
+    )
+
+    control_flow = ActionControlFlow.from_statement(stmt)
+
+    for name in ActionControlFlow.model_fields:
+        assert getattr(control_flow, name) == getattr(stmt, name), name
+
+
+@pytest.mark.anyio
+async def test_create_workflow_from_dsl_returns_control_flow_errors() -> None:
+    dsl = _run_dsl(run_if=_OVERLONG_EXPRESSION)
+
+    response = await _service(_role()).create_workflow_from_dsl(
+        dsl.model_dump(mode="json")
+    )
+
+    assert response.workflow is None
+    assert response.errors is not None
+    [error] = response.errors
+    assert error.root.model_dump(mode="json")["detail"][0]["loc"] == ["run_if"]
+
+
+@pytest.mark.anyio
+async def test_validate_edit_document_rejects_overlong_run_if() -> None:
+    """An overlong ``run_if`` fails validation instead of erroring during persist."""
+    source = _edit_document_workflow_source()
+    data = build_workflow_edit_document(cast(Any, source)).model_dump(mode="json")
+    data["definition"]["actions"] = [
+        {
+            "ref": "notify",
+            "action": "core.transform.reshape",
+            "args": {},
+            "run_if": _OVERLONG_EXPRESSION,
+        }
+    ]
+    data["definition"]["entrypoint"] = {"ref": "notify", "expects": {}}
+    document = WorkflowEditDocument.model_validate(data)
+
+    with pytest.raises(WorkflowEditError) as exc:
+        await validate_workflow_edit_document(
+            document, workflow_id=WorkflowUUID.new(source.id)
+        )
+
+    assert exc.value.code == "validation_error"
+    details = json.dumps(exc.value.details)
+    assert "run_if" in details
+    assert "1000 characters" in details
+    assert _OVERLONG_EXPRESSION not in details

@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -131,7 +132,7 @@ export function FolderMoveDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="sm" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Move Folder</DialogTitle>
           <DialogDescription>
@@ -148,61 +149,59 @@ export function FolderMoveDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex w-full items-center py-4">
-          <Popover
-            modal
-            open={openFolderSelect}
-            onOpenChange={setOpenFolderSelect}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={openFolderSelect}
-                className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
-                disabled={isMoving}
-              >
-                {destinationPath ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <FolderIcon className="size-4 shrink-0" />
-                    <span
-                      className="truncate"
-                      title={
-                        destinationPath === "/"
-                          ? ROOT_FOLDER_NAME
-                          : destinationPath
-                      }
-                    >
-                      {destinationPath === "/"
-                        ? ROOT_FOLDER_NAME
-                        : destinationPath}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    Select a folder...
-                  </div>
-                )}
-                <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
-              portal={true}
+        <DialogBody>
+          <div className="flex w-full items-center">
+            <Popover
+              modal
+              open={openFolderSelect}
+              onOpenChange={setOpenFolderSelect}
             >
-              <FileTreeCommand
-                items={fileTreeItems}
-                onSelect={handleSelectFolder}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        <DialogFooter className="sm:justify-end">
-          <Button variant="secondary" onClick={handleClose} disabled={isMoving}>
-            Cancel
-          </Button>
-          <Button onClick={handleMove} disabled={isMoving}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openFolderSelect}
+                  className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
+                  disabled={isMoving}
+                >
+                  {destinationPath ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <FolderIcon className="size-4 shrink-0" />
+                      <span
+                        className="truncate"
+                        title={
+                          destinationPath === "/"
+                            ? ROOT_FOLDER_NAME
+                            : destinationPath
+                        }
+                      >
+                        {destinationPath === "/"
+                          ? ROOT_FOLDER_NAME
+                          : destinationPath}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      Select a folder...
+                    </div>
+                  )}
+                  <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
+                portal={true}
+              >
+                <FileTreeCommand
+                  items={fileTreeItems}
+                  onSelect={handleSelectFolder}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button size="sm" onClick={handleMove} disabled={isMoving}>
             {isMoving ? "Moving..." : "Move Folder"}
           </Button>
         </DialogFooter>

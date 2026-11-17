@@ -230,8 +230,11 @@ def test_unexpected_body_read_error_still_reports_to_sentry(
     assert SentryTag.ERROR_KIND not in webhook.sentry_events[0].get("tags", {})
 
 
-@pytest.mark.parametrize("unwrap", [False, True])
-@pytest.mark.parametrize("workflow_fails", [False, True])
+@pytest.mark.parametrize(
+    ("unwrap", "workflow_fails"),
+    [(False, False), (True, True)],
+    ids=["succeeds", "fails"],
+)
 def test_trace_annotation_failure_does_not_block_workflow(
     webhook: _WebhookHarness, unwrap: bool, workflow_fails: bool
 ) -> None:

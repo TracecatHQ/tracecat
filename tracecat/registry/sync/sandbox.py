@@ -32,8 +32,9 @@ from tracecat.registry.sync.schemas import (
     SyncResultError,
     SyncResultSuccess,
 )
+from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import SandboxTimeoutError
-from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.executor import NsjailExecutor, python_path_mount
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxBindMount,
@@ -234,20 +235,55 @@ def main(processors, memory):
 
 _DISCOVERY_SCRIPT = """
 import asyncio
+import sys
 from uuid import UUID
 
-from tracecat.registry.sync.entrypoint import load_and_serialize_installed_actions
-from tracecat.registry.sync.schemas import SyncResultError
+
+def _from_registry_packages(exc, registry_site_packages):
+    prefix = registry_site_packages.rstrip("/") + "/"
+    # getattr: exception attributes vary by type; modules may lack __file__/__path__.
+    paths = [getattr(exc, "path", None)]
+    paths.append(getattr(getattr(exc, "obj", None), "__file__", None))
+    # A missing submodule only shows up on its shadowing parent package.
+    # AttributeError.name is an attribute, not a module.
+    parts = (exc.name or "").split(".") if isinstance(exc, ImportError) else []
+    for depth in range(1, len(parts) + 1):
+        module = sys.modules.get(".".join(parts[:depth]))
+        paths.append(getattr(module, "__file__", None))
+        paths.extend(getattr(module, "__path__", None) or ())
+    tb = exc.__traceback__
+    while tb is not None:
+        paths.append(tb.tb_frame.f_code.co_filename)
+        tb = tb.tb_next
+    return any(isinstance(path, str) and path.startswith(prefix) for path in paths)
 
 
 def main(
     origin,
     package_name,
     repository_id,
+    registry_site_packages,
     commit_sha=None,
     validate=False,
     organization_id=None,
 ):
+    # Registry site-packages precede Tracecat's, so a conflicting dependency
+    # version can break Tracecat's own imports. Retrying cannot fix that.
+    try:
+        from tracecat.registry.sync.entrypoint import (
+            load_and_serialize_installed_actions,
+        )
+        from tracecat.registry.sync.schemas import SyncErrorCode, SyncResultError
+    except (ImportError, AttributeError) as exc:
+        if not _from_registry_packages(exc, registry_site_packages):
+            raise
+        return {
+            "error": (
+                "Registry dependencies conflict with Tracecat's runtime: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+            "error_code": "import_failed",
+        }
     try:
         result = asyncio.run(
             load_and_serialize_installed_actions(
@@ -260,7 +296,15 @@ def main(
             )
         )
     except Exception as exc:
-        return SyncResultError.from_exception(exc).model_dump(mode="json")
+        error = SyncResultError.from_exception(exc)
+        # Import failures in Tracecat's own code stay generic so they page us.
+        if (
+            error.error_code is None
+            and isinstance(exc, (ImportError, AttributeError))
+            and _from_registry_packages(exc, registry_site_packages)
+        ):
+            error = error.model_copy(update={"error_code": SyncErrorCode.IMPORT_FAILED})
+        return error.model_dump(mode="json")
     return result.model_dump(mode="json")
 """
 
@@ -386,7 +430,7 @@ class RegistrySyncSandbox:
         )
 
         try:
-            result = await NsjailExecutor().execute(
+            result = await NsjailExecutor(cgroup_mount=sandbox_cgroup()).execute(
                 keyscan_dir,
                 SandboxConfig(
                     network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
@@ -521,7 +565,7 @@ class RegistrySyncSandbox:
                 env_vars[f"GIT_CONFIG_KEY_{index}"] = key
                 env_vars[f"GIT_CONFIG_VALUE_{index}"] = value
 
-            executor = NsjailExecutor()
+            executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             result = await executor.execute(
                 job_dir,
                 SandboxConfig(
@@ -588,7 +632,9 @@ class RegistrySyncSandbox:
         )
         (job_dir / "install.py").write_text(INSTALL_SCRIPT, encoding="utf-8")
 
-        executor = NsjailExecutor(cache_dir=str(private_cache))
+        executor = NsjailExecutor(
+            cache_dir=str(private_cache), cgroup_mount=sandbox_cgroup()
+        )
         result = await executor.execute_install(
             job_dir,
             _INSTALL_CACHE_KEY,
@@ -634,7 +680,7 @@ class RegistrySyncSandbox:
             encoding="utf-8",
         )
 
-        executor = NsjailExecutor()
+        executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
         result = await executor.execute(
             job_dir,
             SandboxConfig(
@@ -717,6 +763,13 @@ class RegistrySyncSandbox:
                 )
                 trusted_package_roots.append(package_root)
 
+            trusted_tracecat_root, *other_trusted_roots = trusted_package_roots
+            python_path_dirs = [
+                trusted_tracecat_root,
+                site_packages,
+                *_host_site_packages_paths(),
+                *other_trusted_roots,
+            ]
             inputs = {
                 "origin": origin,
                 "package_name": package_name,
@@ -724,13 +777,15 @@ class RegistrySyncSandbox:
                 "commit_sha": commit_sha,
                 "validate": validate,
                 "organization_id": str(organization_id) if organization_id else None,
+                "registry_site_packages": python_path_mount(
+                    python_path_dirs.index(site_packages)
+                ),
             }
             (job_dir / "script.py").write_text(_DISCOVERY_SCRIPT, encoding="utf-8")
             (job_dir / "wrapper.py").write_text(WRAPPER_SCRIPT, encoding="utf-8")
             (job_dir / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
 
-            executor = NsjailExecutor()
-            trusted_tracecat_root, *other_trusted_roots = trusted_package_roots
+            executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             result = await executor.execute(
                 job_dir,
                 SandboxConfig(
@@ -739,12 +794,7 @@ class RegistrySyncSandbox:
                         cpu_seconds=timeout_seconds,
                         memory_mb=2048,
                     ),
-                    python_path_dirs=[
-                        trusted_tracecat_root,
-                        site_packages,
-                        *_host_site_packages_paths(),
-                        *other_trusted_roots,
-                    ],
+                    python_path_dirs=python_path_dirs,
                     env_vars={
                         # Fatal signals bypass exceptions and result.json writing.
                         "PYTHONFAULTHANDLER": "1",

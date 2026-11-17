@@ -63,7 +63,7 @@ Click Configure on a connected provider to rotate credentials, or expand the row
 
 Tracecat resolves every provider base URL before it connects and rejects addresses that are private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback, link-local, or otherwise non-public. Saving credentials, Test connection, Refresh models, and agent runs against such an endpoint fail with `Failed to discover models: Host is not allowed` or `Host is not allowed`.
 
-On-prem and in-cluster gateways such as `http://litellm:4000/v1`, `http://vllm:8000/v1`, or `http://ollama.example.internal:11434/v1` are private endpoints. Allow them by setting `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` on the `api`, `agent-worker`, `litellm`, and `agent-executor` services to a comma-separated list of the exact IPs or narrow CIDRs the gateway resolves to, then restart those services.
+On-prem and in-cluster gateways such as `http://litellm:4000/v1`, `http://vllm:8000/v1`, or `http://ollama.example.internal:11434/v1` are private endpoints. Allow them by setting `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` on the `api`, `agent-worker`, `litellm`, `agent-executor`, and `background-worker` services (the background worker calls self-hosted embedding providers for semantic search) to a comma-separated list of the exact IPs or narrow CIDRs the gateway resolves to, then restart those services.
 
 | Deployment | Where to set it |
 | --- | --- |

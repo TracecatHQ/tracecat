@@ -19,8 +19,10 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
+from tracecat.cases.enums import CaseViewVisibility
 from tracecat.db.models import (
     AccessToken,
+    CaseView,
     LegacyMembership,
     Membership,
     Organization,
@@ -349,13 +351,71 @@ async def test_delete_user_clears_sessions_and_memberships(
         )
         is None
     )
-    # The legacy table is kept in step for older app versions.
+    # Rows older app versions wrote to the legacy table are removed before the user (non-cascading FK).
     assert (
         await session.scalar(
             select(LegacyMembership).where(LegacyMembership.user_id == user_id)
         )
         is None
     )
+
+
+@pytest.mark.anyio
+async def test_delete_user_removes_personal_case_views_only(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Delete View Owner Org",
+        slug=f"delete-view-owner-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="view-owner@example.com",
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    session.add_all([org, user])
+    await session.flush()
+    workspace = Workspace(
+        id=uuid.uuid4(), name="Delete View Owner Workspace", organization_id=org.id
+    )
+    session.add(workspace)
+    await session.flush()
+    personal, shared = (
+        CaseView(
+            workspace_id=workspace.id,
+            owner_id=user.id,
+            name=f"{visibility} view",
+            visibility=visibility,
+            query={},
+        )
+        for visibility in (CaseViewVisibility.PERSONAL, CaseViewVisibility.WORKSPACE)
+    )
+    session.add_all([personal, shared])
+    await session.commit()
+    personal_id, shared_id = personal.id, shared.id
+
+    await service.delete_user(user.id, current_user_id=platform_role.user_id)
+
+    # Nobody else could reach the personal view, so it goes with its owner.
+    assert (
+        await session.scalar(select(CaseView).where(CaseView.id == personal_id)) is None
+    )
+    # The shared view stays for the workspace; the database clears its owner.
+    kept = (
+        await session.execute(
+            select(CaseView.id, CaseView.owner_id).where(CaseView.id == shared_id)
+        )
+    ).one_or_none()
+    assert kept is not None
+    assert kept.owner_id is None
 
 
 @pytest.mark.anyio

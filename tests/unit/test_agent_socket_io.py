@@ -181,313 +181,41 @@ class TestRuntimeSocketCommunication:
         assert max_active_drains == 1
 
     @pytest.mark.anyio
-    async def test_runtime_streams_sdk_events(
-        self,
-        mock_claude_sdk_client: MagicMock,
-    ) -> None:
-        """Test that SDK events are streamed over socket."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            socket_path = Path(tmpdir) / "test.sock"
+    async def test_session_update_and_log_envelopes_round_trip(self) -> None:
+        """Session updates and structured logs survive the socket framing."""
+        raw_writer = MagicMock()
+        raw_writer.write = MagicMock()
+        raw_writer.drain = AsyncMock()
+        socket_writer = SocketStreamWriter(cast(asyncio.StreamWriter, raw_writer))
 
-            received_events: list[RuntimeEventEnvelope] = []
-            runtime_done = asyncio.Event()
+        await socket_writer.send_session_update(
+            sdk_session_id="test-session-123",
+            sdk_session_data='{"message": "hello"}\n',
+        )
+        await socket_writer.send_log("info", "Runtime initialized", model="gpt-4")
+        await socket_writer.send_log("debug", "Query sent", prompt_length=42)
+        await socket_writer.send_log("warning", "Slow response detected")
 
-            # Mock SDK to yield a stream event
-            mock_stream_event = MagicMock()
-            mock_stream_event.session_id = "test-session"
-            mock_stream_event.event = {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": "Hello!"},
-            }
-
-            async def mock_receive() -> Any:
-                yield mock_stream_event
-
-            mock_claude_sdk_client.receive_response = mock_receive
-
-            # Mock adapter
-            mock_adapter = MagicMock()
-            mock_adapter.to_unified_event.return_value = UnifiedStreamEvent(
-                type=StreamEventType.TEXT_DELTA,
-                text="Hello!",
-                part_id=0,
+        reader = asyncio.StreamReader()
+        for written in raw_writer.write.call_args_list:
+            reader.feed_data(written.args[0])
+        reader.feed_eof()
+        envelopes = [
+            RuntimeEventEnvelope.from_dict(
+                orjson.loads((await read_message(reader))[1])
             )
+            for _ in range(4)
+        ]
 
-            async def handle_client(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
-            ) -> None:
-                try:
-                    while True:
-                        try:
-                            _, payload = await read_message(reader)
-                        except asyncio.IncompleteReadError:
-                            break
-                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
-                        received_events.append(envelope)
-                        if envelope.type == "done":
-                            runtime_done.set()
-                            break
-                finally:
-                    writer.close()
-                    await writer.wait_closed()
-
-            server = await asyncio.start_unix_server(
-                handle_client,
-                path=str(socket_path),
-            )
-
-            try:
-                _, writer = await asyncio.open_unix_connection(str(socket_path))
-                socket_writer = SocketStreamWriter(writer)
-
-                with (
-                    patch(
-                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                        return_value=mock_claude_sdk_client,
-                    ),
-                    patch(
-                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
-                        return_value=mock_adapter,
-                    ),
-                    patch(
-                        "tracecat.agent.runtime.claude_code.runtime.StreamEvent",
-                        MagicMock,
-                    ),
-                ):
-                    runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
-                    )
-                    payload = make_init_payload()
-                    await runtime.run(payload)
-
-                await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
-
-                # Should have stream_event (text_delta) and done
-                event_types = [
-                    (e.type, e.event.type if e.event else None) for e in received_events
-                ]
-                assert ("stream_event", StreamEventType.TEXT_DELTA) in event_types
-                assert ("done", None) in event_types
-
-            finally:
-                server.close()
-                await server.wait_closed()
-
-    @pytest.mark.anyio
-    async def test_runtime_sends_error_on_exception(
-        self,
-        mock_claude_sdk_client: MagicMock,
-    ) -> None:
-        """Test that runtime sends error event on SDK exception."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            socket_path = Path(tmpdir) / "test.sock"
-
-            received_events: list[RuntimeEventEnvelope] = []
-            runtime_done = asyncio.Event()
-
-            # Make SDK raise an error
-            mock_claude_sdk_client.query = AsyncMock(
-                side_effect=ValueError("SDK connection failed")
-            )
-
-            async def handle_client(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
-            ) -> None:
-                try:
-                    while True:
-                        try:
-                            _, payload = await read_message(reader)
-                        except asyncio.IncompleteReadError:
-                            break
-                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
-                        received_events.append(envelope)
-                        if envelope.type == "done":
-                            runtime_done.set()
-                            break
-                finally:
-                    writer.close()
-                    await writer.wait_closed()
-
-            server = await asyncio.start_unix_server(
-                handle_client,
-                path=str(socket_path),
-            )
-
-            try:
-                _, writer = await asyncio.open_unix_connection(str(socket_path))
-                socket_writer = SocketStreamWriter(writer)
-
-                with (
-                    patch(
-                        "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                        return_value=mock_claude_sdk_client,
-                    ),
-                    pytest.raises(ValueError, match="SDK connection failed"),
-                ):
-                    runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
-                    )
-                    payload = make_init_payload()
-                    await runtime.run(payload)
-
-                await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
-
-                # Should have error and done events
-                event_types = [e.type for e in received_events]
-                assert "error" in event_types
-                assert "done" in event_types
-
-                # Verify error message
-                error_event = next(e for e in received_events if e.type == "error")
-                assert "SDK connection failed" in (error_event.error or "")
-
-            finally:
-                server.close()
-                await server.wait_closed()
-
-    @pytest.mark.anyio
-    async def test_session_update_streamed_over_socket(
-        self,
-    ) -> None:
-        """Test that session updates are correctly streamed."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            socket_path = Path(tmpdir) / "test.sock"
-
-            received_events: list[RuntimeEventEnvelope] = []
-
-            async def handle_client(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
-            ) -> None:
-                try:
-                    while True:
-                        try:
-                            _, payload = await asyncio.wait_for(
-                                read_message(reader), timeout=5.0
-                            )
-                        except asyncio.IncompleteReadError:
-                            break
-                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
-                        received_events.append(envelope)
-                except TimeoutError:
-                    pass
-                finally:
-                    writer.close()
-                    await writer.wait_closed()
-
-            server = await asyncio.start_unix_server(
-                handle_client,
-                path=str(socket_path),
-            )
-
-            try:
-                _, writer = await asyncio.open_unix_connection(str(socket_path))
-                socket_writer = SocketStreamWriter(writer)
-
-                # Send session update directly
-                await socket_writer.send_session_update(
-                    sdk_session_id="test-session-123",
-                    sdk_session_data='{"message": "hello"}\n',
-                )
-                await socket_writer.send_done()
-                await socket_writer.close()
-
-                # Give server time to receive
-                await asyncio.sleep(0.1)
-
-                # Verify session update was received
-                session_updates = [
-                    e for e in received_events if e.type == "session_update"
-                ]
-                assert len(session_updates) == 1
-                assert session_updates[0].sdk_session_id == "test-session-123"
-                assert session_updates[0].sdk_session_data == '{"message": "hello"}\n'
-
-            finally:
-                server.close()
-                await server.wait_closed()
-
-    @pytest.mark.anyio
-    async def test_log_event_streamed_over_socket(
-        self,
-    ) -> None:
-        """Test that log events are correctly streamed via socket."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            socket_path = Path(tmpdir) / "test.sock"
-
-            received_events: list[RuntimeEventEnvelope] = []
-
-            async def handle_client(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
-            ) -> None:
-                try:
-                    while True:
-                        try:
-                            _, payload = await asyncio.wait_for(
-                                read_message(reader), timeout=5.0
-                            )
-                        except asyncio.IncompleteReadError:
-                            break
-                        envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
-                        received_events.append(envelope)
-                except TimeoutError:
-                    pass
-                finally:
-                    writer.close()
-                    await writer.wait_closed()
-
-            server = await asyncio.start_unix_server(
-                handle_client,
-                path=str(socket_path),
-            )
-
-            try:
-                _, writer = await asyncio.open_unix_connection(str(socket_path))
-                socket_writer = SocketStreamWriter(writer)
-
-                # Send log events with different levels
-                await socket_writer.send_log(
-                    "info", "Runtime initialized", model="gpt-4"
-                )
-                await socket_writer.send_log("debug", "Query sent", prompt_length=42)
-                await socket_writer.send_log("warning", "Slow response detected")
-                await socket_writer.send_log(
-                    "error", "Connection failed", error_code=500
-                )
-                await socket_writer.send_done()
-                await socket_writer.close()
-
-                # Give server time to receive
-                await asyncio.sleep(0.1)
-
-                # Verify log events were received
-                log_events = [e for e in received_events if e.type == "log"]
-                assert len(log_events) == 4
-
-                # Check first log event
-                assert log_events[0].log_level == "info"
-                assert log_events[0].log_message == "Runtime initialized"
-                assert log_events[0].log_extra == {"model": "gpt-4"}
-
-                # Check debug log
-                assert log_events[1].log_level == "debug"
-                assert log_events[1].log_message == "Query sent"
-                assert log_events[1].log_extra == {"prompt_length": 42}
-
-                # Check warning log
-                assert log_events[2].log_level == "warning"
-                assert log_events[2].log_message == "Slow response detected"
-                assert log_events[2].log_extra is None
-
-                # Check error log
-                assert log_events[3].log_level == "error"
-                assert log_events[3].log_message == "Connection failed"
-                assert log_events[3].log_extra == {"error_code": 500}
-
-            finally:
-                server.close()
-                await server.wait_closed()
+        session_update, *log_events = envelopes
+        assert session_update.type == "session_update"
+        assert session_update.sdk_session_id == "test-session-123"
+        assert session_update.sdk_session_data == '{"message": "hello"}\n'
+        assert [
+            (event.type, event.log_level, event.log_message, event.log_extra)
+            for event in log_events
+        ] == [
+            ("log", "info", "Runtime initialized", {"model": "gpt-4"}),
+            ("log", "debug", "Query sent", {"prompt_length": 42}),
+            ("log", "warning", "Slow response detected", None),
+        ]

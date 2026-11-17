@@ -18,6 +18,7 @@ from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.models import Organization, OrganizationDomain
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
+from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseService
 from tracecat.settings.service import get_setting_from_bypass_session
@@ -49,6 +50,8 @@ class AuthDiscoverResponse(Schema):
 
 
 _SAML_SETTING_KEY: Final[str] = "saml_enabled"
+_SAML_ENFORCED_SETTING_KEY: Final[str] = "saml_enforced"
+_SAML_METADATA_URL_SETTING_KEY: Final[str] = "saml_idp_metadata_url"
 
 
 class AuthDiscoveryService(BaseService):
@@ -139,12 +142,44 @@ class AuthDiscoveryService(BaseService):
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
             return False
-        value = await get_setting_from_bypass_session(
+        enabled = await get_setting_from_bypass_session(
             _SAML_SETTING_KEY,
             organization_id=org_id,
             session=self.session,
             default=True,
         )
+        if not enabled:
+            return False
+        if await self._org_saml_idp_configured(org_id):
+            return True
+        # Orgs without an IdP fall back to other methods unless SAML is
+        # enforced, so enforcement is never routed around by discovery.
+        enforced = await get_setting_from_bypass_session(
+            _SAML_ENFORCED_SETTING_KEY,
+            organization_id=org_id,
+            session=self.session,
+            default=False,
+        )
+        return bool(enforced)
+
+    async def _org_saml_idp_configured(self, org_id: OrganizationID) -> bool:
+        if not config.TRACECAT__EE_MULTI_TENANT and config.SAML_IDP_METADATA_URL:
+            return True
+        try:
+            value = await get_setting_from_bypass_session(
+                _SAML_METADATA_URL_SETTING_KEY,
+                organization_id=org_id,
+                session=self.session,
+                default=None,
+            )
+        except Exception as e:
+            # Keep routing to SAML so login surfaces the configuration error.
+            logger.warning(
+                "Failed to read SAML metadata URL during auth discovery",
+                organization_id=org_id,
+                error=type(e).__name__,
+            )
+            return True
         return bool(value)
 
     async def _org_oidc_enabled(self, _org_id: OrganizationID) -> bool:

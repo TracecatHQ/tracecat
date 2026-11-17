@@ -6,9 +6,9 @@ import { type ChangeEvent, type DragEvent, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -43,7 +43,7 @@ export function UploadSkillDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent size="md" className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Upload skill</DialogTitle>
           <DialogDescription>
@@ -51,65 +51,55 @@ export function UploadSkillDialog({
             any bundled resources.
           </DialogDescription>
         </DialogHeader>
-
-        <div
-          className={cn(
-            "flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-6 py-10 text-center transition-colors",
-            isDragOver
-              ? "border-foreground bg-muted/60"
-              : "border-muted-foreground/25"
-          )}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={(event) => void onDrop(event)}
-        >
-          <Upload className="size-6 text-muted-foreground" />
-          <div className="space-y-1">
-            <div className="text-sm font-medium">
-              Drop a skill directory here
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Or pick a folder from your computer.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={uploadSkillPending}
-            onClick={() => directoryInputRef.current?.click()}
-          >
-            {uploadSkillPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <Upload className="mr-2 size-4" />
+        <DialogBody>
+          <div
+            className={cn(
+              "flex flex-col items-center justify-center gap-3 rounded-md border border-dashed px-6 py-10 text-center transition-colors",
+              isDragOver
+                ? "border-foreground bg-muted/60"
+                : "border-muted-foreground/25"
             )}
-            Choose folder
-          </Button>
-        </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={uploadSkillPending}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={(event) => void onDrop(event)}
           >
-            Cancel
-          </Button>
-        </DialogFooter>
+            <Upload className="size-6 text-muted-foreground" />
+            <div className="space-y-1">
+              <div className="text-sm font-medium">
+                Drop a skill directory here
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Or pick a folder from your computer.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={uploadSkillPending}
+              onClick={() => directoryInputRef.current?.click()}
+            >
+              {uploadSkillPending ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Upload className="mr-2 size-4" />
+              )}
+              Choose folder
+            </Button>
+          </div>
 
-        <input
-          ref={directoryInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(event) => void onDirectoryInput(event)}
-          {...({
-            directory: "",
-            webkitdirectory: "",
-          } as Record<string, string>)}
-        />
+          <input
+            ref={directoryInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => void onDirectoryInput(event)}
+            {...({
+              directory: "",
+              webkitdirectory: "",
+            } as Record<string, string>)}
+          />
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

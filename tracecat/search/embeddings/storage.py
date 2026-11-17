@@ -2,12 +2,12 @@
 
 from dataclasses import replace
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import or_, select
 
+from tracecat.agent.access.effective import effective_catalog_ids
 from tracecat.agent.default_model import resolve_org_default_model
 from tracecat.db.models import (
     AgentCatalog,
-    AgentModelAccess,
     OrganizationSecret,
     SearchEmbeddingConfig,
     SearchWorkspaceState,
@@ -80,26 +80,15 @@ class EmbeddingSettingsStorage(SearchStorage):
         )
         if live is None:
             raise EmbeddingError(EmbeddingErrorCode.NOT_CONFIGURED)
-        override = await self.session.scalar(
-            select(
-                exists().where(
-                    AgentModelAccess.organization_id == self.scope.organization_id,
-                    AgentModelAccess.workspace_id == self.scope.workspace_id,
-                )
-            )
+        enabled_catalog_ids = effective_catalog_ids(
+            self.scope.organization_id, self.scope.workspace_id
         )
         allowed = (
             (
                 await self.session.execute(
                     select(AgentCatalog.model_provider, AgentCatalog.model_name)
-                    .join(
-                        AgentModelAccess, AgentModelAccess.catalog_id == AgentCatalog.id
-                    )
                     .where(
-                        AgentModelAccess.organization_id == self.scope.organization_id,
-                        AgentModelAccess.workspace_id == self.scope.workspace_id
-                        if override
-                        else AgentModelAccess.workspace_id.is_(None),
+                        AgentCatalog.id.in_(enabled_catalog_ids),
                         or_(
                             AgentCatalog.organization_id == self.scope.organization_id,
                             AgentCatalog.organization_id.is_(None),

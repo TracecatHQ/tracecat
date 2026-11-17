@@ -69,7 +69,8 @@ with `mcp.<slug>`.
 A skill can declare at most 64 tools.
 
 When the skill is attached to a preset agent, its tools are added to the preset's own
-`Tools` selection. The agent's effective tool set is the union of the preset's registry
+tools. Registry actions the skill adds appear under `From skills` in the preset's `Tools`
+tab. The agent's effective tool set is the union of the preset's registry
 actions, the MCP integrations attached to the preset, and the tools declared by every
 attached skill.
 
@@ -108,10 +109,12 @@ Publishing requires:
 
 ## Attach skills to a preset agent
 
-Open the preset agent, then use the `Skills` tab to attach published skills.
+Open the preset agent, select the `Skills` tab, click `Add skill`, and choose a published skill.
+Click `Publish version` in the top right to save.
 An attachment records the skill version that was current when you attached it.
 
-![Attach skills to a preset agent](/img/agents/agent-preset-editor.png)
+Each row shows the skill name and its version.
+Hover the name to read the description, or click it to open the skill.
 
 Only published skills can be attached.
 When a preset agent runs, Tracecat resolves each attached skill to that skill's current

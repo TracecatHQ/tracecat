@@ -10,16 +10,19 @@ import {
 
 import "react18-json-view/src/style.css"
 
-import { CalendarSearchIcon } from "lucide-react"
-import { useParams } from "next/navigation"
+import { CalendarSearchIcon, RotateCcwIcon } from "lucide-react"
+import { useParams, usePathname, useRouter } from "next/navigation"
+import { WorkflowRerunDialog } from "@/components/builder/events/workflow-rerun-dialog"
 import { WorkflowExecutionEventDetailView } from "@/components/executions/event-details"
 import { WorkflowExecutionEventHistory } from "@/components/executions/event-history"
 import { SectionHead } from "@/components/executions/section"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
+import { Button } from "@/components/ui/button"
 import {
   formatExecutionId,
+  executionId as parseFullExecutionId,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
 import { useCompactWorkflowExecution } from "@/lib/hooks"
@@ -62,6 +65,10 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
   >()
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId)
+  const [rerunOpen, setRerunOpen] = useState(false)
+  const [rerunFromRef, setRerunFromRef] = useState<string | null>(null)
+  const router = useRouter()
+  const pathname = usePathname()
   const selectedActionRef =
     requestedActionRef &&
     execution?.events.some((event) => event.action_ref === requestedActionRef)
@@ -84,7 +91,39 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
           <SectionHead
             text="Events"
             icon={<CalendarSearchIcon className="size-4" strokeWidth={2} />}
+            action={
+              execution && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs"
+                  disabled={execution.status === "RUNNING"}
+                  onClick={() => {
+                    setRerunFromRef(null)
+                    setRerunOpen(true)
+                  }}
+                >
+                  <RotateCcwIcon className="size-3" />
+                  Rerun
+                </Button>
+              )
+            }
           />
+          {execution && (
+            <WorkflowRerunDialog
+              executionId={execution.id}
+              workflowId={parseFullExecutionId(execution.id).wf}
+              open={rerunOpen}
+              onOpenChange={setRerunOpen}
+              rerunFromRef={rerunFromRef}
+              onStarted={(wfExecId) => {
+                const baseUrl = pathname?.split("/executions")[0] ?? ""
+                router.push(
+                  `${baseUrl}/executions/${parseFullExecutionId(wfExecId).exec}`
+                )
+              }}
+            />
+          )}
           <div className="min-h-0 flex-1 overflow-auto">
             <EventHistoryContent
               execution={execution}
@@ -92,6 +131,10 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
               error={executionError}
               selectedActionRef={selectedActionRef}
               setSelectedActionRef={setRequestedActionRef}
+              onRerunFrom={(actionRef) => {
+                setRerunFromRef(actionRef)
+                setRerunOpen(true)
+              }}
             />
           </div>
         </div>
@@ -135,12 +178,14 @@ function EventHistoryContent({
   error,
   selectedActionRef,
   setSelectedActionRef,
+  onRerunFrom,
 }: {
   execution: WorkflowExecutionReadCompact | null | undefined
   isLoading: boolean
   error: Error | null
   selectedActionRef?: string
   setSelectedActionRef: (actionRef: string) => void
+  onRerunFrom: (actionRef: string) => void
 }) {
   if (isLoading) {
     return <CenteredSpinner />
@@ -156,6 +201,7 @@ function EventHistoryContent({
       execution={execution}
       selectedActionRef={selectedActionRef}
       setSelectedActionRef={setSelectedActionRef}
+      onRerunFrom={onRerunFrom}
     />
   )
 }

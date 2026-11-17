@@ -10,6 +10,12 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 import sentry_sdk
+from asyncpg.exceptions import (
+    CharacterNotInRepertoireError,
+    StringDataRightTruncationError,
+    UndefinedColumnError,
+)
+from asyncpg.exceptions import DataError as AsyncpgDataError
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from opentelemetry import trace
@@ -23,7 +29,12 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 from sqlalchemy import create_engine
-from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
+from sqlalchemy.exc import (
+    DBAPIError,
+    IntegrityError,
+    OperationalError,
+    ProgrammingError,
+)
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.pool import QueuePool
 from starlette.requests import Request
@@ -33,6 +44,7 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ActivityError, ApplicationError, TimeoutType
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import (
     ExecuteWorkflowInput,
@@ -52,7 +64,12 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
-from tracecat.api.common import auth_pool_exhausted_exception_handler
+from tracecat.api.common import (
+    auth_pool_exhausted_exception_handler,
+    database_exception_handler,
+    generic_exception_handler,
+    temporal_rpc_exception_handler,
+)
 from tracecat.auth.credentials import _authenticate_executor
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl import interceptor as interceptor_module
@@ -630,6 +647,42 @@ def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
     assert event["exception"]["values"][-1]["value"] == "Tracecat API failure"
     assert not {"breadcrumbs", "extra", "request", "user"} & event.keys()
     assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.parametrize(
+    ("orig", "status_code", "event_count"),
+    [
+        (CharacterNotInRepertoireError("null byte"), 422, 0),
+        (StringDataRightTruncationError("too long"), 422, 0),
+        (AsyncpgDataError("surrogate"), 422, 0),
+        (UndefinedColumnError("server bug"), 500, 1),
+    ],
+)
+def test_database_data_errors_return_422_without_paging(
+    api_sentry_events: list[Event],
+    orig: Exception,
+    status_code: int,
+    event_count: int,
+) -> None:
+    app = FastAPI()
+
+    async def failing_route() -> None:
+        raise DBAPIError("private SQL", {}, orig)
+
+    app.add_api_route("/boom", failing_route, methods=["GET"])
+    app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(DBAPIError, database_exception_handler)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+    sentry_sdk.flush()
+
+    assert response.status_code == status_code
+    assert len(api_sentry_events) == event_count
+    if status_code == 422:
+        assert response.json() == {
+            "detail": "Request contains a value that cannot be stored"
+        }
 
 
 def test_fastapi_integration_removes_unmatched_request_credentials(
@@ -1223,6 +1276,62 @@ def test_unexpected_database_failures_capture_once_with_safe_request_metadata(
         recovered = pool.connect()
         recovered.close()
         pool.dispose()
+
+
+@pytest.mark.parametrize("component", ["api", "action_gateway"])
+@pytest.mark.parametrize(
+    ("rpc_status", "expected_status", "expected_priority"),
+    [
+        (RPCStatusCode.DEADLINE_EXCEEDED, 503, AlertPriority.LOW),
+        (RPCStatusCode.UNAVAILABLE, 503, AlertPriority.URGENT),
+        (RPCStatusCode.RESOURCE_EXHAUSTED, 503, AlertPriority.URGENT),
+        (RPCStatusCode.INTERNAL, 500, AlertPriority.URGENT),
+    ],
+)
+def test_temporal_rpc_errors_page_unless_deadline_exceeded(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+    rpc_status: RPCStatusCode,
+    expected_status: int,
+    expected_priority: AlertPriority,
+) -> None:
+    events: list[Event] = request.getfixturevalue(
+        "api_sentry_events" if component == "api" else "executor_sentry_events"
+    )
+    if component == "api":
+        app = FastAPI()
+        app.add_exception_handler(Exception, generic_exception_handler)
+        app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+    else:
+        monkeypatch.setattr(
+            gateway_module, "_include_internal_routers", lambda app: None
+        )
+        app = gateway_module.create_app()
+        app.dependency_overrides[gateway_module.enforce_agent_script_gateway_access] = (
+            lambda: None
+        )
+
+    async def list_executions() -> None:
+        raise RPCError(_SENSITIVE_VALUE, rpc_status, b"")
+
+    app.add_api_route("/executions", list_executions)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/executions")
+    sentry_sdk.flush()
+
+    assert response.status_code == expected_status
+    [event] = events
+    assert "tags" in event
+    assert event["tags"][SentryTag.ALERT_PRIORITY.value] == expected_priority
+    assert event["tags"][SentryTag.COMPONENT.value] == component
+    assert "tracecat.api_capture" not in event["tags"]
+    assert event.get("level") == (
+        "warning" if expected_priority is AlertPriority.LOW else "error"
+    )
+    is_triage = event.get("fingerprint") == ["tracecat-api-triage-v1", "{{ default }}"]
+    assert is_triage is (expected_priority is AlertPriority.LOW)
+    assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
 @pytest.mark.parametrize("component", ["api", "action_gateway"])

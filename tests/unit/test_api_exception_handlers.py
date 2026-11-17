@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
+from unittest.mock import Mock
 
+import orjson
+import pytest
+from asyncpg import CharacterNotInRepertoireError
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from temporalio.service import RPCError, RPCStatusCode
+
+from tracecat.api import app as api_app
+from tracecat.api import common as api_common
 from tracecat.api.app import (
     _install_scim_exception_handlers,
     authorization_exception_handler,
@@ -16,8 +24,12 @@ from tracecat.api.app import (
     create_app as create_api_app,
 )
 from tracecat.api.common import (
+    database_exception_handler,
+    generic_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
+    temporal_rpc_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.exceptions import (
@@ -28,7 +40,9 @@ from tracecat.exceptions import (
     TracecatRLSViolationError,
     TracecatValidationError,
 )
+from tracecat.executor.action_gateway import app as action_gateway_app
 from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.forms.schemas import FormValidateRequest
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -43,6 +57,7 @@ def _build_app(exc: Exception, path: str = "/boom") -> FastAPI:
     own handler must win over the generic authorization handler.
     """
     app = FastAPI()
+    app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
@@ -185,6 +200,63 @@ def test_query_error_response_contract(
     }
 
 
+@pytest.mark.parametrize(
+    ("rpc_status", "expected_status"),
+    [
+        (RPCStatusCode.DEADLINE_EXCEEDED, 503),
+        (RPCStatusCode.UNAVAILABLE, 503),
+        (RPCStatusCode.RESOURCE_EXHAUSTED, 503),
+        (RPCStatusCode.INTERNAL, 500),
+        (RPCStatusCode.NOT_FOUND, 500),
+    ],
+)
+def test_temporal_rpc_errors_map_transient_faults_to_503(
+    rpc_status: RPCStatusCode, expected_status: int
+) -> None:
+    app = FastAPI()
+    app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+
+    async def boom() -> None:
+        raise RPCError("downstream duration timeout", rpc_status, b"")
+
+    app.add_api_route("/boom", boom, methods=["GET"])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+
+    assert response.status_code == expected_status
+    if expected_status == 503:
+        assert response.json()["detail"]["code"] == "temporal_unavailable"
+    assert "downstream duration timeout" not in response.text
+
+
+def test_temporal_rpc_errors_log_the_route_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Webhook URLs carry a credential in the path, so the log keeps the template.
+    logged = Mock()
+    monkeypatch.setattr(api_common, "logger", logged)
+    app = FastAPI()
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+
+    async def boom(secret: str) -> None:
+        raise RPCError("timeout", RPCStatusCode.DEADLINE_EXCEEDED, b"")
+
+    app.add_api_route("/webhooks/{secret}", boom, methods=["POST"])
+    with TestClient(app) as client:
+        response = client.post("/webhooks/live-webhook-secret")
+
+    assert response.status_code == 503
+    logged.warning.assert_called_once()
+    assert logged.warning.call_args.kwargs["route"] == "/webhooks/{secret}"
+    assert "live-webhook-secret" not in repr(logged.warning.call_args)
+
+
+def test_temporal_rpc_handler_is_registered_in_both_api_apps() -> None:
+    for app in (create_api_app(), create_action_gateway_app()):
+        assert app.exception_handlers[RPCError] is temporal_rpc_exception_handler
+
+
 def test_query_error_handlers_are_registered_in_both_api_apps() -> None:
     for app in (create_api_app(), create_action_gateway_app()):
         assert (
@@ -257,6 +329,17 @@ def test_unexpected_scim_errors_are_sanitized(exc: Exception, scim: bool) -> Non
         assert response.json() == {"message": detail}
 
 
+def test_scim_unstorable_input_uses_scim_envelope() -> None:
+    exc = DBAPIError("INSERT ...", {}, CharacterNotInRepertoireError("private"))
+    app = _build_app(exc, "/scim/v2/Groups")
+    _install_scim_exception_handlers(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/scim/v2/Groups")
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/scim+json"
+    assert response.json()["scimType"] == "invalidValue"
+
+
 @pytest.mark.parametrize(
     "request_path", ["/scim/v2/Users/missing", "/api/scim/v2/Users/missing"]
 )
@@ -307,3 +390,91 @@ def test_http_errors_keep_status_and_use_the_correct_envelope(
         assert response.headers["www-authenticate"] == "Bearer"
     if status_code == 405:
         assert "GET" in response.headers["allow"]
+
+
+@pytest.mark.parametrize("gateway", [False, True])
+def test_validation_errors_leave_the_rejected_input_out_of_logs(
+    monkeypatch: pytest.MonkeyPatch, gateway: bool
+) -> None:
+    # Valid base64 of the right size, but not a PNG: the image validator
+    # rejects it, and the error's input is the whole data URI.
+    image = "data:image/png;base64," + "A" * 4000
+    module = action_gateway_app if gateway else api_app
+    logged = Mock()
+    monkeypatch.setattr(module, "logger", logged)
+    app = FastAPI()
+    app.add_exception_handler(
+        RequestValidationError, module.validation_exception_handler
+    )
+
+    async def validate(params: FormValidateRequest) -> None:
+        return None
+
+    app.add_api_route("/validate", validate, methods=["POST"])
+    option = {"value": "a", "image": image}
+    body = {"config": {"layout": [{"field": "model", "options": [option]}]}}
+    with TestClient(app) as client:
+        response = client.post("/validate", json=body)
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["msg"] == "Value error, Image content is not a valid png file"
+    assert error["loc"][-1] == "image"
+    logged.error.assert_called_once()
+    assert "A" * 100 not in str(logged.error.call_args)
+    # The executor keeps a gateway error with the run, so it is left out there too.
+    assert ("input" in error) is not gateway
+
+
+def test_validation_errors_replace_surrogates() -> None:
+    errors = [
+        {
+            "type": "value_error",
+            "loc": ("body", "a\ud800"),
+            "msg": "bad",
+            "input": "a\udfff",
+            "ctx": {"error": ValueError("b\ud800")},
+        }
+    ]
+    serialized = serialize_validation_errors(errors)
+    assert orjson.loads(orjson.dumps(serialized)) == [
+        {
+            "type": "value_error",
+            "loc": ["body", "a\ufffd"],
+            "msg": "bad",
+            "input": "a\ufffd",
+            "ctx": {"error": "b\ufffd"},
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param(252, id="orjson-limit"),
+        pytest.param(300, id="pydantic-core-limit"),
+        pytest.param(995, id="python-recursion-limit"),
+    ],
+)
+def test_deeply_nested_rejected_input_returns_422(depth: int) -> None:
+    app = FastAPI()
+    app.add_exception_handler(
+        RequestValidationError, api_app.validation_exception_handler
+    )
+
+    async def validate(params: FormValidateRequest) -> None:
+        return None
+
+    app.add_api_route("/validate", validate, methods=["POST"])
+    body = '{"n": ' * depth + "1" + "}" * depth
+    with TestClient(app) as client:
+        response = client.post(
+            "/validate",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["type"] == "missing"
+    assert "input" not in error

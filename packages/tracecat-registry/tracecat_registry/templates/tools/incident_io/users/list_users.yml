@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: List users
+  description: >-
+    List users in your account. Calls GET /v2/users directly. Requires API key scope: users.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/users-v2/list
+  namespace: tools.incident_io
+  name: list_users
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    email:
+      type: str | None
+      description: Filter by email address
+      default: null
+    slack_user_id:
+      type: str | None
+      description: Filter by Slack user ID
+      default: null
+    include_inactive:
+      type: bool | None
+      description: >-
+        Include deactivated or not-yet-active users (defaults to false). Useful for resolving
+        users who have since been offboarded.
+      default: null
+    page_size:
+      type: int | None
+      description: Integer number of records to return. Maximum 10000.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        An record's ID. This endpoint will return a list of records after this ID in relation to
+        the API response order.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/users
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          email: ${{ inputs.email }}
+          slack_user_id: ${{ inputs.slack_user_id }}
+          include_inactive: ${{ inputs.include_inactive }}
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+  returns: ${{ steps.request.result }}

@@ -352,6 +352,9 @@ async def _run_capacity_contention_scenario(
 ) -> _CapacityContentionPayload:
     """Exercise retry after active registry leases release cache capacity."""
     from tracecat import config
+    from tracecat.executor.registry_artifact_storage import (
+        RegistryArtifactByteReservation,
+    )
     from tracecat.executor.registry_artifacts import (
         RegistryArtifactCache,
         RegistryArtifactCacheLeaseContentionError,
@@ -422,7 +425,9 @@ async def _run_capacity_contention_scenario(
             capacity_with_cold_shell.total_bytes - capacity_snapshot.total_bytes
         )
         config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES = 1
-        probe_admission = capacity_cache._admission_for(cold_key)
+        probe_admission = capacity_cache._admission_for(
+            cold_key, RegistryArtifactByteReservation()
+        )
         if probe_admission is None:
             raise AssertionError("Expected byte-bound registry cache admission")
         allocation_unit = probe_admission.allocation_unit
@@ -495,6 +500,12 @@ async def _run_capacity_contention_scenario(
             patch(
                 "tracecat.executor.registry_artifacts._sleep_registry_artifact_capacity_retry",
                 new=release_one_holder_during_backoff,
+            ),
+            # Holders release only during the public retry backoff, so don't
+            # sit out the full in-admission capacity wait first.
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                0.1,
             ),
         ):
             async with capacity_cache.lease([cold_uri]) as cold_registry_paths:
@@ -731,6 +742,9 @@ async def _run_mount_lifecycle_child() -> None:
                 str(fourth_paths.squashfs_mount_dir)
             ]
             config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 2
+            # A warm remount writes nothing, so a budget shrunk outside any
+            # write must mark the cache dirty itself.
+            cache._budget_dirty = True
         mounts_after_converge = _squashfs_mounts(cache_dir)
         payload["converged_lease_unmounted"] = (
             str(fourth_paths.squashfs_mount_dir) not in mounts_after_converge

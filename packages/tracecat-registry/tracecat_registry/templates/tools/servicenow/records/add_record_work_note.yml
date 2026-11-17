@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Add record work note
+  description: Add an internal work note to any task-based record, such as a problem, change request, requested item, catalog task, or security incident.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html#table-PATCH
+  namespace: tools.servicenow
+  name: add_record_work_note
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    table_name:
+      type: str
+      description: Table name, e.g. incident, problem, change_request, sc_req_item, sc_task, or sn_si_incident.
+    sys_id:
+      type: str
+      description: sys_id of the record.
+    work_notes:
+      type: str
+      description: Work note text.
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/table/${{ FN.url_encode(inputs.table_name) }}/${{ FN.url_encode(inputs.sys_id) }}
+      method: PATCH
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        work_notes: ${{ inputs.work_notes }}
+  returns: ${{ steps.request.result }}

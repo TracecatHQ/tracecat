@@ -1,5 +1,6 @@
 from typing import Final
 
+from tracecat.integrations.providers.atlassian.oauth import AtlassianOAuthProvider
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.databricks import (
     DatabricksACProvider,
@@ -60,7 +61,11 @@ from tracecat.integrations.providers.microsoft import (
     MicrosoftTeamsCCProvider,
 )
 from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
+from tracecat.integrations.providers.paloalto.oauth import PaloAltoSCMOAuthProvider
 from tracecat.integrations.providers.perplexity.mcp import PerplexityMCPProvider
+from tracecat.integrations.providers.proofpoint.oauth import (
+    ProofpointThreatProtectionOAuthProvider,
+)
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
@@ -71,9 +76,11 @@ from tracecat.integrations.providers.snowflake import (
     SnowflakeCCProvider,
 )
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
+from tracecat.integrations.providers.zendesk import ZendeskOAuthProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
+    AtlassianOAuthProvider,
     GitHubOAuthProvider,
     GitHubAppInstallationProvider,
     GitHubAppUserProvider,
@@ -100,6 +107,8 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GoogleSlidesACProvider,
     GoogleSlidesCCProvider,
     JamfOAuthProvider,
+    PaloAltoSCMOAuthProvider,
+    ProofpointThreatProtectionOAuthProvider,
     JiraMCPProvider,
     LinearMCPProvider,
     NotionMCPProvider,
@@ -134,6 +143,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     SnowflakeACProvider,
     SnowflakeCCProvider,
     ServiceNowOAuthProvider,
+    ZendeskOAuthProvider,
 ]
 
 

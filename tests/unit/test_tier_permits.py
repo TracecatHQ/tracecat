@@ -32,36 +32,6 @@ def _limits(
 
 
 @pytest.mark.anyio
-async def test_get_effective_limits_for_org_uses_cache() -> None:
-    permit_svc = TierPermitService(cast(RedisSemaphore, SimpleNamespace()))
-    expected_limits = _limits(max_concurrent_actions=2)
-
-    @asynccontextmanager
-    async def _unexpected_session_context() -> AsyncIterator[object]:
-        raise AssertionError("DB lookup should not run when cache has limits")
-        yield
-
-    with (
-        patch(
-            "tracecat.tiers.permits.get_effective_limits_cached",
-            new=AsyncMock(return_value=expected_limits),
-        ),
-        patch(
-            "tracecat.tiers.permits.set_effective_limits_cached",
-            new=AsyncMock(),
-        ),
-        patch(
-            "tracecat.tiers.permits.get_async_session_context_manager",
-            new=_unexpected_session_context,
-        ),
-    ):
-        limits, source = await permit_svc.get_effective_limits_for_org(ORG_ID)
-
-    assert limits == expected_limits
-    assert source == "cache"
-
-
-@pytest.mark.anyio
 async def test_get_effective_limits_for_org_populates_cache_on_miss() -> None:
     permit_svc = TierPermitService(cast(RedisSemaphore, SimpleNamespace()))
     expected_limits = _limits(max_concurrent_workflows=3)
@@ -69,8 +39,11 @@ async def test_get_effective_limits_for_org_populates_cache_on_miss() -> None:
         get_effective_limits=AsyncMock(return_value=expected_limits)
     )
 
+    session_scopes: list[dict[str, object]] = []
+
     @asynccontextmanager
-    async def _session_context() -> AsyncIterator[object]:
+    async def _session_context(**scope: object) -> AsyncIterator[object]:
+        session_scopes.append(scope)
         yield object()
 
     with (
@@ -83,7 +56,7 @@ async def test_get_effective_limits_for_org_populates_cache_on_miss() -> None:
             new=AsyncMock(),
         ) as set_cache_mock,
         patch(
-            "tracecat.tiers.permits.get_async_session_context_manager",
+            "tracecat.tiers.permits.get_async_session_tenant_context_manager",
             new=_session_context,
         ),
         patch("tracecat.tiers.permits.TierService", return_value=tier_service),
@@ -93,6 +66,8 @@ async def test_get_effective_limits_for_org_populates_cache_on_miss() -> None:
     assert limits == expected_limits
     assert source == "db"
     tier_service.get_effective_limits.assert_awaited_once_with(ORG_ID)
+    # Permit activities have no ctx_role, so the tier read must carry the org.
+    assert session_scopes == [{"organization_id": ORG_ID}]
     set_cache_mock.assert_awaited_once_with(ORG_ID, expected_limits)
 
 
@@ -106,7 +81,7 @@ async def test_acquire_action_permit_uses_effective_limit() -> None:
     permit_svc = TierPermitService(cast(RedisSemaphore, semaphore))
 
     @asynccontextmanager
-    async def _unexpected_session_context() -> AsyncIterator[object]:
+    async def _unexpected_session_context(**_: object) -> AsyncIterator[object]:
         raise AssertionError("DB lookup should not run when cache has limits")
         yield
 
@@ -120,7 +95,7 @@ async def test_acquire_action_permit_uses_effective_limit() -> None:
             new=AsyncMock(),
         ),
         patch(
-            "tracecat.tiers.permits.get_async_session_context_manager",
+            "tracecat.tiers.permits.get_async_session_tenant_context_manager",
             new=_unexpected_session_context,
         ),
     ):

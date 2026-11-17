@@ -1,7 +1,11 @@
 # https://github.com/vercel/next.js/blob/canary/examples/with-docker/Dockerfile
 
+# The deps and builder stages run on the build host's platform, so a
+# multi-platform build compiles the Next.js bundle once and every target image
+# reuses it. Only the runner stage is built per target platform.
+
 # Use the Node.js Alpine image as the base image for the deps stage
-FROM node:22-alpine AS deps
+FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
 WORKDIR /app
 
 # Install necessary system libraries
@@ -13,11 +17,14 @@ COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 # Install working version of corepack
 RUN npm install -g corepack@0.31.0 && corepack --version
 
-# Install dependencies with pnpm
-RUN corepack enable pnpm && pnpm i --frozen-lockfile
+# Install dependencies with pnpm. Fetch native binaries for every target
+# platform, not just the build host: the standalone output copies every
+# installed sharp binary, so one bundle runs on both amd64 and arm64.
+RUN npm pkg set --json 'pnpm.supportedArchitectures={"os":["linux"],"cpu":["x64","arm64"],"libc":["musl"]}' \
+  && corepack enable pnpm && pnpm i --frozen-lockfile
 
 # Use the Node.js Alpine image as the base image for the builder stage
-FROM node:22-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 
 # Define build arguments to pass environment variables
@@ -40,9 +47,10 @@ COPY --from=deps /app/node_modules ./node_modules
 # Install working version of corepack
 RUN npm install -g corepack@0.31.0 && corepack --version
 
-# Copy all source files and build the application
+# Copy all source files and build the application. The cache mount keeps
+# webpack's build cache between builds on a persistent builder.
 COPY . .
-RUN corepack enable pnpm && pnpm build
+RUN --mount=type=cache,target=/app/.next/cache corepack enable pnpm && pnpm build
 
 # Use the Node.js Alpine image as the base image for the runner stage
 FROM node:22-alpine AS runner

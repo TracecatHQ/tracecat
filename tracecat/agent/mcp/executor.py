@@ -128,6 +128,7 @@ async def execute_action(
         args,
         registry_lock,
         agent_session_id=claims.session_id,
+        tunnel=claims.tool_tunnels.get(action_name),
     )
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
@@ -162,6 +163,7 @@ def build_run_input(
     logical_time: datetime | None = None,
     environment: str = "default",
     agent_session_id: UUID | None = None,
+    tunnel: str | None = None,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner.
 
@@ -170,11 +172,13 @@ def build_run_input(
         args: Arguments for the action
         registry_lock: Registry lock with origin→version mappings for action resolution
         agent_session_id: Verified agent session provenance, when available.
+        tunnel: Workspace tunnel to route the action through, if any.
     """
     task = ActionStatement(
         ref=f"mcp_{action_name.replace('.', '_')}",
         action=action_name,
         args=args,
+        tunnel=tunnel,
     )
 
     wf_id = WorkflowUUID.from_uuid(workflow_id or uuid4())

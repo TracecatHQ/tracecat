@@ -16,7 +16,7 @@ from tests.support.membership import (
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
-from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
+from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES, ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
@@ -24,7 +24,6 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
-    LegacyMembership,
     Membership,
     Organization,
     OrganizationMembership,
@@ -170,7 +169,6 @@ async def test_delete_membership_removes_membership_and_assignment(
             assigned_by=actor_user.id,
         )
     )
-    session.add(LegacyMembership(user_id=member_user.id, workspace_id=workspace.id))
     await session.commit()
 
     await membership_service.delete_membership(
@@ -191,17 +189,8 @@ async def test_delete_membership_removes_membership_and_assignment(
         )
     )
 
-    legacy = await session.scalar(
-        select(LegacyMembership).where(
-            LegacyMembership.workspace_id == workspace.id,
-            LegacyMembership.user_id == member_user.id,
-        )
-    )
-
     assert membership is None
     assert assignment is None
-    # The legacy table is kept in step for older app versions.
-    assert legacy is None
 
 
 async def test_delete_membership_removes_orphan_assignment(
@@ -457,16 +446,66 @@ async def test_create_membership_allows_admin_inviter(
     ).scalar_one_or_none()
     assert membership is not None
 
-    # The legacy table is kept in step for older app versions.
-    legacy = (
+
+async def test_create_membership_allows_org_admin_inviter(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    scoped_workspace_editor_role: DBRole,
+) -> None:
+    """An org admin adds an org member without holding workspace:member:invite."""
+    assert "workspace:member:invite" not in ORG_ADMIN_SCOPES
+    org_admin_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Admin",
+        slug=None,
+        organization_id=organization.id,
+    )
+    session.add(org_admin_role)
+    await session.flush()
+    result = await session.execute(
+        select(Scope).where(Scope.name.in_(sorted(ORG_ADMIN_SCOPES)))
+    )
+    for scope in result.scalars().all():
+        session.add(RoleScope(role_id=org_admin_role.id, scope_id=scope.id))
+    await ensure_member(session, organization.id, actor_user.id)
+    await ensure_member(session, organization.id, member_user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=actor_user.id,
+            workspace_id=None,
+            role_id=org_admin_role.id,
+        )
+    )
+    await session.commit()
+
+    service = MembershipService(
+        session=session,
+        role=Role(
+            type="user",
+            user_id=actor_user.id,
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+            service_id="tracecat-api",
+            scopes=ORG_ADMIN_SCOPES,
+        ),
+    )
+    await service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    assert (
         await session.execute(
-            select(LegacyMembership).where(
-                LegacyMembership.user_id == member_user.id,
-                LegacyMembership.workspace_id == workspace.id,
+            select(Membership).where(
+                Membership.user_id == member_user.id,
+                Membership.workspace_id == workspace.id,
             )
         )
-    ).scalar_one_or_none()
-    assert legacy is not None
+    ).scalar_one_or_none() is not None
 
 
 async def test_list_workspace_members_reports_each_path_once(
@@ -572,7 +611,6 @@ async def test_delete_membership_rejects_when_group_grant_remains(
                 role_id=workspace_editor_role.id,
                 assigned_by=actor_user.id,
             ),
-            LegacyMembership(user_id=member_user.id, workspace_id=workspace.id),
         ]
     )
     if idp_managed:
@@ -611,12 +649,92 @@ async def test_delete_membership_rejects_when_group_grant_remains(
             UserRoleAssignment.user_id == member_user.id,
         )
     )
-    legacy = await session.scalar(
-        select(LegacyMembership).where(
-            LegacyMembership.workspace_id == workspace.id,
-            LegacyMembership.user_id == member_user.id,
+    assert assignment is not None
+
+
+@pytest.mark.parametrize("source", ["direct", "group", "direct_and_workspace_group"])
+async def test_delete_membership_rejects_when_org_wide_workspace_role_remains(
+    source: str,
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """An org-wide workspace role keeps presence, so the delete is refused."""
+    await ensure_member(session, organization.id, member_user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
         )
     )
+    group_name = "Everywhere" if source == "group" else "Reviewers"
+    group = Group(name=group_name, organization_id=organization.id)
+    session.add(group)
+    await session.flush()
+    if source != "direct":
+        session.add_all(
+            [
+                GroupMember(
+                    group_id=group.id,
+                    user_id=member_user.id,
+                    organization_id=organization.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=organization.id,
+                    group_id=group.id,
+                    workspace_id=None if source == "group" else workspace.id,
+                    role_id=workspace_editor_role.id,
+                ),
+            ]
+        )
+    if source != "group":
+        session.add(
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=member_user.id,
+                workspace_id=None,
+                role_id=workspace_editor_role.id,
+            )
+        )
+    await session.commit()
+    workspace_id, user_id, group_id = workspace.id, member_user.id, group.id
 
-    assert assignment is not None
-    assert legacy is not None
+    # The org-wide grant is reported even when a workspace group also remains.
+    with pytest.raises(
+        TracecatConflictError,
+        match="every workspace through group 'Everywhere'"
+        if source == "group"
+        else "every workspace. Change their organization-wide role",
+    ):
+        await membership_service.delete_membership(
+            workspace_id=workspace_id, user_id=user_id
+        )
+    await session.rollback()
+
+    assert await session.scalar(
+        select(UserRoleAssignment.id).where(
+            UserRoleAssignment.workspace_id == workspace_id,
+            UserRoleAssignment.user_id == user_id,
+        )
+    )
+    if source == "group":
+        assert await session.scalar(
+            select(GroupRoleAssignment.id).where(
+                GroupRoleAssignment.group_id == group_id,
+                GroupRoleAssignment.workspace_id.is_(None),
+            )
+        )
+    else:
+        assert await session.scalar(
+            select(UserRoleAssignment.id).where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )

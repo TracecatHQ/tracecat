@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: List security rules
+  description: List security rules with GET /restapi/{version}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api
+  namespace: tools.pan_os
+  name: list_security_rules
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    location:
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
+      default: vsys
+    vsys:
+      type: str
+      description: Virtual system when location is vsys.
+      default: vsys1
+    device_group:
+      type: str | None
+      description: Panorama device group when location is device-group.
+      default: null
+    rulebase:
+      type: str
+      description: 'Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.'
+      default: security
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    api_version:
+      type: str | None
+      description: PAN-OS REST API version, e.g. v11.1 or v10.2. Falls back to the workspace variable pan_os.api_version, then v11.1.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: list
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/restapi/${{ inputs.api_version || VARS.pan_os.api_version || "v11.1" }}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}
+        method: GET
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+          Accept: application/json
+        params:
+          location: ${{ inputs.location }}
+          vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
+          device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: normalize
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.list.result }}
+        script: |
+          def _entries(response):
+              data = response.get("data") if isinstance(response, dict) else None
+              if not isinstance(data, dict) or response.get("status_code") == 404:
+                  return []
+              entries = (data.get("result") or {}).get("entry") or []
+              return entries if isinstance(entries, list) else [entries]
+
+
+          def main(response):
+              return _entries(response)
+  returns: ${{ steps.normalize.result }}

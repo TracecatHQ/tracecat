@@ -39,15 +39,14 @@ def sandbox_resource_limit_message(*, memory_mb: int, memory_env_var: str) -> st
     """Return the user-facing explanation for a sandbox resource-limit failure.
 
     The message names the limits that can select this kind, plus the memory cap
-    the deployment configured, because the address-space cap is the limit a
-    workload most often hits. The process-count limit is deliberately absent:
+    the deployment configured. The process-count limit is deliberately absent:
     exhausting ``RLIMIT_NPROC`` fails process creation with ``EAGAIN`` inside
     the sandbox rather than killing the workload, so it never reaches here. The
     message carries no host paths and no sandbox-controlled text.
     """
     return (
         "The sandbox exceeded a resource limit (memory, CPU time, or file "
-        f"size). Memory is capped at {memory_mb} MB of address space by "
+        f"size). The sandbox memory budget is {memory_mb} MiB, configured by "
         f"{memory_env_var}."
     )
 

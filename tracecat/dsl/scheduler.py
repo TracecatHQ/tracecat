@@ -17,6 +17,7 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
+    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -33,7 +34,10 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         edge_components_from_dep,
     )
-    from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
+    from tracecat.dsl.constants import (
+        FIXED_ACTION_REFS_MEMO_KEY,
+        MAX_DO_WHILE_ITERATIONS,
+    )
     from tracecat.dsl.enums import (
         EdgeMarker,
         EdgeType,
@@ -113,6 +117,21 @@ def _loop_limit_error(message: str) -> ApplicationError:
         RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
             message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+def _scatter_args_error(ref: str, error: ValidationError) -> ApplicationError:
+    """Build a user-attributed failure for authored scatter arguments."""
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in detail['loc'])}: {detail['msg']}"
+        for detail in error.errors(include_input=False, include_url=False)
+    )
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            message=f"Scatter action '{ref}' has invalid arguments: {problems}",
             retry_disposition=RetryDisposition.NON_RETRYABLE,
         )
     )
@@ -258,9 +277,12 @@ class DSLScheduler:
         run_context: RunContext,
         logger: WorkflowRuntimeLogger | None = None,
         dependency_plan: DSLDependencyPlan | None = None,
+        fixed_action_results: dict[str, TaskResult] | None = None,
     ):
         # Static
         self.dsl = dsl
+        self.fixed_action_results = fixed_action_results or {}
+        self.applied_fixed_refs: list[str] = []
         self.dependency_plan = dependency_plan
         self.executor = executor
         if max_pending_tasks < 1:
@@ -888,6 +910,13 @@ class DSLScheduler:
             if stmt.action == PlatformAction.TRANSFORM_GATHER:
                 return await self._handle_gather(task, stmt)
 
+            if (
+                task.stream_id == ROOT_STREAM
+                and (fixed := self.fixed_action_results.get(ref)) is not None
+            ):
+                self._apply_fixed_result(task, fixed)
+                return await self._handle_success_path(task)
+
             # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
@@ -1147,6 +1176,11 @@ class DSLScheduler:
             try:
                 expr_result = await self.resolve_expression(run_if, context)
             except Exception as e:
+                # Sibling-failure cancellation is fallout, never the run's cause.
+                if is_cancelled_exception(e) and workflow.patched(
+                    WorkflowPatch.PRESERVE_RUN_IF_CANCELLATION
+                ):
+                    raise
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
                     non_retryable=True,
@@ -1304,7 +1338,10 @@ class DSLScheduler:
             self.logger.debug("Skipped scatter", task=task)
             return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
-        args = ScatterArgs(**stmt.args)
+        try:
+            args = ScatterArgs(**stmt.args)
+        except ValidationError as e:
+            raise _scatter_args_error(task.ref, e) from None
         context = self._build_collection_context(stmt, curr_stream_id)
 
         collection_key = action_collection_prefix(
@@ -1811,6 +1848,16 @@ class DSLScheduler:
         # Emit gather action in Temporal
         await self._execute(parent_gather, stmt)
         await self._queue_tasks(parent_gather)
+
+    def _apply_fixed_result(self, task: Task, result: TaskResult) -> None:
+        """Use a result from a previous run instead of executing the action."""
+        self.logger.debug("Using fixed action result", ref=task.ref)
+        self._get_action_context(task.stream_id)[task.ref] = result
+        self.applied_fixed_refs.append(task.ref)
+        if workflow.in_workflow():
+            workflow.upsert_memo(
+                {FIXED_ACTION_REFS_MEMO_KEY: list(self.applied_fixed_refs)}
+            )
 
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)

@@ -193,7 +193,7 @@ PAGES: list[dict[str, Any]] = [
 
             ## Timeouts
 
-            `timeout` caps active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+            `timeout` caps active runtime in seconds. Unset means 7200 seconds (2 hours), and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 10800 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape. A lower ceiling caps both the default and the minimum.
 
             ## Reference
             """
@@ -225,7 +225,7 @@ PAGES: list[dict[str, Any]] = [
 
             - `ai.agent`: Prompt plus tool calls. Use `actions` for Tracecat actions and `mcp_integrations` for saved MCP servers.
             - `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, skills, and MCP integrations across workflows.
-            - <Badge icon="lock" color="blue" size="sm" shape="pill">EE</Badge> `tool_approvals`: Require approval before selected tools run.
+            - `tool_approvals`: Require approval before selected tools run.
             - `max_tool_calls` and `max_requests`: Bound how much work the agent can do in a single run.
 
             ## Structured outputs
@@ -241,9 +241,11 @@ PAGES: list[dict[str, Any]] = [
 
             `ai.agent` can call tools from saved MCP integrations. Bring your own remote or `stdio` MCP server, or connect one from the catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. Select the saved integration in the action's `mcp_integrations` input, or save it on an agent preset with reusable instructions and tools and run it with `ai.preset_agent`.
 
+            Tool approvals and the agent inbox are open source. Require approval for specific tools with `tool_approvals`, or mark MCP tools as requiring approval on the integration, then review pending approvals in the agent inbox. See [Human-in-the-loop](/agents/human-in-the-loop).
+
             <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-            Enterprise adds tool approvals for MCP tools and the agent inbox for reviewing them.
+            Chatting with agents and approving tool calls from Slack through [agent channels](/agents/channels) is Enterprise-only.
 
             Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
@@ -251,9 +253,9 @@ PAGES: list[dict[str, Any]] = [
 
             ## Timeouts
 
-            The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+            The action's `timeout` caps the agent's active runtime in seconds. Unset means 7200 seconds (2 hours), and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 10800 seconds. A lower ceiling caps both the default and the minimum.
 
-            A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
+            A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 7200s`.
 
             See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape, and [Environment variables](/self-hosting/environment-variables) for the ceiling.
 

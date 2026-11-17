@@ -12,7 +12,7 @@ from tracecat.db.models import TableColumn
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.compiler import compile_filter
 from tracecat.query.filters import Condition, FilterOp
-from tracecat.query.resolver import FieldKind, FieldResolver
+from tracecat.query.resolver import FieldKind
 from tracecat.tables.common import sanitize_identifier
 from tracecat.tables.enums import SqlType
 from tracecat.tables.query import TableFieldResolver
@@ -347,9 +347,3 @@ def test_compiler_rejects_disallowed_operation() -> None:
         compile_filter(
             Condition(field="count", op=FilterOp.CONTAINS, value="4"), resolver
         )
-
-
-def test_satisfies_field_resolver_protocol() -> None:
-    resolver: FieldResolver = TableFieldResolver([])
-
-    assert resolver.resolve("missing") is None

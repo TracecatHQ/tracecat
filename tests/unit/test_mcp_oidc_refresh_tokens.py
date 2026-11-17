@@ -20,7 +20,7 @@ from tracecat.mcp.oidc.refresh_tokens import (
     revoke_family,
     rotate_refresh_token,
 )
-from tracecat.mcp.oidc.schemas import RefreshTokenMetadata
+from tracecat.mcp.oidc.schemas import RefreshTokenContext, RefreshTokenMetadata
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -51,6 +51,11 @@ async def test_user(session: AsyncSession, svc_organization: Organization) -> Us
     await session.commit()
     await session.refresh(user)
     return user
+
+
+async def _keep_grant(ctx: RefreshTokenContext) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    """Grant resolver that keeps the token's stored grant unchanged."""
+    return ctx.organization_id, ctx.metadata.organization_ids or [ctx.organization_id]
 
 
 def _make_metadata(**overrides) -> RefreshTokenMetadata:
@@ -255,7 +260,7 @@ async def test_rotate_refresh_token_issues_replacement_and_marks_old_used(
     )
 
     ctx, token_b = await rotate_refresh_token(
-        session, token=token_a, client_id=_TEST_CLIENT_ID
+        session, token=token_a, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
     )
 
     assert token_b
@@ -275,6 +280,49 @@ async def test_rotate_refresh_token_issues_replacement_and_marks_old_used(
     status_by_hash = {row.token_hash: row.status for row in rows}
     assert status_by_hash[_hash_token(token_a)] == "used"
     assert status_by_hash[_hash_token(token_b)] == "active"
+
+
+@pytest.mark.anyio
+async def test_rotate_refresh_token_persists_narrowed_grant(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    dropped = uuid.uuid4()
+    token_a = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(organization_ids=[svc_organization.id, dropped]),
+    )
+
+    async def resolve_grant(ctx):
+        return ctx.organization_id, [svc_organization.id]
+
+    ctx, token_b = await rotate_refresh_token(
+        session,
+        token=token_a,
+        client_id=_TEST_CLIENT_ID,
+        resolve_grant=resolve_grant,
+    )
+    await session.commit()
+    assert ctx.metadata.organization_ids == [svc_organization.id]
+
+    row_b = (
+        await session.execute(
+            select(MCPRefreshToken).where(
+                MCPRefreshToken.token_hash == _hash_token(token_b)
+            )
+        )
+    ).scalar_one()
+    assert row_b.granted_organization_ids == [svc_organization.id]
+
+    # The dropped org stays gone even if the next refresh doesn't narrow.
+    ctx_c, _ = await rotate_refresh_token(
+        session, token=token_b, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
+    )
+    assert ctx_c.metadata.organization_ids == [svc_organization.id]
 
 
 @pytest.mark.anyio
@@ -303,7 +351,7 @@ async def test_rotate_refresh_token_renews_expiry_window(
     await session.commit()
 
     ctx, token_b = await rotate_refresh_token(
-        session, token=token_a, client_id=_TEST_CLIENT_ID
+        session, token=token_a, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
     )
 
     row_b = (
@@ -332,11 +380,13 @@ async def test_rotate_refresh_token_replay_revokes_replacement_token(
     )
 
     ctx, token_b = await rotate_refresh_token(
-        session, token=token_a, client_id=_TEST_CLIENT_ID
+        session, token=token_a, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
     )
 
     with pytest.raises(RefreshTokenError) as exc_info:
-        await rotate_refresh_token(session, token=token_a, client_id=_TEST_CLIENT_ID)
+        await rotate_refresh_token(
+            session, token=token_a, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
+        )
     assert "replay" in exc_info.value.description.lower()
 
     rows = (
@@ -372,12 +422,14 @@ async def test_rotate_refresh_token_replay_revocation_survives_caller_rollback(
     )
 
     ctx, token_b = await rotate_refresh_token(
-        session, token=token_a, client_id=_TEST_CLIENT_ID
+        session, token=token_a, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
     )
     await session.commit()
 
     with pytest.raises(RefreshTokenError) as exc_info:
-        await rotate_refresh_token(session, token=token_a, client_id=_TEST_CLIENT_ID)
+        await rotate_refresh_token(
+            session, token=token_a, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
+        )
     assert "replay" in exc_info.value.description.lower()
 
     await session.rollback()
@@ -415,7 +467,12 @@ async def test_rotate_refresh_token_client_mismatch_revocation_survives_caller_r
     )
 
     with pytest.raises(RefreshTokenError) as exc_info:
-        await rotate_refresh_token(session, token=token, client_id="some-other-client")
+        await rotate_refresh_token(
+            session,
+            token=token,
+            client_id="some-other-client",
+            resolve_grant=_keep_grant,
+        )
     assert "client_id mismatch" in exc_info.value.description
 
     await session.rollback()
@@ -455,7 +512,9 @@ async def test_rotate_refresh_token_maps_metadata_decode_failure_to_invalid_gran
     await session.commit()
 
     with pytest.raises(RefreshTokenError) as exc_info:
-        await rotate_refresh_token(session, token=token, client_id=_TEST_CLIENT_ID)
+        await rotate_refresh_token(
+            session, token=token, client_id=_TEST_CLIENT_ID, resolve_grant=_keep_grant
+        )
     assert exc_info.value.oauth_error == "invalid_grant"
     assert "invalid or expired" in exc_info.value.description
 

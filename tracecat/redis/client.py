@@ -21,6 +21,7 @@ from tenacity import (
 
 from tracecat.config import REDIS_CHAT_TTL_SECONDS, REDIS_URL, REDIS_URL__ARN
 from tracecat.logger import logger
+from tracecat.redis.auth import close_redis_client, create_redis_client
 
 
 class StreamGroupNotFoundError(ResponseError):
@@ -38,7 +39,8 @@ def _response_error_code(error: ResponseError) -> str:
     return message.split(" ", 1)[0] if message else ""
 
 
-def _resolve_redis_url() -> str:
+def resolve_redis_url() -> str:
+    """Return ``REDIS_URL``, or the URL stored at ``REDIS_URL__ARN`` when set."""
     if not REDIS_URL__ARN:
         return REDIS_URL
 
@@ -106,15 +108,15 @@ class RedisClient:
 
     def _init_pool(self) -> None:
         """Ensure the Redis connection pool is initialized."""
-        if RedisClient._pool is None:
-            # Create connection pool
-            RedisClient._pool = redis.from_url(
-                _resolve_redis_url(),
+        if RedisClient._client is None:
+            RedisClient._client = create_redis_client(
+                resolve_redis_url(),
                 encoding="utf-8",
                 decode_responses=True,
                 max_connections=50,
                 health_check_interval=30,
-            ).connection_pool
+            )
+            RedisClient._pool = RedisClient._client.connection_pool
 
     async def _get_client(self) -> redis.Redis:
         """Get a Redis client bound to the current event loop."""
@@ -140,9 +142,8 @@ class RedisClient:
             self._init_pool()
 
         if RedisClient._client is None:
-            if RedisClient._pool is None:
-                raise RuntimeError("Redis connection pool not initialized")
-            RedisClient._client = redis.Redis(connection_pool=RedisClient._pool)
+            raise RuntimeError("Redis client not initialized")
+        if RedisClient._loop is None:
             RedisClient._loop = current_loop
 
         return RedisClient._client
@@ -618,6 +619,24 @@ class RedisClient:
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type((RedisError, RuntimeError)),
     )
+    async def getdel(self, key: str) -> str | None:
+        """Atomically get and delete a Redis key (GETDEL)."""
+        try:
+            client = await self._get_client()
+            result = await client.getdel(key)
+            if result is None:
+                return None
+            return str(result)
+        except (RedisError, RuntimeError) as e:
+            logger.error("Failed to get and delete Redis key", key=key, error=str(e))
+            await self._reset_connection()
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((RedisError, RuntimeError)),
+    )
     async def delete(self, key: str) -> int:
         """Delete a Redis key."""
         try:
@@ -632,13 +651,10 @@ class RedisClient:
         """Close the Redis connection."""
         closed = False
         if RedisClient._client:
-            await RedisClient._client.close()
-            RedisClient._client = None
+            await close_redis_client(RedisClient._client)
             closed = True
-        if RedisClient._pool:
-            await RedisClient._pool.disconnect()
-            RedisClient._pool = None
-            closed = True
+        RedisClient._client = None
+        RedisClient._pool = None
         RedisClient._loop = None
         if closed:
             logger.info("Redis connection closed")

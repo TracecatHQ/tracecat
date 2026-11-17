@@ -33,7 +33,7 @@ bootstrap = [
     "tracecat",
 ]
 dev = [
-    "pytest==8.3.2",
+    "pytest==9.0.3",
     "respx==0.22.0",
 ]
 

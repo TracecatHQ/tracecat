@@ -160,6 +160,26 @@ async def test_multi_workspace_overrides_match_effective_entitlement_check(
 
 
 @pytest.mark.anyio
+async def test_org_override_turns_on_agent_channels_preview(
+    session: AsyncSession, test_org: Organization
+) -> None:
+    """An org override enables the preview while its tier leaves it off."""
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"agent_channels": True},
+        entitlement_overrides={"agent_channels_preview": True},
+    )
+
+    effective = await TierService(session).get_effective_entitlements(test_org.id)
+
+    assert effective.agent_channels_preview is True
+    assert await is_org_entitled(
+        session, test_org.id, Entitlement.AGENT_CHANNELS_PREVIEW
+    )
+
+
+@pytest.mark.anyio
 async def test_entitlement_check_changes_when_tier_entitlement_is_updated(
     session: AsyncSession, test_org: Organization
 ) -> None:

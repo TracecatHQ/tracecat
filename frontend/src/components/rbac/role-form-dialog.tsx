@@ -8,6 +8,7 @@ import {
 } from "@/components/rbac/scope-category-row"
 import { Button } from "@/components/ui/button"
 import {
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -20,6 +21,7 @@ import {
   getCategoryScopes,
   type PermissionLevel,
   RESOURCE_CATEGORIES,
+  withoutDeprecatedScopes,
 } from "@/lib/rbac"
 
 export interface RoleFormDialogProps {
@@ -56,22 +58,25 @@ export function RoleFormDialog({
     new Set(initialData?.scopes?.map((s) => s.id) ?? [])
   )
 
-  const toggleScope = useCallback((scopeId: string, checked: boolean) => {
-    setSelectedScopeIds((prev) => {
-      const next = new Set(prev)
-      if (checked) {
-        next.add(scopeId)
-      } else {
-        next.delete(scopeId)
-      }
-      return next
-    })
-  }, [])
+  const toggleScope = useCallback(
+    (scopeId: string, checked: boolean) => {
+      setSelectedScopeIds((prev) => {
+        const next = withoutDeprecatedScopes(prev, scopes)
+        if (checked) {
+          next.add(scopeId)
+        } else {
+          next.delete(scopeId)
+        }
+        return next
+      })
+    },
+    [scopes]
+  )
 
   const handleLevelChange = useCallback(
     (categoryResources: string[], level: PermissionLevel) => {
       setSelectedScopeIds((prev) => {
-        const next = new Set(prev)
+        const next = withoutDeprecatedScopes(prev, scopes)
         // Get all scopes for this category
         const categoryScopes = getCategoryScopes(categoryResources, scopes)
         // Remove all scopes from this category
@@ -124,71 +129,64 @@ export function RoleFormDialog({
   }, [scopes, selectedScopeIds, filteredCategories])
 
   return (
-    <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-      <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+    <DialogContent size="lg" className="max-w-3xl">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        <DialogBody>
+          <div className="flex-1 min-h-0 space-y-4 overflow-hidden">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="role-name">Role name</Label>
+                <Input
+                  id="role-name"
+                  placeholder="e.g., Security Analyst"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="role-description">Description</Label>
+                <Input
+                  id="role-description"
+                  placeholder="Optional description"
+                  value={roleDescription}
+                  onChange={(e) => setRoleDescription(e.target.value)}
+                />
+              </div>
+            </div>
 
-        <div className="flex-1 min-h-0 space-y-4 py-4 overflow-hidden">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="role-name">Role name</Label>
-              <Input
-                id="role-name"
-                placeholder="e.g., Security Analyst"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="role-description">Description</Label>
-              <Input
-                id="role-description"
-                placeholder="Optional description"
-                value={roleDescription}
-                onChange={(e) => setRoleDescription(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex-1 min-h-0 space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Permissions ({scopeCounts} scopes selected)</Label>
-            </div>
-            <div className="text-xs text-muted-foreground mb-2">
-              Set permission levels by category, or expand to select individual
-              scopes.
-            </div>
-            <div className="h-[400px] overflow-y-auto rounded-md border">
-              <div className="divide-y divide-border/50">
-                {Object.entries(filteredCategories).map(([key, category]) => (
-                  <ScopeCategoryRow
-                    key={key}
-                    categoryKey={key}
-                    category={category}
-                    scopes={scopes}
-                    selectedScopeIds={selectedScopeIds}
-                    onScopeToggle={toggleScope}
-                    onLevelChange={handleLevelChange}
-                  />
-                ))}
+            <div className="flex-1 min-h-0 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Permissions ({scopeCounts} scopes selected)</Label>
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">
+                Set permission levels by category, or expand to select
+                individual scopes.
+              </div>
+              <div className="h-[400px] overflow-y-auto rounded-md border">
+                <div className="divide-y divide-border/50">
+                  {Object.entries(filteredCategories).map(([key, category]) => (
+                    <ScopeCategoryRow
+                      key={key}
+                      categoryKey={key}
+                      category={category}
+                      scopes={scopes}
+                      selectedScopeIds={selectedScopeIds}
+                      onScopeToggle={toggleScope}
+                      onLevelChange={handleLevelChange}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-
+        </DialogBody>
         <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!name.trim() || isPending}>
+          <Button size="sm" type="submit" disabled={!name.trim() || isPending}>
             {isPending
               ? initialData
                 ? "Saving..."

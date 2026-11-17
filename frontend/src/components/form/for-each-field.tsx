@@ -69,7 +69,7 @@ export function ForEachField() {
                   }}
                 >
                   <Plus className="mr-2 size-4" />
-                  Add Expression
+                  Add expression
                 </Button>
               </div>
             </FormControl>

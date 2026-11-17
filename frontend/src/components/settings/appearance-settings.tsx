@@ -3,6 +3,17 @@
 import { Monitor, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from "react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  type ChatVerbosity,
+  useChatVerbosityPreference,
+} from "@/hooks/use-chat-verbosity"
 import { cn } from "@/lib/utils"
 
 const THEME_OPTIONS = [
@@ -11,15 +22,22 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const
 
+const VERBOSITY_OPTIONS: { value: ChatVerbosity; label: string }[] = [
+  { value: "default", label: "Default" },
+  { value: "verbose", label: "Verbose" },
+  { value: "minimal", label: "Minimal" },
+]
+
 /**
- * Theme selector for the Settings modal Appearance section.
+ * The Settings modal Appearance section: theme and agent verbosity.
  *
  * Lets the user choose between light, dark, and system themes via
- * `next-themes`. Guards against SSR/hydration mismatches by treating the
+ * `next-themes`, and how much agent work chats draw. Guards against SSR/hydration mismatches by treating the
  * theme as unset until the component has mounted on the client.
  */
 export function AppearanceSettings() {
   const { theme, setTheme } = useTheme()
+  const [verbosity, setVerbosity] = useChatVerbosityPreference()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -61,6 +79,26 @@ export function AppearanceSettings() {
             )
           })}
         </div>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="agent-verbosity" className="text-sm font-medium">
+          Agent verbosity
+        </label>
+        <Select
+          value={verbosity}
+          onValueChange={(value) => setVerbosity(value as ChatVerbosity)}
+        >
+          <SelectTrigger id="agent-verbosity" className="max-w-md">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {VERBOSITY_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     </div>
   )

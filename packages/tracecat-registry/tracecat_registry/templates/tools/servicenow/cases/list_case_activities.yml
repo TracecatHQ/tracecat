@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: List case activities
+  description: List the activity stream (comments, work notes, and field changes) of a case with the Case API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/case-api.html#case-GET-case-activities
+  namespace: tools.servicenow
+  name: list_case_activities
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    id:
+      type: str
+      description: sys_id or case number.
+    sysparm_activity_type:
+      type: str | None
+      description: Activity types to return, e.g. comments or work_notes.
+      default: null
+    sysparm_limit:
+      type: int | None
+      description: Maximum number of records to return.
+      default: null
+    sysparm_offset:
+      type: int | None
+      description: Number of records to skip, for pagination.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_customerservice/case/${{ FN.url_encode(inputs.id) }}/activities
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_activity_type: ${{ inputs.sysparm_activity_type }}
+        sysparm_limit: ${{ inputs.sysparm_limit }}
+        sysparm_offset: ${{ inputs.sysparm_offset }}
+  returns: ${{ steps.request.result }}

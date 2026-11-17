@@ -62,7 +62,7 @@ async def create_schedule(
         logger.error("Error creating schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating schedule: {e}. Please try again or contact support.",
+            detail="Error creating schedule. Please try again or contact support.",
         ) from e
 
 
@@ -108,7 +108,7 @@ async def update_schedule(
         logger.error("Error updating schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update schedule: {e}. Please try again or contact support.",
+            detail="Failed to update schedule. Please try again or contact support.",
         ) from e
 
 
@@ -132,7 +132,7 @@ async def delete_schedule(
         logger.error("Error deleting schedule", error=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete schedule: {e}. Please try again or contact support.",
+            detail="Failed to delete schedule. Please try again or contact support.",
         ) from e
 
 

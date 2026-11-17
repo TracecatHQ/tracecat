@@ -4,6 +4,7 @@ Tests CollectionObject variant and chunked manifest storage.
 """
 
 import asyncio
+import json
 
 import pytest
 from botocore.exceptions import ClientError
@@ -18,235 +19,43 @@ from tracecat.storage import blob
 from tracecat.storage.collection import get_collection_item, store_collection
 from tracecat.storage.object import (
     CollectionObject,
-    ExternalObject,
-    InlineObject,
     ObjectRef,
     StoredObject,
     get_object_storage,
 )
 
 
-class TestCollectionObject:
-    """Tests for CollectionObject model."""
-
-    def test_create_collection_object(self):
-        """Test creating a CollectionObject with required fields."""
-        manifest_ref = ObjectRef(
-            bucket="test-bucket",
-            key="wf-123/stream-0/action-1/col-abc/manifest.json",
-            size_bytes=512,
-            sha256="manifest_hash",
-        )
-        collection = CollectionObject(
-            manifest_ref=manifest_ref,
-            count=1000,
-            chunk_size=256,
-            element_kind="value",
-        )
-
-        assert collection.type == "collection"
-        assert collection.manifest_ref is manifest_ref
-        assert collection.count == 1000
-        assert collection.chunk_size == 256
-        assert collection.element_kind == "value"
-        assert collection.schema_version == 1
-
-    def test_collection_object_stored_object_element_kind(self):
-        """Test CollectionObject with stored_object element kind."""
-        manifest_ref = ObjectRef(
-            bucket="bucket",
-            key="manifest.json",
-            size_bytes=256,
-            sha256="hash",
-        )
-        collection = CollectionObject(
-            manifest_ref=manifest_ref,
-            count=50,
-            chunk_size=10,
-            element_kind="stored_object",
-        )
-
-        assert collection.element_kind == "stored_object"
-
-    def test_collection_object_serialization_roundtrip(self):
-        """Test CollectionObject can be serialized and deserialized."""
-        manifest_ref = ObjectRef(
-            bucket="bucket",
-            key="key/manifest.json",
-            size_bytes=100,
-            sha256="deadbeef",
-        )
-        collection = CollectionObject(
-            manifest_ref=manifest_ref,
-            count=500,
-            chunk_size=100,
-            element_kind="value",
-        )
-
-        data = collection.model_dump()
-        restored = CollectionObject.model_validate(data)
-
-        assert restored.type == "collection"
-        assert restored.count == 500
-        assert restored.chunk_size == 100
-        assert restored.manifest_ref.key == "key/manifest.json"
-
-    def test_json_schema_requires_discriminator_type(self):
-        """OpenAPI schema should require discriminator `type`."""
-        required = CollectionObject.model_json_schema().get("required", [])
-        assert "type" in required
-
-    def test_model_dump_exclude_unset_includes_discriminator_type(self):
-        """Discriminator `type` must survive exclude_unset serialization."""
+class TestCollectionObjectModel:
+    def test_discriminator_type_is_required_and_serialized(self):
+        """OpenAPI requires `type`, and it survives exclude_unset serialization."""
         collection = CollectionObject(
             manifest_ref=ObjectRef(
-                bucket="bucket",
-                key="manifest.json",
-                size_bytes=256,
-                sha256="hash",
+                bucket="bucket", key="manifest.json", size_bytes=256, sha256="hash"
             ),
             count=50,
             chunk_size=10,
             element_kind="value",
         )
 
+        assert "type" in CollectionObject.model_json_schema().get("required", [])
         assert collection.model_dump(exclude_unset=True)["type"] == "collection"
 
-
-class TestStoredObjectUnionWithCollection:
-    """Tests for StoredObject union including CollectionObject."""
-
-    def test_type_adapter_validates_collection_object(self):
-        """Test TypeAdapter validates CollectionObject from dict."""
-        adapter = TypeAdapter(StoredObject)
-
-        collection_dict = {
-            "type": "collection",
-            "manifest_ref": {
-                "backend": "s3",
-                "bucket": "test-bucket",
-                "key": "manifest.json",
-                "size_bytes": 256,
-                "sha256": "abc123",
-            },
-            "count": 1000,
-            "chunk_size": 256,
-            "element_kind": "value",
-            "schema_version": 1,
-        }
-
-        collection = adapter.validate_python(collection_dict)
-        assert isinstance(collection, CollectionObject)
-        assert collection.count == 1000
-        assert collection.chunk_size == 256
-
     def test_type_adapter_json_roundtrip_collection(self):
-        """Test TypeAdapter can serialize and deserialize CollectionObject."""
+        """The StoredObject union round-trips CollectionObject through JSON."""
         adapter = TypeAdapter(StoredObject)
-
-        manifest_ref = ObjectRef(
-            bucket="bucket",
-            key="manifest.json",
-            size_bytes=128,
-            sha256="hash123",
-        )
         collection = CollectionObject(
-            manifest_ref=manifest_ref,
+            manifest_ref=ObjectRef(
+                bucket="bucket", key="manifest.json", size_bytes=128, sha256="hash123"
+            ),
             count=200,
             chunk_size=50,
             element_kind="stored_object",
         )
 
-        json_bytes = adapter.dump_json(collection)
-        restored = adapter.validate_json(json_bytes)
+        restored = adapter.validate_json(adapter.dump_json(collection))
 
         assert isinstance(restored, CollectionObject)
-        assert restored.count == 200
-        assert restored.element_kind == "stored_object"
-
-    def test_pattern_matching_with_collection(self):
-        """Test pattern matching works with all three variants."""
-        inline = InlineObject(data={"key": "value"})
-        external = ExternalObject(
-            ref=ObjectRef(bucket="b", key="k", size_bytes=10, sha256="h")
-        )
-        collection = CollectionObject(
-            manifest_ref=ObjectRef(
-                bucket="b", key="manifest.json", size_bytes=10, sha256="h"
-            ),
-            count=100,
-            chunk_size=25,
-            element_kind="value",
-        )
-
-        # Test inline matching
-        match inline:
-            case InlineObject(data=d):
-                assert d == {"key": "value"}
-            case ExternalObject():
-                pytest.fail("Should not match ExternalObject")
-            case CollectionObject():
-                pytest.fail("Should not match CollectionObject")
-
-        # Test external matching
-        match external:
-            case InlineObject():
-                pytest.fail("Should not match InlineObject")
-            case ExternalObject(ref=r):
-                assert r.bucket == "b"
-            case CollectionObject():
-                pytest.fail("Should not match CollectionObject")
-
-        # Test collection matching
-        match collection:
-            case InlineObject():
-                pytest.fail("Should not match InlineObject")
-            case ExternalObject():
-                pytest.fail("Should not match ExternalObject")
-            case CollectionObject(count=c, chunk_size=cs):
-                assert c == 100
-                assert cs == 25
-
-
-class TestCollectionManifestSchemas:
-    """Tests for manifest and chunk schemas."""
-
-    def test_manifest_v1_schema(self):
-        """Test CollectionManifestV1 schema."""
-        from tracecat.storage.collection import CollectionManifestV1
-
-        chunk_refs = [
-            ObjectRef(
-                bucket="b", key=f"chunks/{i}.json", size_bytes=100, sha256=f"hash{i}"
-            )
-            for i in range(4)
-        ]
-
-        manifest = CollectionManifestV1(
-            count=1000,
-            chunk_size=256,
-            element_kind="value",
-            chunks=chunk_refs,
-        )
-
-        assert manifest.kind == "tracecat.collection_manifest"
-        assert manifest.version == 1
-        assert manifest.count == 1000
-        assert len(manifest.chunks) == 4
-
-    def test_chunk_v1_schema(self):
-        """Test CollectionChunkV1 schema."""
-        from tracecat.storage.collection import CollectionChunkV1
-
-        chunk = CollectionChunkV1(
-            start=256,
-            items=[{"id": i} for i in range(100)],
-        )
-
-        assert chunk.kind == "tracecat.collection_chunk"
-        assert chunk.version == 1
-        assert chunk.start == 256
-        assert len(chunk.items) == 100
+        assert restored == collection
 
 
 class TestCollectionStorageFunctions:
@@ -330,26 +139,78 @@ class TestCollectionStorageFunctions:
         assert collection.element_kind == "value"
 
         # Verify blobs were created (100 items / 30 per chunk = 4 chunks)
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/manifest.json"
-            in mock_blob_storage
+        prefix = "wf-123/stream-0/action-1/col-abc"
+        manifest_ref = collection.manifest_ref
+        assert manifest_ref.key == f"{prefix}/manifest.{manifest_ref.sha256}.json"
+        assert f"test-bucket/{manifest_ref.key}" in mock_blob_storage
+
+        manifest = json.loads(mock_blob_storage[f"test-bucket/{manifest_ref.key}"])
+        assert len(manifest["chunks"]) == 4
+        for i, chunk_ref in enumerate(manifest["chunks"]):
+            assert chunk_ref["key"] == f"{prefix}/chunks/{i}.{chunk_ref['sha256']}.json"
+            assert f"test-bucket/{chunk_ref['key']}" in mock_blob_storage
+
+    @pytest.mark.anyio
+    async def test_store_collection_duplicate_attempts_do_not_overwrite(
+        self, mock_blob_storage
+    ):
+        """A late attempt with different content cannot change an accepted ref."""
+        from tracecat.storage.collection import (
+            materialize_collection_values,
+            store_collection,
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/0.json"
-            in mock_blob_storage
+
+        prefix = "wf-123/stream-0/action-1/col-race"
+        accepted = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/1.json"
-            in mock_blob_storage
+        late = await store_collection(
+            prefix=prefix, items=[4, 5, 6], chunk_size=2, bucket="test-bucket"
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/2.json"
-            in mock_blob_storage
+
+        assert accepted.manifest_ref.key != late.manifest_ref.key
+        assert await materialize_collection_values(accepted) == [1, 2, 3]
+        assert await materialize_collection_values(late) == [4, 5, 6]
+
+    @pytest.mark.anyio
+    async def test_store_collection_identical_retry_reuses_keys(
+        self, mock_blob_storage
+    ):
+        """Identical retries hash to the same manifest and chunk keys."""
+        from tracecat.storage.collection import store_collection
+
+        prefix = "wf-123/stream-0/action-1/col-retry"
+        first = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/3.json"
-            in mock_blob_storage
+        blob_count = len(mock_blob_storage)
+        second = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
         )
+
+        assert first.manifest_ref.key == second.manifest_ref.key
+        assert len(mock_blob_storage) == blob_count
+
+    @pytest.mark.anyio
+    async def test_store_collection_as_refs_identical_retry_reuses_keys(
+        self, mock_blob_storage
+    ):
+        """Item refs in stored_object chunks must not vary between attempts."""
+        from tracecat.dsl.action import _store_collection_as_refs
+        from tracecat.storage.backends import S3ObjectStorage
+        from tracecat.storage.object import reset_object_storage, set_object_storage
+
+        set_object_storage(S3ObjectStorage(bucket="test-bucket", threshold_bytes=0))
+        try:
+            prefix = "wf-123/stream-0/action-1/col-refs"
+            first = await _store_collection_as_refs(prefix, [{"a": 1}, {"b": 2}])
+            blob_count = len(mock_blob_storage)
+            second = await _store_collection_as_refs(prefix, [{"a": 1}, {"b": 2}])
+        finally:
+            reset_object_storage()
+
+        assert first.manifest_ref.key == second.manifest_ref.key
+        assert len(mock_blob_storage) == blob_count
 
     @pytest.mark.anyio
     async def test_store_collection_empty_list(self, mock_blob_storage):
@@ -365,7 +226,7 @@ class TestCollectionStorageFunctions:
         )
 
         assert collection.count == 0
-        assert "test-bucket/wf-123/empty/manifest.json" in mock_blob_storage
+        assert f"test-bucket/{collection.manifest_ref.key}" in mock_blob_storage
 
     @pytest.mark.anyio
     async def test_get_collection_page(self, mock_blob_storage):

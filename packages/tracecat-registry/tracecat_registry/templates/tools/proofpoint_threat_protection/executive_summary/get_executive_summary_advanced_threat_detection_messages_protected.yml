@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: "Get executive summary advanced threat detection messages protected"
+  description: "Get detailed metrics about messages protected by advanced threat detection, with breakdowns by threat type or other dimensions. Calls GET /api/v1/dash/reports/executive-summary/advanced-threat-detection-messages-protected."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Reports_API
+  namespace: tools.proofpoint_threat_protection
+  name: get_executive_summary_advanced_threat_detection_messages_protected
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    start:
+      type: str
+      description: "Start time for the reporting period in ISO 8601 UTC format."
+    end:
+      type: str
+      description: "End time for the reporting period in ISO 8601 UTC format."
+    breakdown:
+      type: str | None
+      description: "Breakdown dimension for the data. Valid values: by-threat-type, by-threat-category. Defaults to by-threat-type."
+      default: null
+    type:
+      type: str | None
+      description: "Message type filter (when breakdown=by-threat-type). Valid values: ALL, URL, ATTACHMENT, MESSAGE, HYBRID."
+      default: null
+    category:
+      type: str | None
+      description: "Message category filter (when breakdown=by-threat-category). Valid values: MALWARE, PHISHING, SPAM, BEC, TOAD."
+      default: null
+    groupBy:
+      type: str | None
+      description: "Time grouping for results. Valid values: DAY, WEEK, MONTH, QUARTER. Allowed values depend on date range: 0-13 days: DAY only; 14-30 days: DAY, WEEK; 31-89 days: DAY, WEEK, MONTH; 90 days: WEEK, MONTH, QUARTER. Defaults to DAY."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/executive-summary/advanced-threat-detection-messages-protected
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          end: ${{ inputs.end }}
+          breakdown: ${{ inputs.breakdown }}
+          type: ${{ inputs.type }}
+          category: ${{ inputs.category }}
+          groupBy: ${{ inputs.groupBy }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Get resource scan info
+  description: Returns a full breakdown of passed/failed statistics and associated policies for resources. Calls POST /v2/resource/scan_info directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/post-resource-scan-info-v-2/
+  namespace: tools.pan_prisma
+  name: get_resource_scan_info
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    filters:
+      type: list[dict[str, Any]] | None
+      description: 'Filtering parameters as a list of {"name": ..., "operator": "=", "value": ...} objects. For filter names and values, see the corresponding List Filters and filter suggestion APIs.'
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of items to return. When data is paginated, maximum number of items per page. The maximum cannot exceed 10,000.
+      default: null
+    offset:
+      type: int | None
+      description: The number of items to skip before selecting items to return. Default is zero.
+      default: null
+    pageToken:
+      type: str | None
+      description: Set to the nextPageToken from a response to return the next page of data.
+      default: null
+    sortBy:
+      type: list[str] | None
+      description: Sort properties. Append :asc or :desc to the key, e.g. id:asc.
+      default: null
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/v2/resource/scan_info
+      method: POST
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        filters: ${{ inputs.filters }}
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+        pageToken: ${{ inputs.pageToken }}
+        sortBy: ${{ inputs.sortBy }}
+  returns: ${{ steps.request.result }}

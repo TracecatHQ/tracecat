@@ -154,8 +154,8 @@ resource "aws_db_instance" "temporal_database" {
 # Local variables for database hostnames
 locals {
   snapshot_timestamp = formatdate("YYYY-MM-DD-hhmm", timestamp())
-  core_db_hostname   = sensitive(split(":", aws_db_instance.core_database.endpoint)[0])
-  temp_db_hostname   = var.disable_temporal_autosetup ? null : sensitive(split(":", aws_db_instance.temporal_database[0].endpoint)[0])
+  core_db_hostname   = split(":", aws_db_instance.core_database.endpoint)[0]
+  temp_db_hostname   = var.disable_temporal_autosetup ? null : split(":", aws_db_instance.temporal_database[0].endpoint)[0]
 }
 
 # Use the output of the `master_user_secret` object for core database

@@ -21,7 +21,6 @@ from collections.abc import Collection, Iterator, Mapping, Sequence
 from typing import Any, Literal, Protocol, cast
 
 import orjson
-from asyncpg import UniqueViolationError
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from sqlalchemy import delete, select
@@ -31,11 +30,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.db.common import DBConstraints
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
     build_action_statements_from_actions,
+    expects_key_order,
 )
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -56,6 +57,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
 )
 from tracecat.validation.service import validate_dsl
+from tracecat.workflow.actions.schemas import validate_control_flows
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
@@ -124,6 +126,7 @@ class _WorkflowEditDocumentSource(Protocol):
     error_handler: str | None
     entrypoint: str | None
     expects: dict[str, Any] | None
+    expects_order: list[str] | None
     config: dict[str, Any] | None
     returns: Any | None
     trigger_position_x: float | None
@@ -283,6 +286,7 @@ def build_workflow_edit_document(
                     entrypoint=DSLEntrypoint(
                         ref=workflow.entrypoint,
                         expects=workflow.expects,
+                        expects_order=workflow.expects_order,
                     ),
                     actions=action_statements,
                     config=DSLConfig.model_validate(workflow.config or {}),
@@ -403,6 +407,11 @@ def normalize_workflow_edit_document_for_persisted_revision(
     return WorkflowEditDocument.model_validate(payload)
 
 
+def _expects_key_order(document: WorkflowEditDocument) -> list[str]:
+    """The input order, which dict equality and sorted-key hashing both ignore."""
+    return list(document.definition.entrypoint.expects or {})
+
+
 def workflow_edit_document_changed_sections(
     original_document: WorkflowEditDocument,
     updated_document: WorkflowEditDocument,
@@ -413,9 +422,14 @@ def workflow_edit_document_changed_sections(
     updated_payload = workflow_edit_document_payload(
         canonicalize_workflow_edit_document(updated_document)
     )
-    return {
+    changed = {
         key for key in updated_payload if updated_payload[key] != original_payload[key]
     }
+    # A reorder alone leaves the definition equal and is saved on its own,
+    # without rewriting the action graph.
+    if _expects_key_order(original_document) != _expects_key_order(updated_document):
+        changed.add("expects_order")
+    return changed
 
 
 def compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
@@ -423,7 +437,9 @@ def compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
     payload = workflow_edit_document_payload(
         canonicalize_workflow_edit_document(document)
     )
-    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+    serialized = orjson.dumps(
+        [payload, _expects_key_order(document)], option=orjson.OPT_SORT_KEYS
+    )
     return hashlib.sha256(serialized).hexdigest()
 
 
@@ -581,7 +597,7 @@ def validate_workflow_patch_payload(payload: dict[str, Any]) -> WorkflowEditDocu
             },
         ) from exc
     except TracecatValidationError as exc:
-        # Nested ActionStatement validators (e.g. interaction + for_each) raise
+        # Nested ActionStatement validators can raise
         # a raw TracecatValidationError, not a Pydantic ValidationError, so it
         # bypasses the branch above. Surface it as a structured WorkflowEditError
         # too so the caller gets a 400/tool error to correct, never a 500.
@@ -705,15 +721,18 @@ async def validate_workflow_edit_document(
             dsl = workflow_edit_document_to_dsl(document)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
             raise WorkflowEditError(f"Invalid workflow definition: {exc}") from exc
+        validation_results: list[ValidationResult] = []
+        try:
+            validate_control_flows(dsl.actions)
+        except TracecatValidationError as exc:
+            validation_results.append(ValidationResult.from_dsl_error(exc))
         if validate_definition:
             if session is None or role is None:
                 raise RuntimeError("session and role are required for DSL validation")
-            validation_results = await validate_dsl(
-                session=session,
-                dsl=dsl,
-                role=role,
+            validation_results.extend(
+                await validate_dsl(session=session, dsl=dsl, role=role)
             )
-            _raise_dsl_validation_edit_error(validation_results)
+        _raise_dsl_validation_edit_error(validation_results)
     for schedule in document.schedules:
         try:
             schedule_create_from_payload(
@@ -918,6 +937,7 @@ async def persist_workflow_edit_document(
                 exclude_none=True
             )
             workflow.expects = entrypoint_data.get("expects") or {}
+            workflow.expects_order = expects_key_order(workflow.expects)
             workflow.returns = updated_document.definition.returns
             workflow.config = updated_document.definition.config.model_dump(mode="json")
             service.session.add(workflow)
@@ -929,6 +949,11 @@ async def persist_workflow_edit_document(
             )
             await service.session.flush()
             await service.session.refresh(workflow, ["actions"])
+    if "expects_order" in changed_sections and "definition" not in changed_sections:
+        workflow.expects_order = expects_key_order(
+            updated_document.definition.entrypoint.expects
+        )
+        service.session.add(workflow)
     if "metadata" in changed_sections:
         metadata = updated_document.metadata
         update_params = WorkflowUpdate(
@@ -996,16 +1021,13 @@ async def persist_workflow_edit_document(
         # commit. Map the unique violation to a recoverable WorkflowEditError so
         # the conflict surfaces as a 400/409 instead of a raw 500.
         await service.session.rollback()
-        cause: BaseException = exc
-        while cause.__cause__ is not None:
-            cause = cause.__cause__
-        if isinstance(
-            cause, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(cause):
-            raise WorkflowEditError(
-                DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg()
-            ) from exc
-        raise WorkflowEditError("Workflow already exists") from exc
+        if not is_unique_violation(
+            exc, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE
+        ):
+            raise
+        raise WorkflowEditError(
+            DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg()
+        ) from exc
     await service.session.refresh(workflow)
     if any(section in changed_sections for section in {"definition", "layout"}):
         await service.session.refresh(workflow, ["actions"])
@@ -1027,6 +1049,7 @@ async def replace_workflow_definition_from_dsl(
     workflow.entrypoint = dsl.entrypoint.ref
     entrypoint_data = dsl.entrypoint.model_dump()
     workflow.expects = entrypoint_data.get("expects") or {}
+    workflow.expects_order = expects_key_order(workflow.expects)
     workflow.returns = dsl.returns
     workflow.config = dsl.config.model_dump(mode="json")
     workflow.error_handler = dsl.error_handler

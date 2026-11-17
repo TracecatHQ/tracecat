@@ -1,2 +1,3 @@
 DEFAULT_ACTION_TIMEOUT = 300  # Seconds
 MAX_DO_WHILE_ITERATIONS = 2048
+FIXED_ACTION_REFS_MEMO_KEY = "tracecat_fixed_action_refs"

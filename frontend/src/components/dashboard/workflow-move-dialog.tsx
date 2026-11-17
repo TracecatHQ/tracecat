@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -96,7 +97,7 @@ export function WorkflowMoveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="sm" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Move workflow</DialogTitle>
           <DialogDescription>
@@ -105,64 +106,62 @@ export function WorkflowMoveDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="w-full flex items-center py-4">
-          <Popover
-            modal
-            open={openFolderSelect}
-            onOpenChange={setOpenFolderSelect}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={openFolderSelect}
-                className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
-              >
-                {selectedFolder ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <FolderIcon className="size-4 shrink-0" />
-                    <span
-                      className="truncate"
-                      title={
-                        selectedFolder === "/"
-                          ? ROOT_FOLDER_NAME
-                          : selectedFolder
-                      }
-                    >
-                      {selectedFolder === "/"
-                        ? ROOT_FOLDER_NAME
-                        : selectedFolder}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    Select a folder...
-                  </div>
-                )}
-                <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
-              portal={true}
+        <DialogBody>
+          <div className="w-full flex items-center">
+            <Popover
+              modal
+              open={openFolderSelect}
+              onOpenChange={setOpenFolderSelect}
             >
-              <FileTreeCommand
-                items={fileTreeItems}
-                onSelect={handleSelectFolder}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        <DialogFooter className="sm:justify-end">
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openFolderSelect}
+                  className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
+                >
+                  {selectedFolder ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <FolderIcon className="size-4 shrink-0" />
+                      <span
+                        className="truncate"
+                        title={
+                          selectedFolder === "/"
+                            ? ROOT_FOLDER_NAME
+                            : selectedFolder
+                        }
+                      >
+                        {selectedFolder === "/"
+                          ? ROOT_FOLDER_NAME
+                          : selectedFolder}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      Select a folder...
+                    </div>
+                  )}
+                  <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
+                portal={true}
+              >
+                <FileTreeCommand
+                  items={fileTreeItems}
+                  onSelect={handleSelectFolder}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </DialogBody>
+        <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={isLoading}
+            size="sm"
+            onClick={handleMove}
+            disabled={isLoading || !selectedFolder}
           >
-            Cancel
-          </Button>
-          <Button onClick={handleMove} disabled={isLoading || !selectedFolder}>
             {isLoading ? "Moving..." : "Move"}
           </Button>
         </DialogFooter>

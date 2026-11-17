@@ -135,8 +135,17 @@ async def test_auto_title_does_not_skip_when_history_exists(role: Role) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        TracecatNotFoundError("model missing"),
+        LLMCompletionError("provider down"),
+        TracecatValidationError("invalid model config"),
+    ],
+    ids=["not-found", "llm-completion", "validation"],
+)
 async def test_auto_title_does_not_raise_on_expected_generation_error(
-    role: Role,
+    role: Role, error: Exception
 ) -> None:
     session = AsyncMock()
     service = AgentSessionService(session, role)
@@ -150,63 +159,7 @@ async def test_auto_title_does_not_raise_on_expected_generation_error(
 
     with patch(
         "tracecat.agent.session.service.generate_session_title",
-        AsyncMock(side_effect=TracecatNotFoundError("model missing")),
-    ):
-        await service.auto_title_session_on_first_prompt(
-            agent_session,
-            "Find issue",
-            expected_title=agent_session.title,
-        )
-
-    session.execute.assert_not_awaited()
-    session.commit.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_auto_title_does_not_raise_on_llm_completion_error(
-    role: Role,
-) -> None:
-    session = AsyncMock()
-    service = AgentSessionService(session, role)
-    agent_session = AgentSession(
-        workspace_id=role.workspace_id,
-        title="New Chat",
-        entity_type="workflow",
-        entity_id=uuid.uuid4(),
-    )
-    agent_session.id = uuid.uuid4()
-
-    with patch(
-        "tracecat.agent.session.service.generate_session_title",
-        AsyncMock(side_effect=LLMCompletionError("provider down")),
-    ):
-        await service.auto_title_session_on_first_prompt(
-            agent_session,
-            "Find issue",
-            expected_title=agent_session.title,
-        )
-
-    session.execute.assert_not_awaited()
-    session.commit.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_auto_title_does_not_raise_on_validation_error(
-    role: Role,
-) -> None:
-    session = AsyncMock()
-    service = AgentSessionService(session, role)
-    agent_session = AgentSession(
-        workspace_id=role.workspace_id,
-        title="New Chat",
-        entity_type="workflow",
-        entity_id=uuid.uuid4(),
-    )
-    agent_session.id = uuid.uuid4()
-
-    with patch(
-        "tracecat.agent.session.service.generate_session_title",
-        AsyncMock(side_effect=TracecatValidationError("invalid model config")),
+        AsyncMock(side_effect=error),
     ):
         await service.auto_title_session_on_first_prompt(
             agent_session,

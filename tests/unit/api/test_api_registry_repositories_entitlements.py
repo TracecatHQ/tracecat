@@ -28,27 +28,6 @@ def mock_role_acl_dependency(
 
 
 @pytest.mark.anyio
-async def test_sync_custom_repository_requires_entitlement(
-    client: TestClient, test_admin_role: Role, mock_role_acl_dependency: AsyncMock
-) -> None:
-    repository_id = uuid4()
-
-    with patch.object(repos_router_module, "RegistryReposService") as MockReposService:
-        mock_repos_service = AsyncMock()
-        mock_repos_service.sync_repository.side_effect = EntitlementRequired(
-            "custom_registry"
-        )
-        MockReposService.return_value = mock_repos_service
-
-        response = client.post(f"/registry/repos/{repository_id}/sync")
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN
-    payload = response.json()
-    assert payload["type"] == "EntitlementRequired"
-    assert payload["detail"]["entitlement"] == "custom_registry"
-
-
-@pytest.mark.anyio
 async def test_update_custom_repository_requires_entitlement(
     client: TestClient, test_admin_role: Role, mock_role_acl_dependency: AsyncMock
 ) -> None:

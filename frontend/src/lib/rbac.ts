@@ -16,8 +16,10 @@ export const LEVEL_ACTIONS: Record<
 > = {
   none: [],
   read: ["read"],
-  write: ["read", "create", "update"],
-  execute: ["read", "execute"],
+  // Git sync mirrors the presets: editors push, admins also pull.
+  write: ["read", "create", "update", "push"],
+  // `submit` is how a form is executed: `form:submit`.
+  execute: ["read", "execute", "submit"],
   admin: [
     "read",
     "create",
@@ -27,6 +29,9 @@ export const LEVEL_ACTIONS: Record<
     "remove",
     "manage",
     "execute",
+    "push",
+    "pull",
+    "submit",
   ],
 }
 
@@ -39,6 +44,11 @@ export const RESOURCE_CATEGORIES: Record<
     label: "Workflows",
     description: "Workflow automation and execution",
     resources: ["workflow", "schedule"],
+  },
+  forms: {
+    label: "Forms",
+    description: "Forms, submitting them, and their submissions",
+    resources: ["form"],
   },
   cases: {
     label: "Cases",
@@ -57,13 +67,18 @@ export const RESOURCE_CATEGORIES: Record<
   },
   secrets: {
     label: "Secrets",
-    description: "Credential and secret management",
-    resources: ["secret"],
+    description: "Credential, secret, and network tunnel management",
+    resources: ["secret", "tunnel"],
   },
   integrations: {
     label: "Integrations",
     description: "OAuth and MCP integration management",
     resources: ["integration"],
+  },
+  gitSync: {
+    label: "Git sync",
+    description: "Push workspace resources to Git and pull them back",
+    resources: ["workspace_sync"],
   },
   workspace: {
     label: "Workspace",
@@ -155,6 +170,27 @@ export function getScopeActionLabel(scope: ScopeRead): string {
   return target
 }
 
+// Replaced by `workspace_sync:push` and `workspace_sync:pull`. Migrated roles
+// keep them until a contract migration, and older app versions still honor them
+// as push and pull. The editors list them under Git sync, show Custom while one
+// is selected, and drop them on any edit.
+const DEPRECATED_SCOPE_NAMES = new Set(["workflow:sync", "workspace_sync:sync"])
+
+/**
+ * Return `selected` without deprecated sync scopes. The permission editors
+ * call it on every edit so a saved role never keeps legacy Git sync access the
+ * editor did not show.
+ */
+export function withoutDeprecatedScopes(
+  selected: Iterable<string>,
+  scopes: ScopeRead[]
+): Set<string> {
+  const deprecatedIds = new Set(
+    scopes.filter((s) => DEPRECATED_SCOPE_NAMES.has(s.name)).map((s) => s.id)
+  )
+  return new Set([...selected].filter((id) => !deprecatedIds.has(id)))
+}
+
 /**
  * Get scopes that match a category's resources
  */
@@ -162,11 +198,14 @@ export function getCategoryScopes(
   categoryResources: string[],
   scopes: ScopeRead[]
 ): ScopeRead[] {
-  return scopes.filter((s) =>
-    categoryResources.some(
-      (r) => s.resource === r || s.resource.startsWith(`${r}:`)
+  return scopes.filter((s) => {
+    // `workflow:sync` granted Git sync, so it lives with the Git sync scopes,
+    // where setting a level removes it.
+    const resource = s.name === "workflow:sync" ? "workspace_sync" : s.resource
+    return categoryResources.some(
+      (r) => resource === r || resource.startsWith(`${r}:`)
     )
-  )
+  })
 }
 
 /**
@@ -200,14 +239,20 @@ export function getCategoryPermissionLevel(
   scopes: ScopeRead[],
   selectedScopeIds: Set<string>
 ): PermissionLevel {
-  const categoryScopes = getCategoryScopes(categoryResources, scopes)
-
-  if (categoryScopes.length === 0) return "none"
+  const allCategoryScopes = getCategoryScopes(categoryResources, scopes)
+  const categoryScopes = allCategoryScopes.filter(
+    (s) => !DEPRECATED_SCOPE_NAMES.has(s.name)
+  )
+  const hasDeprecatedSelected = allCategoryScopes.some(
+    (s) => DEPRECATED_SCOPE_NAMES.has(s.name) && selectedScopeIds.has(s.id)
+  )
 
   const selectedInCategory = categoryScopes.filter((s) =>
     selectedScopeIds.has(s.id)
   )
 
+  // Older app versions still honor a deprecated scope as push and pull.
+  if (hasDeprecatedSelected) return "mixed"
   if (selectedInCategory.length === 0) return "none"
   if (selectedInCategory.length === categoryScopes.length) return "admin"
 
@@ -263,4 +308,66 @@ export function groupScopesByResource(
     },
     {} as Record<string, ScopeRead[]>
   )
+}
+
+/** Mirrors `is_org_level_role` in tracecat/authz/scopes.py. */
+export function isOrgLevelRole(role: { scopes?: ScopeRead[] }): boolean {
+  return (role.scopes ?? []).some((scope) => scope.name.startsWith("org:"))
+}
+
+/**
+ * Roles to offer when editing an assignment. A current role that no longer
+ * fits the scope is returned separately so the dialog can still show it.
+ */
+export function rolesForAssignmentEdit<
+  T extends { id: string; scopes?: ScopeRead[] },
+>(
+  roles: T[],
+  workspaceId: string | null,
+  currentRoleId: string
+): { options: T[]; legacy: T | undefined } {
+  const options = rolesForScope(roles, workspaceId)
+  const legacy = options.some((role) => role.id === currentRoleId)
+    ? undefined
+    : roles.find((role) => role.id === currentRoleId)
+  return { options, legacy }
+}
+
+/** Roles assignable at a scope: org roles only org-wide; workspace roles anywhere. */
+export function rolesForScope<T extends { scopes?: ScopeRead[] }>(
+  roles: T[],
+  workspaceId: string | null
+): T[] {
+  return workspaceId === null
+    ? roles
+    : roles.filter((role) => !isOrgLevelRole(role))
+}
+
+/** Abbreviate a role name to its uppercased word initials. */
+export function abbreviateRoleName(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase()
+}
+
+/** Abbreviate a name to its first three non-space characters, uppercased. */
+export function abbreviateName(name: string): string {
+  return name.replace(/\s+/g, "").slice(0, 3).toUpperCase()
+}
+
+/** Map an organization role slug to the tier shown in the members table. */
+export function organizationTier(
+  roleSlug: string | null | undefined
+): "Owner" | "Admin" | "Member" {
+  switch (roleSlug) {
+    case "organization-owner":
+      return "Owner"
+    case "organization-admin":
+      return "Admin"
+    default:
+      return "Member"
+  }
 }

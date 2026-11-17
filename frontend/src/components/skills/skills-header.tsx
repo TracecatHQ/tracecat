@@ -2,19 +2,23 @@
 
 import { Cross2Icon } from "@radix-ui/react-icons"
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
   CalendarIcon,
   ChevronLeft,
   ChevronRight,
   Clock3,
   FolderIcon,
   ListIcon,
-  SearchIcon,
+  MousePointerClickIcon,
   TypeIcon,
 } from "lucide-react"
-import type { ComponentType } from "react"
-import { Input } from "@/components/ui/input"
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select"
+import { ListHeaderSearch } from "@/components/list-header-search"
+import {
+  type ListSortFieldOption,
+  ListSortSelect,
+  type ListSortValue,
+} from "@/components/list-sort-select"
+import type { SkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import {
   Select,
   SelectContent,
@@ -25,12 +29,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export type SkillsSortField = "updated_at" | "created_at" | "name"
-export type SkillsSortDirection = "asc" | "desc"
-
-export interface SkillsSortValue {
-  field: SkillsSortField
-  direction: SkillsSortDirection
-}
+export type SkillsSortValue = ListSortValue<SkillsSortField>
 
 export type SkillsViewMode = "folders" | "list"
 
@@ -39,11 +38,7 @@ export const DEFAULT_SKILL_SORT: SkillsSortValue = {
   direction: "desc",
 }
 
-const SORT_FIELD_OPTIONS: Array<{
-  value: SkillsSortField
-  label: string
-  icon: ComponentType<{ className?: string }>
-}> = [
+const SORT_FIELD_OPTIONS: Array<ListSortFieldOption<SkillsSortField>> = [
   { value: "updated_at", label: "Updated", icon: Clock3 },
   { value: "created_at", label: "Created", icon: CalendarIcon },
   { value: "name", label: "Name", icon: TypeIcon },
@@ -58,73 +53,12 @@ function isDefaultSort(value: SkillsSortValue): boolean {
   )
 }
 
-interface SortBySelectProps {
-  value: SkillsSortValue
-  onChange: (next: SkillsSortValue) => void
-}
-
-function SortBySelect({ value, onChange }: SortBySelectProps) {
-  const selectedLabel =
-    SORT_FIELD_OPTIONS.find((option) => option.value === value.field)?.label ??
-    "Updated"
-
-  return (
-    <div className="inline-flex items-center rounded-md border border-input bg-transparent">
-      <Select
-        value={value.field}
-        onValueChange={(nextField) =>
-          onChange({
-            field: nextField as SkillsSortField,
-            direction: value.direction,
-          })
-        }
-      >
-        <SelectTrigger className="h-6 w-[145px] rounded-r-none border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
-          <span className="text-muted-foreground">Sort by</span>
-          <span className="text-foreground">{selectedLabel}</span>
-        </SelectTrigger>
-        <SelectContent align="start">
-          {SORT_FIELD_OPTIONS.map((option) => {
-            const Icon = option.icon
-            return (
-              <SelectItem key={option.value} value={option.value}>
-                <span className="flex items-center gap-2">
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span>{option.label}</span>
-                </span>
-              </SelectItem>
-            )
-          })}
-        </SelectContent>
-      </Select>
-      <button
-        type="button"
-        className="flex h-6 w-7 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-        onClick={() =>
-          onChange({
-            field: value.field,
-            direction: value.direction === "asc" ? "desc" : "asc",
-          })
-        }
-        aria-label={
-          value.direction === "asc" ? "Sort ascending" : "Sort descending"
-        }
-      >
-        {value.direction === "asc" ? (
-          <ArrowUpIcon className="size-3.5" />
-        ) : (
-          <ArrowDownIcon className="size-3.5" />
-        )}
-      </button>
-    </div>
-  )
-}
-
 interface SkillsHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
   sortBy: SkillsSortValue
   onSortByChange: (value: SkillsSortValue) => void
+  agentFilter: SkillAgentFilter
   view: SkillsViewMode
   onViewChange: (view: SkillsViewMode) => void
   viewSwitchEnabled?: boolean
@@ -141,14 +75,14 @@ interface SkillsHeaderProps {
 
 /**
  * List header for the skills dashboard. Mirrors the workflows header layout
- * with a slimmed control set (no tags, webhooks, schedules, or case-trigger
- * filters).
+ * with a slimmed control set: search, sort, and an agent filter.
  */
 export function SkillsHeader({
   searchQuery,
   onSearchChange,
   sortBy,
   onSortByChange,
+  agentFilter,
   view,
   onViewChange,
   viewSwitchEnabled = true,
@@ -162,34 +96,25 @@ export function SkillsHeader({
   onNextPage,
   isPaginationLoading = false,
 }: SkillsHeaderProps) {
-  const hasFilters = searchQuery.trim().length > 0 || !isDefaultSort(sortBy)
+  const hasFilters =
+    searchQuery.trim().length > 0 ||
+    !isDefaultSort(sortBy) ||
+    agentFilter.active
 
   const handleReset = () => {
     onSearchChange("")
     onSortByChange(DEFAULT_SKILL_SORT)
+    if (agentFilter.active) agentFilter.setAgentIds([])
   }
 
   return (
     <div className="shrink-0 border-b">
-      <header className="flex h-10 items-center border-b pl-3 pr-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <SearchIcon className="size-4 text-muted-foreground" />
-          </div>
-          <Input
-            type="text"
-            placeholder="Search skills..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={cn(
-              "h-7 w-56 border-none bg-transparent p-0",
-              "text-sm",
-              "shadow-none outline-none",
-              "placeholder:text-muted-foreground",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
-            )}
-          />
-        </div>
+      <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+        <ListHeaderSearch
+          placeholder="Search skills..."
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -250,7 +175,22 @@ export function SkillsHeader({
             </SelectContent>
           </Select>
         ) : null}
-        <SortBySelect value={sortBy} onChange={onSortByChange} />
+        <ListSortSelect
+          value={sortBy}
+          onChange={onSortByChange}
+          options={SORT_FIELD_OPTIONS}
+        />
+        <FilterMultiSelect
+          placeholder="Agents"
+          icon={MousePointerClickIcon}
+          value={agentFilter.agentIds}
+          options={agentFilter.options}
+          onChange={agentFilter.setAgentIds}
+          mode="include"
+          onModeChange={() => {}}
+          allowExclude={false}
+          emptyMessage={agentFilter.emptyMessage}
+        />
 
         {hasFilters && (
           <button

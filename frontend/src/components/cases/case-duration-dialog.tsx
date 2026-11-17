@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -507,134 +508,302 @@ export function CaseDurationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px]">
+      <DialogContent size="xl" className="sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Time to resolution" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Choose a descriptive name for this duration metric.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Time to resolution" {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Choose a descriptive name for this duration metric.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      className="min-h-[100px] text-xs"
-                      placeholder="Optional context for this metric"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Provide additional context for the team (optional).
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        className="min-h-[100px] text-xs"
+                        placeholder="Optional context for this metric"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Provide additional context for the team (optional).
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-4 rounded-md border bg-muted/20 p-4">
-                <h4 className="flex items-center gap-2 text-sm font-medium">
-                  <Timer className="size-3.5 text-muted-foreground" />
-                  <span>From event</span>
-                </h4>
-                <FormField
-                  control={form.control}
-                  name="start.selection"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Occurrence</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CASE_DURATION_SELECTION_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-4 rounded-md border bg-muted/20 p-4">
+                  <h4 className="flex items-center gap-2 text-sm font-medium">
+                    <Timer className="size-3.5 text-muted-foreground" />
+                    <span>From event</span>
+                  </h4>
+                  <FormField
+                    control={form.control}
+                    name="start.selection"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Occurrence</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {CASE_DURATION_SELECTION_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="start.eventType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Event type</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) => {
+                            form.setValue("start.filterValues", [])
+                            form.setValue(
+                              "start.dropdownDefinitionId",
+                              undefined
+                            )
+                            form.setValue("start.dropdownOptionIds", [])
+                            field.onChange(value)
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {CASE_EVENT_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <option.icon className="size-3.5 text-muted-foreground" />
+                                  <span>{option.label}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {startFilterLabel &&
+                    !isCaseDropdownEventType(startEventType) && (
+                      <FormField
+                        control={form.control}
+                        name="start.filterValues"
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel className="text-xs">
+                              {startFilterLabel}
+                            </FormLabel>
+                            <FormControl className="w-full">
+                              <CaseFilterMultiSelect
+                                placeholder={`Select ${startFilterLabel.toLowerCase()}`}
+                                value={field.value ?? []}
+                                options={startFilterOptions}
+                                onChange={(nextValue) => {
+                                  field.onChange(nextValue)
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  {isCaseDropdownEventType(startEventType) && (
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="start.dropdownDefinitionId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs">Dropdown</FormLabel>
+                            <Select
+                              value={field.value ?? ""}
+                              onValueChange={(value) => {
+                                form.setValue("start.dropdownOptionIds", [])
+                                field.onChange(value)
+                              }}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select dropdown" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {dropdownDefinitions?.map((def) => (
+                                  <SelectItem key={def.id} value={def.id}>
+                                    {def.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      {startDropdownDefId && (
+                        <FormField
+                          control={form.control}
+                          name="start.dropdownOptionIds"
+                          render={({ field }) => (
+                            <FormItem className="space-y-2">
+                              <FormLabel className="text-xs">Option</FormLabel>
+                              <FormControl className="w-full">
+                                <CaseFilterMultiSelect
+                                  placeholder="Select option"
+                                  value={field.value ?? []}
+                                  options={startDropdownOptions}
+                                  onChange={(nextValue) => {
+                                    field.onChange(nextValue)
+                                  }}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </>
                   )}
-                />
-                <FormField
-                  control={form.control}
-                  name="start.eventType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Event type</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={(value) => {
-                          form.setValue("start.filterValues", [])
-                          form.setValue("start.dropdownDefinitionId", undefined)
-                          form.setValue("start.dropdownOptionIds", [])
-                          field.onChange(value)
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CASE_EVENT_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              <span className="flex items-center gap-2">
-                                <option.icon className="size-3.5 text-muted-foreground" />
-                                <span>{option.label}</span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {startFilterLabel &&
-                  !isCaseDropdownEventType(startEventType) && (
+                </div>
+
+                <div className="space-y-4 rounded-md border bg-muted/20 p-4">
+                  <h4 className="flex items-center gap-2 text-sm font-medium">
+                    <FlagTriangleRight className="size-3.5 text-muted-foreground" />
+                    <span>To event</span>
+                  </h4>
+                  <FormField
+                    control={form.control}
+                    name="end.selection"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Occurrence</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {CASE_DURATION_SELECTION_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="end.eventType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Event type</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) => {
+                            form.setValue("end.filterValues", [])
+                            form.setValue("end.dropdownDefinitionId", undefined)
+                            form.setValue("end.dropdownOptionIds", [])
+                            field.onChange(value)
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {CASE_EVENT_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <option.icon className="size-3.5 text-muted-foreground" />
+                                  <span>{option.label}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {endFilterLabel && !isCaseDropdownEventType(endEventType) && (
                     <FormField
                       control={form.control}
-                      name="start.filterValues"
+                      name="end.filterValues"
                       render={({ field }) => (
                         <FormItem className="space-y-2">
                           <FormLabel className="text-xs">
-                            {startFilterLabel}
+                            {endFilterLabel}
                           </FormLabel>
                           <FormControl className="w-full">
                             <CaseFilterMultiSelect
-                              placeholder={`Select ${startFilterLabel.toLowerCase()}`}
+                              placeholder={`Select ${endFilterLabel.toLowerCase()}`}
                               value={field.value ?? []}
-                              options={startFilterOptions}
+                              options={endFilterOptions}
                               onChange={(nextValue) => {
                                 field.onChange(nextValue)
                               }}
@@ -645,224 +814,67 @@ export function CaseDurationDialog({
                       )}
                     />
                   )}
-                {isCaseDropdownEventType(startEventType) && (
-                  <>
-                    <FormField
-                      control={form.control}
-                      name="start.dropdownDefinitionId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs">Dropdown</FormLabel>
-                          <Select
-                            value={field.value ?? ""}
-                            onValueChange={(value) => {
-                              form.setValue("start.dropdownOptionIds", [])
-                              field.onChange(value)
-                            }}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select dropdown" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {dropdownDefinitions?.map((def) => (
-                                <SelectItem key={def.id} value={def.id}>
-                                  {def.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    {startDropdownDefId && (
+                  {isCaseDropdownEventType(endEventType) && (
+                    <>
                       <FormField
                         control={form.control}
-                        name="start.dropdownOptionIds"
+                        name="end.dropdownDefinitionId"
                         render={({ field }) => (
-                          <FormItem className="space-y-2">
-                            <FormLabel className="text-xs">Option</FormLabel>
-                            <FormControl className="w-full">
-                              <CaseFilterMultiSelect
-                                placeholder="Select option"
-                                value={field.value ?? []}
-                                options={startDropdownOptions}
-                                onChange={(nextValue) => {
-                                  field.onChange(nextValue)
-                                }}
-                              />
-                            </FormControl>
+                          <FormItem>
+                            <FormLabel className="text-xs">Dropdown</FormLabel>
+                            <Select
+                              value={field.value ?? ""}
+                              onValueChange={(value) => {
+                                form.setValue("end.dropdownOptionIds", [])
+                                field.onChange(value)
+                              }}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select dropdown" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {dropdownDefinitions?.map((def) => (
+                                  <SelectItem key={def.id} value={def.id}>
+                                    {def.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div className="space-y-4 rounded-md border bg-muted/20 p-4">
-                <h4 className="flex items-center gap-2 text-sm font-medium">
-                  <FlagTriangleRight className="size-3.5 text-muted-foreground" />
-                  <span>To event</span>
-                </h4>
-                <FormField
-                  control={form.control}
-                  name="end.selection"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Occurrence</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CASE_DURATION_SELECTION_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="end.eventType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Event type</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={(value) => {
-                          form.setValue("end.filterValues", [])
-                          form.setValue("end.dropdownDefinitionId", undefined)
-                          form.setValue("end.dropdownOptionIds", [])
-                          field.onChange(value)
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {CASE_EVENT_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              <span className="flex items-center gap-2">
-                                <option.icon className="size-3.5 text-muted-foreground" />
-                                <span>{option.label}</span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {endFilterLabel && !isCaseDropdownEventType(endEventType) && (
-                  <FormField
-                    control={form.control}
-                    name="end.filterValues"
-                    render={({ field }) => (
-                      <FormItem className="space-y-2">
-                        <FormLabel className="text-xs">
-                          {endFilterLabel}
-                        </FormLabel>
-                        <FormControl className="w-full">
-                          <CaseFilterMultiSelect
-                            placeholder={`Select ${endFilterLabel.toLowerCase()}`}
-                            value={field.value ?? []}
-                            options={endFilterOptions}
-                            onChange={(nextValue) => {
-                              field.onChange(nextValue)
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-                {isCaseDropdownEventType(endEventType) && (
-                  <>
-                    <FormField
-                      control={form.control}
-                      name="end.dropdownDefinitionId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs">Dropdown</FormLabel>
-                          <Select
-                            value={field.value ?? ""}
-                            onValueChange={(value) => {
-                              form.setValue("end.dropdownOptionIds", [])
-                              field.onChange(value)
-                            }}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select dropdown" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {dropdownDefinitions?.map((def) => (
-                                <SelectItem key={def.id} value={def.id}>
-                                  {def.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
+                      {endDropdownDefId && (
+                        <FormField
+                          control={form.control}
+                          name="end.dropdownOptionIds"
+                          render={({ field }) => (
+                            <FormItem className="space-y-2">
+                              <FormLabel className="text-xs">Option</FormLabel>
+                              <FormControl className="w-full">
+                                <CaseFilterMultiSelect
+                                  placeholder="Select option"
+                                  value={field.value ?? []}
+                                  options={endDropdownOptions}
+                                  onChange={(nextValue) => {
+                                    field.onChange(nextValue)
+                                  }}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       )}
-                    />
-                    {endDropdownDefId && (
-                      <FormField
-                        control={form.control}
-                        name="end.dropdownOptionIds"
-                        render={({ field }) => (
-                          <FormItem className="space-y-2">
-                            <FormLabel className="text-xs">Option</FormLabel>
-                            <FormControl className="w-full">
-                              <CaseFilterMultiSelect
-                                placeholder="Select option"
-                                value={field.value ?? []}
-                                options={endDropdownOptions}
-                                onChange={(nextValue) => {
-                                  field.onChange(nextValue)
-                                }}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                  </>
-                )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-
+            </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitDisabled}>
+              <Button size="sm" type="submit" disabled={isSubmitDisabled}>
                 {submitLabel}
               </Button>
             </DialogFooter>

@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List isolation traffic exceptions
+  description: >-
+    Get network traffic exceptions for isolated endpoints. Retrieves the list of exceptions that
+    allow network traffic to and from isolated endpoints. Note: This method can only retrieve
+    the entire exception list at once. Calls GET /v3.0/response/isolatedTrafficExceptions.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint/paths/~1v3.0~1response~1isolatedTrafficExceptions/get
+  namespace: tools.trend_vision_one
+  name: list_isolation_traffic_exceptions
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    tmv1_filter:
+      type: str | None
+      description: >-
+        Filter for retrieving a subset of the network traffic exceptions list. Supported
+        fields: direction, ip, protocol, port. Sent as the TMV1-Filter header.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/response/isolatedTrafficExceptions
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+          TMV1-Filter: ${{ inputs.tmv1_filter }}
+  returns: ${{ steps.request.result }}

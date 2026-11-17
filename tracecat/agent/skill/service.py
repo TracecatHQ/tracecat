@@ -8,17 +8,14 @@ import hashlib
 import mimetypes
 import uuid
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import PurePosixPath
 from typing import Literal, Never
 
 import orjson
 import sqlalchemy as sa
 import yaml
-from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
-from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -34,6 +31,12 @@ from tracecat.agent.skill.frontmatter import (
     normalize_skill_markdown,
     parse_skill_markdown,
     split_skill_markdown_frontmatter,
+)
+from tracecat.agent.skill.manifest import (
+    SkillFileLimitViolation,
+    SkillFileSizeMetadata,
+    normalize_skill_path,
+    skill_file_limit_violation,
 )
 from tracecat.agent.skill.schemas import (
     SkillCreate,
@@ -72,6 +75,7 @@ from tracecat.agent.skill.validation import (
     get_mcp_grant_support_error,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersionSkill,
@@ -94,14 +98,15 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.storage import blob
 from tracecat.tags.schemas import TagRead
+from tracecat.workspace_sync.enums import SyncResourceType
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -109,6 +114,8 @@ DEFAULT_DOWNLOAD_TTL_SECONDS = 15 * 60
 MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
+# Object uploads in flight at once while materializing a batch of new blobs.
+BLOB_UPLOAD_CONCURRENCY = 8
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 SKILL_TOOL_ERROR_CODES = frozenset(
     {
@@ -118,7 +125,6 @@ SKILL_TOOL_ERROR_CODES = frozenset(
         STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
     }
 )
-POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
 EXPIRED_UPLOAD_REAP_BATCH_SIZE = 64
 # Skill origin is independent of its portable name or lookup slug.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
@@ -151,39 +157,6 @@ class SkillFileBlobRef:
 
     blob: SkillBlob
     content_type: str
-
-
-@dataclass(frozen=True, slots=True)
-class SkillFileSizeMetadata:
-    """Path and declared byte size used for skill-wide limit checks."""
-
-    path: str | None
-    size_bytes: int
-
-
-@dataclass(frozen=True, slots=True)
-class SkillFileLimitViolation:
-    """One deterministic skill-tree limit violation."""
-
-    code: str
-    message: str
-    path: str | None
-    actual_field: str
-    actual_value: int
-    limit_field: str
-    limit_value: int
-
-    def exception_detail(self) -> dict[str, str | int]:
-        """Return structured API error details for this violation."""
-
-        detail: dict[str, str | int] = {
-            "code": self.code,
-            self.actual_field: self.actual_value,
-            self.limit_field: self.limit_value,
-        }
-        if self.path is not None:
-            detail["path"] = self.path
-        return detail
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,59 +299,6 @@ type SkillDraftBlobMapFactory = Callable[
 type SkillBeforeCreateCommit = Callable[[Skill], Awaitable[None]]
 
 
-def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
-    """Yield every exception that may carry driver diagnostics for ``error``.
-
-    The real driver exception can hide behind SQLAlchemy or adapter wrappers,
-    so walk the ``__cause__``/``__context__`` chain of both the wrapper and
-    its DBAPI ``orig`` payload (asyncpg surfaces the violation there).
-    """
-
-    seen: set[int] = set()
-
-    def walk(exc: BaseException) -> Iterator[BaseException]:
-        current: BaseException | None = exc
-        while current is not None and id(current) not in seen:
-            seen.add(id(current))
-            yield current
-            current = current.__cause__ or current.__context__
-
-    yield from walk(error)
-    orig = error.orig
-    yield orig
-    if isinstance(orig, BaseException):
-        yield from walk(orig)
-
-
-def _is_skill_slug_unique_violation(error: IntegrityError) -> bool:
-    """True when ``error`` is a unique violation on the live-slug index.
-
-    Detection is structural (repo rule: never match on error-message strings)
-    and covers both drivers: a unique violation is the driver exception type
-    or SQLSTATE 23505 (asyncpg ``sqlstate`` / psycopg ``pgcode``), and the
-    violated constraint name comes from the exception itself (asyncpg) or its
-    ``diag`` block (psycopg).
-    """
-
-    is_unique = False
-    constraint_name: str | None = None
-    for source in _integrity_error_sources(error):
-        if isinstance(source, (AsyncpgUniqueViolationError, PsycopgUniqueViolation)):
-            is_unique = True
-        elif POSTGRES_UNIQUE_VIOLATION_SQLSTATE in (
-            getattr(source, "sqlstate", None),
-            getattr(source, "pgcode", None),
-        ):
-            is_unique = True
-        if constraint_name is None:
-            name = getattr(source, "constraint_name", None)
-            if not isinstance(name, str):
-                name = getattr(getattr(source, "diag", None), "constraint_name", None)
-            if isinstance(name, str):
-                constraint_name = name
-    return is_unique and constraint_name == SKILL_SLUG_UNIQUE_CONSTRAINT
-
-
 class SkillService(SkillBindingService):
     """CRUD operations and execution helpers for workspace skills."""
 
@@ -450,71 +370,7 @@ class SkillService(SkillBindingService):
             detail=violation.exception_detail(),
         )
 
-    @staticmethod
-    def _skill_file_limit_violation(
-        files: Sequence[SkillFileSizeMetadata],
-    ) -> SkillFileLimitViolation | None:
-        """Return the first deterministic skill-tree limit violation."""
-
-        if len(files) > config.TRACECAT__MAX_SKILL_FILES_COUNT:
-            return SkillFileLimitViolation(
-                code="skill_file_count_limit_exceeded",
-                message="Skill draft contains too many files",
-                path=None,
-                actual_field="file_count",
-                actual_value=len(files),
-                limit_field="max_file_count",
-                limit_value=config.TRACECAT__MAX_SKILL_FILES_COUNT,
-            )
-
-        manifest = next((file for file in files if file.path == "SKILL.md"), None)
-        if (
-            manifest is not None
-            and manifest.size_bytes > config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES
-        ):
-            return SkillFileLimitViolation(
-                code="skill_manifest_size_limit_exceeded",
-                message="Root SKILL.md exceeds the size limit",
-                path="SKILL.md",
-                actual_field="size_bytes",
-                actual_value=manifest.size_bytes,
-                limit_field="max_size_bytes",
-                limit_value=config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES,
-            )
-
-        oversized_file = max(
-            (
-                file
-                for file in files
-                if file.size_bytes > config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES
-            ),
-            key=lambda file: (file.size_bytes, file.path or ""),
-            default=None,
-        )
-        if oversized_file is not None:
-            return SkillFileLimitViolation(
-                code="skill_file_size_limit_exceeded",
-                message="Skill file exceeds the size limit",
-                path=oversized_file.path,
-                actual_field="size_bytes",
-                actual_value=oversized_file.size_bytes,
-                limit_field="max_size_bytes",
-                limit_value=config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES,
-            )
-
-        total_size_bytes = sum(file.size_bytes for file in files)
-
-        if total_size_bytes > config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES:
-            return SkillFileLimitViolation(
-                code="skill_total_size_limit_exceeded",
-                message="Skill draft exceeds the aggregate size limit",
-                path=None,
-                actual_field="total_size_bytes",
-                actual_value=total_size_bytes,
-                limit_field="max_total_size_bytes",
-                limit_value=config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES,
-            )
-        return None
+    _skill_file_limit_violation = staticmethod(skill_file_limit_violation)
 
     def _validate_skill_blob_map_limits(
         self, path_to_blob: dict[str, SkillFileBlobRef]
@@ -564,45 +420,7 @@ class SkillService(SkillBindingService):
             )
         )
 
-    @staticmethod
-    def _normalize_path(path: str) -> str:
-        """Normalize and validate a relative POSIX draft path.
-
-        Args:
-            path: User-provided file path.
-
-        Returns:
-            The normalized relative POSIX path.
-
-        Raises:
-            TracecatValidationError: If the path is empty, absolute, or escapes
-                the skill root.
-        """
-
-        if "\\" in path:
-            raise TracecatValidationError(
-                f"Skill paths must use POSIX separators: {path!r}",
-                detail={"code": "invalid_path", "path": path},
-            )
-
-        path_obj = PurePosixPath(path)
-        normalized = str(path_obj)
-        if normalized in {"", "."}:
-            raise TracecatValidationError(
-                "Skill path cannot be empty",
-                detail={"code": "invalid_path", "path": path},
-            )
-        if path_obj.is_absolute() or ".." in path_obj.parts:
-            raise TracecatValidationError(
-                f"Skill path cannot escape the skill root: {path!r}",
-                detail={"code": "invalid_path", "path": path},
-            )
-        if normalized != path:
-            raise TracecatValidationError(
-                f"Skill path must already be normalized: {path!r}",
-                detail={"code": "invalid_path", "path": path},
-            )
-        return normalized
+    _normalize_path = staticmethod(normalize_skill_path)
 
     @staticmethod
     def _guess_content_type(path: str) -> str:
@@ -793,44 +611,85 @@ class SkillService(SkillBindingService):
             The deduplicated blob row.
         """
 
-        sha256 = self._compute_sha256(content)
-        existing = await self._get_blob_by_identity(sha256=sha256)
-        if existing is not None:
-            return existing
+        [blob_row] = await self._get_or_create_blobs([content], published=published)
+        return blob_row
 
-        storage_key = self._storage_key_for(sha256)
-        claim = await self._claim_blob_publication(
-            sha256=sha256,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            key=storage_key,
-            size_bytes=len(content),
-        )
-        if not claim.is_owner:
-            return claim.blob
+    async def _get_or_create_blobs(
+        self,
+        contents: Sequence[bytes],
+        *,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> list[SkillBlob]:
+        """Create or reuse content-addressed skill blobs, uploading in parallel.
 
-        # Record the prospective key before the network call: a CancelledError
-        # can arrive after object storage accepts the upload but before the
+        Rows are claimed one at a time, in digest order, on the shared session.
+        Only the object uploads, which never touch the session, run
+        concurrently.
+
+        Args:
+            contents: Blob payloads.
+            published: Collector for objects this call writes for new,
+                still-uncommitted blob rows, so a caller that rolls back can
+                delete them. Reused rows are never recorded.
+
+        Returns:
+            The deduplicated blob rows, in the order of ``contents``.
+        """
+
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        digests = [self._compute_sha256(content) for content in contents]
+        rows_by_sha256: dict[str, SkillBlob] = {}
+        uploads: list[tuple[SkillBlob, bytes]] = []
+        for sha256, content in sorted(
+            dict(zip(digests, contents, strict=True)).items()
+        ):
+            existing = await self._get_blob_by_identity(sha256=sha256)
+            if existing is not None:
+                rows_by_sha256[sha256] = existing
+                continue
+            claim = await self._claim_blob_publication(
+                sha256=sha256,
+                bucket=bucket,
+                key=self._storage_key_for(sha256),
+                size_bytes=len(content),
+            )
+            rows_by_sha256[sha256] = claim.blob
+            if claim.is_owner:
+                uploads.append((claim.blob, content))
+
+        # Record the prospective keys before the network calls: a CancelledError
+        # can arrive after object storage accepts an upload but before the
         # client receives its response. Rollback cleanup may therefore issue a
         # harmless no-op delete when the upload did not create an object.
         if published is not None:
-            published.append(
-                PublishedBlobObject(
-                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                    key=storage_key,
+            published.extend(
+                PublishedBlobObject(bucket=bucket, key=blob_row.key)
+                for blob_row, _ in uploads
+            )
+        semaphore = asyncio.Semaphore(BLOB_UPLOAD_CONCURRENCY)
+
+        async def upload(blob_row: SkillBlob, content: bytes) -> None:
+            async with semaphore:
+                await blob.upload_file(
+                    content=content,
+                    key=blob_row.key,
+                    bucket=bucket,
+                    content_type="application/octet-stream",
+                    redact_log_identifiers=True,
                 )
-            )
-        try:
-            await blob.upload_file(
-                content=content,
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                content_type="application/octet-stream",
-                redact_log_identifiers=True,
-            )
-        except Exception:
-            await self.session.delete(claim.blob)
-            raise
-        return claim.blob
+
+        results = await asyncio.gather(
+            *(upload(blob_row, content) for blob_row, content in uploads),
+            return_exceptions=True,
+        )
+        errors: list[BaseException] = []
+        for (blob_row, _), result in zip(uploads, results, strict=True):
+            if isinstance(result, BaseException):
+                await self.session.delete(blob_row)
+                errors.append(result)
+        if errors:
+            raise errors[0]
+        return [rows_by_sha256[sha256] for sha256 in digests]
 
     async def _delete_published_blob_objects_best_effort(
         self, published: Sequence[PublishedBlobObject]
@@ -1184,16 +1043,11 @@ class SkillService(SkillBindingService):
         ]
         mcp_tool_ids = [tool_id for tool_id in tool_ids if tool_id.startswith("mcp.")]
 
-        missing_registry_tools: set[str] = set()
-        if registry_tool_ids:
-            registry_service = RegistryActionsService(self.session, role=self.role)
-            index_entries = await registry_service.list_actions_from_index(
-                include_keys=set(registry_tool_ids)
-            )
-            available_registry_tools = {
-                f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
-            }
-            missing_registry_tools = set(registry_tool_ids) - available_registry_tools
+        missing_registry_tools = set(
+            await SkillToolDependencyService(
+                self.session, role=self.role
+            ).missing_registry_tools(registry_tool_ids)
+        )
 
         integrations = (
             await IntegrationService(
@@ -1944,6 +1798,9 @@ class SkillService(SkillBindingService):
         """Create a skill and draft, then atomically run optional preparation."""
 
         for _ in range(SKILL_SLUG_INSERT_ATTEMPTS):
+            # Every create path comes through here. A failed attempt rolls
+            # back and releases the lock, so take it again on each try.
+            await hold_for_customer_write(self.session, self.workspace_id)
             slug = await self._allocate_skill_slug(name)
             skill = Skill(
                 workspace_id=self.workspace_id,
@@ -1973,7 +1830,7 @@ class SkillService(SkillBindingService):
                 if not committing:
                     await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
-                if not _is_skill_slug_unique_violation(exc):
+                if not is_unique_violation(exc, SKILL_SLUG_UNIQUE_CONSTRAINT):
                     raise
             except BaseException:
                 # BaseException so a CancelledError from the MCP tool timeout
@@ -2141,8 +1998,20 @@ class SkillService(SkillBindingService):
     async def _get_skill_for_update(
         self, skill_id: uuid.UUID, *, include_archived: bool = False
     ) -> Skill | None:
-        """Return and lock a skill row for mutation."""
+        """Return and lock a skill row for mutation.
 
+        Every skill write loads its row here, so this is where a managed
+        skill's content, files, versions and deletion are locked.
+
+        Raises:
+            ManagedResourceLockedError: The skill is managed.
+        """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.SKILL,
+            local_id=skill_id,
+        )
         predicates = [
             Skill.workspace_id == self.workspace_id,
             Skill.id == skill_id,
@@ -2169,6 +2038,7 @@ class SkillService(SkillBindingService):
         Returns:
             The created skill summary.
         """
+        await hold_for_customer_write(self.session, self.workspace_id)
 
         async def default_draft_blob_map(
             published: list[PublishedBlobObject],

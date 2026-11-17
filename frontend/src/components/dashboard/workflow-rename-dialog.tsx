@@ -9,6 +9,7 @@ import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -114,32 +115,41 @@ export function WorkflowRenameDialog({
         onOpenChange(isOpen)
       }}
     >
-      <DialogContent>
-        <DialogHeader className="space-y-4">
+      <DialogContent size="sm">
+        <DialogHeader>
           <DialogTitle>Rename workflow</DialogTitle>
           <DialogDescription>
             Enter a new name for the workflow.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    Name
-                  </FormLabel>
-                  <FormControl>
-                    <Input autoFocus {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2 text-xs">
+                      Name
+                    </FormLabel>
+                    <FormControl>
+                      <Input autoFocus {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={updateWorkflowIsPending}>
+              <Button
+                size="sm"
+                type="submit"
+                disabled={updateWorkflowIsPending}
+              >
                 {updateWorkflowIsPending && <Spinner className="mr-2 size-4" />}
                 Rename workflow
               </Button>

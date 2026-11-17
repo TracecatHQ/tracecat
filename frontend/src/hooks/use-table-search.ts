@@ -11,6 +11,7 @@ import {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /** Shared cache prefix for selection, status and bounded progress. */
@@ -47,12 +48,16 @@ export function useTableSearch(workspaceId: string, tableId: string) {
   const canReadTable = useScopeCheck("table:read") === true
   const canUpdate = useScopeCheck("table:update") === true
   const canRead = canReadWorkspace && canReadTable
+  const { hasEntitlement, isLoading, hasEntitlementData } = useEntitlements()
+  const entitled = hasEntitlement("semantic_search")
+  // Only confirmed entitlement data may lock the UI; unknown stays hidden.
+  const locked = !isLoading && hasEntitlementData && !entitled
   const client = useQueryClient()
   const key = tableSearchKey(workspaceId, tableId)
   const configuration = useQuery({
     queryKey: [...key, "configuration"],
     queryFn: () => tablesGetTableSearch({ workspaceId, tableId }),
-    enabled: canRead,
+    enabled: canRead && entitled,
     retry: false,
     meta: { suppressErrorToast: true },
     refetchInterval: (query) =>
@@ -69,7 +74,7 @@ export function useTableSearch(workspaceId: string, tableId: string) {
   const provider = useQuery({
     queryKey: ["embedding-configuration", workspaceId],
     queryFn: () => searchGetEmbeddingConfiguration({ workspaceId }),
-    enabled: canRead,
+    enabled: canRead && entitled,
     retry: false,
     meta: { suppressErrorToast: true },
     refetchInterval: (query) =>
@@ -94,7 +99,7 @@ export function useTableSearch(workspaceId: string, tableId: string) {
       description:
         error.status === 409
           ? "The latest settings have been refreshed. Try again."
-          : "Refresh to confirm the current state, then try again.",
+          : "Try again in a moment.",
       variant: "destructive",
     })
     void refresh()
@@ -140,10 +145,11 @@ export function useTableSearch(workspaceId: string, tableId: string) {
     tableId,
     canRead,
     canUpdate,
+    entitled,
+    locked,
     configuration,
     provider,
     selection,
     retry,
-    refresh,
   }
 }

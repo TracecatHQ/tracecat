@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any, Literal
 
 import numpy as np
@@ -22,6 +23,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Column,
     Enum,
     FetchedValue,
     Float,
@@ -34,23 +36,28 @@ from sqlalchemy import (
     LargeBinary,
     MetaData,
     PrimaryKeyConstraint,
+    Select,
     String,
     Text,
     UniqueConstraint,
     and_,
+    cast,
+    exists,
     func,
+    literal,
     null,
     select,
     text,
     type_coerce,
     union_all,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
+    QueryableAttribute,
     mapped_column,
     relationship,
 )
@@ -58,6 +65,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -72,7 +80,9 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
     CaseVersionField,
+    CaseViewVisibility,
 )
+from tracecat.forms.enums import FormStatus
 from tracecat.identifiers import (
     OrganizationID,
     OwnerID,
@@ -81,8 +91,13 @@ from tracecat.identifiers import (
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
-from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.managed_resources.enums import (
+    ManagedReferenceKind,
+    ManagedRolloutKind,
+    ManagedRolloutStatus,
+    ManagedTargetStatus,
+)
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
 from tracecat.workspaces.schemas import WorkspaceSettings
@@ -94,6 +109,25 @@ CASE_SEVERITY_ENUM = Enum(CaseSeverity, name="caseseverity")
 CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
+
+
+class InteractionStatus(StrEnum):
+    """Status of a legacy workflow interaction row."""
+
+    IDLE = "idle"
+    PENDING = "pending"
+    ERROR = "error"
+    TIMED_OUT = "timed_out"
+    COMPLETED = "completed"
+
+
+class InteractionType(StrEnum):
+    """Type of a legacy workflow interaction row."""
+
+    APPROVAL = "approval"
+    RESPONSE = "response"
+
+
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
@@ -104,6 +138,48 @@ SCIM_CONNECTION_STATUS_ENUM = Enum(
     native_enum=False,
     length=32,
     values_callable=lambda enum: [status.value for status in enum],
+    validate_strings=True,
+)
+# Managed resource enums store lowercase VARCHAR values, so new members need no
+# migration.
+MANAGED_TARGET_STATUS_ENUM = Enum(
+    ManagedTargetStatus,
+    name="managedtargetstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_ROLLOUT_KIND_ENUM = Enum(
+    ManagedRolloutKind,
+    name="managedrolloutkind",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_ROLLOUT_STATUS_ENUM = Enum(
+    ManagedRolloutStatus,
+    name="managedrolloutstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+MANAGED_REFERENCE_KIND_ENUM = Enum(
+    ManagedReferenceKind,
+    name="managedreferencekind",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+CASE_VIEW_VISIBILITY_ENUM = Enum(
+    CaseViewVisibility,
+    name="caseviewvisibility",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
     validate_strings=True,
 )
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -412,6 +488,16 @@ class Workspace(OrganizationModel):
         unique=True,
     )
     name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    default_agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey(
+            "agent_preset.id",
+            name="fk_workspace_default_agent_preset_id_agent_preset",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
     last_case_number: Mapped[int] = mapped_column(
         Integer,
         default=0,
@@ -465,6 +551,7 @@ class Workspace(OrganizationModel):
     agent_presets: Mapped[list[AgentPreset]] = relationship(
         "AgentPreset",
         back_populates="workspace",
+        foreign_keys="AgentPreset.workspace_id",
         cascade="all, delete",
     )
     agent_folders: Mapped[list[AgentFolder]] = relationship(
@@ -479,6 +566,11 @@ class Workspace(OrganizationModel):
     )
     skill_folders: Mapped[list[SkillFolder]] = relationship(
         "SkillFolder",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
+    table_folders: Mapped[list[TableFolder]] = relationship(
+        "TableFolder",
         back_populates="workspace",
         cascade="all, delete",
     )
@@ -529,6 +621,37 @@ class Workspace(OrganizationModel):
     )
 
 
+class WorkspaceSyncOperation(WorkspaceModel):
+    """Durable Git sync state; large prepared artifacts live in object storage."""
+
+    __tablename__ = "workspace_sync_operation"
+    __table_args__ = (
+        Index(
+            "ix_workspace_sync_operation_workspace_created",
+            "workspace_id",
+            "actor_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    direction: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(32))
+    stage: Mapped[str] = mapped_column(String(32))
+    # Pydantic contracts validate these JSON documents at every read/write boundary.
+    inputs: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    actor: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    summary: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    result: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    artifact_key: Mapped[str | None] = mapped_column(Text)
+    commit_sha: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class WorkspaceSyncResourceMapping(WorkspaceModel):
     """Maps portable sync source identities to workspace-local resource UUIDs."""
 
@@ -562,6 +685,204 @@ class WorkspaceSyncResourceMapping(WorkspaceModel):
     local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
 
     workspace: Mapped[Workspace] = relationship(back_populates="sync_resource_mappings")
+
+
+class ManagedResource(WorkspaceModel):
+    """A resource in a target workspace that a managed rollout owns.
+
+    This does not reuse ``workspace_sync_resource_mapping``. That table is keyed
+    per workspace and provider and is shared with the customer's own Git sync.
+    Managed rollouts keep their own rows so neither flow adopts the other's.
+    """
+
+    __tablename__ = "managed_resource"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "local_id",
+            name="uq_managed_resource_local",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "source_id",
+            name="uq_managed_resource_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    source_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_path: Mapped[str] = mapped_column(String, nullable=False)
+    deployed_tag: Mapped[str] = mapped_column(String(255), nullable=False)
+    deployed_commit_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    deployed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    rollout_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("managed_rollout.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="The rollout that last wrote this resource.",
+    )
+
+
+class ManagedTarget(WorkspaceModel):
+    """A customer workspace assigned to receive the managed resource package."""
+
+    __tablename__ = "managed_target"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_managed_target_workspace_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    pinned_tag: Mapped[str] = mapped_column(String(255), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    last_rollout_status: Mapped[ManagedTargetStatus] = mapped_column(
+        MANAGED_TARGET_STATUS_ENUM,
+        default=ManagedTargetStatus.PENDING,
+        server_default=text("'pending'"),
+        nullable=False,
+    )
+    last_applied_tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_rollout_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class ManagedReferenceMatch(WorkspaceModel):
+    """Maps a source-side reference to its resolution in a target workspace."""
+
+    __tablename__ = "managed_reference_match"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "reference_kind",
+            "source_key",
+            name="uq_managed_reference_match_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    reference_kind: Mapped[ManagedReferenceKind] = mapped_column(
+        MANAGED_REFERENCE_KIND_ENUM, nullable=False
+    )
+    # Source model catalog entry UUID or MCP integration UUID as text, or a
+    # source secret store name.
+    source_key: Mapped[str] = mapped_column(String, nullable=False)
+    # Target workspace's model catalog entry, MCP integration or secret store id.
+    # No FK because the referenced table depends on reference_kind. NULL leaves
+    # the reference unlinked.
+    resolved_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+
+
+class ManagedRollout(WorkspaceModel):
+    """One preview-then-apply of a tag, or an unassign, for one target.
+
+    The preview is stored so apply can check it still describes the target:
+    ``state_fingerprint`` hashes the target's managed rows and conflicting
+    names at preview time.
+    """
+
+    __tablename__ = "managed_rollout"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    target_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("managed_target.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[ManagedRolloutKind] = mapped_column(
+        MANAGED_ROLLOUT_KIND_ENUM, nullable=False
+    )
+    status: Mapped[ManagedRolloutStatus] = mapped_column(
+        MANAGED_ROLLOUT_STATUS_ENUM,
+        default=ManagedRolloutStatus.PREVIEWING,
+        nullable=False,
+    )
+    tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    preview: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    state_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class ManagedPresetSkillBinding(WorkspaceModel):
+    """A skill binding on a managed preset that the package owns.
+
+    Bindings on a managed preset without a row here were added by the
+    customer. Rollouts replace only the package's bindings.
+    """
+
+    __tablename__ = "managed_preset_skill_binding"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "preset_id",
+            "skill_id",
+            name="uq_managed_preset_skill_binding",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("agent_preset.id", ondelete="CASCADE"), nullable=False
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("skill.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class ManagedDetachedCopy(WorkspaceModel):
+    """A customer-owned copy made by detaching a managed resource.
+
+    It records where the copy came from so the UI can say "detached from X".
+    The copy itself is an ordinary resource and is never managed.
+    """
+
+    __tablename__ = "managed_detached_copy"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "resource_type",
+            "local_id",
+            name="uq_managed_detached_copy_local",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    original_local_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    original_source_id: Mapped[str] = mapped_column(String, nullable=False)
+    original_name: Mapped[str] = mapped_column(String, nullable=False)
+    detached_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
@@ -639,7 +960,74 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session completed a security key or recovery code challenge",
+    )
+    step_up_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session last verified a security key for step-up checks",
+    )
     user: Mapped[User] = relationship(back_populates="access_tokens")
+
+
+class WebAuthnCredential(Base, TimestampMixin):
+    """A FIDO2/WebAuthn credential (security key or passkey) registered by a user."""
+
+    __tablename__ = "webauthn_credential"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    credential_id: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, unique=True
+    )
+    public_key: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, doc="COSE-encoded credential public key"
+    )
+    sign_count: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        doc="WebAuthn signature counter, an unsigned 32-bit value",
+    )
+    aaguid: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    transports: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    backup_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    backup_state: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class MfaRecoveryCode(Base, TimestampMixin):
+    """A single-use MFA recovery code. Only a salted Argon2 hash is stored."""
+
+    __tablename__ = "mfa_recovery_code"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lookup: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Public lookup ID at the start of the code; selects the hash to check",
+    )
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
 
 class SAMLRequestData(Base):
@@ -753,7 +1141,14 @@ class OrganizationSecretStore(OrganizationModel):
     """Organization-owned external secret store (AWS Secrets Manager)."""
 
     __tablename__ = "organization_secret_store"
-    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    __table_args__ = (
+        # Matches the name the creating migration used.
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_organization_secret_store_organization_id",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -838,6 +1233,46 @@ class WorkspaceVariable(WorkspaceModel):
     tags: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
 
     workspace: Mapped[Workspace] = relationship(back_populates="variables")
+
+
+class WorkspaceTunnel(WorkspaceModel):
+    """Workspace-owned private network tunnel to a customer-managed provider."""
+
+    __tablename__ = "workspace_tunnel"
+    __table_args__ = (UniqueConstraint("workspace_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(63), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="pangolin", server_default="pangolin"
+    )
+    endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_client_secret: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encrypted_gateway_key: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    managed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    pangolin_site_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pangolin_client_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pangolin_resource_ids: Mapped[dict[str, int] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    allowed_targets: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
 
 
 class WorkflowDefinition(WorkspaceModel):
@@ -968,6 +1403,7 @@ class WorkflowTagLink(Base):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
 
@@ -1014,6 +1450,11 @@ class Workflow(WorkspaceModel):
         default=dict,
         nullable=True,
         doc="Input schema for the workflow",
+    )
+    expects_order: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Author's key order for expects; JSONB does not keep object key order",
     )
     returns: Mapped[Any | None] = mapped_column(
         JSONB, nullable=True, doc="Workflow return values"
@@ -1403,6 +1844,7 @@ class Webhook(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
     allowlisted_cidrs: Mapped[list[str]] = mapped_column(
         JSONB,
@@ -1466,7 +1908,15 @@ class CaseTrigger(WorkspaceModel):
     """Configuration for case event triggers per workflow."""
 
     __tablename__ = "case_trigger"
-    __table_args__ = (UniqueConstraint("workflow_id"),)
+    __table_args__ = (
+        UniqueConstraint("workflow_id"),
+        # Case writes check for an online trigger in their workspace.
+        Index(
+            "ix_case_trigger_online_workspace_id",
+            "workspace_id",
+            postgresql_where=text("status = 'online'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1496,6 +1946,170 @@ class CaseTrigger(WorkspaceModel):
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="case_trigger")
+
+
+class Form(WorkspaceModel):
+    """Form configuration for a workflow. One form per workflow.
+
+    Deliberately has no relationship on ``Workflow``: ``layout`` can carry
+    inline images and must not load with every workflow.
+    """
+
+    __tablename__ = "form"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workflow.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default=FormStatus.OFFLINE.value, nullable=False
+    )
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    success_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    layout: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Ordered layout entries. Null renders every input in schema order.",
+    )
+
+
+class FormSubmission(WorkspaceModel):
+    """One submission of a form, with the answers that started the run."""
+
+    __tablename__ = "form_submission"
+    __table_args__ = (
+        Index(
+            "ix_form_submission_form_created",
+            "workspace_id",
+            "form_id",
+            "created_at",
+            "surrogate_id",
+        ),
+        Index(
+            "ix_form_submission_user_created",
+            "submitted_by_user_id",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
+    )
+    submitted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    submitted_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
+    )
+    answers: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        nullable=False,
+        doc="Normalized trigger inputs the run was started with",
+    )
+    visible_fields: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        doc="Names of the fields the requester saw when submitting",
+    )
+    definition_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Workflow definition version the submission ran against",
+    )
+    wf_exec_id: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class FormView(WorkspaceModel):
+    """A user's view of a form. Views in the same few minutes count once."""
+
+    __tablename__ = "form_view"
+    __table_args__ = (
+        # Concurrent views in one window insert one row.
+        UniqueConstraint(
+            "workspace_id",
+            "form_id",
+            "user_id",
+            "window_start",
+            name="uq_form_view_form_user_window",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    window_start: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="Start of the dedupe window the view falls in",
+    )
+
+
+class FormFile(WorkspaceModel):
+    """A file uploaded to a form's ``file`` field.
+
+    Not the shared ``File`` table: case attachments deduplicate by content
+    hash and share blobs. A form file owns its blob, stored under
+    ``forms/{workspace_id}/{form_id}/{id}``. ``submission_id`` is null until a
+    submission claims the file.
+    """
+
+    __tablename__ = "form_file"
+    __table_args__ = (
+        # Pending counts and expiry.
+        Index(
+            "ix_form_file_form_submission_created",
+            "workspace_id",
+            "form_id",
+            "submission_id",
+            "created_at",
+        ),
+        Index("ix_form_file_submission_id", "submission_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
+    )
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("form_submission.id", ondelete="CASCADE"), nullable=True
+    )
+    field: Mapped[str] = mapped_column(
+        String, nullable=False, doc="Name of the form field the file was uploaded to"
+    )
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc=(
+            "Filename as uploaded. Data only, never part of a storage path. Its "
+            "length limit is configurable, so validation enforces it, not the column."
+        ),
+    )
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, doc="Size in bytes")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class Schedule(WorkspaceModel):
@@ -1538,6 +2152,7 @@ class Schedule(WorkspaceModel):
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="schedules")
@@ -1609,10 +2224,16 @@ class Action(WorkspaceModel):
         nullable=False,
         doc="List of incoming edges: [{'source_id': 'act-xxx', 'source_handle': 'success'}]",
     )
+    locked_execution_id: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Past execution whose result draft runs reuse instead of running",
+    )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="actions")
@@ -2018,7 +2639,10 @@ class Table(WorkspaceModel):
     """Metadata for lookup tables."""
 
     __tablename__ = "tables"
-    __table_args__ = (UniqueConstraint("workspace_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name"),
+        Index("ix_tables_workspace_folder", "workspace_id", "folder_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -2028,6 +2652,13 @@ class Table(WorkspaceModel):
         index=True,
     )
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("table_folder.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Folder used only to organize the table; table names stay workspace-unique",
+    )
+    folder: Mapped[TableFolder | None] = relationship(back_populates="tables")
 
     columns: Mapped[list[TableColumn]] = relationship(
         "TableColumn",
@@ -2035,6 +2666,30 @@ class Table(WorkspaceModel):
         cascade="all, delete",
         lazy="selectin",
     )
+
+
+class TableFolder(WorkspaceModel):
+    """Folder for organizing workspace tables.
+
+    Uses materialized path pattern for hierarchical structure.
+    Path format: "/parent/child/" where each segment is the folder name.
+    """
+
+    __tablename__ = "table_folder"
+    __table_args__ = (
+        UniqueConstraint("path", "workspace_id", name="uq_table_folder_path_workspace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(
+        String, index=True, nullable=False, doc="Full materialized path: /parent/child/"
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="table_folders")
+    tables: Mapped[list[Table]] = relationship("Table", back_populates="folder")
 
 
 class TableColumn(TimestampMixin, Base):
@@ -2138,6 +2793,82 @@ class CaseTag(WorkspaceModel):
         back_populates="tags",
         secondary=CaseTagLink.__table__,
     )
+
+
+class CaseView(WorkspaceModel):
+    """A saved, named case search with its sort order and visible columns.
+
+    ``query`` holds validated ``CaseCriteria``. It may use values the server
+    resolves on every run, such as relative date windows and ``"me"``.
+    """
+
+    __tablename__ = "case_view"
+    __table_args__ = (
+        Index("ix_case_view_workspace_visibility", "workspace_id", "visibility"),
+        Index("ix_case_view_workspace_owner", "workspace_id", "owner_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="The user who created the view. Deleting the user deletes their "
+        "personal views and sets this to null on their shared ones.",
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    visibility: Mapped[CaseViewVisibility] = mapped_column(
+        CASE_VIEW_VISIBILITY_ENUM, nullable=False
+    )
+    query: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    query_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+        doc="Shape version of ``query``, for migrating stored queries on read.",
+    )
+    order_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sort: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    columns: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+
+
+class CaseViewPin(WorkspaceModel):
+    """One user's choice to show a case view in their sidebar.
+
+    A pin names either a saved view (``view_id``) or a built-in view
+    (``builtin_view_id``), never both.
+    """
+
+    __tablename__ = "case_view_pin"
+    __table_args__ = (
+        UniqueConstraint("user_id", "view_id", name="uq_case_view_pin_user_view"),
+        # Built-in IDs repeat across workspaces, so the workspace is part of
+        # the key.
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "builtin_view_id",
+            name="uq_case_view_pin_user_builtin",
+        ),
+        CheckConstraint(
+            "(view_id IS NULL) <> (builtin_view_id IS NULL)", name="one_target"
+        ),
+        Index("ix_case_view_pin_workspace_user", "workspace_id", "user_id"),
+        # Deleting a view cascades to its pins; this keeps that lookup indexed.
+        Index("ix_case_view_pin_view_id", "view_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    view_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("case_view.id", ondelete="CASCADE"), nullable=True
+    )
+    builtin_view_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class CaseDropdownDefinition(WorkspaceModel):
@@ -2433,10 +3164,36 @@ class CaseTableRow(WorkspaceModel):
     )
 
 
+class CaseSearchWord(Base):
+    """A word seen in a workspace's case text, for typo-tolerant search.
+
+    Written only by the trg_case_search_words trigger. Rows are insert-only and
+    may repeat a word; there is no unique constraint so concurrent case writes
+    never wait on each other. Like the case search indexes, its indexes are
+    owned by revision e4fd31674ae9 because one needs pg_trgm.
+    """
+
+    __tablename__ = "case_search_word"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    word: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class Case(WorkspaceModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
     __tablename__ = "case"
+    __mapper_args__ = {
+        "exclude_properties": [
+            "summary_tsv",
+            "description_tsv",
+            "summary_words",
+            "description_words",
+        ]
+    }
     __table_args__ = (
         UniqueConstraint(
             "workspace_id",
@@ -2446,6 +3203,19 @@ class Case(WorkspaceModel):
             initially="DEFERRED",
         ),
         Index("ix_case_cursor_pagination", "workspace_id", "created_at", "id"),
+        # Leads with parent_id so it also serves the ON DELETE SET NULL lookup
+        # when a parent case is deleted.
+        Index(
+            "ix_case_parent_id",
+            "parent_id",
+            "created_at",
+            "id",
+            postgresql_where=text("parent_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id",
+            name="parent_not_self",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -2463,6 +3233,16 @@ class Case(WorkspaceModel):
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)
+    # Search vectors are maintained by the trg_case_search_vectors trigger and
+    # read only by search SQL. They are table columns, not mapped attributes
+    # (see __mapper_args__), so loading or serializing a Case never fetches them
+    # and ORM writes never name them: the trigger is their only writer.
+    summary_tsv = Column(TSVECTOR, nullable=True)
+    description_tsv = Column(TSVECTOR, nullable=True)
+    # Distinct lowercase words for typo search, maintained the same way by the
+    # trg_case_search_words trigger.
+    summary_words = Column(ARRAY(Text), nullable=True)
+    description_words = Column(ARRAY(Text), nullable=True)
     priority: Mapped[CasePriority] = mapped_column(
         CASE_PRIORITY_ENUM,
         nullable=False,
@@ -2486,6 +3266,14 @@ class Case(WorkspaceModel):
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
         doc="The ID of the user who is assigned to the case.",
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        # use_alter: the referenced unique index on case.id is created after
+        # CREATE TABLE, so the self-referential FK must be added afterwards.
+        ForeignKey("case.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        doc="Parent case ID when this case is grouped as a sub-case.",
     )
     comments: Mapped[list[CaseComment]] = relationship(
         "CaseComment",
@@ -2853,6 +3641,55 @@ class CaseEvent(WorkspaceModel):
     case: Mapped[Case] = relationship("Case", back_populates="events")
 
 
+class CaseTriggerOutbox(WorkspaceModel):
+    """A committed case event that still has to start its case-triggered runs.
+
+    Rows are written in the case transaction and deleted by the background
+    worker's case trigger dispatcher once Temporal has accepted every start.
+    """
+
+    __tablename__ = "case_trigger_outbox"
+    __table_args__ = (
+        # The previous dispatch order; kept for the previous app version during
+        # rollout and dropped in a later release.
+        Index("ix_case_trigger_outbox_dispatch_order", "updated_at", "surrogate_id"),
+        # The dispatcher takes each workspace's least recently attempted rows
+        # in turn.
+        Index(
+            "ix_case_trigger_outbox_workspace_dispatch_order",
+            "workspace_id",
+            "updated_at",
+            "surrogate_id",
+            # Lets the retry-delay check read the index alone.
+            postgresql_include=["created_at"],
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case_event.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    extras: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Fields for an explicitly selected comment workflow, if any",
+    )
+
+
 class CaseTask(WorkspaceModel):
     __tablename__ = "case_task"
 
@@ -2867,6 +3704,7 @@ class CaseTask(WorkspaceModel):
         UUID,
         ForeignKey("case.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -3174,6 +4012,10 @@ class AgentSession(WorkspaceModel):
     """
 
     __tablename__ = "agent_session"
+    __table_args__ = (
+        # Composite FK target for enterprise tables: a link never crosses workspaces.
+        UniqueConstraint("id", "workspace_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3277,6 +4119,19 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         index=True,
         doc="Per-turn stream id - Redis key suffix for the active turn's stream",
+    )
+    # Set together by direct dispatch only: the run it reserved and the
+    # database-clock commit time of that reservation. Recovery may tombstone
+    # curr_run_id only while it still equals reserved_run_id.
+    reserved_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="Run reserved by direct dispatch - the only kind recovery may tombstone",
+    )
+    reserved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When reserved_run_id was reserved - recovery waits out its start deadline",
     )
     # Terminal error summary for the most recent run
     last_error: Mapped[str | None] = mapped_column(
@@ -3448,6 +4303,76 @@ class AgentSessionHistory(WorkspaceModel):
     session: Mapped[AgentSession] = relationship(
         "AgentSession",
         back_populates="history",
+    )
+
+
+_COMMAND_TYPES_SQL = ", ".join(f"'{value}'" for value in CommandType)
+_COMMAND_STATES_SQL = ", ".join(f"'{value}'" for value in CommandState)
+
+
+class AgentSessionCommand(TimestampMixin, Base):
+    """Commands admitted for an agent session tree, in delivery order.
+
+    The table is the source of truth for commands a backend delivers to a running
+    session. ``seq`` orders delivery within the root session, and
+    ``request_id`` makes admission idempotent per root.
+    """
+
+    __tablename__ = "agent_session_command"
+    __table_args__ = (
+        UniqueConstraint("root_session_id", "request_id"),
+        UniqueConstraint("root_session_id", "seq"),
+        CheckConstraint(f"type IN ({_COMMAND_TYPES_SQL})", name="type"),
+        CheckConstraint(f"state IN ({_COMMAND_STATES_SQL})", name="state"),
+        CheckConstraint("payload ->> 'type' = type", name="payload_type"),
+        Index(
+            "ix_agent_session_command_active",
+            "root_session_id",
+            "seq",
+            postgresql_where=text("state IN ('queued', 'accepted', 'applied')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    root_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Root of the session tree the command belongs to",
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Conversation the command targets: the root or a child session",
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Copied from the root session for RLS and scoping",
+    )
+    request_id: Mapped[str] = mapped_column(
+        Text, nullable=False, doc="Idempotency key, unique per root session"
+    )
+    seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, doc="Delivery order within the root session"
+    )
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, nullable=True, doc="Turn the command belongs to; null while queued"
+    )
+    generation: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, nullable=True, doc="Turn generation; null while queued"
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, doc="Backend-defined command payload"
+    )
+    payload_hash: Mapped[str] = mapped_column(
+        Text, nullable=False, doc="Digest of the payload, compared on re-admission"
+    )
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    receipt: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True, doc="Backend-defined outcome of the command"
     )
 
 
@@ -3863,6 +4788,162 @@ class AgentChannelToken(WorkspaceModel):
     )
 
 
+class AgentChannelBot(TimestampMixin, Base):
+    """One installed provider app (a Slack bot), targeting one agent preset.
+
+    A platform-owned app is installed once per provider tenant; its preset is the default
+    agent, and `AgentChannelRoute` rows pick another agent per channel.
+    """
+
+    __tablename__ = "agent_channel_bot"
+    __table_args__ = (
+        # One install per app and tenant, so a platform app's tenant has one workspace.
+        UniqueConstraint(
+            "provider",
+            "provider_tenant_id",
+            "provider_app_id",
+            name="uq_agent_channel_bot_provider_tenant_app",
+        ),
+        # Target of the thread link's composite key: a link never crosses workspaces.
+        UniqueConstraint("id", "workspace_id"),
+        CheckConstraint("provider IN ('slack')", name="provider"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'disconnected', 'needs_reconnect')",
+            name="status",
+        ),
+        CheckConstraint("transport IN ('http', 'socket')", name="transport"),
+        CheckConstraint("app_owner IN ('workspace', 'platform')", name="app_owner"),
+        Index(
+            "ix_agent_channel_bot_token_refresh_due_at",
+            "token_refresh_due_at",
+            postgresql_where=text("token_refresh_due_at IS NOT NULL"),
+        ),
+        # A bot never targets another workspace's preset.
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
+    provider: Mapped[Literal["slack"]] = mapped_column(String, nullable=False)
+    status: Mapped[Literal["active", "paused", "disconnected", "needs_reconnect"]] = (
+        mapped_column(String, nullable=False, server_default="active")
+    )
+    transport: Mapped[Literal["http", "socket"]] = mapped_column(
+        String,
+        nullable=False,
+        server_default="http",
+        doc="How events arrive; set at install from the deployment's ingress mode",
+    )
+    app_owner: Mapped[Literal["workspace", "platform"]] = mapped_column(
+        String,
+        nullable=False,
+        server_default="workspace",
+        doc="The workspace's own app, or the deployment's app shared by every tenant",
+    )
+    provider_tenant_id: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Install team; null until installed",
+    )
+    provider_enterprise_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    provider_app_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, doc="Inbound events from another app are rejected"
+    )
+    provider_bot_user_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, doc="The bot's own user, so its posts are dropped"
+    )
+    granted_scopes: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, server_default="{}"
+    )
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    encrypted_credentials: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, doc="DB-encrypted provider credentials document"
+    )
+    token_refresh_due_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Earliest due refresh of a rotating token; null when none rotates",
+    )
+
+
+class AgentChannelRoute(TimestampMixin, Base):
+    """The agent that starts new threads in one channel of a bot; elsewhere the bot's preset."""
+
+    __tablename__ = "agent_channel_route"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["bot_id", "workspace_id"],
+            ["agent_channel_bot.id", "agent_channel_bot.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # A route never targets another workspace's preset.
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    provider_channel_id: Mapped[str] = mapped_column(
+        String, primary_key=True, doc="The provider's id for the channel"
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
+
+
+class AgentSessionThread(TimestampMixin, Base):
+    """A session's link to one provider thread; one session per thread per bot."""
+
+    __tablename__ = "agent_session_thread"
+    __table_args__ = (
+        UniqueConstraint("bot_id", "provider_thread_id"),
+        ForeignKeyConstraint(
+            ["bot_id", "workspace_id"],
+            ["agent_channel_bot.id", "agent_channel_bot.workspace_id"],
+            ondelete="CASCADE",
+        ),
+        # Deferred so a link can claim its thread before its session is inserted.
+        ForeignKeyConstraint(
+            ["session_id", "workspace_id"],
+            ["agent_session.id", "agent_session.workspace_id"],
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    provider_thread_id: Mapped[dict[str, JsonValue]] = mapped_column(
+        JSONB, nullable=False, doc="The provider's ids naming the thread"
+    )
+    sync_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+
+
 class AgentFolder(WorkspaceModel):
     """Folder for organizing agent presets.
 
@@ -3939,6 +5020,24 @@ class SkillFolder(WorkspaceModel):
     )
 
 
+class SkillLibraryInstall(WorkspaceModel):
+    """A workspace's opt-in to one platform library skill."""
+
+    __tablename__ = "skill_library_install"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "library_slug",
+            name="uq_skill_library_install_workspace_slug",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    library_slug: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class SkillTagLink(Base):
     """Link table for workspace skills and skill tags."""
 
@@ -3970,6 +5069,8 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
             postgresql_where=text("deleted_at IS NULL"),
         ),
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
+        # Target of the channel bot's composite key.
+        UniqueConstraint("id", "workspace_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -3993,6 +5094,9 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         String(1000),
         nullable=True,
         doc="Optional description for the preset",
+    )
+    use_in_chat: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
     )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -4043,10 +5147,22 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Tool approval requirements by tool name",
     )
+    tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
+        nullable=True,
+        doc="Workspace tunnel name by registry action name for agent tool calls",
+    )
     mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
         doc="MCP integrations to use",
+    )
+    library_skills: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Installed platform library skill slugs bound to this preset",
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -4078,7 +5194,9 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
     )
 
-    workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
+    workspace: Mapped[Workspace] = relationship(
+        back_populates="agent_presets", foreign_keys="AgentPreset.workspace_id"
+    )
     folder: Mapped[AgentFolder | None] = relationship(back_populates="presets")
     tags: Mapped[list[AgentTag]] = relationship(
         "AgentTag",
@@ -4182,10 +5300,22 @@ class AgentPresetVersion(WorkspaceModel):
         nullable=True,
         doc="Tool approval requirements by tool name",
     )
+    tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
+        nullable=True,
+        doc="Workspace tunnel name by registry action name for agent tool calls",
+    )
     mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
         doc="MCP integrations to use",
+    )
+    library_skills: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Installed platform library skill slugs bound to this preset",
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -5300,6 +6430,13 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
     )
+    tunnel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace_tunnel.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        doc="Workspace tunnel that every request to this HTTP server goes through",
+    )
     tools: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB,
         nullable=True,
@@ -5355,6 +6492,11 @@ class MCPRefreshToken(OrganizationModel):
         String,
         nullable=False,
         doc="OAuth client_id the token was issued to",
+    )
+    granted_organization_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID),
+        nullable=True,
+        doc="Every org this connection was granted. Lets the membership-delete trigger revoke the token when any of them is removed. NULL means only organization_id.",
     )
     encrypted_metadata: Mapped[bytes] = mapped_column(
         LargeBinary,
@@ -5668,6 +6810,11 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
         back_populates="invitation",
         cascade="all, delete-orphan",
     )
+    groups: Mapped[list[InvitationGroup]] = relationship(
+        "InvitationGroup",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
 
 
 class InvitationGrant(Base, TimestampMixin):
@@ -5706,6 +6853,29 @@ class InvitationGrant(Base, TimestampMixin):
 
     # Relationships
     invitation: Mapped[Invitation] = relationship("Invitation", back_populates="grants")
+
+
+class InvitationGroup(Base):
+    """One group membership an invitation confers upon acceptance."""
+
+    __tablename__ = "invitation_group"
+
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("invitation.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("group.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+
+    invitation: Mapped[Invitation] = relationship("Invitation", back_populates="groups")
 
 
 class Tier(Base, TimestampMixin):
@@ -6484,26 +7654,70 @@ effective_group_members = (
 
 
 # Workspace membership is derived, never stored: a user is present in a
-# workspace iff they hold a role path there, directly or through a group.
+# workspace iff they hold a role path there, directly or through a group. An
+# org-wide workspace-level role (no org:* scope) reaches every workspace. This
+# is the single source of that policy; read it rather than re-deriving it.
 # type_coerce strips the source columns' foreign keys: the composite one to
 # organization_membership would otherwise propagate into the subquery and the
 # mapper would try to resolve it as a real table.
-_role_paths = union_all(
-    select(
+_holds_no_org_scope_user = ~exists().where(
+    RoleScope.role_id == UserRoleAssignment.role_id,
+    RoleScope.scope_id == Scope.id,
+    Scope.name.startswith("org:"),
+)
+_holds_no_org_scope_group = ~exists().where(
+    RoleScope.role_id == GroupRoleAssignment.role_id,
+    RoleScope.scope_id == Scope.id,
+    Scope.name.startswith("org:"),
+)
+
+
+def _user_path(workspace_id: QueryableAttribute[Any], *, org_wide: bool) -> Select[Any]:
+    """One direct-assignment arm of ``_role_paths``."""
+    return select(
         type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
         type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
-    ),
-    # Manual and IdP group members reach roles by the same path.
-    select(
+        type_coerce(workspace_id, UUID).label("workspace_id"),
+        type_coerce(UserRoleAssignment.role_id, UUID).label("role_id"),
+        cast(null(), UUID).label("group_id"),
+        literal(False).label("via_group"),
+        literal(org_wide).label("org_wide"),
+    )
+
+
+def _group_path(
+    workspace_id: QueryableAttribute[Any], *, org_wide: bool
+) -> Select[Any]:
+    """One group-assignment arm of ``_role_paths``."""
+    return select(
         type_coerce(effective_group_members.c.user_id, UUID).label("user_id"),
         type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
+        type_coerce(workspace_id, UUID).label("workspace_id"),
+        type_coerce(GroupRoleAssignment.role_id, UUID).label("role_id"),
+        type_coerce(GroupRoleAssignment.group_id, UUID).label("group_id"),
+        literal(True).label("via_group"),
+        literal(org_wide).label("org_wide"),
     ).join_from(
         GroupRoleAssignment,
         effective_group_members,
         effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+    )
+
+
+_role_paths = union_all(
+    _user_path(UserRoleAssignment.workspace_id, org_wide=False).where(
+        UserRoleAssignment.workspace_id.is_not(None)
     ),
+    # Manual and IdP group members reach roles by the same path.
+    _group_path(GroupRoleAssignment.workspace_id, org_wide=False).where(
+        GroupRoleAssignment.workspace_id.is_not(None)
+    ),
+    _user_path(Workspace.id, org_wide=True)
+    .join(Workspace, Workspace.organization_id == UserRoleAssignment.organization_id)
+    .where(UserRoleAssignment.workspace_id.is_(None), _holds_no_org_scope_user),
+    _group_path(Workspace.id, org_wide=True)
+    .join(Workspace, Workspace.organization_id == GroupRoleAssignment.organization_id)
+    .where(GroupRoleAssignment.workspace_id.is_(None), _holds_no_org_scope_group),
 ).subquery("role_paths")
 
 # Workspace rows only: org presence is the stored OrganizationMembership row.
@@ -6536,8 +7750,8 @@ class Membership(Base):
     workspace_id: Mapped[uuid.UUID]
 
 
-# Physical workspace link table the app no longer reads. Writers keep it in
-# step so older app versions see the same rows; a follow-up drops it.
+# Physical workspace link table the app no longer reads (since 1.4.0) or
+# writes. User deletion still clears old rows for the FK; a follow-up drops it.
 class LegacyMembership(Base):
     __tablename__ = "membership"
     __table_args__ = (

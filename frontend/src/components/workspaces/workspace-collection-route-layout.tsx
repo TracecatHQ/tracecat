@@ -5,8 +5,7 @@ import type React from "react"
 import { useEffect } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
-import { AppSidebar } from "@/components/sidebar/app-sidebar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { SidebarInset } from "@/components/ui/sidebar"
 import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
@@ -59,13 +58,12 @@ export function WorkspaceCollectionRouteLayout({
   )
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
+    <>
       <SidebarInset className="min-w-0 flex-1 mr-px">
         {wrapMainContent ? wrapMainContent(mainContent) : mainContent}
       </SidebarInset>
 
       {canShowChat && chatOpen && <WorkspaceChatSidebar />}
-    </SidebarProvider>
+    </>
   )
 }

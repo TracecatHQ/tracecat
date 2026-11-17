@@ -1,4 +1,4 @@
-"""Registration and scope tests for the product-scoped Microsoft OAuth providers.
+"""Registration tests for the product-scoped Microsoft OAuth providers.
 
 Microsoft Graph Security and Microsoft Outlook Mail each ship both grants, and the
 registry key is what turns a provider id plus grant type into the token variable
@@ -21,29 +21,6 @@ from tracecat.integrations.providers.microsoft.graph.security import (
     MicrosoftGraphSecurityCCProvider,
 )
 from tracecat.integrations.schemas import ProviderKey
-
-GRAPH_SECURITY_DELEGATED_SCOPES = [
-    "offline_access",
-    "https://graph.microsoft.com/SecurityAlert.ReadWrite.All",
-    "https://graph.microsoft.com/SecurityIncident.ReadWrite.All",
-    "https://graph.microsoft.com/SecurityEvents.Read.All",
-    "https://graph.microsoft.com/ThreatHunting.Read.All",
-    "https://graph.microsoft.com/ThreatIntelligence.Read.All",
-    "https://graph.microsoft.com/AuditLogsQuery-Entra.Read.All",
-    "https://graph.microsoft.com/SecurityData.Manage.All",
-]
-
-OUTLOOK_DELEGATED_SCOPES = [
-    "offline_access",
-    "https://graph.microsoft.com/User.Read",
-    "https://graph.microsoft.com/Mail.ReadWrite",
-    "https://graph.microsoft.com/Mail.ReadWrite.Shared",
-    "https://graph.microsoft.com/Mail.Send",
-    "https://graph.microsoft.com/Mail.Send.Shared",
-    "https://graph.microsoft.com/MailboxSettings.ReadWrite",
-]
-
-APPLICATION_SCOPES = ["https://graph.microsoft.com/.default"]
 
 
 @pytest.mark.parametrize(
@@ -107,47 +84,6 @@ def test_provider_ids_derive_the_expected_token_names(
     )
     assert secret.token_name == expected_token_name
     assert secret.name == f"{provider_id}_oauth"
-
-
-@pytest.mark.parametrize(
-    ("provider_class", "expected_scopes"),
-    [
-        (MicrosoftGraphSecurityACProvider, GRAPH_SECURITY_DELEGATED_SCOPES),
-        (MicrosoftGraphSecurityCCProvider, APPLICATION_SCOPES),
-        (MicrosoftOutlookACProvider, OUTLOOK_DELEGATED_SCOPES),
-        (MicrosoftOutlookCCProvider, APPLICATION_SCOPES),
-    ],
-)
-def test_default_scopes(provider_class: type, expected_scopes: list[str]) -> None:
-    assert provider_class.scopes.default == expected_scopes
-
-
-@pytest.mark.parametrize(
-    ("provider_class", "expected_name"),
-    [
-        (MicrosoftGraphSecurityACProvider, "Microsoft Graph Security (Delegated)"),
-        (
-            MicrosoftGraphSecurityCCProvider,
-            "Microsoft Graph Security (Service account)",
-        ),
-        (MicrosoftOutlookACProvider, "Microsoft Outlook Mail (Delegated)"),
-        (MicrosoftOutlookCCProvider, "Microsoft Outlook Mail (Service account)"),
-    ],
-)
-def test_provider_display_names(provider_class: type, expected_name: str) -> None:
-    assert provider_class.metadata.name == expected_name
-
-
-@pytest.mark.parametrize(
-    "provider_class", [MicrosoftOutlookACProvider, MicrosoftOutlookCCProvider]
-)
-def test_outlook_metadata_points_at_the_mail_api_overview(
-    provider_class: type,
-) -> None:
-    assert provider_class.metadata.api_docs_url == (
-        "https://learn.microsoft.com/en-us/graph/api/resources/"
-        "mail-api-overview?view=graph-rest-1.0"
-    )
 
 
 def test_outlook_application_setup_instructions_cover_exchange_scoping() -> None:

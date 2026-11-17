@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Move security rule
+  description: Move a security rule within its rulebase with POST /config/security/v1/security-rules/{id}:move. Push the candidate configuration to apply the change.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/security/move-security-rules-by-id/
+  namespace: tools.pan_strata
+  name: move_security_rule
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    rule_id:
+      type: str
+      description: Security rule UUID.
+    destination:
+      type: str
+      description: 'Where to move the rule. Allowed values: top, bottom, before, after.'
+    rulebase:
+      type: str
+      description: 'Rulebase of the rule. Allowed values: pre, post.'
+      default: pre
+    destination_rule:
+      type: str | None
+      description: UUID of the reference rule. Required when destination is before or after.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: move
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules/${{ FN.url_encode(inputs.rule_id) }}:move
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        payload: '${{ {"destination": inputs.destination, "rulebase": inputs.rulebase, "destination_rule": inputs.destination_rule} if inputs.destination_rule else {"destination": inputs.destination, "rulebase": inputs.rulebase} }}'
+  returns: ${{ steps.move.result }}

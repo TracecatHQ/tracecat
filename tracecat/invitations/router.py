@@ -12,6 +12,7 @@ from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Invitation,
     Organization,
@@ -39,6 +40,13 @@ from tracecat.invitations.service import (
 )
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])
+
+
+def _invitation_read(invitation: Invitation) -> InvitationRead:
+    """Serialize an authenticated invitation response with group IDs."""
+    read = InvitationRead.model_validate(invitation)
+    read.group_ids = [group.group_id for group in invitation.groups]
+    return read
 
 
 def _get_user_display_name_and_email(
@@ -81,12 +89,14 @@ async def create_invitation(
         ) from e
     except IntegrityError as e:
         # Race condition: another request created an invitation for same email
+        if not is_unique_violation(e, "ix_invitation_org_email_pending_unique"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
         ) from e
 
-    read = InvitationRead.model_validate(invitation)
+    read = _invitation_read(invitation)
     if await service.is_scim_connected():
         read.warning = (
             f"{invitation.email} is invited manually into an organization "
@@ -127,6 +137,14 @@ async def accept_invitation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except IntegrityError as e:
+        if not is_unique_violation(
+            e,
+            "pk_organization_membership",
+            "pk_membership",
+            "uq_user_role_assignment_user_id_workspace_id",
+            "ix_user_role_assignment_user_org_unique",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of this organization",
@@ -288,7 +306,7 @@ async def resend_invitation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
-    return InvitationRead.model_validate(invitation)
+    return _invitation_read(invitation)
 
 
 @router.get("/{invitation_id}/token", response_model=InvitationTokenRead)

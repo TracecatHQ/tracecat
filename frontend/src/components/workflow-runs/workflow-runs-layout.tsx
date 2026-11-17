@@ -13,16 +13,16 @@ import {
   ChevronRightIcon,
   CircleHelpIcon,
   CirclePauseIcon,
+  ClipboardListIcon,
   Clock3Icon,
   FlagTriangleRightIcon,
   Minus,
-  SearchIcon,
   SignalIcon,
   TrafficConeIcon,
   UserIcon,
   WebhookIcon,
 } from "lucide-react"
-import { type ComponentType, useEffect, useMemo, useRef, useState } from "react"
+import { type ComponentType, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import type {
   TriggerType,
@@ -34,6 +34,7 @@ import {
   type FilterMode,
   FilterMultiSelect,
 } from "@/components/filters/filter-multi-select"
+import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import {
@@ -236,6 +237,12 @@ const TRIGGER_FILTER_OPTIONS: Array<{
     label: "Case",
     icon: SignalIcon,
     iconClassName: "text-orange-600",
+  },
+  {
+    value: "form",
+    label: "Form",
+    icon: ClipboardListIcon,
+    iconClassName: "text-sky-600",
   },
 ]
 
@@ -1024,7 +1031,6 @@ export function WorkflowRunsLayout() {
   const [resetTargetExecutionIds, setResetTargetExecutionIds] = useState<
     string[]
   >([])
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const startRange = normalizeTimeFilterForQuery(startTimeFilter)
   const closeRange = normalizeTimeFilterForQuery(closeTimeFilter)
 
@@ -1354,38 +1360,12 @@ export function WorkflowRunsLayout() {
   return (
     <div className="flex size-full flex-col">
       <div className="shrink-0 border-b">
-        <header className="flex h-10 items-center border-b pl-3 pr-4">
-          <div
-            className="flex min-w-0 flex-1 items-center gap-3"
-            onClick={() => searchInputRef.current?.focus()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault()
-                searchInputRef.current?.focus()
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label="Focus runs search"
-          >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-              <SearchIcon className="size-4 text-muted-foreground" />
-            </div>
-            <Input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search runs..."
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              className={cn(
-                "h-7 w-full border-none bg-transparent p-0",
-                "text-sm",
-                "shadow-none outline-none",
-                "placeholder:text-muted-foreground",
-                "focus-visible:ring-0 focus-visible:ring-offset-0"
-              )}
-            />
-          </div>
+        <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+          <ListHeaderSearch
+            placeholder="Search runs..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
 
           {showPaginationControls && (
             <div className="ml-auto flex items-center gap-2">

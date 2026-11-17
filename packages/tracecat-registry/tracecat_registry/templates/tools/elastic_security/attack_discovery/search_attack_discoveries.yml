@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Search attack discoveries
-  description: Search existing Elastic Attack Discovery results using native filters and pagination.
+  description: Search existing Elastic Attack Discovery results using native filters and pagination. Requires Kibana 9.2+.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-attackdiscoveryfind
   namespace: tools.elastic_security

@@ -1,9 +1,9 @@
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from typing import Any
 
 import pytest
 import yaml
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -134,61 +134,117 @@ async def test_get_definition_falls_back_to_latest_when_current_version_missing(
     assert null_pointer_result.id == version_two.id
 
 
-@pytest.mark.anyio
-async def test_create_workflow_definition_with_datetime_serialization(
+async def _count_definition_lookup_statements(
+    session: AsyncSession,
     definitions_service: WorkflowDefinitionsService,
     workflow_id: WorkflowUUID,
+    **kwargs: Any,
+) -> int:
+    """Count SQL statements one definition lookup sends from a cold session."""
+    session.expunge_all()
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(args[2])
+
+    connection = (await session.connection()).sync_connection
+    assert connection is not None
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        defn = await definitions_service.get_definition_by_workflow_id(
+            workflow_id, **kwargs
+        )
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+    assert defn is not None
+    # Leave no loaded copy behind to clash with the fixture's workflow teardown.
+    session.expunge_all()
+    return len(statements)
+
+
+@pytest.mark.anyio
+async def test_get_definition_without_relationships_is_one_statement(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
 ):
-    """Test that workflow definitions can be created with datetime objects in DSL.
-
-    This test specifically catches the regression where datetime objects in YAML
-    would cause JSON serialization errors when saving to the JSONB column.
-    """
-    # Create a DSL with datetime values (simulating YAML parsing that converts
-    # datetime strings to datetime objects)
-    yaml_content = """
-    title: Test Workflow
-    description: Test workflow with datetime values
-    entrypoint:
-      ref: datetime_action
-    actions:
-      - ref: datetime_action
-        action: core.transform.transform
-        args:
-          value: "test"
-          date_field: 2024-11-01T00:00:00
-    """
-
-    # Parse YAML to simulate the real scenario where datetime strings become datetime objects
-    parsed_yaml = yaml.safe_load(yaml_content)
-
-    # Create DSLInput from parsed YAML (this will have datetime objects)
-    dsl_input = DSLInput.model_validate(parsed_yaml)
-
-    # Verify that the DSL contains datetime objects (not strings)
-    datetime_value = dsl_input.actions[0].args["date_field"]
-    assert isinstance(datetime_value, datetime)
-
-    # This should not raise a JSON serialization error
-    definition = await definitions_service.create_workflow_definition(
-        workflow_id=workflow_id,
-        dsl=dsl_input,
-        commit=True,
+    """Run and case-trigger lookups skip the workflow's always-on selectins."""
+    await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id, dsl=_dsl_input("v1"), commit=True
     )
 
-    # Verify the definition was created successfully
-    assert definition is not None
-    assert definition.workflow_id == workflow_id
-    assert definition.version == 1
+    full = await _count_definition_lookup_statements(
+        session, definitions_service, workflow_id
+    )
+    bare = await _count_definition_lookup_statements(
+        session, definitions_service, workflow_id, load_relationships=False
+    )
+    with_workflow = await _count_definition_lookup_statements(
+        session,
+        definitions_service,
+        workflow_id,
+        load_relationships=False,
+        load_workflow=True,
+    )
 
-    # Verify the content was serialized properly (datetime should be converted to string)
-    content = definition.content
-    assert isinstance(content, dict)
+    # Definition, workflow, then the workflow's actions, webhook, case trigger
+    # and schedules selectins.
+    assert full == 6
+    assert bare == 1
+    assert with_workflow == 1
 
-    # Verify that datetime objects were properly serialized to JSON-compatible format
-    saved_datetime = content["actions"][0]["args"]["date_field"]
-    assert isinstance(saved_datetime, str)  # Should be serialized as ISO string
-    assert "2024-11-01T00:00:00" in saved_datetime
+
+@pytest.mark.anyio
+async def test_get_definition_load_workflow_reads_version_in_one_query(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+):
+    """The case-trigger consumer compares versions without extra round trips."""
+    created = await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id, dsl=_dsl_input("v1"), commit=True
+    )
+    workflow = await session.scalar(select(Workflow).where(Workflow.id == workflow_id))
+    assert workflow is not None
+    workflow.version = created.version
+    await session.commit()
+    session.expunge_all()
+
+    defn = await definitions_service.get_definition_by_workflow_id(
+        workflow_id, load_relationships=False, load_workflow=True
+    )
+
+    assert defn is not None
+    assert defn.workflow.version == created.version
+    session.expunge_all()
+
+
+@pytest.mark.anyio
+async def test_get_definition_refuses_other_workspace(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+    svc_workspace: Workspace,
+):
+    """Skipping relationships keeps the workspace predicate on the lookup."""
+    await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id, dsl=_dsl_input("v1"), commit=True
+    )
+    other = Workspace(name="other", organization_id=svc_workspace.organization_id)
+    session.add(other)
+    await session.commit()
+    other_service = WorkflowDefinitionsService(
+        session=session,
+        role=definitions_service.role.model_copy(update={"workspace_id": other.id}),
+    )
+
+    for kwargs in ({}, {"load_workflow": True}):
+        assert (
+            await other_service.get_definition_by_workflow_id(
+                workflow_id, load_relationships=False, **kwargs
+            )
+            is None
+        )
 
 
 @pytest.mark.anyio
@@ -222,52 +278,15 @@ async def test_create_initial_workflow_definition_uses_create_scope(
 
 
 @pytest.mark.anyio
-async def test_dslinput_model_dump_forces_json_serialization():
-    """Test that DSLInput.model_dump() always forces JSON serialization mode.
-
-    This test ensures that the fix for datetime serialization is working at the
-    Pydantic model level.
-    """
-    # Create DSLInput with datetime values
-    yaml_content = """
-    title: Test Workflow
-    description: Test workflow with datetime
-    entrypoint:
-      ref: test_action
-    actions:
-      - ref: test_action
-        action: core.transform.transform
-        args:
-          timestamp: 2024-11-01T00:00:00
-          nested:
-            date_field: 2024-12-01T12:30:00
-    """
-
-    parsed_yaml = yaml.safe_load(yaml_content)
-    dsl_input = DSLInput.model_validate(parsed_yaml)
-
-    # Verify datetime objects exist in the model
-    assert isinstance(dsl_input.actions[0].args["timestamp"], datetime)
-    assert isinstance(dsl_input.actions[0].args["nested"]["date_field"], datetime)
-
-    # Test model_dump() - should not raise JSON serialization errors
-    dumped = dsl_input.model_dump()
-
-    # Verify that datetime objects were serialized as strings
-    assert isinstance(dumped["actions"][0]["args"]["timestamp"], str)
-    assert isinstance(dumped["actions"][0]["args"]["nested"]["date_field"], str)
-
-    # Verify the format is correct
-    assert "2024-11-01T00:00:00" in dumped["actions"][0]["args"]["timestamp"]
-    assert "2024-12-01T12:30:00" in dumped["actions"][0]["args"]["nested"]["date_field"]
-
-
-@pytest.mark.anyio
 async def test_create_workflow_definition_with_various_datetime_formats(
     definitions_service: WorkflowDefinitionsService,
     workflow_id: WorkflowUUID,
 ):
-    """Test workflow definition creation with various datetime formats."""
+    """Test workflow definition creation with various datetime formats.
+
+    Regression: datetime objects from YAML parsing caused JSON serialization
+    errors when saving to the JSONB column.
+    """
     yaml_content = """
     title: Test Workflow
     description: Test workflow with various datetime formats
@@ -297,6 +316,7 @@ async def test_create_workflow_definition_with_various_datetime_formats(
 
     assert definition is not None
     assert definition.workflow_id == workflow_id
+    assert definition.version == 1
 
     # Verify all datetime formats were handled correctly
     content = definition.content
@@ -304,6 +324,7 @@ async def test_create_workflow_definition_with_various_datetime_formats(
 
     # All datetime values should be strings in the saved content
     assert isinstance(args["iso_datetime"], str)
+    assert "2024-11-01T00:00:00" in args["iso_datetime"]
     assert isinstance(args["iso_with_tz"], str)
     assert isinstance(args["date_only"], str)
     assert isinstance(args["nested_dates"]["start"], str)

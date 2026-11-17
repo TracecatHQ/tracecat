@@ -106,7 +106,7 @@ export function FileTreeCommand({ items, onSelect }: FileTreeCommandProps) {
   }
 
   return (
-    <Command className="rounded-lg border shadow-md">
+    <Command className="max-h-[calc(var(--radix-popover-content-available-height,100vh)-2px)] rounded-lg border shadow-md">
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Files and Folders">

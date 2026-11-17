@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -46,6 +47,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceSecrets, type WorkspaceSecretListItem } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -196,8 +198,13 @@ export function EditCredentialsDialog({
   const [internalOpen, setInternalOpen] = React.useState(false)
   const isDialogOpen = controlledOpen ?? internalOpen
   const isSshKey = selectedSecret?.type === "ssh_key"
-  const hasFixedKeys =
+  // A managed secret only accepts new values for its existing keys.
+  const { isManaged, isLoading: managedLoading } =
+    useManagedResources(workspaceId)
+  const valuesOnly = isManaged("secret_metadata", selectedSecret?.id)
+  const typeHasFixedKeys =
     selectedSecret?.type === "mtls" || selectedSecret?.type === "ca_cert"
+  const hasFixedKeys = typeHasFixedKeys || valuesOnly
   const isOktaCredentialForm = isOktaCredential(selectedSecret)
 
   const methods = useForm<EditSecretForm>({
@@ -290,6 +297,12 @@ export function EditCredentialsDialog({
           selectedSecret.keys.includes(key)
       ),
     [selectedSecret]
+  )
+
+  // A managed secret cannot gain keys, so fields for absent keys are locked.
+  const oktaKeyLocked = useCallback(
+    (key: string) => valuesOnly && !canPreserveOktaKey(key),
+    [canPreserveOktaKey, valuesOnly]
   )
 
   const addOktaKey = useCallback(
@@ -649,11 +662,16 @@ export function EditCredentialsDialog({
       onOpenChange={handleDialogOpenChange}
     >
       {children}
-      <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
-        <DialogHeader className="flex-shrink-0">
+      <DialogContent size="xl" className={className}>
+        <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
           <DialogDescription className="flex flex-col">
-            {isSshKey ? (
+            {valuesOnly ? (
+              <span>
+                Managed by Tracecat. Only values can be changed. Leave a field
+                blank to keep its existing value.
+              </span>
+            ) : isSshKey ? (
               <span>
                 SSH keys are write-once. Delete and recreate the secret to
                 rotate the key.
@@ -663,7 +681,7 @@ export function EditCredentialsDialog({
                 Choose the Okta auth method to update. Blank configured fields
                 keep their existing values.
               </span>
-            ) : hasFixedKeys ? (
+            ) : typeHasFixedKeys ? (
               <span>
                 Key names are fixed for this secret type. Leave a field blank to
                 keep its existing value.
@@ -681,7 +699,7 @@ export function EditCredentialsDialog({
             onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex-1 space-y-4 overflow-y-auto px-1 py-2">
+            <DialogBody>
               {selectedSecret?.is_corrupted && (
                 <Alert>
                   <AlertTriangleIcon className="size-4 !text-amber-600" />
@@ -705,6 +723,7 @@ export function EditCredentialsDialog({
                       <Input
                         className="text-sm"
                         placeholder={selectedSecret?.name || "Name"}
+                        disabled={valuesOnly}
                         {...register("name")}
                       />
                     </FormControl>
@@ -728,6 +747,7 @@ export function EditCredentialsDialog({
                         placeholder={
                           selectedSecret?.description || "Description"
                         }
+                        disabled={valuesOnly}
                         {...register("description")}
                       />
                     </FormControl>
@@ -752,6 +772,7 @@ export function EditCredentialsDialog({
                         placeholder={
                           selectedSecret?.environment || "Environment"
                         }
+                        disabled={valuesOnly}
                         {...register("environment")}
                       />
                     </FormControl>
@@ -787,6 +808,7 @@ export function EditCredentialsDialog({
                             ])
                           }}
                           value={field.value}
+                          disabled={valuesOnly}
                         >
                           <FormControl>
                             <SelectTrigger className="text-sm">
@@ -825,6 +847,7 @@ export function EditCredentialsDialog({
                                 : "https://dev-123456.okta.com"
                             }
                             {...field}
+                            disabled={oktaKeyLocked("OKTA_BASE_URL")}
                           />
                         </FormControl>
                         <FormDescription className="text-sm">
@@ -853,6 +876,7 @@ export function EditCredentialsDialog({
                               }
                               type="password"
                               {...field}
+                              disabled={oktaKeyLocked("OKTA_API_TOKEN")}
                             />
                           </FormControl>
                           <FormMessage />
@@ -882,6 +906,7 @@ export function EditCredentialsDialog({
                                 }
                                 type="password"
                                 {...field}
+                                disabled={oktaKeyLocked("OKTA_ACCESS_TOKEN")}
                               />
                             </FormControl>
                             <FormMessage />
@@ -907,6 +932,7 @@ export function EditCredentialsDialog({
                                 }
                                 type="password"
                                 {...field}
+                                disabled={oktaKeyLocked("OKTA_SERVICE_TOKEN")}
                               />
                             </FormControl>
                             <FormMessage />
@@ -937,6 +963,7 @@ export function EditCredentialsDialog({
                                       : "Okta OAuth client ID"
                                   }
                                   {...field}
+                                  disabled={oktaKeyLocked("OKTA_CLIENT_ID")}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -959,6 +986,7 @@ export function EditCredentialsDialog({
                                       : "okta.users.read okta.groups.read"
                                   }
                                   {...field}
+                                  disabled={oktaKeyLocked("OKTA_SCOPES")}
                                 />
                               </FormControl>
                               <FormDescription className="text-sm">
@@ -986,6 +1014,7 @@ export function EditCredentialsDialog({
                                     : "Optional JWK key ID"
                                 }
                                 {...field}
+                                disabled={oktaKeyLocked("OKTA_KID")}
                               />
                             </FormControl>
                             <FormMessage />
@@ -1011,6 +1040,7 @@ export function EditCredentialsDialog({
                               <FormControl>
                                 <Switch
                                   checked={field.value}
+                                  disabled={oktaKeyLocked("OKTA_DPOP_ENABLED")}
                                   onCheckedChange={(checked) => {
                                     field.onChange(checked)
                                     if (!checked) {
@@ -1044,6 +1074,9 @@ export function EditCredentialsDialog({
                                             : "86400"
                                         }
                                         {...intervalField}
+                                        disabled={oktaKeyLocked(
+                                          "OKTA_DPOP_KEY_ROTATION_INTERVAL"
+                                        )}
                                       />
                                     </FormControl>
                                     <FormDescription className="text-sm">
@@ -1100,6 +1133,7 @@ export function EditCredentialsDialog({
                                     methods.clearErrors("okta_private_key")
                                     field.onChange(event)
                                   }}
+                                  disabled={oktaKeyLocked("OKTA_PRIVATE_KEY")}
                                 />
                               </FormControl>
                             </div>
@@ -1113,6 +1147,7 @@ export function EditCredentialsDialog({
                                 variant="outline"
                                 size="sm"
                                 onClick={handleOktaPrivateKeyFileChoose}
+                                disabled={oktaKeyLocked("OKTA_PRIVATE_KEY")}
                               >
                                 <UploadCloudIcon className="mr-2 size-4" />
                                 {oktaPrivateKeyFileName
@@ -1173,7 +1208,7 @@ export function EditCredentialsDialog({
                               <FormItem>
                                 <div className="flex flex-col space-y-2">
                                   <FormControl>
-                                    {hasFixedKeys ? (
+                                    {typeHasFixedKeys ? (
                                       <Textarea
                                         id={`value-${index}`}
                                         className="h-32 text-sm"
@@ -1218,7 +1253,7 @@ export function EditCredentialsDialog({
                       className="w-full space-x-2 text-xs text-foreground/80"
                     >
                       <PlusCircle className="mr-2 size-4" />
-                      Add Item
+                      Add item
                     </Button>
                   )}
                   {fields.length === 0 && !hasFixedKeys && (
@@ -1228,9 +1263,10 @@ export function EditCredentialsDialog({
                   )}
                 </>
               )}
-            </div>
-            <DialogFooter className="flex-shrink-0 pt-4">
-              <Button className="ml-auto space-x-2" type="submit">
+            </DialogBody>
+            <DialogFooter>
+              {/* Wait for the managed lookup so locked fields are known. */}
+              <Button size="sm" type="submit" disabled={managedLoading}>
                 <SaveIcon className="mr-2 size-4" />
                 Save
               </Button>

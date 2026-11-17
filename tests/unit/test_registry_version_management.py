@@ -51,60 +51,65 @@ def _make_manifest(action_names: list[str]) -> dict:
     return {"schema_version": "1.0", "actions": actions}
 
 
+async def _seed_repo(
+    session: AsyncSession,
+    role: Role,
+    manifests: dict[str, dict],
+    *,
+    current: str | None = None,
+) -> tuple[RegistryRepository, dict[str, RegistryVersion]]:
+    """Create a repository with one version per manifest and commit."""
+    repo = RegistryRepository(
+        organization_id=role.organization_id,
+        origin="test_origin",
+    )
+    session.add(repo)
+    await session.flush()
+    versions = {
+        version: RegistryVersion(
+            organization_id=role.organization_id,
+            repository_id=repo.id,
+            version=version,
+            manifest=manifest,
+            tarball_uri=f"s3://test/{version}.tar.gz",
+        )
+        for version, manifest in manifests.items()
+    }
+    session.add_all(versions.values())
+    await session.flush()
+    if current is not None:
+        repo.current_version_id = versions[current].id
+        session.add(repo)
+    await session.commit()
+    return repo, versions
+
+
 @pytest.mark.anyio
 async def test_delete_version_success(
     svc_admin_role: Role,
     session: AsyncSession,
 ) -> None:
     """Test that deleting a non-current version without references works."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    repo, versions = await _seed_repo(
+        session,
+        svc_admin_role,
+        {
+            "1.0.0": _make_manifest(["test.action_v1"]),
+            "2.0.0": _make_manifest(["test.action_v2"]),
+        },
+        current="2.0.0",
     )
-    session.add(repo)
-    await session.flush()
+    version1, version2 = versions["1.0.0"], versions["2.0.0"]
 
-    # Create two versions
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action_v1"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action_v2"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.flush()
-
-    # Set version 2 as current
-    repo.current_version_id = version2.id
-    session.add(repo)
-    await session.commit()
-
-    # Validate and delete version 1
     repos_service = RegistryReposService(session, role=svc_admin_role)
     versions_service = RegistryVersionsService(session, role=svc_admin_role)
 
     # Validation should pass for non-current version
     await repos_service.validate_version_deletion(repo, version1)
-
-    # Delete version 1
     await versions_service.delete_version(version1)
 
-    # Verify version 1 is deleted
-    deleted = await versions_service.get_version(version1.id)
-    assert deleted is None
-
-    # Verify version 2 still exists
-    remaining = await versions_service.get_version(version2.id)
-    assert remaining is not None
+    assert await versions_service.get_version(version1.id) is None
+    assert await versions_service.get_version(version2.id) is not None
 
 
 @pytest.mark.anyio
@@ -113,35 +118,17 @@ async def test_cannot_delete_current_version(
     session: AsyncSession,
 ) -> None:
     """Test that deleting the current version is blocked."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    repo, versions = await _seed_repo(
+        session,
+        svc_admin_role,
+        {"1.0.0": _make_manifest(["test.action"])},
+        current="1.0.0",
     )
-    session.add(repo)
-    await session.flush()
 
-    # Create version
-    version = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version)
-    await session.flush()
-
-    # Set as current version
-    repo.current_version_id = version.id
-    session.add(repo)
-    await session.commit()
-
-    # Try to validate deletion
     repos_service = RegistryReposService(session, role=svc_admin_role)
 
     with pytest.raises(RegistryError, match="currently promoted version"):
-        await repos_service.validate_version_deletion(repo, version)
+        await repos_service.validate_version_deletion(repo, versions["1.0.0"])
 
 
 @pytest.mark.anyio
@@ -152,37 +139,16 @@ async def test_cannot_delete_version_in_use(
 ) -> None:
     """Test that deleting a version referenced by published workflows is blocked."""
     workspace_id = svc_workspace.id
-
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    repo, versions = await _seed_repo(
+        session,
+        svc_admin_role,
+        {
+            "1.0.0": _make_manifest(["test.action"]),
+            "2.0.0": _make_manifest(["test.action"]),
+        },
+        current="2.0.0",
     )
-    session.add(repo)
-    await session.flush()
-
-    # Create versions
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.flush()
-
-    # Set version 2 as current
-    repo.current_version_id = version2.id
-    session.add(repo)
-    await session.flush()
+    version1 = versions["1.0.0"]
 
     # Create a workflow that references version 1 in its registry_lock
     workflow = Workflow(
@@ -221,67 +187,31 @@ async def test_get_previous_version(
     session: AsyncSession,
 ) -> None:
     """Test getting the previous version for rollback."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    repo, versions = await _seed_repo(
+        session,
+        svc_admin_role,
+        {
+            "1.0.0": _make_manifest(["test.action_v1"]),
+            "2.0.0": _make_manifest(["test.action_v2"]),
+            "3.0.0": _make_manifest(["test.action_v3"]),
+        },
     )
-    session.add(repo)
-    await session.flush()
-
-    # Create versions with different created_at times
-    base_time = datetime.now(UTC)
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action_v1"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version1)
-    await session.flush()
+    version1, version2, version3 = versions.values()
 
     # Manually set created_at to ensure ordering
+    base_time = datetime.now(UTC)
     version1.created_at = base_time - timedelta(hours=2)
-    session.add(version1)
-    await session.flush()
-
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action_v2"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add(version2)
-    await session.flush()
-
     version2.created_at = base_time - timedelta(hours=1)
-    session.add(version2)
-
-    version3 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="3.0.0",
-        manifest=_make_manifest(["test.action_v3"]),
-        tarball_uri="s3://test/v3.tar.gz",
-    )
-    session.add(version3)
-    await session.flush()
-
     version3.created_at = base_time
-    session.add(version3)
+    session.add_all([version1, version2, version3])
     await session.commit()
 
-    # Test getting previous version
     versions_service = RegistryVersionsService(session, role=svc_admin_role)
 
-    # Previous to version3 should be version2
     prev = await versions_service.get_previous_version(repo.id, version3.id)
     assert prev is not None
     assert prev.id == version2.id
 
-    # Previous to version2 should be version1
     prev = await versions_service.get_previous_version(repo.id, version2.id)
     assert prev is not None
     assert prev.id == version1.id
@@ -293,214 +223,85 @@ async def test_get_previous_version_none(
     session: AsyncSession,
 ) -> None:
     """Test that getting previous version returns None for the oldest version."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    repo, versions = await _seed_repo(
+        session, svc_admin_role, {"1.0.0": _make_manifest(["test.action"])}
     )
-    session.add(repo)
-    await session.flush()
 
-    # Create single version
-    version = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version)
-    await session.commit()
-
-    # Get previous version (should be None)
     versions_service = RegistryVersionsService(session, role=svc_admin_role)
-    prev = await versions_service.get_previous_version(repo.id, version.id)
+    prev = await versions_service.get_previous_version(repo.id, versions["1.0.0"].id)
     assert prev is None
 
 
 @pytest.mark.anyio
-async def test_compare_versions_added(
+@pytest.mark.parametrize(
+    ("base_actions", "compare_actions", "modify", "added", "removed", "modified"),
+    [
+        pytest.param(
+            ["test.action_a"],
+            ["test.action_a", "test.action_b"],
+            False,
+            ["test.action_b"],
+            [],
+            [],
+            id="added",
+        ),
+        pytest.param(
+            ["test.action_a", "test.action_b"],
+            ["test.action_a"],
+            False,
+            [],
+            ["test.action_b"],
+            [],
+            id="removed",
+        ),
+        pytest.param(
+            ["test.action"],
+            ["test.action"],
+            True,
+            [],
+            [],
+            ["test.action"],
+            id="modified",
+        ),
+        pytest.param(
+            ["test.action"], ["test.action"], False, [], [], [], id="no_changes"
+        ),
+    ],
+)
+async def test_compare_versions(
     svc_admin_role: Role,
     session: AsyncSession,
+    base_actions: list[str],
+    compare_actions: list[str],
+    modify: bool,
+    added: list[str],
+    removed: list[str],
+    modified: list[str],
 ) -> None:
-    """Test that version diff correctly identifies added actions."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    """Version diff identifies added, removed, and modified actions."""
+    compare_manifest = _make_manifest(compare_actions)
+    if modify:
+        action = compare_manifest["actions"]["test.action"]
+        action["interface"]["expects"] = {"input": "str", "extra": "int"}
+        action["description"] = "Modified description"
+    _, versions = await _seed_repo(
+        session,
+        svc_admin_role,
+        {"1.0.0": _make_manifest(base_actions), "2.0.0": compare_manifest},
     )
-    session.add(repo)
-    await session.flush()
 
-    # Version 1 with one action
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action_a"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    # Version 2 with two actions (one added)
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action_a", "test.action_b"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.commit()
-
-    # Compare versions
     versions_service = RegistryVersionsService(session, role=svc_admin_role)
-    diff = await versions_service.compare_versions(version1, version2)
+    diff = await versions_service.compare_versions(versions["1.0.0"], versions["2.0.0"])
 
     assert diff.base_version == "1.0.0"
     assert diff.compare_version == "2.0.0"
-    assert "test.action_b" in diff.actions_added
-    assert len(diff.actions_removed) == 0
-    assert len(diff.actions_modified) == 0
-    assert diff.total_changes == 1
-
-
-@pytest.mark.anyio
-async def test_compare_versions_removed(
-    svc_admin_role: Role,
-    session: AsyncSession,
-) -> None:
-    """Test that version diff correctly identifies removed actions."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.flush()
-
-    # Version 1 with two actions
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action_a", "test.action_b"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    # Version 2 with one action (one removed)
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action_a"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.commit()
-
-    # Compare versions
-    versions_service = RegistryVersionsService(session, role=svc_admin_role)
-    diff = await versions_service.compare_versions(version1, version2)
-
-    assert "test.action_b" in diff.actions_removed
-    assert len(diff.actions_added) == 0
-    assert len(diff.actions_modified) == 0
-    assert diff.total_changes == 1
-
-
-@pytest.mark.anyio
-async def test_compare_versions_modified(
-    svc_admin_role: Role,
-    session: AsyncSession,
-) -> None:
-    """Test that version diff correctly identifies modified actions."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.flush()
-
-    # Version 1 with action
-    manifest1 = _make_manifest(["test.action"])
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=manifest1,
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-
-    # Version 2 with modified action (different interface)
-    manifest2 = _make_manifest(["test.action"])
-    manifest2["actions"]["test.action"]["interface"]["expects"] = {
-        "input": "str",
-        "extra": "int",
-    }
-    manifest2["actions"]["test.action"]["description"] = "Modified description"
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=manifest2,
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.commit()
-
-    # Compare versions
-    versions_service = RegistryVersionsService(session, role=svc_admin_role)
-    diff = await versions_service.compare_versions(version1, version2)
-
-    assert len(diff.actions_added) == 0
-    assert len(diff.actions_removed) == 0
-    assert len(diff.actions_modified) == 1
-    assert diff.actions_modified[0].action_name == "test.action"
-    assert diff.actions_modified[0].description_changed is True
-    assert len(diff.actions_modified[0].interface_changes) > 0
-    assert diff.total_changes == 1
-
-
-@pytest.mark.anyio
-async def test_compare_versions_no_changes(
-    svc_admin_role: Role,
-    session: AsyncSession,
-) -> None:
-    """Test that version diff returns empty when versions are identical."""
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
-    )
-    session.add(repo)
-    await session.flush()
-
-    # Create two versions with identical manifests
-    manifest = _make_manifest(["test.action"])
-    version1 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=manifest,
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    version2 = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.1",
-        manifest=manifest.copy(),  # Same manifest
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add_all([version1, version2])
-    await session.commit()
-
-    # Compare versions
-    versions_service = RegistryVersionsService(session, role=svc_admin_role)
-    diff = await versions_service.compare_versions(version1, version2)
-
-    assert diff.total_changes == 0
-    assert len(diff.actions_added) == 0
-    assert len(diff.actions_removed) == 0
-    assert len(diff.actions_modified) == 0
+    assert list(diff.actions_added) == added
+    assert list(diff.actions_removed) == removed
+    assert [change.action_name for change in diff.actions_modified] == modified
+    for change in diff.actions_modified:
+        assert change.description_changed is True
+        assert len(change.interface_changes) > 0
+    assert diff.total_changes == len(added) + len(removed) + len(modified)
 
 
 @pytest.mark.anyio
@@ -511,25 +312,9 @@ async def test_get_workflow_definitions_using_version(
 ) -> None:
     """Test finding workflow definitions that reference a specific version."""
     workspace_id = svc_workspace.id
-
-    # Create a repository
-    repo = RegistryRepository(
-        organization_id=svc_admin_role.organization_id,
-        origin="test_origin",
+    await _seed_repo(
+        session, svc_admin_role, {"1.0.0": _make_manifest(["test.action"])}
     )
-    session.add(repo)
-    await session.flush()
-
-    # Create version
-    version = RegistryVersion(
-        organization_id=svc_admin_role.organization_id,
-        repository_id=repo.id,
-        version="1.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v1.tar.gz",
-    )
-    session.add(version)
-    await session.flush()
 
     # Create workflows with registry_lock referencing this version
     workflow1 = Workflow(

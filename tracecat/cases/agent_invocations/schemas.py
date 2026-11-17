@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
+from tracecat.agent.backends.schemas import ChildAgentTurn
 from tracecat.auth.types import Role
 from tracecat.cases.agent_invocations.types import (
     CaseCommentAgentInvocationErrorKind,
@@ -37,7 +38,10 @@ class PrepareCommentAgentInvocationInput(BaseModel):
 
 
 class PrepareCommentAgentInvocationResult(BaseModel):
+    # Set only by runs recorded before turns went through the backend contract.
+    # Their replays must keep starting the built-in workflow directly.
     workflow_args: AgentWorkflowArgs | None = None
+    turn: ChildAgentTurn | None = None
 
 
 class CompleteCommentAgentInvocationInput(BaseModel):
@@ -45,11 +49,15 @@ class CompleteCommentAgentInvocationInput(BaseModel):
     session_id: uuid.UUID
     run_id: uuid.UUID
     output: Any
+    # When set, ``output`` is the child's decoded result, read by this backend.
+    backend_id: str | None = None
 
 
 class CompleteCommentAgentInvocationResult(BaseModel):
     handled: bool
     reply_comment_id: uuid.UUID | None = None
+    # The turn ended without a usable output; nothing was posted.
+    turn_error: str | None = None
 
 
 class FailCommentAgentInvocationInput(BaseModel):

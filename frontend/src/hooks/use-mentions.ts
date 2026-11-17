@@ -246,7 +246,7 @@ export function useMentionSuggestions({
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled: agents === "enabled" }
+    { enabled: agents === "enabled", useInChat: true }
   )
   const { items: workflowItems, isLoading: workflowsIsLoading } =
     useCommentWorkflows(workspaceId, workflows === "enabled")
@@ -286,8 +286,9 @@ export function useMentionSuggestions({
     const items = (presets ?? [])
       .filter(
         (preset) =>
-          preset.name.toLowerCase().includes(query) ||
-          preset.slug.toLowerCase().includes(query)
+          preset.use_in_chat === true &&
+          (preset.name.toLowerCase().includes(query) ||
+            preset.slug.toLowerCase().includes(query))
       )
       .slice(0, MAX_MENTION_RESULTS)
       .map(

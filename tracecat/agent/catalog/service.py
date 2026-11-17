@@ -8,20 +8,39 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import Select, and_, exists, select, tuple_
+from sqlalchemy import and_, exists, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased
 
+from tracecat.agent.access.effective import effective_catalog_ids
+from tracecat.agent.bedrock import (
+    BEDROCK_DISCOVERY_SOURCE,
+    BEDROCK_FOUNDATION_MODEL_METADATA_KEY,
+    BEDROCK_SUBSCRIPTION_METADATA_KEY,
+    BedrockDiscoveredModel,
+    BedrockSubscription,
+    resolve_foundation_model_id,
+)
+from tracecat.agent.catalog.bundled import get_retired_platform_models
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, ModelReplacement
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.db.errors import is_unique_violation
+from tracecat.db.models import AgentCatalog, AgentCustomProvider, OrganizationSetting
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
+from tracecat.settings.service import _deserialize_setting_value
 from tracecat.sync import CatalogMappingCandidate
+
+AUTO_MIGRATE_RETIRED_MODELS_SETTING_KEY = "agent_auto_migrate_retired_models"
 
 
 class _CatalogRowValues(TypedDict):
@@ -129,49 +148,6 @@ class AgentCatalogService(BaseService):
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
 
-    def _enabled_catalog_ids_subquery(
-        self,
-        *,
-        org_id: UUID,
-        workspace_id: UUID | None,
-    ) -> Select[tuple[UUID]]:
-        """Subquery of catalog ids enabled for the importing workspace.
-
-        Mirrors ``is_catalog_enabled``: a workspace's explicit access rows fully
-        override the org-level set; otherwise the org-level (``workspace_id IS
-        NULL``) set applies. The override existence check is embedded as an
-        uncorrelated EXISTS so it rides along in the caller's query.
-        """
-        access = select(AgentModelAccess.catalog_id).where(
-            AgentModelAccess.organization_id == org_id
-        )
-        if workspace_id is None:
-            return access.where(AgentModelAccess.workspace_id.is_(None))
-
-        # Alias so the EXISTS keeps its own FROM instead of auto-correlating
-        # to the enclosing AgentModelAccess select.
-        override = aliased(AgentModelAccess)
-        override_exists = (
-            select(override.catalog_id)
-            .where(
-                override.organization_id == org_id,
-                override.workspace_id == workspace_id,
-            )
-            .exists()
-        )
-        return access.where(
-            sa.or_(
-                sa.and_(
-                    override_exists,
-                    AgentModelAccess.workspace_id == workspace_id,
-                ),
-                sa.and_(
-                    ~override_exists,
-                    AgentModelAccess.workspace_id.is_(None),
-                ),
-            )
-        )
-
     async def is_catalog_id_enabled(
         self,
         *,
@@ -187,9 +163,7 @@ class AgentCatalogService(BaseService):
         not rewrite the user's selected row to another enabled row that happens
         to win the ``(provider, name)`` tuple resolver's ordering.
         """
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
         stmt = select(
             exists().where(
                 AgentCatalog.id == catalog_id,
@@ -218,9 +192,7 @@ class AgentCatalogService(BaseService):
         if not catalog_ids:
             return {}
 
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
         stmt = (
             select(
                 AgentCatalog.id,
@@ -260,9 +232,7 @@ class AgentCatalogService(BaseService):
         if not models:
             return {}
 
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
         stmt = (
             select(
                 AgentCatalog.model_provider,
@@ -360,8 +330,9 @@ class AgentCatalogService(BaseService):
         Candidates are restricted to the rows **enabled for the importing
         workspace** under the same effective-access rules the runtime enforces
         (``AgentManagementService.get_catalog_credentials`` →
-        ``is_catalog_enabled``): a workspace's explicit access rows fully
-        override the org-level set, otherwise the org-level set applies. This
+        ``is_catalog_enabled``, both via ``effective_catalog_ids``): a
+        workspace's subset narrows the org-enabled set, otherwise the org-level
+        set applies. This
         prevents rewriting to an org-owned row that isn't enabled here when an
         enabled platform row with the same model exists — which would otherwise
         make the agent fail immediately at execution.
@@ -379,9 +350,7 @@ class AgentCatalogService(BaseService):
         deterministically rather than skip; an imported agent resolving to a
         plausible enabled model beats leaving it dangling.
         """
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
 
         stmt = (
             select(AgentCatalog.id)
@@ -406,6 +375,154 @@ class AgentCatalogService(BaseService):
         if row_id is None:
             return None
         return row_id
+
+    async def resolve_model_replacement(
+        self,
+        *,
+        role: Role,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> ModelReplacement | None:
+        """Return where a retired platform model's runs move, or ``None``.
+
+        Deprecated models only log a warning. Retired models move only for orgs
+        that opt in to auto-migration; otherwise, or without an enabled
+        replacement, runs keep the pinned model and the provider decides.
+        Reads the lifecycle from the platform row selected by ``catalog_id``,
+        or by provider and name for legacy configs. Where no row exists, as on
+        installs after retirement, the bundled ``retired`` list applies. The
+        replacement must be enabled for the workspace, so a swap never widens
+        model access.
+        """
+        if role.organization_id is None:
+            raise TracecatAuthorizationError("Role has no organization_id")
+        found = await self._platform_lifecycle(
+            model_provider=model_provider,
+            model_name=model_name,
+            catalog_id=catalog_id,
+        )
+        if found is None:
+            return None
+        model, lifecycle = found
+        match lifecycle.status_on():
+            case "deprecated":
+                self.logger.warning(
+                    f"Model {model.model_name} is deprecated and retires on "
+                    f"{lifecycle.retires_on.isoformat()}",
+                    model_provider=model.model_provider,
+                    model_name=model.model_name,
+                    retires_on=lifecycle.retires_on.isoformat(),
+                    replacement=lifecycle.replacement,
+                )
+                return None
+            case "retired":
+                if await self._auto_migrate_retired_models(role.organization_id):
+                    replacement = await self._replace_model(
+                        model,
+                        lifecycle,
+                        organization_id=role.organization_id,
+                        workspace_id=role.workspace_id,
+                        keep_catalog_id=catalog_id is not None,
+                    )
+                    if replacement is not None:
+                        return replacement
+                self.logger.warning(
+                    f"Model {model.model_name} is retired, running it unmigrated",
+                    model_provider=model.model_provider,
+                    model_name=model.model_name,
+                    replacement=lifecycle.replacement,
+                )
+                return None
+
+    async def _replace_model(
+        self,
+        model: ModelKey,
+        lifecycle: ModelLifecycle,
+        *,
+        organization_id: UUID,
+        workspace_id: UUID | None,
+        keep_catalog_id: bool,
+    ) -> ModelReplacement | None:
+        """Return the enabled replacement for a retired model, if there is one."""
+        target = lifecycle.replacement_key(model.model_provider)
+        if target is None:
+            return None
+        replacement_id = await self.resolve_catalog_id_by_model(
+            org_id=organization_id,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            workspace_id=workspace_id,
+        )
+        if replacement_id is None:
+            return None
+        self.logger.warning(
+            f"Model {model.model_name} is retired, running migrated model "
+            f"{target.model_name}",
+            retired_model_provider=model.model_provider,
+            retired_model_name=model.model_name,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+        )
+        return ModelReplacement(
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            # Legacy configs keep resolving credentials by provider.
+            catalog_id=replacement_id if keep_catalog_id else None,
+            reason="retired",
+        )
+
+    async def _auto_migrate_retired_models(self, organization_id: UUID) -> bool:
+        setting = await self.session.scalar(
+            select(OrganizationSetting).where(
+                OrganizationSetting.organization_id == organization_id,
+                OrganizationSetting.key == AUTO_MIGRATE_RETIRED_MODELS_SETTING_KEY,
+            )
+        )
+        return setting is not None and _deserialize_setting_value(setting) is True
+
+    async def _platform_lifecycle(
+        self,
+        *,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> tuple[ModelKey, ModelLifecycle] | None:
+        """Return the platform model's identity and lifecycle, if it has one."""
+        row_filter = (
+            AgentCatalog.id == catalog_id
+            if catalog_id is not None
+            else and_(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+            )
+        )
+        row = (
+            await self.session.execute(
+                select(
+                    AgentCatalog.organization_id,
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                    AgentCatalog.model_metadata,
+                ).where(row_filter)
+            )
+        ).one_or_none()
+        if row is None:
+            key = ModelKey(model_provider, model_name)
+            lifecycle = get_retired_platform_models().get(key)
+            return (key, lifecycle) if lifecycle is not None else None
+        if row.organization_id is not None:
+            # Org-owned rows have no provider lifecycle.
+            return None
+        # The row, not the caller's fields, names the model.
+        key = ModelKey(row.model_provider, row.model_name)
+        # The bundle wins: a retired row is no longer refreshed, so its
+        # stored lifecycle can name a replacement that has since retired.
+        lifecycle = get_retired_platform_models().get(key) or read_model_lifecycle(
+            row.model_metadata
+        )
+        return (key, lifecycle) if lifecycle is not None else None
 
     async def list_catalog(
         self,
@@ -567,6 +684,10 @@ class AgentCatalogService(BaseService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(
+                err, "uq_agent_catalog_custom_provider_model_provider_model_name"
+            ):
+                raise
             raise TracecatValidationError(
                 f"Catalog entry for provider {model_provider!r} and model "
                 f"{model_name!r} already exists"
@@ -598,10 +719,16 @@ class AgentCatalogService(BaseService):
                 f"model_provider mismatch: expected {row.model_provider!r}, "
                 f"got {expected_provider!r}"
             )
-        row.model_metadata = {
-            **(row.model_metadata or {}),
-            **(metadata or {}),
-        }
+        current_metadata = dict(row.model_metadata or {})
+        if (
+            row.model_provider == "bedrock"
+            and metadata
+            and ("inference_profile_id" in metadata or "model_id" in metadata)
+        ):
+            # A retargeted row must be re-resolved on the next Bedrock refresh.
+            current_metadata.pop(BEDROCK_FOUNDATION_MODEL_METADATA_KEY, None)
+            current_metadata.pop(BEDROCK_SUBSCRIPTION_METADATA_KEY, None)
+        row.model_metadata = {**current_metadata, **(metadata or {})}
         row.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(row)
@@ -693,3 +820,98 @@ class AgentCatalogService(BaseService):
         await self.session.execute(delete_stmt)
         await self.session.commit()
         return len(values)
+
+    async def list_bedrock_rows(self, *, org_id: UUID) -> Sequence[AgentCatalog]:
+        """List the org's Bedrock catalog rows."""
+        result = await self.session.execute(
+            select(AgentCatalog).where(
+                AgentCatalog.organization_id == org_id,
+                AgentCatalog.custom_provider_id.is_(None),
+                AgentCatalog.model_provider == "bedrock",
+            )
+        )
+        return result.scalars().all()
+
+    async def sync_bedrock_models(
+        self,
+        *,
+        org_id: UUID,
+        models: Sequence[BedrockDiscoveredModel],
+        subscriptions: Mapping[str, BedrockSubscription],
+    ) -> int:
+        """Merge discovered Bedrock models into the org's Bedrock catalog.
+
+        Manually authored rows are never removed; they only receive the
+        subscription status of the foundation model they reference.
+        Previously discovered rows that AWS no longer returns are removed.
+        """
+        rows = await self.list_bedrock_rows(org_id=org_id)
+        now = datetime.now(UTC)
+        discovered_by_name = {model.model_name: model for model in models}
+        foundation_by_ref = {
+            ref: model.foundation_model_id
+            for model in models
+            for ref in (model.inference_profile_id, model.model_id)
+            if ref is not None
+        }
+        existing_names: set[str] = set()
+        for row in rows:
+            metadata = dict(row.model_metadata or {})
+            if (
+                metadata.get("discovery_source") == BEDROCK_DISCOVERY_SOURCE
+                and row.model_name not in discovered_by_name
+            ):
+                await self.session.delete(row)
+                continue
+            existing_names.add(row.model_name)
+            ref = metadata.get("inference_profile_id") or metadata.get("model_id")
+            foundation_id = resolve_foundation_model_id(metadata)
+            if foundation_id is None and isinstance(ref, str):
+                foundation_id = foundation_by_ref.get(ref)
+            if foundation_id is None:
+                continue
+            metadata[BEDROCK_FOUNDATION_MODEL_METADATA_KEY] = foundation_id
+            if subscription := subscriptions.get(foundation_id):
+                metadata[BEDROCK_SUBSCRIPTION_METADATA_KEY] = subscription
+            row.model_metadata = metadata
+            row.last_refreshed_at = now
+
+        for model in models:
+            if model.model_name in existing_names:
+                continue
+            subscription = subscriptions.get(model.foundation_model_id)
+            self.session.add(
+                AgentCatalog(
+                    organization_id=org_id,
+                    custom_provider_id=None,
+                    model_provider="bedrock",
+                    model_name=model.model_name,
+                    model_metadata=model.to_metadata(
+                        subscription
+                        or {"status": "unknown", "checked_at": now.isoformat()}
+                    ),
+                    last_refreshed_at=now,
+                )
+            )
+        await self.session.commit()
+        return len(models)
+
+    async def set_bedrock_subscription(
+        self,
+        *,
+        org_id: UUID,
+        catalog_id: UUID,
+        foundation_model_id: str,
+        subscription: BedrockSubscription,
+    ) -> None:
+        """Record a subscription status on every org row for the foundation model."""
+        rows = await self.list_bedrock_rows(org_id=org_id)
+        for row in rows:
+            metadata = dict(row.model_metadata or {})
+            if row.id == catalog_id:
+                metadata[BEDROCK_FOUNDATION_MODEL_METADATA_KEY] = foundation_model_id
+            elif resolve_foundation_model_id(metadata) != foundation_model_id:
+                continue
+            metadata[BEDROCK_SUBSCRIPTION_METADATA_KEY] = subscription
+            row.model_metadata = metadata
+        await self.session.commit()

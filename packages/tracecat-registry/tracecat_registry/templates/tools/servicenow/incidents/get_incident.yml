@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Get incident
+  description: Get an incident by sys_id with the Table API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html#table-GET-id
+  namespace: tools.servicenow
+  name: get_incident
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    sys_id:
+      type: str
+      description: sys_id of the incident.
+    sysparm_fields:
+      type: str | None
+      description: Comma-separated list of fields to return.
+      default: null
+    sysparm_display_value:
+      type: enum["true", "false", "all"] | None
+      description: Return display values (true), actual values (false), or both (all).
+      default: null
+    sysparm_exclude_reference_link:
+      type: bool | None
+      description: Exclude Table API links for reference fields.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/table/incident/${{ FN.url_encode(inputs.sys_id) }}
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_fields: ${{ inputs.sysparm_fields }}
+        sysparm_display_value: ${{ inputs.sysparm_display_value }}
+        sysparm_exclude_reference_link: ${{ inputs.sysparm_exclude_reference_link }}
+  returns: ${{ steps.request.result }}

@@ -7,8 +7,10 @@
 | `PUBLIC_API_URL` | `${PUBLIC_APP_URL}/api` | Public URL for the Tracecat API, used by the browser and for webhook callbacks. |
 | `INTERNAL_API_URL` | `http://api:8000` | Internal URL that other services use to reach the API container. |
 | `TRACECAT__TRUSTED_PROXY_CIDRS` | `127.0.0.1/32` | Space-separated proxy CIDRs that Caddy trusts when deriving the client address from `X-Forwarded-For`. Set this when another proxy or load balancer runs in front of Caddy. |
-| `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` | | Comma-separated IPs or CIDRs, e.g. `10.0.12.34/32,10.42.0.0/16`, that custom LLM providers (LiteLLM, vLLM, Ollama, custom sources) and remote MCP servers may resolve to. Tracecat rejects private, loopback, and link-local destinations with `Host is not allowed` unless they are listed here. Set it on `api`, `agent-worker`, `litellm`, and `agent-executor`. See [Private endpoints](/agents/llm-providers#private-endpoints). |
+| `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` | | Comma-separated IPs or CIDRs, e.g. `10.0.12.34/32,10.42.0.0/16`, that custom LLM providers (LiteLLM, vLLM, Ollama, custom sources), self-hosted embedding providers, and remote MCP servers may resolve to. Tracecat rejects private, loopback, and link-local destinations with `Host is not allowed` unless they are listed here. Set it on `api`, `agent-worker`, `litellm`, `agent-executor`, and `background-worker`. See [Private endpoints](/agents/llm-providers#private-endpoints). |
 | `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS` | loopback + private ranges | Comma-separated CIDRs of proxies behind which the API runs (Caddy, the UI container, a load balancer). `X-Forwarded-For` entries from these hops are skipped when resolving the client IP for audit logs. |
+| `TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS` | `false` | Break-glass override for the API service. When `true`, Tracecat skips the [platform admin IP allowlist](/manage-platform/ip-allowlist#platform-admin-ip-allowlist) so a locked-out platform admin can recover. Organization allowlists still apply. Remove it after recovery. |
+| `TRACECAT__PLATFORM_ADMIN_MFA_BYPASS` | `false` | Break-glass override for the API service. When `true`, Tracecat skips security key sign-in and step-up checks for platform admins so an admin who lost every key can recover. Organization MFA policies still apply. Remove it after recovery. |
 
 ### Application
 
@@ -29,6 +31,22 @@
 | `TRACECAT__POSTGRES_PASSWORD` | `postgres` | PostgreSQL password. Change this in production. |
 | `TRACECAT__DB_URI` | `postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres` | Full database connection URI. Override this when using an external database. |
 | `TRACECAT__DB_SSLMODE` | `disable` | PostgreSQL SSL mode. Set to `require` or `verify-full` for remote databases. |
+| `TRACECAT__DB_USER` | | Database user. Used instead of `TRACECAT__DB_URI` together with `TRACECAT__DB_ENDPOINT`, `TRACECAT__DB_PORT` and `TRACECAT__DB_NAME`; required in the token modes. |
+| `TRACECAT__DB_ENDPOINT` | | Database host (in the token modes, the host the app connects to, such as PgDog). |
+| `TRACECAT__DB_PORT` | | Database port. |
+| `TRACECAT__DB_NAME` | | Database name. |
+| `TRACECAT__DB_PASS` | | Database password, with `TRACECAT__DB_USER`. Not allowed in the token modes. |
+| `TRACECAT__DB_AUTH_MODE` | `password` | How the app logs in to Postgres: `password` (`TRACECAT__DB_URI`, or `TRACECAT__DB_USER` with `TRACECAT__DB_PASS` or the AWS Secrets Manager ARN `TRACECAT__DB_PASS__ARN`), `aws_iam` (an RDS IAM token per login) or `azure_entra` (an Entra ID token per login). The token modes log in as `TRACECAT__DB_USER` to `TRACECAT__DB_ENDPOINT`, `TRACECAT__DB_PORT` and `TRACECAT__DB_NAME`, refuse to start with `TRACECAT__DB_PASS`, `TRACECAT__DB_PASS__ARN` or `TRACECAT__DB_URI` set, and need `TRACECAT__DB_SSLMODE` `require`, `verify-ca` or `verify-full`. The `tracecat-admin migrate` commands take a password URI only. See [Database IAM login](/self-hosting/database-iam). |
+| `TRACECAT__DB_AWS_IAM_HOST` | `TRACECAT__DB_ENDPOINT` | `aws_iam` only. RDS endpoint the token is signed for. Set it when the app connects through a pooler that passes the token on to RDS (PgDog with `auth_type = "external_token"`). |
+| `TRACECAT__DB_AWS_IAM_PORT` | `TRACECAT__DB_PORT` | `aws_iam` only. Port of `TRACECAT__DB_AWS_IAM_HOST`. |
+| `TRACECAT__DB_AWS_REGION` | `AWS_REGION`, then `AWS_DEFAULT_REGION` | `aws_iam` only. Region of the database. |
+| `TRACECAT__DB_AZURE_CLIENT_ID` | `AZURE_CLIENT_ID` | `azure_entra` only. Client ID of the managed or workload identity. `TRACECAT__DB_USER` is that identity's Postgres role name. |
+| `TRACECAT__DB_ROLE_LOGIN` | Empty | Docker Compose only. Set to `password` to set up [database roles](/self-hosting/database-roles) on each start: the `migrations` container runs `tracecat db roles upgrade --login password` as `TRACECAT__DB_ADMIN_URI`, then the migrations as `TRACECAT__DB_MIGRATOR_URI`, then `upgrade` again. Needs `TRACECAT__DB_ADMIN_URI`, `TRACECAT__DB_MIGRATOR_PASSWORD`, `TRACECAT__DB_APP_PASSWORD` and `TRACECAT__DB_MIGRATOR_URI`; keep them all set after moving the services to `app`. Empty (the default) keeps a single database user. |
+| `TRACECAT__DB_ADMIN_URI` | Empty | Admin connection for `tracecat db roles` (`upgrade`, `bootstrap`, `status`), for example `postgresql://postgres:<password>@postgres_db:5432/postgres`. Point it at the same database as `TRACECAT__DB_URI`. Only role setup uses it: the migrations and the services never do. |
+| `TRACECAT__DB_MIGRATOR_PASSWORD` | Empty | Password that `tracecat db roles upgrade --login password` sets on `migrator`. Use letters and digits. Password login only: with `aws_iam` or `azure_entra`, `migrator` logs in with its cloud token and role setup refuses a password. |
+| `TRACECAT__DB_APP_PASSWORD` | Empty | Password that `tracecat db roles upgrade --login password` sets on `app` (password login only). Use letters and digits. To run the services as `app`, point `TRACECAT__DB_URI` at it, for example `postgresql+psycopg://app:${TRACECAT__DB_APP_PASSWORD}@postgres_db:5432/postgres`; keep `TRACECAT__DB_ROLE_LOGIN` and `TRACECAT__DB_ADMIN_URI` set so each start can run role setup. |
+| `TRACECAT__DB_MIGRATOR_URI` | Empty | Docker Compose only. The migrations' login once roles are set up: it must log in as `migrator`, for example `postgresql+psycopg://migrator:${TRACECAT__DB_MIGRATOR_PASSWORD}@postgres_db:5432/postgres`. Empty uses `TRACECAT__DB_URI`, which the migrations refuse once roles are set up unless it already logs in as `migrator`. |
+| `TRACECAT__RLS_MODE` | `off` | PostgreSQL row-level security mode for every Tracecat service: `off`, `shadow` or `enforce`. `off` and `shadow` run every session with the RLS bypass on. `enforce` scopes each tenant session to its tenant (platform admin and cross-tenant system sessions keep the bypass) and needs a login that can't skip RLS, such as `app`; services refuse to start otherwise. Any other value falls back to `off` with a warning. The bundled Compose files don't pass this variable to the services, so set it in each service's `environment` (for example in a Compose override file). See [Tenant isolation](/security/architecture#tenant-isolation). |
 
 ### Authentication
 
@@ -46,6 +64,7 @@
 | `OIDC_ISSUER` | | OIDC issuer URL (e.g. `https://accounts.google.com`). |
 | `OIDC_CLIENT_ID` | | OAuth client ID from your identity provider. |
 | `OIDC_CLIENT_SECRET` | | OAuth client secret from your identity provider. |
+| `OIDC_CREDENTIALS__ARN` | | AWS Secrets Manager ARN of a JSON secret with `clientId` and `clientSecret`. Takes precedence over `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`. |
 | `OIDC_SCOPES` | `openid profile email` | Space-separated OAuth scopes to request. |
 
 ### SAML
@@ -73,22 +92,48 @@
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
 | `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution mode for actions, agents, registry sync, and Python scripts. `direct` runs without nsjail; `nsjail` requires nsjail isolation. `ephemeral` is a compatibility alias for `nsjail`. |
-| `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Address-space cap (`rlimit_as`) in MB for each `core.script.run_python` and custom action sandbox. A workload that exceeds it fails as `sandbox.resource_limit_exceeded`. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
+| `TRACECAT__EXECUTOR_CLIENT_TIMEOUT` | `300` | Maximum seconds one action function call may run. The `executor` service caps each call at this value and uses it as the action's timeout when `timeout` is `0`. A template action's total runtime and `core.script.run_python` scripts follow the action's own `timeout` instead. The Compose files and the Fargate module do not pass this variable to the `executor` service, so set it on that container directly to raise the cap. |
+| `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Aggregate cgroup v2 memory limit in MiB per `core.script.run_python`, dependency-install, and custom action sandbox, shared by its processes. Applied by the nsjail backend. Exceeding it during script or action execution fails as `sandbox.resource_limit_exceeded`; an over-budget dependency installation fails as a package installation failure. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
+| `TRACECAT__SANDBOX_ADDRESS_SPACE_MB` | Uncapped | Per-process virtual address-space cap in MiB for action, Python, and dependency-install sandboxes. Requires nsjail. The cgroup memory budget bounds RAM; set a positive integer to also cap address space. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
 | `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |
 | `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` | `60` | Seconds Temporal waits for a heartbeat from an executor activity before failing it and retrying on a healthy worker. Set to `0` to disable. Read by the `worker` service. The Compose files and the Fargate module do not pass this variable through, so set it on that container directly. To disable heartbeats, set this and `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` to `0` together. |
 | `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats from executor activities. A value at or above `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` lets Temporal fail the activity between two heartbeats. Set to `0` to disable heartbeats. Read by the `executor` service and not passed through by the Compose files or the Fargate module, so set it on that container directly. `0` alone stops the executor heartbeating while the worker still expects one every `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` seconds, which fails actions that run longer than that. |
 
+### Tunnels
+
+Set all four on the `api` service to enable [managed tunnels](/manage-platform/tunnels). Managed tunnels are off while any is unset.
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__PANGOLIN_ENDPOINT` | | Pangolin server URL that site connectors and machine clients connect to, e.g. `https://app.pangolin.net` or `https://pangolin.example.com`. |
+| `TRACECAT__PANGOLIN_API_URL` | | Pangolin Integration API base URL ending in `/v1`, e.g. `https://api.pangolin.net/v1`. |
+| `TRACECAT__PANGOLIN_ORG_ID` | | Pangolin organization ID that holds every managed site, client, and resource. |
+| `TRACECAT__PANGOLIN_API_KEY` | | Pangolin organization API key with site, client, and private resource permissions. Store it in your secrets manager. |
+| `TRACECAT__PANGOLIN_API_KEY__ARN` | | AWS Secrets Manager ARN of the Pangolin API key, used instead of `TRACECAT__PANGOLIN_API_KEY`. Read by the `api` service only. |
+
+These settings control the [tunnel gateways](/self-hosting/kubernetes#tunnels) that the `api` service runs on Kubernetes. Executors read `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` and `TRACECAT__TUNNEL_GATEWAY_PORT` to find a tunnel's gateway.
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__TUNNEL_GATEWAY_BACKEND` | `none` | `kubernetes` to have the `api` service create and reconcile one gateway per tunnel. `none` disables tunnels: they can't be created and tunneled traffic fails. |
+| `TRACECAT__TUNNEL_GATEWAY_NAMESPACE` | `tracecat-tunnels` | Kubernetes namespace for gateway Secrets, Deployments, and Services. |
+| `TRACECAT__TUNNEL_GATEWAY_IMAGE` | `ghcr.io/tracecathq/tracecat-tunnel-gateway:<version>` | Gateway image. Defaults to the running Tracecat version; set `repository@sha256:<digest>` to pin an immutable image. |
+| `TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS` | | Comma-separated CIDRs gateways never dial, such as the cluster's pod and service ranges. |
+| `TRACECAT__TUNNEL_GATEWAY_API_URL` | `TRACECAT__API_URL` | Internal API URL that gateways load their policy from. |
+| `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` | `tunnel-{tunnel_id}.<TRACECAT__TUNNEL_GATEWAY_NAMESPACE>.svc.cluster.local` | Gateway hostname, with `{tunnel_id}` filled in per tunnel. |
+| `TRACECAT__TUNNEL_GATEWAY_PORT` | `8080` | Gateway proxy port. |
+
 ### Agents
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `1800`. A ceiling below `1800` replaces both the floor and the default. |
-| `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
+| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `10800` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `7200`. A lower ceiling caps both the default and the minimum. Agent chat turns use the `7200` default, capped by this value. |
+| `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `10860` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
 | `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | `4096` | Cgroup v2 memory budget in MiB shared by an agent sandbox and its child processes. Requires nsjail and cgroup delegation. The outer container memory limit still applies. See [Resource limits](/self-hosting/security#resource-limits). |
-| `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for agent sandboxes. Requires nsjail; this cap is not enforced in direct mode. Set a positive integer to override the computed default. |
+| `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` | Uncapped | Per-process virtual address-space cap in MiB for agent sandboxes. Requires nsjail; this cap is not enforced in direct mode. The cgroup memory budget bounds RAM; set a positive integer to also cap address space. |
 
 ### Blob storage
 
@@ -115,3 +160,8 @@
 | `REDIS_HOST` | `redis` | Redis hostname. |
 | `REDIS_PORT` | `6379` | Redis port. |
 | `REDIS_URL` | `redis://${REDIS_HOST}:${REDIS_PORT}` | Full Redis connection URL. Override this when using an external Redis instance. |
+| `REDIS_AUTH_MODE` | `password` | How Tracecat logs in to Redis: `password` (credentials from `REDIS_URL`), `aws_iam` (ElastiCache IAM token; replication groups only, not ElastiCache Serverless), or `azure_entra` (Azure Managed Redis Entra ID token). The IAM modes need a `rediss://` URL with no username or password, on the cloud's own endpoint (`*.cache.amazonaws.com` for `aws_iam`; `*.redis.azure.net` or `*.redis.cache.windows.net` for `azure_entra`), for example `rediss://master.my-cache.abc123.use1.cache.amazonaws.com:6379`. See [Database IAM login](/self-hosting/database-iam#redis). |
+| `REDIS_AWS_IAM_USER_ID` | | `aws_iam` only. ElastiCache user ID (equal to its user name) with IAM authentication, for example `tracecat-app`. |
+| `REDIS_AWS_IAM_REPLICATION_GROUP_ID` | | `aws_iam` only. Lowercase replication group ID the token is signed for, for example `my-cache`. Not the endpoint. |
+| `REDIS_AWS_REGION` | `AWS_REGION`, then `AWS_DEFAULT_REGION` | `aws_iam` only. Region of the cache, for example `us-east-1`. |
+| `REDIS_AZURE_CLIENT_ID` | `AZURE_CLIENT_ID` | `azure_entra` only. Client ID (a GUID) of the managed or workload identity that has a Redis access policy assignment. |

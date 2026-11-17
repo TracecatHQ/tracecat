@@ -26,9 +26,33 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="bootstrap_package" type="string | null">
+
+_Available in Fleet Premium_. Filters the hosts by the status of the MDM bootstrap package on the host. Valid options are 'installed', 'pending', or 'failed'. **Note: If this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="fleet_id" type="integer | null">
 
 Scope the count to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="label_id" type="integer | null">
+
+A valid label ID. Can only be used in combination with `order_key`, `order_direction`, `after`, `status`, `query` and `fleet_id`.
 
 Default: `null`.
 
@@ -50,9 +74,81 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="mdm_id" type="integer | null">
+
+The ID of the _mobile device management_ (MDM) solution to filter hosts by (that is, filter hosts that use a specific MDM provider and URL).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mdm_name" type="string | null">
+
+The name of the _mobile device management_ (MDM) solution to filter hosts by (that is, filter hosts that use a specific MDM provider).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="munki_issue_id" type="integer | null">
+
+The ID of the _munki issue_ (a Munki-reported error or warning message) to filter hosts by (that is, filter hosts that are affected by that corresponding error or warning message).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be any column in the hosts table.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_name" type="string | null">
+
+The name of the operating system to filter hosts by. `os_version` must also be specified with `os_name`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_settings" type="string | null">
+
+Filters the hosts by the status of the operating system settings applied to the hosts. Valid options are 'verified', 'verifying', 'pending', or 'failed'. **Note: If this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="os_settings_disk_encryption" type="string | null">
 
 Disk encryption status filter (verified, verifying, action_required, enforcing, failed, removing_enforcement).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_version" type="string | null">
+
+The version of the operating system to filter hosts by. `os_name` must also be specified with `os_version`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_version_id" type="integer | null">
+
+The ID of the operating system version to filter hosts by.
 
 Default: `null`.
 
@@ -77,6 +173,14 @@ Default: `null`.
 <ParamField path="query" type="string | null">
 
 Search string matched against hostname, IP, serial, and UUID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="software_title_id" type="integer | null">
+
+The ID of the software title to filter hosts by.
 
 Default: `null`.
 
@@ -266,6 +370,38 @@ Numeric Fleet host ID.
 
 </ParamField>
 
+## Get current user
+
+Action ID: `tools.fleetdm.get_me`
+
+Get the authenticated Fleet user and its roles and accessible fleets.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#me](https://fleetdm.com/docs/rest-api/rest-api#me)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_ui_settings" type="boolean | null">
+
+If set to true, includes the columns the user hides on the **Hosts** page (default: `false`).
+
+Default: `null`.
+
+</ParamField>
+
 ## Get disk encryption summary
 
 Action ID: `tools.fleetdm.get_disk_encryption_summary`
@@ -291,6 +427,42 @@ Fleet server base URL (e.g. https://fleet.example.com).
 <ParamField path="fleet_id" type="integer | null">
 
 Scope the summary to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+## Get fleet policy
+
+Action ID: `tools.fleetdm.get_fleet_policy`
+
+Get a fleet-level policy with its passing and failing host counts.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-fleet-level-policy](https://fleetdm.com/docs/rest-api/rest-api#get-fleet-level-policy)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="fleet_id" type="integer" required>
+
+Defines what fleet ID to operate on
+
+</ParamField>
+
+<ParamField path="policy_id" type="integer" required>
+
+The policy's ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
 
 Default: `null`.
 
@@ -328,7 +500,7 @@ Numeric Fleet policy ID.
 
 Action ID: `tools.fleetdm.get_host`
 
-Get full details for a single host by its numeric Fleet ID.
+Get full details for a single host by its numeric Fleet ID, including inventoried users and per-host policy responses.
 
 Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-host](https://fleetdm.com/docs/rest-api/rest-api#get-host)
 
@@ -396,6 +568,30 @@ Numeric Fleet host ID.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Allowed fields are `id`, `created_at`, `user_id`, `activity_type`, `user_name`, `user_email`, and `fleet_initiated`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -406,7 +602,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Activities per page (Fleet caps at 200).
+Activities per page. Maximum is 10,000 records.
 
 Default: `50`.
 
@@ -416,7 +612,7 @@ Default: `50`.
 
 Action ID: `tools.fleetdm.get_host_by_identifier`
 
-Get full details for a single host by hostname, UUID, serial, or node key.
+Get full details for a single host by hostname, UUID, or hardware serial, including inventoried users and per-host policy responses.
 
 Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-host-by-identifier](https://fleetdm.com/docs/rest-api/rest-api#get-host-by-identifier)
 
@@ -436,7 +632,7 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 <ParamField path="identifier" type="string" required>
 
-Host hostname, UUID, hardware serial, osquery host ID, or node key.
+The host's hostname, UUID, or hardware serial.
 
 </ParamField>
 
@@ -540,6 +736,42 @@ Numeric Fleet host ID.
 
 </ParamField>
 
+## Get host report data
+
+Action ID: `tools.fleetdm.get_host_report_data`
+
+Get a specific report's saved data for a single host.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-hosts-report-data](https://fleetdm.com/docs/rest-api/rest-api#get-hosts-report-data)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="integer" required>
+
+The ID of the desired host.
+
+</ParamField>
+
+<ParamField path="report_id" type="integer" required>
+
+The ID of the desired report.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get host summary
 
 Action ID: `tools.fleetdm.get_host_summary`
@@ -586,6 +818,68 @@ Default: `null`.
 
 </ParamField>
 
+## Get label
+
+Action ID: `tools.fleetdm.get_label`
+
+Get the specified label.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-label](https://fleetdm.com/docs/rest-api/rest-api#get-label)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="integer" required>
+
+The label's id.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+## Get labels summary
+
+Action ID: `tools.fleetdm.get_labels_summary`
+
+Get basic information for global and accessible fleet labels.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-labels-summary](https://fleetdm.com/docs/rest-api/rest-api#get-labels-summary)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fleet_id" type="string | null">
+
+_Available in Fleet Premium._  Filters to labels belonging to the specified fleet, plus global labels. Specify `"global"` to show only globally-available labels. If omitted, Fleet returns all global labels, plus all labels for fleets to which the requestor has access.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get MDM command results
 
 Action ID: `tools.fleetdm.get_mdm_command_results`
@@ -611,6 +905,14 @@ Fleet server base URL (e.g. https://fleet.example.com).
 <ParamField path="command_uuid" type="string" required>
 
 UUID of the MDM command returned when it was enqueued.
+
+</ParamField>
+
+<ParamField path="host_identifier" type="string | null">
+
+The host's `hostname`, `uuid`, or `hardware_serial`. Returns only results for the specified host.
+
+Default: `null`.
 
 </ParamField>
 
@@ -700,6 +1002,54 @@ Numeric Fleet report ID.
 
 </ParamField>
 
+<ParamField path="fleet_id" type="integer | null">
+
+Filter the report to only include hosts that are associated with the fleet specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"desc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Valid options are `"last_fetched"`, `"host_name"`, `"host_id"`, or the name of a result column. Result column values are sorted as strings, and the built-in options take precedence over a result column with the same name. Default is `"last_fetched"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number of the results to fetch. Only applies when `per_page` is set.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Results per page. If omitted, all results are returned and `meta` is not included.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query" type="string | null">
+
+Search query keywords. Matches the host's display name and any result column value.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get software title
 
 Action ID: `tools.fleetdm.get_software_title`
@@ -731,6 +1081,44 @@ Numeric Fleet software title ID.
 <ParamField path="fleet_id" type="integer | null">
 
 Scope host counts to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+## Get software version
+
+Action ID: `tools.fleetdm.get_software_version`
+
+Get a software version with its vulnerabilities and host counts.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#get-software-version](https://fleetdm.com/docs/rest-api/rest-api#get-software-version)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="integer" required>
+
+The software version's ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fleet_id" type="integer | null">
+
+_Available in Fleet Premium_. Filters response data to the specified fleet. Use `0` to filter by "Unassigned" hosts.
 
 Default: `null`.
 
@@ -794,6 +1182,30 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="activity_type" type="string | null">
+
+Indicates the activity type to filter by. See the available types in Fleet's audit logs documentation.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="end_created_at" type="string | null">
+
+Filters to include only activities that happened before this date. If not specified, set to now.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="order_direction" type="string | null">
 
 Sort direction (asc or desc).
@@ -820,7 +1232,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Activities per page.
+Results per page. Maximum is 10,000 records.
 
 Default: `50`.
 
@@ -829,6 +1241,14 @@ Default: `50`.
 <ParamField path="query" type="string | null">
 
 Search string matched against actor name and email.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start_created_at" type="string | null">
+
+Filters to include only activities that happened after this date. If not specified, set to the earliest possible date.
 
 Default: `null`.
 
@@ -856,9 +1276,33 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="fleet_id" type="integer | null">
 
 Scope profiles to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be ordered by `name`, `created_at`, or `uploaded_at`.
 
 Default: `null`.
 
@@ -874,7 +1318,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Profiles per page (Fleet caps at 200).
+Profiles per page.
 
 Default: `50`.
 
@@ -908,9 +1352,73 @@ Numeric Fleet (team) ID.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="automation_type" type="string | null">
+
+Filters by automation type. Supported values are "software", "scripts", "calendar", "conditional_access", and "other".
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="merge_inherited" type="boolean | null">
 
 Include global policies inherited by the fleet.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Allowed fields are `id`, `name`, `team_id`, `created_at`, `updated_at`, `failing_host_count`, and `passing_host_count`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Results per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="platform" type="string | null">
+
+Filters policies by targeted platform. Accepts `"darwin"`, `"windows"`, `"linux"`, or `"chrome"`. Policies that target all platforms (empty `platform` field) are always included.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query" type="string | null">
+
+Search query keywords. Searchable fields include `name`.
 
 Default: `null`.
 
@@ -938,6 +1446,30 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be any column in the `fleets` table.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -948,7 +1480,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Fleets per page (Fleet caps at 200).
+Fleets per page.
 
 Default: `50`.
 
@@ -984,6 +1516,14 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="order_direction" type="string | null">
 
 Sort direction (asc or desc); requires order_key.
@@ -1010,9 +1550,95 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Policies per page (Fleet caps at 200).
+Policies per page.
 
 Default: `50`.
+
+</ParamField>
+
+<ParamField path="platform" type="string | null">
+
+Filters policies by targeted platform. Accepts `"darwin"`, `"windows"`, `"linux"`, or `"chrome"`. Policies that target all platforms (empty `platform` field) are always included.
+
+Default: `null`.
+
+</ParamField>
+
+## List host reports
+
+Action ID: `tools.fleetdm.list_host_reports`
+
+List the saved reports for a host, including when results were last fetched.
+
+Reference: [https://fleetdm.com/docs/rest-api/rest-api#list-hosts-reports](https://fleetdm.com/docs/rest-api/rest-api#list-hosts-reports)
+
+### Secrets
+
+Required secrets:
+
+- `fleetdm`: required values `FLEETDM_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="integer" required>
+
+The host's ID.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_no_results" type="boolean | null">
+
+If `true`, exclude reports that don't save results. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Valid options are `"name"` and `"last_fetched"`. Default is `"name"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number of the results to fetch.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Results per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query" type="string | null">
+
+Search query keywords. Searchable fields include `name`.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1044,9 +1670,41 @@ Numeric Fleet host ID.
 
 </ParamField>
 
+<ParamField path="ai_tool" type="boolean | null">
+
+If true, only include AI tools. Requires Fleet Premium and server support for AI tools inventory; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="available_for_install" type="boolean | null">
+
+If `true` or `1`, only list software that is available for install (added by the user). Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="exploit" type="boolean | null">
 
 Only include software with a CISA known-exploited vulnerability.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="extension_for" type="string | null">
+
+Filter extensions by their browser or IDE. Requires source and server support for software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="macos_applications" type="boolean | null">
+
+If `true`, filters to only include software at the top level of the `/Applications` folder. This parameter applies only to macOS hosts, and is ignored for hosts on other platforms. Default is `false`.
 
 Default: `null`.
 
@@ -1068,6 +1726,22 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Options include `"name"`. Default is `"name"`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1078,7 +1752,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Software entries per page (Fleet caps at 200).
+Software entries per page.
 
 Default: `50`.
 
@@ -1087,6 +1761,22 @@ Default: `50`.
 <ParamField path="query" type="string | null">
 
 Search string matched against software name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="self_service" type="boolean | null">
+
+If `true` or `1`, only lists self-service software. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source" type="string | null">
+
+Filter by the osquery software source (for example, apps, npm_packages, chrome_extensions, ai_clis, mcp_servers, or ai_skills). Requires server support for software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
 
 Default: `null`.
 
@@ -1122,9 +1812,81 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="additional_info_filters" type="string | null">
+
+A comma-delimited list of fields to include in each host's `additional` object. This query is populated by the `additional_queries` in the `features` section of the configuration YAML.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used. **Note:** Use `page` instead of `after`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="bootstrap_package" type="string | null">
+
+_Available in Fleet Premium_. Filters the hosts by the status of the MDM bootstrap package on the host. Valid options are 'installed', 'pending', or 'failed'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="connected_to_fleet" type="boolean | null">
+
+Filter hosts that are talking to this Fleet server for MDM features. In rare cases, hosts can be enrolled to one Fleet server but talk to a different Fleet server for MDM features. In this case, the value would be `false`. Always `false` for Linux hosts.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="dep_assign_profile_response" type="string | null">
+
+Filters the hosts by DEP profile assignment status. Valid options are 'SUCCESS', 'FAILED', 'THROTTLED' or 'NOT_ACCESSIBLE'. Only Apple hosts which are, or were assigned to Fleet in ABM will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="dep_profile_error" type="boolean | null">
+
+If `true`, the response will only include Apple MDM hosts with DEP profile assignment errors(`mdm.dep_profile_error: true`).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="device_mapping" type="boolean | null">
+
+Indicates whether `device_mapping` should be included for each host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_failing_policies" type="boolean | null">
+
+If `true`, hosts will return failing policies as 0 regardless of whether there are any that failed for the host. This is meant to be used when increased performance is needed in exchange for the extra information.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="fleet_id" type="integer | null">
 
 Scope results to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_device_status" type="boolean | null">
+
+If `true`, the response will include lock and wipe status (`mdm.device_status`) and `mdm.pending_action` information for each host.
 
 Default: `null`.
 
@@ -1141,6 +1903,30 @@ Default: `null`.
 <ParamField path="mdm_enrollment_status" type="string | null">
 
 MDM enrollment filter (manual, automatic, enrolled, pending, unenrolled).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mdm_id" type="integer | null">
+
+The ID of the _mobile device management_ (MDM) solution to filter hosts by (that is, filter hosts that use a specific MDM provider and URL).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mdm_name" type="string | null">
+
+The name of the _mobile device management_ (MDM) solution to filter hosts by (that is, filter hosts that use a specific MDM provider).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="munki_issue_id" type="integer | null">
+
+The ID of the _munki issue_ (a Munki-reported error or warning message) to filter hosts by (that is, filter hosts that are affected by that corresponding error or warning message).
 
 Default: `null`.
 
@@ -1170,6 +1956,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="os_settings" type="string | null">
+
+Filters the hosts by the status of the operating system settings applied to the hosts. Valid options are 'verified', 'verifying', 'pending', or 'failed'. **Note: If this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="os_settings_disk_encryption" type="string | null">
 
 Disk encryption status filter (verified, verifying, action_required, enforcing, failed, removing_enforcement).
@@ -1186,6 +1980,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="os_version_id" type="integer | null">
+
+The ID of the operating system version to filter hosts by.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1196,7 +1998,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Hosts per page (Fleet caps at 200).
+Hosts per page.
 
 Default: `50`.
 
@@ -1218,6 +2020,22 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="populate_end_users" type="boolean | null">
+
+If `true`, the response will include end user data for each host, including identity provider (IdP) details and other emails.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="populate_labels" type="boolean | null">
+
+If `true`, the response will include labels for each host.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="populate_policies" type="boolean | null">
 
 Include each host's policy compliance in the response.
@@ -1234,9 +2052,49 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="populate_users" type="boolean | null">
+
+If `true`, the response will include user data for each host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="profile_status" type="string | null">
+
+**Requires `profile_uuid`**. Valid options are 'verified', 'verifying', 'pending', or 'failed'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="profile_uuid" type="string | null">
+
+**Requires `profile_status`**. The UUID of the profile to download.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="query" type="string | null">
 
 Search string matched against hostname, IP, serial, and UUID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="software_status" type="string | null">
+
+The status of the software install to filter hosts by. One of: `pending_install`, `failed_install`, `installed`, `pending_uninstall`, `failed_uninstall`, `pending`, or `failed`. Mutually exclusive with `software_version_id`, and must be supplied if `software_title_id` is set.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="software_title_id" type="integer | null">
+
+The ID of the software title to filter hosts by.
 
 Default: `null`.
 
@@ -1302,6 +2160,46 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="low_disk_space" type="integer | null">
+
+_Available in Fleet Premium_. Filters the hosts to only include hosts with less GB of disk space available than this value. Must be a number between 1-100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be any column in the hosts table.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_name" type="string | null">
+
+The name of the operating system to filter hosts by. `os_version` must also be specified with `os_name`. See note below for filtering Windows hosts.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_version" type="string | null">
+
+The version of the operating system to filter hosts by. `os_name` must also be specified with `os_version`. See note below for filtering Windows hosts.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1312,9 +2210,57 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Hosts per page (Fleet caps at 200).
+Hosts per page.
 
 Default: `50`.
+
+</ParamField>
+
+<ParamField path="policy_id" type="integer | null">
+
+The ID of the policy to filter hosts by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="policy_response" type="string | null">
+
+**Requires `policy_id`**. Valid options are 'passing' or 'failing'.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="populate_labels" type="boolean | null">
+
+If `true`, the response will include labels for each host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="populate_policies" type="boolean | null">
+
+If `true`, the response will include policy data for each host, including Fleet-maintained policies.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="populate_users" type="boolean | null">
+
+If `true`, the response will include user data for each host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query" type="string | null">
+
+Search query keywords. Searchable fields include `hostname`, `hardware_serial`, `uuid`, `ipv4`, and end user email addresses.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1354,6 +2300,102 @@ Numeric Fleet label ID.
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="bootstrap_package" type="string | null">
+
+_Available in Fleet Premium_. Filters the hosts by the status of the MDM bootstrap package on the host. Valid options are 'installed', 'pending', or 'failed'. **Note: If this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="disable_failing_policies" type="boolean | null">
+
+If "true", hosts will return failing policies as 0 regardless of whether there are any that failed for the host. This is meant to be used when increased performance is needed in exchange for the extra information.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fleet_id" type="integer | null">
+
+_Available in Fleet Premium_. Filters the hosts to only include hosts in the specified fleet.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="low_disk_space" type="integer | null">
+
+_Available in Fleet Premium_. Filters the hosts to only include hosts with less GB of disk space available than this value. Must be a number between 1-100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mdm_enrollment_status" type="string | null">
+
+The _mobile device management_ (MDM) enrollment status to filter hosts by. Valid options are 'manual', 'manual-personal', 'automatic', 'enrolled', 'pending', or 'unenrolled'. 'pending' only includes Apple (macOS, iOS, iPadOS) hosts in Apple Business (AB) that are not yet enrolled to Fleet.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mdm_id" type="integer | null">
+
+The ID of the _mobile device management_ (MDM) solution to filter hosts by (that is, filter hosts that use a specific MDM provider and URL).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mdm_name" type="string | null">
+
+The name of the _mobile device management_ (MDM) solution to filter hosts by (that is, filter hosts that use a specific MDM provider).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be any column in the hosts table.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_settings" type="string | null">
+
+Filters the hosts by the status of the operating system settings applied to the hosts. Valid options are 'verified', 'verifying', 'pending', or 'failed'. **Note: If this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_settings_disk_encryption" type="string | null">
+
+Filters the hosts by disk encryption status. Valid options are 'verified', 'verifying', 'action_required', 'enforcing', 'failed', or 'removing_enforcement'.  **Note: If this filter is used in Fleet Premium without a fleet ID filter, the results include only "Unassigned" hosts.**
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1364,7 +2406,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Hosts per page (Fleet caps at 200).
+Hosts per page.
 
 Default: `50`.
 
@@ -1408,6 +2450,38 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="fleet_id" type="string | null">
+
+_Available in Fleet Premium._  Filters to labels belonging to the specified fleet, plus global labels. Specify `"global"` to show only globally-available labels. If omitted, Fleet returns all global labels, plus all labels for fleets to which the requestor has access.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_host_counts" type="boolean | null">
+
+Whether or not to calculate host counts for each label. Default is `true`. See "additional notes" for more information.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="order_key" type="string | null">
 
 Field to order labels by (e.g. name, created_at).
@@ -1444,9 +2518,33 @@ Host hostname, UUID, or hardware serial to scope commands to (required by Fleet;
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="command_status" type="string | null">
 
 Filter by command status (ran, pending, failed).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Allowed values: `host_uuid`, `command_uuid`, `status`, `updated_at`, `request_type`, `hostname`. Default is `updated_at`.
 
 Default: `null`.
 
@@ -1462,7 +2560,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Commands per page (Fleet caps at 200).
+Results per page. Maximum is 1,000 records.
 
 Default: `50`.
 
@@ -1506,6 +2604,46 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="max_vulnerabilities" type="integer | null">
+
+Limits the number of `vulnerabilities` returned per OS version. (If omitted, returns all vulnerabilities.)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Allowed fields are: `hosts_count`. Default is `hosts_count` (descending).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_name" type="string | null">
+
+The name of the operating system to filter hosts by. `os_version` must also be specified with `os_name`
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_version" type="string | null">
+
+The version of the operating system to filter hosts by. `os_name` must also be specified with `os_version`
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1516,7 +2654,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-OS versions per page (Fleet caps at 200).
+OS versions per page.
 
 Default: `50`.
 
@@ -1566,6 +2704,46 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="low_disk_space" type="integer | null">
+
+_Available in Fleet Premium_. Filters the hosts to only include hosts with less GB of disk space available than this value. Must be a number between 1-100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be any column in the hosts table.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_name" type="string | null">
+
+The name of the operating system to filter hosts by. `os_version` must also be specified with `os_name`. See note below for filtering Windows hosts.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="os_version" type="string | null">
+
+The version of the operating system to filter hosts by. `os_name` must also be specified with `os_version`. See note below for filtering Windows hosts.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1576,7 +2754,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Hosts per page (Fleet caps at 200).
+Hosts per page.
 
 Default: `50`.
 
@@ -1587,6 +2765,54 @@ Default: `50`.
 Compliance filter (passing or failing).
 
 Default: `"failing"`.
+
+</ParamField>
+
+<ParamField path="populate_labels" type="boolean | null">
+
+If `true`, the response will include labels for each host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="populate_policies" type="boolean | null">
+
+If `true`, the response will include policy data for each host, including Fleet-maintained policies.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="populate_users" type="boolean | null">
+
+If `true`, the response will include user data for each host.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="query" type="string | null">
+
+Search query keywords. Searchable fields include `hostname`, `hardware_serial`, `uuid`, `ipv4`, and end user email addresses.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Indicates the status of the hosts to return. Can either be 'new', 'online', 'offline', 'mia', 'missing' or 'enrolled'. 'enrolled' returns every host except those pending MDM enrollment.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="vulnerability" type="string | null">
+
+The cve to filter hosts by (including "cve-" prefix, case-insensitive).
+
+Default: `null`.
 
 </ParamField>
 
@@ -1612,9 +2838,41 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="fleet_id" type="integer | null">
 
 Scope reports to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="merge_inherited" type="boolean | null">
+
+_Available in Fleet Premium_. If `true`, will include global reports in addition to fleet-level reports when filtering by `fleet_id`. (If no `fleet_id` is provided, this parameter is ignored.)
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Can be any column in the reports table.
 
 Default: `null`.
 
@@ -1630,7 +2888,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Reports per page (Fleet caps at 200).
+Reports per page.
 
 Default: `50`.
 
@@ -1674,6 +2932,22 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="ai_tool" type="boolean | null">
+
+If true, only include AI tools. Requires Fleet Premium and server support for AI tools inventory; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="available_for_install" type="boolean | null">
+
+If `true` or `1`, only list software that is available for install (added by the user). Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="exploit" type="boolean | null">
 
 Only include software with a CISA known-exploited vulnerability.
@@ -1682,9 +2956,25 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="extension_for" type="string | null">
+
+Filter extensions by their browser or IDE. Requires source and server support for software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="fleet_id" type="integer | null">
 
 Scope results to a fleet (team) ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hash_sha256" type="string | null">
+
+Filters to only include custom software packages (uploaded installers) with the specified SHA-256 hash. `fleet_id` must be specified to filter by hash. This allows checking if a specific package already exists before uploading.
 
 Default: `null`.
 
@@ -1706,6 +2996,38 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Allowed fields are `name` and `hosts_count`. Default is `hosts_count` (descending).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="package_name" type="string | null">
+
+Filters to only include custom software packages (uploaded installers) with the specified package filename. `fleet_id` must be specified to filter by package name. This allows checking if a specific package already exists before uploading.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="packages_only" type="boolean | null">
+
+_Available in Fleet Premium_. If `true` or `1`, only lists packages available for install (without app store apps).
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1716,7 +3038,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Software titles per page (Fleet caps at 200).
+Software titles per page.
 
 Default: `50`.
 
@@ -1733,6 +3055,22 @@ Default: `null`.
 <ParamField path="query" type="string | null">
 
 Search string matched against software title and CVE.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="self_service" type="boolean | null">
+
+If `true` or `1`, only lists self-service software. Default is `false`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="source" type="string | null">
+
+Filter by the osquery software source (for example, apps, npm_packages, chrome_extensions, ai_clis, mcp_servers, or ai_skills). Requires server support for software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
 
 Default: `null`.
 
@@ -1768,9 +3106,33 @@ Fleet server base URL (e.g. https://fleet.example.com).
 
 </ParamField>
 
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ai_tool" type="boolean | null">
+
+If true, only include AI tools. Requires Fleet Premium and server support for AI tools inventory; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="exploit" type="boolean | null">
 
 Only include versions with a CISA known-exploited vulnerability.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="extension_for" type="string | null">
+
+Filter extensions by their browser or IDE. Requires source and server support for software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
 
 Default: `null`.
 
@@ -1800,6 +3162,22 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="order_direction" type="string | null">
+
+**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="order_key" type="string | null">
+
+What to order results by. Allowed fields are `name`, `hosts_count`, `cve_published`, `cvss_score`, `epss_probability` and `cisa_known_exploit`. Default is `hosts_count` (descending).
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="page" type="integer">
 
 Page number to retrieve (0-indexed).
@@ -1810,7 +3188,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Software versions per page (Fleet caps at 200).
+Software versions per page.
 
 Default: `50`.
 
@@ -1824,9 +3202,25 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="source" type="string | null">
+
+Filter by the osquery software source (for example, apps, npm_packages, chrome_extensions, ai_clis, mcp_servers, or ai_skills). Requires server support for software type filters; unavailable in Fleet 4.93.0. Older servers can ignore this filter.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="vulnerable" type="boolean | null">
 
 Only include versions with known vulnerabilities.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="without_vulnerability_details" type="boolean | null">
+
+_Available in Fleet Premium_. If `true` only vulnerability name is included in response. If `false` (or omitted), adds vulnerability description, CVSS score, and other details available in Fleet Premium. See note above on performance.
 
 Default: `null`.
 
@@ -1851,6 +3245,14 @@ Required secrets:
 <ParamField path="base_url" type="string" required>
 
 Fleet server base URL (e.g. https://fleet.example.com).
+
+</ParamField>
+
+<ParamField path="after" type="string | null">
+
+The value to get results after. This needs `order_key` defined, as that's the column that would be used.
+
+Default: `null`.
 
 </ParamField>
 
@@ -1896,7 +3298,7 @@ Default: `0`.
 
 <ParamField path="per_page" type="integer">
 
-Vulnerabilities per page (Fleet caps at 200).
+Vulnerabilities per page.
 
 Default: `50`.
 

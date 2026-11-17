@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: "List mail bomb events"
+  description: "List email bomb events detected for the organization in a time range with GET /api/v1/dash/reports/mail-bomb-events. The range can be at most 90 days and start at most 365 days ago."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Email_Bomb_Events_API
+  namespace: tools.proofpoint_threat_protection
+  name: list_mail_bomb_events
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    start:
+      type: str
+      description: "Start of the time range in ISO 8601 UTC format, e.g. 2024-01-01T00:00:00Z."
+    end:
+      type: str
+      description: "End of the time range in ISO 8601 UTC format, e.g. 2024-01-31T23:59:59Z."
+    page:
+      type: int | None
+      description: "Zero-based page number. Defaults to 0."
+      default: null
+    size:
+      type: int | None
+      description: "Number of events per page. Defaults to 100."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/mail-bomb-events
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          end: ${{ inputs.end }}
+          page: ${{ inputs.page }}
+          size: ${{ inputs.size }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

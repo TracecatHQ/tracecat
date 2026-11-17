@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useMemo, useState } from "react"
 import type { TableRowRead } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
+import type { TableRowQuery } from "@/components/tables/table-row-query-context"
 import { TableRowsGrid } from "@/components/tables/table-rows-grid"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +24,12 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
 import { CaseRowsLinkError, useLinkCaseRows } from "@/hooks/use-case-rows"
+import {
+  toRowSearchParams,
+  useRowSearch,
+  useShownRowSearch,
+  useStaleRowQueryReset,
+} from "@/hooks/use-row-search"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useGetTable, useListTables } from "@/lib/hooks"
 
@@ -42,7 +49,9 @@ export interface CaseLinkRowsDialogProps {
 
 /**
  * Picks rows to link to a case: choose a table, page through its rows, tick
- * the ones to add. Dismissable only via the close button.
+ * the ones to link. Column headers sort and filter the whole table through
+ * the API; ticked rows stay ticked throughout. Dismissable only via the close
+ * button.
  */
 export function CaseLinkRowsDialog({
   open,
@@ -103,9 +112,12 @@ function CaseLinkRowsDialogBody({
     { tableId, workspaceId },
     { enabled: Boolean(tableId) }
   )
+  const { search, setSearch, debouncedSearch, clearSearch } = useRowSearch()
+  const { searchTerm, searchColumn } = toRowSearchParams(debouncedSearch)
   const {
     data: pageRows,
     isLoading: rowsIsLoading,
+    isPlaceholderData: rowsArePlaceholder,
     error: rowsError,
     goToNextPage,
     goToPreviousPage,
@@ -116,13 +128,51 @@ function CaseLinkRowsDialogBody({
     totalEstimate,
     startItem,
     endItem,
+    sortingState,
+    setSorting,
   } = useTablesPagination({
     tableId,
     workspaceId,
     limit: pageSize,
     enabled: Boolean(tableId),
+    searchTerm,
+    searchColumn,
   })
   const gridRows = pageRows.length > 0 ? pageRows : EMPTY_ROWS
+  const isSearching = searchTerm !== null
+  const appliedFilter = useShownRowSearch(debouncedSearch, rowsArePlaceholder)
+
+  const resetRowQuery = useCallback(() => {
+    setSorting("", false)
+    clearSearch()
+  }, [setSorting, clearSearch])
+  const isStaleRowQuery = useStaleRowQueryReset({
+    error: rowsError,
+    isActive: isSearching || sortingState.orderBy !== null,
+    reset: resetRowQuery,
+  })
+  const rowQuery = useMemo<TableRowQuery>(
+    () => ({
+      sort: sortingState,
+      onSortChange: setSorting,
+      filter: search,
+      appliedFilter,
+      onFilterChange: (filter) => {
+        if (filter) {
+          setSearch(filter)
+        } else {
+          clearSearch()
+        }
+      },
+    }),
+    [sortingState, setSorting, search, appliedFilter, setSearch, clearSearch]
+  )
+
+  // A sort or filter names a column of the table being left.
+  function handleTableChange(nextTableId: string) {
+    setPickedTableId(nextTableId)
+    resetRowQuery()
+  }
 
   const { linkCaseRows, linkCaseRowsIsPending } = useLinkCaseRows({
     caseId,
@@ -162,7 +212,7 @@ function CaseLinkRowsDialogBody({
     setStagedByTable(new Map())
   }
 
-  async function handleAdd() {
+  async function handleLink() {
     let linkedCount = 0
     let alreadyLinkedCount = 0
     // Every request commits on its own, so a failure part-way through has to
@@ -231,9 +281,22 @@ function CaseLinkRowsDialogBody({
     gridContent = <GridMessage tone="error">Failed to load tables.</GridMessage>
   } else if (!tablesIsLoading && sortedTables.length === 0) {
     gridContent = <GridMessage>No tables in this workspace</GridMessage>
-  } else if (tableError || rowsError) {
+  } else if (tableError || (rowsError && !isStaleRowQuery)) {
     gridContent = (
-      <GridMessage tone="error">Failed to load table rows.</GridMessage>
+      <GridMessage tone="error">
+        Failed to load table rows.
+        {(isSearching || sortingState.orderBy !== null) && (
+          // The header that holds the filter is unmounted with the grid.
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-3 h-7 text-xs text-foreground"
+            onClick={resetRowQuery}
+          >
+            Clear filter and sort
+          </Button>
+        )}
+      </GridMessage>
     )
   } else if (tableIsLoading || !table) {
     gridContent = (
@@ -249,10 +312,12 @@ function CaseLinkRowsDialogBody({
         rows={gridRows}
         tableId={tableId}
         isLoading={rowsIsLoading}
+        isPlaceholderData={rowsArePlaceholder}
         selectable
         selectedRowIds={staged}
         onSelectedRowIdsChange={handleStagedChange}
         widthScope="case-link-rows"
+        rowQuery={rowQuery}
       />
     )
   }
@@ -262,11 +327,11 @@ function CaseLinkRowsDialogBody({
     summary += ` across ${stagedTableCount} tables`
   }
 
-  let addLabel = "Add rows"
+  let linkLabel = "Link rows"
   if (totalStaged === 1) {
-    addLabel = "Add 1 row"
+    linkLabel = "Link 1 row"
   } else if (totalStaged > 1) {
-    addLabel = `Add ${totalStaged} rows`
+    linkLabel = `Link ${totalStaged} rows`
   }
 
   return (
@@ -280,7 +345,7 @@ function CaseLinkRowsDialogBody({
         </div>
         <Select
           value={tableId}
-          onValueChange={setPickedTableId}
+          onValueChange={handleTableChange}
           disabled={tablesIsLoading || sortedTables.length === 0}
         >
           <SelectTrigger className="h-8 w-[280px]" aria-label="Table">
@@ -302,14 +367,16 @@ function CaseLinkRowsDialogBody({
           hasNextPage={hasNextPage}
           hasPreviousPage={hasPreviousPage}
           pageSize={pageSize}
-          totalEstimate={totalEstimate}
+          // The total counts the whole table, so it is wrong under a filter.
+          totalEstimate={isSearching ? undefined : totalEstimate}
           startItem={startItem}
           endItem={endItem}
           onNextPage={goToNextPage}
           onPreviousPage={goToPreviousPage}
           onFirstPage={goToFirstPage}
           onPageSizeChange={handlePageSizeChange}
-          isLoading={rowsIsLoading}
+          // The placeholder rows' cursors belong to the previous request.
+          isLoading={rowsIsLoading || rowsArePlaceholder}
         />
       </div>
       <div className="flex items-center justify-between border-t px-6 py-4">
@@ -323,16 +390,16 @@ function CaseLinkRowsDialogBody({
             Clear
           </Button>
           <Button
-            onClick={handleAdd}
+            onClick={handleLink}
             disabled={totalStaged === 0 || linkCaseRowsIsPending}
           >
             {linkCaseRowsIsPending ? (
               <span className="flex items-center gap-2">
                 <Spinner className="size-4" />
-                Adding…
+                Linking…
               </span>
             ) : (
-              addLabel
+              linkLabel
             )}
           </Button>
         </div>

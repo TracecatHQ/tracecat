@@ -1,8 +1,9 @@
 """Contracts shared by built-in and separately installed agent backends."""
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from datetime import datetime
+from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
+from tracecat.exceptions import TracecatConflictError
 
 
 class SessionDispatchUncertain(RuntimeError):
@@ -26,12 +28,86 @@ class SessionDispatchUncertain(RuntimeError):
     """
 
 
+class TurnAlreadyStarted(SessionDispatchUncertain):
+    """The turn's workflow ID is taken, by an earlier start of it or a tombstone.
+
+    The reservation is kept, as for any start whose outcome is unknown.
+    """
+
+
+class SessionTurnActiveError(TracecatConflictError):
+    """Another turn owns the session."""
+
+    def __init__(self, run_id: UUID) -> None:
+        super().__init__("This chat already has an active turn")
+        self.run_id = run_id
+
+
+# How a turn's workflow ID stands: free, taken by the turn, or claimed by recovery.
+type TurnStartState = Literal["missing", "started", "tombstoned"]
+
+
 class AgentControlRejected(RuntimeError):
     """A control operation failed definitively; its local attempt may be rolled back."""
 
 
 class AgentControlUncertain(RuntimeError):
     """A control operation may have applied; preserve its identity for retries."""
+
+
+type PendingMessageType = Literal["steer", "message"]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingMessage:
+    """A user message the model has not read yet.
+
+    ``steer`` messages wait to join the running turn; ``message`` ones wait to
+    start a later turn.
+    """
+
+    id: UUID
+    type: PendingMessageType
+    text: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WithdrawResult:
+    """Which pending user messages a withdraw took back.
+
+    ``withdrawn`` lists messages the model had not read, in send order.
+    ``too_late`` lists messages it had already read; they stay in the transcript.
+    """
+
+    withdrawn: tuple[UUID, ...] = ()
+    too_late: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TurnResult:
+    """A finished turn as seen by a caller that ran its workflow as a child.
+
+    ``error`` is set when the turn ended without a usable output, for example
+    when it failed or was cancelled; ``output`` is then ignored. A result with
+    neither an output nor an error is invalid.
+    """
+
+    output: Any
+    error: str | None = None
+
+
+# Runs once a session's delete has committed; see `AgentBackend.prepare_delete`.
+type SessionCleanup = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionDeleteContext:
+    """Authorized session about to be deleted, for backend-specific cleanup."""
+
+    db: AsyncSession
+    session: AgentSession
+    role: Role
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +143,11 @@ class SessionWorkflowContext:
     prompt: str
     run_id: UUID
     stream_id: UUID
+    # Limits a workflow agent action sets for its turn. None leaves the
+    # backend's default; chat turns never set them.
+    timeout_seconds: int | None = None
+    max_requests: int | None = None
+    max_tool_calls: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,7 @@
 """Enforce case-insensitive user email uniqueness
 
 Revision ID: 14588b612098
-Revises: b7d41c9e2a6f
+Revises: b157b9564aa9
 Create Date: 2026-10-02 14:46:06.036544
 
 Email lookups in fastapi-users are case-insensitive, but the ``ix_user_email``
@@ -43,7 +43,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "14588b612098"
-down_revision: str | None = "b7d41c9e2a6f"
+down_revision: str | None = "b157b9564aa9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

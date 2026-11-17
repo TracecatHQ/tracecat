@@ -11,6 +11,8 @@ import {
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { GitHubAppManifestResponse } from "@/client"
+import { CopyField } from "@/components/copy-field"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { GitHubAppManualForm } from "@/components/organization/org-vcs-github-manual-form"
 import {
@@ -26,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -247,7 +250,7 @@ function GitHubConnectionDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  manifest: { manifest: Record<string, unknown> } | undefined
+  manifest: GitHubAppManifestResponse | undefined
   onFormSuccess: () => void
   hasStoredCredentials: boolean
   existingAppId?: string
@@ -322,76 +325,125 @@ function GitHubConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="xl" className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {hasStoredCredentials ? "Update GitHub App" : "Connect GitHub App"}
           </DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="create" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="create" disableUnderline>
-              Create new
-            </TabsTrigger>
-            <TabsTrigger value="existing" disableUnderline>
-              Use existing
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="create" className="space-y-4 pt-2">
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-4"
-              >
-                <FormField
-                  control={form.control}
-                  name="organizationName"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>Organization name</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="My Organization" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="githubHost"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>GitHub host URL</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="https://github.com" />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        For GitHub Enterprise, enter your instance URL
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="gap-2"
-                  disabled={!manifest?.manifest}
+        <DialogBody>
+          <Tabs defaultValue="create" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="create" disableUnderline>
+                Create app
+              </TabsTrigger>
+              <TabsTrigger value="existing" disableUnderline>
+                Use existing
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="create" className="space-y-4 pt-2">
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-4"
                 >
-                  <ExternalLinkIcon className="size-4" />
-                  Create GitHub App
-                </Button>
-              </form>
-            </Form>
-          </TabsContent>
-          <TabsContent value="existing" className="pt-2">
-            <GitHubAppManualForm
-              onSuccess={onFormSuccess}
-              existingAppId={existingAppId}
-              hasStoredCredentials={hasStoredCredentials}
-            />
-          </TabsContent>
-        </Tabs>
+                  <FormField
+                    control={form.control}
+                    name="organizationName"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>Organization name</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="My Organization" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="githubHost"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>GitHub host URL</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="https://github.com" />
+                        </FormControl>
+                        <p className="text-xs text-muted-foreground">
+                          For GitHub Enterprise, enter your instance URL
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    className="gap-2"
+                    disabled={!manifest?.manifest}
+                  >
+                    <ExternalLinkIcon className="size-4" />
+                    Create GitHub App
+                  </Button>
+                  {manifest?.manifest ? (
+                    <GitHubAppManifestUrls manifest={manifest.manifest} />
+                  ) : null}
+                </form>
+              </Form>
+            </TabsContent>
+            <TabsContent value="existing" className="pt-2">
+              <GitHubAppManualForm
+                onSuccess={onFormSuccess}
+                existingAppId={existingAppId}
+                hasStoredCredentials={hasStoredCredentials}
+              />
+            </TabsContent>
+          </Tabs>
+        </DialogBody>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The URLs Tracecat writes into the GitHub App manifest, for allowlisting or review. */
+function GitHubAppManifestUrls({
+  manifest,
+}: {
+  manifest: GitHubAppManifestResponse["manifest"]
+}) {
+  const callbackUrls = manifest.callback_urls.filter(
+    (url) => url !== manifest.redirect_url
+  )
+  return (
+    <div className="space-y-3 border-t pt-4">
+      <div className="space-y-1">
+        <h4 className="text-sm font-medium">GitHub App URLs</h4>
+        <p className="text-xs text-muted-foreground">
+          Tracecat sets these in the app manifest. Copy them if your GitHub
+          Enterprise allowlist or app review needs them.
+        </p>
+      </div>
+      <CopyField
+        label="Redirect URL"
+        value={manifest.redirect_url}
+        help="Also the callback URL. GitHub returns here after creating the app."
+      />
+      {callbackUrls.map((url) => (
+        <CopyField key={url} label="Callback URL" value={url} />
+      ))}
+      <CopyField
+        label="Setup URL"
+        value={manifest.setup_url}
+        help="GitHub returns here after the app is installed."
+      />
+      <CopyField
+        label="Webhook URL"
+        value={manifest.hook_attributes.url}
+        help={
+          manifest.hook_attributes.active
+            ? "GitHub sends push and pull request events here."
+            : "Placeholder for local deployments. The webhook is created inactive."
+        }
+      />
+    </div>
   )
 }

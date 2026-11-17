@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Get case field values
+  description: List valid values for a case field, such as priority or a reference field, with the Case API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/case-api.html#case-GET-case-field_values
+  namespace: tools.servicenow
+  name: get_case_field_values
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    field_name:
+      type: str
+      description: Case field name, e.g. priority, state, or account.
+    sysparm_query:
+      type: str | None
+      description: Encoded query used to filter the result set, e.g. active=true^priority=1^ORDERBYDESCsys_created_on.
+      default: null
+    sysparm_dependent_value:
+      type: str | None
+      description: Value of the field this field depends on.
+      default: null
+    sysparm_limit:
+      type: int | None
+      description: Maximum number of records to return.
+      default: null
+    sysparm_offset:
+      type: int | None
+      description: Number of records to skip, for pagination.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_customerservice/case/field_values/${{ FN.url_encode(inputs.field_name) }}
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_query: ${{ inputs.sysparm_query }}
+        sysparm_dependent_value: ${{ inputs.sysparm_dependent_value }}
+        sysparm_limit: ${{ inputs.sysparm_limit }}
+        sysparm_offset: ${{ inputs.sysparm_offset }}
+  returns: ${{ steps.request.result }}

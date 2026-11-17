@@ -21,7 +21,9 @@ export function useFeatureFlag(): {
     refetchOnWindowFocus: false,
   })
 
-  const hasFeatureData = featureFlags !== undefined
+  // React Query keeps the last good flags when a refetch fails, while
+  // `isFeatureEnabled` below answers false; both distrust an errored result.
+  const hasFeatureData = featureFlags !== undefined && !error
 
   return {
     isFeatureEnabled: (flag: FeatureFlag) => {

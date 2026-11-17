@@ -258,6 +258,11 @@ class UnifiedStreamEvent:
     tool_name: str | None = None
     tool_input: dict[str, Any] | None = None
     tool_output: Any | None = None
+    preliminary: bool = False
+    """TOOL_RESULT only: a progress output that a later final result replaces.
+
+    Preliminary results are live-stream only and are never persisted.
+    """
     is_error: bool = False
     error: str | None = None
     metadata: dict[str, Any] | None = None
@@ -315,6 +320,7 @@ class UnifiedStreamEvent:
             raise ValueError("stream_event.timestamp must be an ISO 8601 string")
 
         is_error = boolean(data, "is_error", path="stream_event")
+        preliminary = boolean(data, "preliminary", path="stream_event")
 
         return cls(
             type=event_type,
@@ -329,6 +335,7 @@ class UnifiedStreamEvent:
             tool_name=optional_string(data, "tool_name", path="stream_event"),
             tool_input=optional_object(data, "tool_input", path="stream_event"),
             tool_output=data.get("tool_output"),
+            preliminary=preliminary,
             is_error=is_error,
             error=optional_string(data, "error", path="stream_event"),
             metadata=optional_object(data, "metadata", path="stream_event"),
@@ -357,6 +364,8 @@ class UnifiedStreamEvent:
             result["tool_input"] = self.tool_input
         if self.tool_output is not None:
             result["tool_output"] = self.tool_output
+        if self.preliminary:
+            result["preliminary"] = self.preliminary
         if self.is_error:
             result["is_error"] = self.is_error
         if self.error is not None:
@@ -375,9 +384,15 @@ class UnifiedStreamEvent:
         return cls(type=StreamEventType.APPROVAL_REQUEST, approval_items=items)
 
     @classmethod
-    def user_message_event(cls, content: str) -> UnifiedStreamEvent:
-        """Factory method for creating user message events."""
-        return cls(type=StreamEventType.USER_MESSAGE, text=content)
+    def user_message_event(
+        cls, content: str, *, message_id: str | None = None
+    ) -> UnifiedStreamEvent:
+        """A user message that joined the running turn, such as a steering message.
+
+        ``message_id`` is the ID the client submitted it under, if any.
+        """
+        metadata = {"id": message_id} if message_id is not None else None
+        return cls(type=StreamEventType.USER_MESSAGE, text=content, metadata=metadata)
 
     @classmethod
     def compaction_event(

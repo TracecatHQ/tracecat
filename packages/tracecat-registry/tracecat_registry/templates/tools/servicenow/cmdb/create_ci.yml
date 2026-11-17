@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Create configuration item
+  description: Create a configuration item in a CMDB class with the CMDB Instance API, applying identification and reconciliation rules.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/cmdb-instance-api.html#cmdb-POST-instance
+  namespace: tools.servicenow
+  name: create_ci
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    classname:
+      type: str
+      description: CMDB class (table) name, e.g. cmdb_ci_linux_server, cmdb_ci_win_server, or cmdb_ci_appl.
+    attributes:
+      type: dict[str, Any]
+      description: 'CI attributes keyed by field name, e.g. {"name": "web-01", "ip_address": "10.0.0.5"}.'
+    source:
+      type: str
+      description: Discovery source that is updating the CI. Must be a choice value of cmdb_ci.discovery_source, e.g. ServiceNow.
+    inbound_relations:
+      type: list[dict[str, Any]] | None
+      description: 'Inbound relations, each {"target": "<ci sys_id>", "type": "<cmdb_rel_type sys_id>"}.'
+      default: null
+    outbound_relations:
+      type: list[dict[str, Any]] | None
+      description: 'Outbound relations, each {"target": "<ci sys_id>", "type": "<cmdb_rel_type sys_id>"}.'
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: build_body
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: null
+        values:
+          attributes: ${{ inputs.attributes }}
+          source: ${{ inputs.source }}
+          inbound_relations: ${{ inputs.inbound_relations }}
+          outbound_relations: ${{ inputs.outbound_relations }}
+      script: |
+        def main(fields, values):
+            body = dict(fields or {})
+            body.update({k: v for k, v in values.items() if v is not None})
+            return body
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/cmdb/instance/${{ FN.url_encode(inputs.classname) }}
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_body.result }}
+  returns: ${{ steps.request.result }}

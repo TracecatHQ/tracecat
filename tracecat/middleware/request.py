@@ -28,7 +28,7 @@ def _is_trusted_proxy(value: str) -> bool:
     )
 
 
-def _resolve_client_ip(request: Request) -> str | None:
+def resolve_client_ip(request: Request) -> str | None:
     """Rightmost untrusted hop of X-Forwarded-For plus the socket peer.
 
     Each proxy appends its peer, so the chain is trustworthy only from the
@@ -127,7 +127,7 @@ def build_request_audit_context(request: Request) -> RequestAuditContext:
 
     Informational attribution, not a security control.
     """
-    client_ip = _resolve_client_ip(request)
+    client_ip = resolve_client_ip(request)
     raw_user_agent = request.headers.get("User-Agent")
     user_agent = _normalize_audit_user_agent(raw_user_agent)
     return RequestAuditContext(

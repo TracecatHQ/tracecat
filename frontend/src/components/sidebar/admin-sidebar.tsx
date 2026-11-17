@@ -3,10 +3,13 @@
 import {
   BookOpenIcon,
   BuildingIcon,
+  InfoIcon,
   LayersIcon,
   LogOutIcon,
   LogsIcon,
   MousePointerClickIcon,
+  PackageIcon,
+  ShieldCheckIcon,
   UsersIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -39,7 +42,7 @@ export function AdminSidebar({
     await logout()
   }
 
-  const navPlatform = [
+  const navPlatformBeforeAgent = [
     {
       title: "Organizations",
       url: "/admin/organizations",
@@ -58,11 +61,14 @@ export function AdminSidebar({
       icon: LayersIcon,
       isActive: pathname?.includes("/admin/tiers"),
     },
+  ]
+
+  const navPlatformAfterAgent = [
     {
-      title: "Agent",
-      url: "/admin/agent",
-      icon: MousePointerClickIcon,
-      isActive: pathname?.includes("/admin/agent"),
+      title: "Managed Workspaces",
+      url: "/admin/managed-package",
+      icon: PackageIcon,
+      isActive: pathname?.includes("/admin/managed-package"),
     },
     {
       title: "Audit Logs",
@@ -71,10 +77,35 @@ export function AdminSidebar({
       isActive: pathname?.includes("/admin/audit"),
     },
     {
+      title: "Security",
+      url: "/admin/security",
+      icon: ShieldCheckIcon,
+      isActive: pathname?.includes("/admin/security"),
+    },
+    {
       title: "Maintenance",
       url: "/admin/maintenance",
       icon: WrenchIcon,
       isActive: pathname?.includes("/admin/maintenance"),
+    },
+    {
+      title: "Build",
+      url: "/admin/build-info",
+      icon: InfoIcon,
+      isActive: pathname?.includes("/admin/build-info"),
+    },
+  ]
+
+  const navAgent = [
+    {
+      title: "Models",
+      url: "/admin/agent",
+      isActive: pathname === "/admin/agent",
+    },
+    {
+      title: "Slack App",
+      url: "/admin/agent/slack",
+      isActive: pathname?.includes("/admin/agent/slack"),
     },
   ]
 
@@ -96,6 +127,19 @@ export function AdminSidebar({
     },
   ]
 
+  function renderNavItem(item: (typeof navPlatformAfterAgent)[number]) {
+    return (
+      <SidebarMenuItem key={item.title}>
+        <SidebarMenuButton asChild isActive={item.isActive}>
+          <Link href={item.url}>
+            <item.icon />
+            <span>{item.title}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    )
+  }
+
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarContent>
@@ -103,16 +147,29 @@ export function AdminSidebar({
           <SidebarGroupLabel>Platform</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navPlatform.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navPlatformBeforeAgent.map(renderNavItem)}
+              <SidebarMenuItem>
+                <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
+                  <MousePointerClickIcon className="size-4 shrink-0" />
+                  <span className="font-medium">Agent</span>
+                </div>
+                <SidebarMenuSub>
+                  {navAgent.map((subItem) => (
+                    <SidebarMenuSubItem key={subItem.title}>
+                      <SidebarMenuSubButton
+                        asChild
+                        isActive={subItem.isActive}
+                        className="text-[13px]"
+                      >
+                        <Link href={subItem.url}>
+                          <span>{subItem.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              </SidebarMenuItem>
+              {navPlatformAfterAgent.map(renderNavItem)}
               <SidebarMenuItem>
                 <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
                   <BookOpenIcon className="size-4 shrink-0" />

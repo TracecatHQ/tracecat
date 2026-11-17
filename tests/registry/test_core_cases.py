@@ -8,28 +8,35 @@ import base64
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import tracecat_registry.types as registry_types
+from pydantic import TypeAdapter
 from tracecat_registry.core.cases import (
     add_case_tag,
+    add_sub_cases,
     aggregate_cases,
     assign_user,
     create_case,
     create_comment,
     delete_case,
+    delete_case_tag,
+    delete_comment,
     download_attachment,
     get_attachment,
     get_attachment_download_url,
     get_case,
     get_comment_thread,
     list_attachments,
+    list_case_views,
     list_cases,
+    list_cases_by_row,
     list_comment_threads,
     list_comments,
     remove_case_tag,
+    remove_sub_cases,
     reply_to_comment,
     search_cases,
     update_case,
@@ -40,6 +47,7 @@ from tracecat_registry.core.cases import (
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
+from tracecat_registry.sdk.types import UNSET
 
 
 @pytest.fixture
@@ -54,6 +62,17 @@ def mock_get_context(mock_cases_client: AsyncMock):
     fake_ctx = SimpleNamespace(cases=mock_cases_client)
     with patch("tracecat_registry.ctx.get_context", return_value=fake_ctx):
         yield
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", [list_cases, search_cases, list_cases_by_row])
+@pytest.mark.parametrize("order_by", ["assignee", "tags"])
+async def test_case_action_sort_contract_accepts_relationships(
+    action, order_by
+) -> None:
+    """Workflow action metadata exposes the supported server relationship keys."""
+    annotation = get_type_hints(action, include_extras=True)["order_by"]
+    assert TypeAdapter(annotation).validate_python(order_by) == order_by
 
 
 @pytest.mark.anyio
@@ -591,6 +610,24 @@ class TestCoreUpdateComment:
 
 
 @pytest.mark.anyio
+class TestCoreDeleteComment:
+    """Test cases for the delete_comment UDF."""
+
+    async def test_delete_comment_success(
+        self, mock_cases_client: AsyncMock, mock_comment_dict
+    ):
+        """Test successful comment deletion."""
+        mock_cases_client.delete_comment.return_value = None
+
+        case_id = "CASE-0042"
+        comment_id = mock_comment_dict["id"]
+        result = await delete_comment(case_id=case_id, comment_id=comment_id)
+
+        mock_cases_client.delete_comment.assert_called_once_with(case_id, comment_id)
+        assert result is None
+
+
+@pytest.mark.anyio
 class TestCoreGetCase:
     """Test cases for the get_case UDF."""
 
@@ -717,6 +754,25 @@ class TestCoreListCases:
 @pytest.mark.anyio
 class TestCoreSearchCases:
     """Test cases for search_cases UDF behavior."""
+
+    async def test_search_cases_forwards_view_id(self, mock_cases_client: AsyncMock):
+        """A view ID and a narrowing filter tree reach the SDK together."""
+        mock_cases_client.search_cases.return_value = {"items": []}
+        filters = {"field": "status", "op": "eq", "value": "new"}
+
+        assert await search_cases(view_id="assigned_to_me", filters=filters) == []
+
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=100, view_id="assigned_to_me", filters=filters
+        )
+
+    async def test_search_cases_forwards_short_id(self, mock_cases_client: AsyncMock):
+        """Exact short IDs reach the SDK and preserve item-only results."""
+        mock_cases_client.search_cases.return_value = {"items": []}
+        assert await search_cases(short_id="CASE-0001") == []
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=100, short_id="CASE-0001"
+        )
 
     async def test_search_cases_no_params(
         self, mock_cases_client: AsyncMock, mock_case_dict
@@ -1023,10 +1079,34 @@ class TestCoreCaseTags:
         mock_cases_client.remove_tag.assert_called_once_with(case_id, tag_id="test-tag")
         assert result is None
 
+    async def test_delete_case_tag_success(self, mock_cases_client: AsyncMock):
+        mock_cases_client.delete_case_tag.return_value = None
+
+        result = await delete_case_tag(tag="test-tag")
+
+        mock_cases_client.delete_case_tag.assert_called_once_with("test-tag")
+        assert result is None
+
 
 @pytest.mark.anyio
 class TestCoreAttachments:
     """Test cases for attachment UDFs."""
+
+    async def test_attachment_actions_pass_short_case_id_through(
+        self, mock_cases_client: AsyncMock
+    ):
+        """Attachment actions should let the API resolve short case IDs."""
+        attachment_id = str(uuid.uuid4())
+        mock_cases_client.list_attachments.return_value = []
+        mock_cases_client.get_attachment_metadata.return_value = {}
+
+        await list_attachments(case_id="CASE-0042")
+        await get_attachment(case_id="CASE-0042", attachment_id=attachment_id)
+
+        mock_cases_client.list_attachments.assert_called_once_with("CASE-0042")
+        mock_cases_client.get_attachment_metadata.assert_called_once_with(
+            "CASE-0042", uuid.UUID(attachment_id)
+        )
 
     async def test_upload_attachment_success(
         self, mock_cases_client: AsyncMock, mock_case_dict
@@ -1322,3 +1402,175 @@ class TestCoreUploadAttachmentFromURL:
                 case_id=case_id,
                 url="https://example.com/docs/report.pdf",
             )
+
+
+@pytest.mark.anyio
+async def test_list_cases_by_row_returns_items(
+    mock_cases_client: AsyncMock,
+) -> None:
+    mock_cases_client.list_linked_cases.return_value = {
+        "items": [{"id": "case-1"}],
+        "next_cursor": "next",
+    }
+
+    result = await list_cases_by_row(
+        table_id="table-id",
+        row_id="row-id",
+        exclude_case_id="CASE-0001",
+        limit=10,
+        cursor="ignored-without-paginate",
+    )
+
+    assert result == [{"id": "case-1"}]
+    mock_cases_client.list_linked_cases.assert_awaited_once_with(
+        "table-id", "row-id", limit=10, exclude_case_id="CASE-0001"
+    )
+
+
+@pytest.mark.anyio
+async def test_list_cases_by_row_paginate_returns_response(
+    mock_cases_client: AsyncMock,
+) -> None:
+    response = {"items": [], "next_cursor": None}
+    mock_cases_client.list_linked_cases.return_value = response
+
+    result = await list_cases_by_row(
+        table_id="table-id", row_id="row-id", cursor="abc", paginate=True
+    )
+
+    assert result is response
+    mock_cases_client.list_linked_cases.assert_awaited_once_with(
+        "table-id", "row-id", limit=100, cursor="abc"
+    )
+
+
+@pytest.mark.anyio
+async def test_list_cases_by_row_rejects_large_limit() -> None:
+    with pytest.raises(TracecatValidationError):
+        await list_cases_by_row(table_id="t", row_id="r", limit=10_000)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("paginate", [False, True])
+async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
+    mock_cases_client: AsyncMock, paginate: bool
+) -> None:
+    case_id = str(uuid.uuid4())
+    parent_id = str(uuid.uuid4())
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
+    response = {"items": [], "next_cursor": "synthetic-cursor", "total_estimate": None}
+    mock_cases_client.search_cases.return_value = response
+    result = await search_cases(
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
+        order_by="relevance",
+        short_id="CASE-0042",
+        case_id=case_id,
+        parent_id=parent_id,
+        filters=filters,
+        include_rows=True,
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        field_ids=["region"],
+        paginate=paginate,
+    )
+    assert result == (response if paginate else response["items"])
+    mock_cases_client.search_cases.assert_awaited_once_with(
+        limit=100,
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
+        order_by="relevance",
+        short_id="CASE-0042",
+        case_id=case_id,
+        parent_id=parent_id,
+        filters=filters,
+        include_rows=True,
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        field_ids=["region"],
+    )
+
+
+@pytest.mark.anyio
+async def test_create_case_forwards_parent_case_id(
+    mock_cases_client: AsyncMock,
+) -> None:
+    await create_case(
+        summary="Duplicate", description="Duplicate", parent_case_id="CASE-0001"
+    )
+
+    assert (
+        mock_cases_client.create_case_simple.call_args.kwargs["parent_case_id"]
+        == "CASE-0001"
+    )
+
+
+@pytest.mark.anyio
+async def test_sub_case_actions_forward_refs(mock_cases_client: AsyncMock) -> None:
+    await add_sub_cases(parent_case_id="CASE-0001", case_ids=["CASE-0002"])
+    await remove_sub_cases(case_ids=["CASE-0003"])
+
+    mock_cases_client.batch_set_parent.assert_awaited_once_with(
+        case_ids=["CASE-0002"], parent_case_id="CASE-0001"
+    )
+    mock_cases_client.batch_clear_parent.assert_awaited_once_with(
+        case_ids=["CASE-0003"]
+    )
+
+
+@pytest.mark.anyio
+async def test_sub_case_actions_skip_empty_case_ids(
+    mock_cases_client: AsyncMock,
+) -> None:
+    empty = {"results": [], "succeeded": 0, "failed": 0}
+
+    assert await add_sub_cases(parent_case_id="CASE-0001", case_ids=[]) == empty
+    assert await remove_sub_cases(case_ids=[]) == empty
+    mock_cases_client.batch_set_parent.assert_not_called()
+    mock_cases_client.batch_clear_parent.assert_not_called()
+
+
+@pytest.mark.anyio
+class TestCoreListCaseViews:
+    """Test cases for the list_case_views UDF."""
+
+    async def test_lists_builtins_then_saved_views(
+        self, mock_cases_client: AsyncMock
+    ) -> None:
+        builtin = {"id": "assigned_to_me", "kind": "builtin"}
+        saved = {"id": "00000000-0000-0000-0000-000000000001", "kind": "custom"}
+        mock_cases_client.list_builtin_views.return_value = [builtin]
+        mock_cases_client.list_views.return_value = {"items": [saved]}
+
+        assert await list_case_views(limit=10) == [builtin, saved]
+        mock_cases_client.list_views.assert_called_once_with(limit=10, cursor=UNSET)
+
+    async def test_can_skip_builtins(self, mock_cases_client: AsyncMock) -> None:
+        saved = {"id": "00000000-0000-0000-0000-000000000003", "kind": "custom"}
+        mock_cases_client.list_views.return_value = {"items": [saved]}
+
+        assert await list_case_views(include_builtins=False) == [saved]
+        mock_cases_client.list_builtin_views.assert_not_called()
+        mock_cases_client.list_views.assert_awaited_once()
+
+    async def test_follows_the_cursor_until_limit(
+        self, mock_cases_client: AsyncMock
+    ) -> None:
+        first = {"id": "00000000-0000-0000-0000-000000000001", "kind": "custom"}
+        second = {"id": "00000000-0000-0000-0000-000000000002", "kind": "custom"}
+        mock_cases_client.list_views.side_effect = [
+            {"items": [first], "has_more": True, "next_cursor": "page-2"},
+            {"items": [second], "has_more": False, "next_cursor": None},
+        ]
+
+        views = await list_case_views(include_builtins=False, limit=5)
+
+        assert views == [first, second]
+        assert mock_cases_client.list_views.await_args_list[1].kwargs == {
+            "limit": 4,
+            "cursor": "page-2",
+        }

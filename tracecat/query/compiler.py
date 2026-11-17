@@ -467,6 +467,15 @@ def _compile_condition(
     normalized = _normalize_value(
         condition, resolved.kind, column_expression.type, value
     )
+    if resolved.kind is FieldKind.JSON_SCALAR and normalized is not None:
+        # Bind as JSONB explicitly: SQLAlchemy otherwise infers native SQL
+        # strings/numbers/booleans, which cannot be compared to a JSONB scalar.
+        bound = sa.bindparam(None, normalized, type_=postgresql.JSONB())
+        if condition.op is FilterOp.EQ:
+            return column_expression == bound
+        if condition.op is FilterOp.NE:
+            return column_expression != bound
+        raise _condition_error(condition, "JSON scalars only support equality")
     return compile_predicate(column_expression, condition.op, normalized)
 
 
@@ -510,6 +519,16 @@ def _normalize_scalar(
 ) -> NormalizedFilterScalar:
     try:
         match kind:
+            case FieldKind.JSON_SCALAR:
+                if isinstance(value, str):
+                    if "\x00" in value:
+                        raise ValueError
+                    return value
+                if isinstance(value, bool | int):
+                    return value
+                if isinstance(value, float) and math.isfinite(value):
+                    return value
+                raise TypeError
             case FieldKind.NUMBER:
                 return _normalize_number(value_type, value)
             case FieldKind.TEMPORAL:

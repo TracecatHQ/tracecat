@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, status
-from pydantic import UUID4
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
+from tracecat.cases.dependencies import ExecutorCaseIDPath
 from tracecat.cases.tags.schemas import CaseTagRead, InternalCaseTagCreate
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
@@ -19,7 +19,7 @@ router = APIRouter(
 async def list_tags(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: UUID4,
+    case_id: ExecutorCaseIDPath,
 ) -> list[CaseTagRead]:
     service = CaseTagsService(session, role=role)
     tags = await service.list_tags_for_case(case_id)
@@ -36,7 +36,7 @@ async def list_tags(
 async def add_tag(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: UUID4,
+    case_id: ExecutorCaseIDPath,
     params: InternalCaseTagCreate,
 ) -> CaseTagRead:
     service = CaseTagsService(session, role=role)
@@ -53,10 +53,10 @@ async def add_tag(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
         ) from err
-    except IntegrityError as e:
+    except ValueError as err:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Tag operation failed"
-        ) from e
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tag name"
+        ) from err
 
 
 @router.delete(
@@ -66,7 +66,7 @@ async def add_tag(
 async def remove_tag(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: UUID4,
+    case_id: ExecutorCaseIDPath,
     tag_identifier: str,
 ) -> None:
     service = CaseTagsService(session, role=role)

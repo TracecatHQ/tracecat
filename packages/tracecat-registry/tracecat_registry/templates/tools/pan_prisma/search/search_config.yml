@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: Search config (RQL)
+  description: Returns the results of an RQL config query. Use config queries to retrieve resource information, identify misconfigurations, and uncover policy and compliance violations. Calls POST /search/api/v2/config directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/search-config-v-2/
+  namespace: tools.pan_prisma
+  name: search_config
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    query:
+      type: str
+      description: RQL query, e.g. config from cloud.resource where api.name = 'aws-ec2-describe-instances'.
+    limit:
+      type: int | None
+      description: Results per page. The maximum number of results is 100 items; use get_config_search_page with nextPageToken for more.
+      default: null
+    startTime:
+      type: int | None
+      description: Start time for the search in epoch milliseconds. The end time is the current system time.
+      default: null
+    withResourceJson:
+      type: bool | None
+      description: true = include resource JSON. Default is false.
+      default: null
+    sort:
+      type: list[dict[str, Any]] | None
+      description: 'Sort field data, e.g. [{"field": "insertTs", "direction": "desc"}].'
+      default: null
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/search/api/v2/config
+      method: POST
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        query: ${{ inputs.query }}
+        limit: ${{ inputs.limit }}
+        startTime: ${{ inputs.startTime }}
+        withResourceJson: ${{ inputs.withResourceJson }}
+        sort: ${{ inputs.sort }}
+  returns: ${{ steps.request.result }}

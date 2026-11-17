@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, Literal
 
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import Discriminator, TypeAdapter
+from pydantic import Discriminator, TypeAdapter, model_validator
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPServerConfig
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    read_reasoning_effort_as_enable_thinking,
+)
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_FLOOR,
+)
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.config import (
@@ -22,16 +29,59 @@ CustomToolList = list[Any]
 
 
 def clamp_agent_timeout_seconds(timeout_seconds: int | None) -> int:
-    """Clamp an agent timeout to the deployment ceiling.
+    """Clamp an agent timeout to the deployment bounds.
 
     ``None`` inherits the hardcoded default; explicit values clamp to
-    [default, ceiling]. Never rejects: out-of-bounds values clamp.
+    [floor, ceiling]. A lower ceiling caps both. Never rejects.
     """
     ceiling = TRACECAT__AGENT_SANDBOX_TIMEOUT
-    floor = min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
     if timeout_seconds is None:
-        return floor
+        return min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
+    floor = min(AGENT_TIMEOUT_SECONDS_FLOOR, ceiling)
     return min(max(timeout_seconds, floor), ceiling)
+
+
+def granted_tool_tunnels(
+    tool_tunnels: Mapping[str, str] | None, granted: Collection[str] | None
+) -> dict[str, str] | None:
+    """Keep only the tool tunnels of tools the agent has.
+
+    Tool grants change through actions, skills, namespace filters and run-time
+    action overrides, so a preset's saved map can name a tool the agent no
+    longer has. That tunnel has no effect, and keeping it would fail the tool
+    build.
+    """
+    allowed = set(granted or ())
+    kept = {
+        name: tunnel for name, tunnel in (tool_tunnels or {}).items() if name in allowed
+    }
+    return kept or None
+
+
+def apply_preset_overrides(
+    preset_config: AgentConfig, overrides: AgentConfig | None
+) -> AgentConfig:
+    """Layer a workflow action's overrides onto its preset's configuration.
+
+    Override actions and output type replace the preset's, and override
+    instructions follow the preset's. Tool tunnels are then pruned against the
+    final actions, since an override can re-add a tool the preset's skills no
+    longer grant.
+    """
+    config = replace(preset_config)
+    if overrides is not None:
+        if overrides.actions:
+            config.actions = overrides.actions
+        if overrides.instructions:
+            config.instructions = (
+                f"{config.instructions}\n{overrides.instructions}"
+                if config.instructions
+                else overrides.instructions
+            )
+        if overrides.output_type is not None:
+            config.output_type = overrides.output_type
+    config.tool_tunnels = granted_tool_tunnels(config.tool_tunnels, config.actions)
+    return config
 
 
 class StreamKey(str):
@@ -87,6 +137,7 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
@@ -106,6 +157,14 @@ class AgentConfig:
     workspace ``resolved_skills``. Asset contents are pinned by the executor
     image; no host paths or user-supplied origin claims cross this boundary.
     """
+    library_skills: list[str] | None = None
+    """Installed platform library skill slugs, staged in the platform plugin."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_reasoning_effort(cls, data: Any) -> Any:
+        """Accept Temporal payloads that a newer worker wrote."""
+        return read_reasoning_effort_as_enable_thinking(data)
 
 
 # --- Tool Types (Harness-Agnostic) ---

@@ -13,6 +13,7 @@ There are two setup steps: install the extension files on the PostgreSQL server,
 | --- | --- |
 | Bundled Docker Compose database | The Tracecat PostgreSQL image includes pgvector. Run `docker compose up` as usual. |
 | Your own PostgreSQL server or custom image | Download and install pgvector on the database server using the instructions below. Match your PostgreSQL version, operating system, and CPU architecture. |
+| CloudNativePG on Kubernetes | Mount the CloudNativePG pgvector extension image and enable `vector` with a `Database` resource. See [CloudNativePG](/self-hosting/kubernetes#cloudnativepg). |
 | Managed PostgreSQL, including Amazon RDS | Choose an engine version that supplies pgvector 0.8.0 or newer. Use your provider's extension controls; you do not install operating-system packages yourself. |
 
 For your own server, follow the official pgvector instructions for your installation method:

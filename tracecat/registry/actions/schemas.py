@@ -219,6 +219,10 @@ class RegistryActionReadMinimal(BaseModel):
         default_factory=RegistryActionAvailability,
         description="Availability metadata for this action",
     )
+    requires_approval: bool = Field(
+        default=False,
+        description="Whether the action requires approval by default when used as an agent tool",
+    )
 
     @computed_field(return_type=str)
     @property
@@ -240,6 +244,7 @@ class RegistryActionReadMinimal(BaseModel):
             origin=origin,
             default_title=index.default_title,
             display_group=index.display_group,
+            requires_approval=bool(index.options.get("requires_approval", False)),
             availability=RegistryActionAvailability(
                 locked=bool(index.missing_entitlements),
                 missing_entitlements=list(index.missing_entitlements),

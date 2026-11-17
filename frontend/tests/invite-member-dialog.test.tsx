@@ -2,24 +2,43 @@
  * @jest-environment jsdom
  */
 
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { RoleReadWithScopes, WorkspaceRead } from "@/client"
+import type {
+  GroupReadWithMembers,
+  RoleReadWithScopes,
+  WorkspaceRead,
+} from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { InviteMemberDialog } from "@/components/organization/invite-member-dialog"
-import { useOrgMembers, useRbacRoles, useWorkspaceManager } from "@/lib/hooks"
+import { useEntitlements } from "@/hooks/use-entitlements"
+import {
+  useOrgMembers,
+  useRbacGroups,
+  useRbacRoles,
+  useWorkspaceManager,
+} from "@/lib/hooks"
 
 jest.mock("@/lib/hooks", () => ({
   useOrgMembers: jest.fn(),
+  useRbacGroups: jest.fn(),
   useRbacRoles: jest.fn(),
   useWorkspaceManager: jest.fn(),
 }))
 
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(),
+}))
+
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: jest.fn(),
 }))
 
 jest.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogBody: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
   DialogContent: ({ children }: { children: React.ReactNode }) => (
@@ -147,7 +166,20 @@ function createRole(
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     created_by: null,
-    scopes: [],
+    // The picker reads the role level from org:* scopes, not the slug.
+    scopes: slug?.startsWith("organization-")
+      ? [
+          {
+            id: "scope-org-read",
+            name: "org:read",
+            resource: "org",
+            action: "read",
+            source: "platform",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        ]
+      : [],
     is_system: true,
   }
 }
@@ -163,6 +195,21 @@ const WORKSPACES = [
   { id: "ws-b", name: "Workspace B" },
 ] as WorkspaceRead[]
 
+const GROUPS = [
+  { id: "group-sec", name: "Security", is_idp_managed: false },
+  { id: "group-okta", name: "Okta admins", is_idp_managed: true },
+  { id: "group-eng", name: "Engineering", is_idp_managed: false },
+] as GroupReadWithMembers[]
+
+const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
+  typeof useScopeCheck
+>
+const mockUseEntitlements = useEntitlements as jest.MockedFunction<
+  typeof useEntitlements
+>
+const mockUseRbacGroups = useRbacGroups as jest.MockedFunction<
+  typeof useRbacGroups
+>
 const mockUseOrgMembers = useOrgMembers as jest.MockedFunction<
   typeof useOrgMembers
 >
@@ -187,14 +234,35 @@ beforeEach(() => {
   mockUseWorkspaceManager.mockReturnValue({
     workspaces: WORKSPACES,
   } as unknown as ReturnType<typeof useWorkspaceManager>)
+  mockUseRbacGroups.mockReturnValue({ groups: GROUPS } as unknown as ReturnType<
+    typeof useRbacGroups
+  >)
+  mockUseScopeCheck.mockReturnValue(true)
+  mockEntitlements(true)
 })
+
+function mockEntitlements(rbacAddons: boolean) {
+  mockUseEntitlements.mockReturnValue({
+    hasEntitlement: (key) => key === "rbac_addons" && rbacAddons,
+    hasEntitlementData: true,
+    isLoading: false,
+  })
+}
+
+async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByPlaceholderText("user@example.com"), "a@b.com")
+  await user.selectOptions(
+    screen.getByLabelText("Grant 1 role"),
+    ORG_ADMIN_ROLE_ID
+  )
+}
 
 afterEach(() => {
   jest.clearAllMocks()
 })
 
 describe("InviteMemberDialog", () => {
-  it("offers each scope only its own preset roles, plus custom roles", async () => {
+  it("offers org roles only org-wide and workspace roles on every scope", async () => {
     const user = userEvent.setup()
     render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
 
@@ -203,10 +271,10 @@ describe("InviteMemberDialog", () => {
         (option) => option.getAttribute("value")
       )
 
-    // Grant 1 defaults to org-wide: a workspace role there would apply its
-    // scopes across every workspace.
+    // Grant 1 defaults to org-wide: a workspace role there applies in every
+    // workspace.
     expect(optionsFor("Grant 1 role")).toContain(ORG_ADMIN_ROLE_ID)
-    expect(optionsFor("Grant 1 role")).not.toContain(WORKSPACE_EDITOR_ROLE_ID)
+    expect(optionsFor("Grant 1 role")).toContain(WORKSPACE_EDITOR_ROLE_ID)
     expect(optionsFor("Grant 1 role")).toContain(CUSTOM_ROLE_ID)
 
     await user.click(screen.getByRole("button", { name: /Add grant/ }))
@@ -291,5 +359,72 @@ describe("InviteMemberDialog", () => {
     expect(mockUseOrgMembers).not.toHaveBeenCalled()
     expect(mockUseRbacRoles).not.toHaveBeenCalled()
     expect(mockUseWorkspaceManager).not.toHaveBeenCalled()
+    expect(mockUseRbacGroups).not.toHaveBeenCalled()
+    expect(mockUseEntitlements).not.toHaveBeenCalled()
+  })
+
+  it("hides the groups section without the rbac_addons entitlement", () => {
+    mockEntitlements(false)
+    render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.queryByText("Groups")).not.toBeInTheDocument()
+    expect(mockUseRbacGroups).not.toHaveBeenCalled()
+  })
+
+  it("hides the groups section while entitlements are unknown", () => {
+    mockUseEntitlements.mockReturnValue({
+      hasEntitlement: () => false,
+      hasEntitlementData: false,
+      isLoading: true,
+    })
+    render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.queryByText("Groups")).not.toBeInTheDocument()
+    expect(mockUseRbacGroups).not.toHaveBeenCalled()
+  })
+
+  it("hides the groups section without org:rbac:update", () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "org:rbac:update")
+    render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
+
+    expect(screen.queryByText("Groups")).not.toBeInTheDocument()
+    expect(mockUseRbacGroups).not.toHaveBeenCalled()
+  })
+
+  it("offers groups sorted by name, leaving out IdP-managed ones", async () => {
+    const user = userEvent.setup()
+    render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
+
+    const trigger = screen.getByRole("combobox", { name: "Groups" })
+    expect(trigger).toHaveTextContent("Select groups")
+    await user.click(trigger)
+
+    expect(
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((option) => option.textContent)
+    ).toEqual(["Engineering", "Security"])
+  })
+
+  it("sends group_ids for the selected groups", async () => {
+    const user = userEvent.setup()
+    render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
+
+    await fillRequiredFields(user)
+    const trigger = screen.getByRole("combobox", { name: "Groups" })
+    await user.click(trigger)
+    await user.click(screen.getByRole("option", { name: "Engineering" }))
+    await user.click(screen.getByRole("option", { name: "Security" }))
+    expect(trigger).toHaveTextContent("EngineeringSecurity")
+
+    await user.click(screen.getByRole("button", { name: "Send invitation" }))
+
+    await waitFor(() => {
+      expect(createInvitation).toHaveBeenCalledWith({
+        email: "a@b.com",
+        grants: [{ role_id: ORG_ADMIN_ROLE_ID, workspace_id: null }],
+        group_ids: ["group-eng", "group-sec"],
+      })
+    })
   })
 })

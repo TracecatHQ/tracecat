@@ -11,7 +11,7 @@ from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import httpx
 from cryptography.fernet import Fernet
@@ -32,13 +32,9 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
 from pydantic import AnyUrl, BaseModel, Field
-from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
-from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
-from starlette.routing import Route
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -46,7 +42,6 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.config import (
-    REDIS_URL,
     TRACECAT__PUBLIC_APP_URL,
 )
 from tracecat.contexts import ctx_role
@@ -73,6 +68,8 @@ from tracecat.mcp.oidc.features import (
 )
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.service import verify_mcp_personal_access_token
+from tracecat.redis.auth import create_redis_client
+from tracecat.redis.client import resolve_redis_url
 
 
 class MCPTokenIdentity(BaseModel):
@@ -93,7 +90,6 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
-_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -136,52 +132,6 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
     return OFFLINE_ACCESS_SCOPE in scopes_supported
-
-
-def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
-    """Patch only the advertised token auth methods on discovery responses."""
-
-    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await app(scope, receive, send)
-            return
-
-        start_message: Message | None = None
-        body_chunks: list[bytes] = []
-
-        async def capture(message: Message) -> None:
-            nonlocal start_message
-
-            match message["type"]:
-                case "http.response.start":
-                    start_message = dict(message)
-                case "http.response.body":
-                    body_chunks.append(message.get("body", b""))
-                case _:
-                    await send(message)
-
-        await app(scope, receive, capture)
-
-        if start_message is None:
-            return
-
-        body = b"".join(body_chunks)
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError:
-            payload = None
-        if isinstance(payload, dict):
-            payload["token_endpoint_auth_methods_supported"] = (
-                _MCP_TOKEN_ENDPOINT_AUTH_METHODS
-            )
-            body = json.dumps(payload).encode("utf-8")
-
-        headers = MutableHeaders(raw=start_message["headers"])
-        headers["content-length"] = str(len(body))
-        await send(start_message)
-        await send({"type": "http.response.body", "body": body, "more_body": False})
-
-    return patched_app
 
 
 def _normalize_loopback_path(path: str) -> str:
@@ -323,6 +273,15 @@ def _normalize_subject_claim(value: object) -> str | None:
     if isinstance(value, str) and (subject := value.strip()):
         return subject
     return None
+
+
+def _append_query_params(url: str, params: dict[str, str]) -> str:
+    """Return ``url`` with ``params`` appended to its query string."""
+    parts = urlsplit(url)
+    query = urlencode(
+        [*parse_qsl(parts.query, keep_blank_values=True), *params.items()]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
 def _merge_fastmcp_token_claims(
@@ -702,7 +661,7 @@ def _create_oidc_auth() -> OIDCProxy:
     # The internal OIDC issuer lives on the API server. The MCP server
     # uses it as the upstream identity provider instead of an external BYO
     # OIDC IdP. Keep ``offline_access`` out of ``_required_scopes`` so
-    # validated tool tokens do not require it. Advertise and default the
+    # validated tool tokens do not require it. Advertise and request the
     # refresh scope only when refresh-token support is enabled for this
     # deployment.
     _required_scopes = ["openid", "profile", "email"]
@@ -760,15 +719,15 @@ def _create_oidc_auth() -> OIDCProxy:
             client: OAuthClientInformationFull,
             params: AuthorizationParams,
         ) -> str:
-            """Merge all required OIDC scopes into the authorization request.
+            """Merge required OIDC scopes into the authorization request.
 
-            Request ``offline_access`` optimistically even if the upstream OIDC
-            metadata omits it — some providers issue refresh tokens despite not
-            advertising the scope in discovery metadata.  If the provider truly
-            rejects the scope, ``_retry_without_refresh_scope()`` handles a
-            single retry without it.
+            Always request ``offline_access`` when refresh tokens are enabled,
+            including when the client omits ``scope``. Otherwise the upstream
+            issuer returns no refresh token and clients must re-authenticate
+            when the access token expires. If the upstream rejects the scope,
+            ``_retry_without_refresh_scope()`` retries once without it.
             """
-            scopes = merge_unique_scopes(list(params.scopes or []), _required_scopes)
+            scopes = merge_unique_scopes(list(params.scopes or []), _supported_scopes)
             params_with_scopes = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_scopes)
 
@@ -818,6 +777,40 @@ def _create_oidc_auth() -> OIDCProxy:
                 updated_txn.model_dump(),
             )
             return RedirectResponse(url=retry_url)
+
+        async def _forward_access_denied_to_client(
+            self,
+            *,
+            request: Request,
+        ) -> RedirectResponse | None:
+            """Send an upstream ``access_denied`` back to the MCP client.
+
+            FastMCP renders an error page for upstream errors, which leaves the
+            MCP client waiting on its callback. RFC 6749 §4.1.2.1 returns the
+            error to the client's redirect URI with its original ``state``.
+            """
+            if request.query_params.get("error") != "access_denied":
+                return None
+            txn_id = request.query_params.get("state")
+            if not txn_id:
+                return None
+            txn_model = await self._transaction_store.get(key=txn_id)
+            if txn_model is None:
+                return None
+            await self._transaction_store.delete(key=txn_id)
+
+            params = {"error": "access_denied"}
+            if description := request.query_params.get("error_description"):
+                params["error_description"] = description
+            if txn_model.client_state:
+                params["state"] = txn_model.client_state
+            logger.info(
+                "Forwarding MCP OAuth access_denied to client callback",
+                client_id=txn_model.client_id,
+            )
+            return RedirectResponse(
+                url=_append_query_params(txn_model.client_redirect_uri, params)
+            )
 
         async def _extract_upstream_claims(
             self, idp_tokens: dict[str, Any]
@@ -902,6 +895,10 @@ def _create_oidc_auth() -> OIDCProxy:
                 request=request
             ):
                 return fallback_response
+            if denied_response := await self._forward_access_denied_to_client(
+                request=request
+            ):
+                return denied_response
 
             response = await super()._handle_idp_callback(request)
             if not isinstance(response, RedirectResponse):
@@ -1040,27 +1037,10 @@ def _create_oidc_auth() -> OIDCProxy:
             response.headers["content-length"] = str(len(response.body))
             return response
 
-        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
-            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
-            routes = super().get_routes(mcp_path)
-            if self.base_url is None:
-                return routes
-
-            for route in routes:
-                if not (
-                    isinstance(route, Route)
-                    and route.path.startswith("/.well-known/oauth-authorization-server")
-                ):
-                    continue
-
-                route.app = _patch_oauth_metadata_route(route.app)
-
-            return routes
-
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = create_redis_client(resolve_redis_url(), decode_responses=True)
     redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
     if config.TRACECAT__DB_ENCRYPTION_KEY:
@@ -1469,9 +1449,8 @@ async def resolve_org_role_for_request(
         raise ValueError(f"User {identity.email} has no organization memberships")
     if len(org_ids) > 1:
         raise ValueError(
-            "Multiple organizations resolved for caller; org-scoped tools "
-            "require org_id, a single-org token organization_id claim, "
-            "or an org:<uuid> scope."
+            "This connection covers multiple organizations; pass org_id "
+            "to choose one (list_workspaces returns each workspace's org_id)."
         )
 
     organization_id = next(iter(org_ids))

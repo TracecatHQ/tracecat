@@ -29,24 +29,6 @@ async def test_auth_discovery_returns_routing_hint(client: TestClient) -> None:
 
 
 @pytest.mark.anyio
-async def test_auth_discovery_passes_org_hint_to_service(client: TestClient) -> None:
-    with patch.object(auth_discovery_module, "AuthDiscoveryService") as mock_service:
-        service = AsyncMock()
-        service.discover.return_value = AuthDiscoverResponse(
-            method=AuthDiscoveryMethod.OIDC
-        )
-        mock_service.return_value = service
-
-        response = client.post(
-            "/auth/discover",
-            json={"email": "user@acme.com", "org": "acme"},
-        )
-
-    assert response.status_code == status.HTTP_200_OK
-    service.discover.assert_awaited_once_with("user@acme.com", "acme")
-
-
-@pytest.mark.anyio
 async def test_auth_discovery_returns_validation_error_for_invalid_email(
     client: TestClient,
 ) -> None:

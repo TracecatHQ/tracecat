@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Literal, NamedTuple, TypeGuard
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypeGuard
 
 import orjson
 import sqlalchemy as sa
@@ -21,6 +21,16 @@ from tracecat_ee.secrets.stores.backends import get_backend
 from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.bedrock import (
+    BedrockError,
+    BedrockSubscription,
+    create_bedrock_client,
+    get_bedrock_subscriptions,
+    list_bedrock_models,
+    resolve_foundation_model_id,
+    resolve_profile_foundation_model_id,
+    subscribe_bedrock_model,
+)
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.config import (
@@ -40,7 +50,10 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.provider.service import discover_openai_compatible_models
+from tracecat.agent.provider.service import (
+    check_provider_key,
+    discover_openai_compatible_models,
+)
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -58,9 +71,11 @@ from tracecat.db.models import (
     AgentModelAccess,
     OrganizationSecret,
     Secret,
+    Workspace,
 )
 from tracecat.exceptions import (
     AgentModelNotEnabledError,
+    AgentProviderCredentialsNotFoundError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
 )
@@ -87,7 +102,11 @@ from tracecat.settings.service import SettingsService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
+if TYPE_CHECKING:
+    from types_boto3_bedrock.client import BedrockClient
+
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_BEDROCK_ROLE_WORKSPACE_LIMIT = 25
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
 _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
@@ -399,37 +418,31 @@ class AgentManagementService(BaseOrgService):
     ) -> OrganizationSecret:
         """Create or update credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(params.provider)
-
-        # Check if credentials already exist
         try:
-            existing = await self.secrets_service.get_org_secret_by_name(secret_name)
-            # Update existing credentials
-            keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
-            ]
-            update_params = SecretUpdate(keys=keys)
-            await self.secrets_service.update_org_secret(existing, update_params)
-            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
-            await self._auto_grant_provider_access(params.provider)
-            return existing
+            await self.secrets_service.get_org_secret_by_name(secret_name)
         except TracecatNotFoundError:
-            # Create new credentials
-            keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
-            ]
-            create_params = SecretCreate(
-                name=secret_name,
-                type=SecretType.CUSTOM,
-                description=f"Credentials for {params.provider} AI provider",
-                keys=keys,
-                tags={"provider": params.provider, "type": "agent-credentials"},
+            pass
+        else:
+            return await self.update_provider_credentials(
+                params.provider, ModelCredentialUpdate(credentials=params.credentials)
             )
-            await self.secrets_service.create_org_secret(create_params)
-            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
-            await self._auto_grant_provider_access(params.provider)
-            return await self.secrets_service.get_org_secret_by_name(secret_name)
+
+        await check_provider_key(params.provider, params.credentials)
+        keys = [
+            SecretKeyValue(key=k, value=SecretStr(v))
+            for k, v in params.credentials.items()
+        ]
+        create_params = SecretCreate(
+            name=secret_name,
+            type=SecretType.CUSTOM,
+            description=f"Credentials for {params.provider} AI provider",
+            keys=keys,
+            tags={"provider": params.provider, "type": "agent-credentials"},
+        )
+        await self.secrets_service.create_org_secret(create_params)
+        await self._refresh_gateway_provider_catalog_best_effort(params.provider)
+        await self._auto_grant_provider_access(params.provider)
+        return await self.secrets_service.get_org_secret_by_name(secret_name)
 
     @require_scope("agent:update")
     async def update_provider_credentials(
@@ -438,13 +451,17 @@ class AgentManagementService(BaseOrgService):
         """Update existing credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(provider)
         secret = await self.secrets_service.get_org_secret_by_name(secret_name)
-
-        keys = [
-            SecretKeyValue(key=k, value=SecretStr(v))
-            for k, v in params.credentials.items()
-        ]
-        update_params = SecretUpdate(keys=keys)
-        await self.secrets_service.update_org_secret(secret, update_params)
+        keys = self.secrets_service.merge_key_values(
+            secret,
+            [
+                SecretKeyValue(key=k, value=SecretStr(v))
+                for k, v in params.credentials.items()
+            ],
+        )
+        await check_provider_key(
+            provider, {kv.key: kv.value.get_secret_value() for kv in keys}
+        )
+        await self.secrets_service.update_org_secret(secret, SecretUpdate(keys=keys))
         await self._refresh_gateway_provider_catalog_best_effort(provider)
         await self._auto_grant_provider_access(provider)
         return secret
@@ -515,6 +532,120 @@ class AgentManagementService(BaseOrgService):
         )
         await self._auto_grant_provider_access(provider)
         return count
+
+    async def _bedrock_role_external_ids(self) -> list[str]:
+        """Workspace External IDs to try for org-level Bedrock role calls."""
+        org_id = self.role.organization_id
+        workspace_ids: list[uuid.UUID] = []
+        if self.role.workspace_id is not None:
+            workspace_ids.append(self.role.workspace_id)
+        if org_id is not None:
+            result = await self.session.execute(
+                select(Workspace.id)
+                .where(Workspace.organization_id == org_id)
+                .order_by(Workspace.created_at)
+                .limit(_BEDROCK_ROLE_WORKSPACE_LIMIT)
+            )
+            workspace_ids.extend(
+                ws_id for ws_id in result.scalars().all() if ws_id not in workspace_ids
+            )
+        return [build_workspace_external_id(ws_id) for ws_id in workspace_ids]
+
+    async def _get_bedrock_client(self) -> BedrockClient:
+        credentials = await self.get_provider_credentials("bedrock")
+        if credentials is None:
+            raise TracecatNotFoundError("No credentials configured for bedrock")
+        external_ids = (
+            await self._bedrock_role_external_ids()
+            if credentials.get("AWS_ROLE_ARN")
+            else []
+        )
+        try:
+            return await asyncio.to_thread(
+                create_bedrock_client, credentials, external_ids=external_ids
+            )
+        except BedrockError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @require_scope("agent:update")
+    async def refresh_bedrock_catalog(self) -> int:
+        """Discover Bedrock chat models and their AWS subscription status.
+
+        Raises:
+            TracecatNotFoundError: If Bedrock credentials are not configured.
+            ValueError: If AWS authentication or model listing fails.
+        """
+        org_id = self.role.organization_id
+        if org_id is None:
+            raise TracecatNotFoundError("Organization not found")
+        client = await self._get_bedrock_client()
+        try:
+            models = await asyncio.to_thread(list_bedrock_models, client)
+        except BedrockError as exc:
+            raise ValueError(str(exc)) from exc
+        catalog_service = AgentCatalogService(session=self.session)
+        rows = await catalog_service.list_bedrock_rows(org_id=org_id)
+        foundation_ids = {model.foundation_model_id for model in models}
+        foundation_ids.update(
+            fm_id
+            for row in rows
+            if (fm_id := resolve_foundation_model_id(row.model_metadata or {}))
+        )
+        subscriptions = await asyncio.to_thread(
+            get_bedrock_subscriptions, client, foundation_ids
+        )
+        count = await catalog_service.sync_bedrock_models(
+            org_id=org_id,
+            models=models,
+            subscriptions=subscriptions,
+        )
+        await self._auto_grant_provider_access("bedrock")
+        return count
+
+    @require_scope("agent:update")
+    async def subscribe_bedrock_model(
+        self, catalog_id: uuid.UUID
+    ) -> BedrockSubscription:
+        """Accept the AWS Marketplace offer for a Bedrock catalog row's model.
+
+        Raises:
+            TracecatNotFoundError: If the row or Bedrock credentials are missing.
+            ValueError: If the model cannot be resolved or AWS rejects the request.
+        """
+        org_id = self.role.organization_id
+        if org_id is None:
+            raise TracecatNotFoundError("Organization not found")
+        catalog_service = AgentCatalogService(session=self.session)
+        row = await catalog_service.get_catalog_entry(
+            org_id=org_id, catalog_id=catalog_id
+        )
+        if row.model_provider != "bedrock" or row.organization_id != org_id:
+            raise TracecatNotFoundError(f"Bedrock catalog entry {catalog_id} not found")
+        metadata = row.model_metadata or {}
+        client = await self._get_bedrock_client()
+        try:
+            foundation_id = resolve_foundation_model_id(metadata)
+            profile_id = metadata.get("inference_profile_id")
+            if foundation_id is None and isinstance(profile_id, str) and profile_id:
+                foundation_id = await asyncio.to_thread(
+                    resolve_profile_foundation_model_id, client, profile_id
+                )
+            if foundation_id is None:
+                raise ValueError(
+                    f"Unable to resolve the Bedrock foundation model for {row.model_name}"
+                )
+            subscription = await asyncio.to_thread(
+                subscribe_bedrock_model, client, foundation_id
+            )
+        except BedrockError as exc:
+            raise ValueError(str(exc)) from exc
+        await catalog_service.set_bedrock_subscription(
+            org_id=org_id,
+            catalog_id=row.id,
+            foundation_model_id=foundation_id,
+            subscription=subscription,
+        )
+        return subscription
 
     @require_scope("agent:read")
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
@@ -1070,9 +1201,26 @@ class AgentManagementService(BaseOrgService):
 
         credentials = await self.get_catalog_credentials(catalog_id)
         if not credentials:
-            raise TracecatNotFoundError(
+            # A stale default can point at a deleted catalog row, which also
+            # resolves no credentials; that is a missing model, not missing setup.
+            catalog_row_id = await self.session.scalar(
+                select(AgentCatalog.id).where(
+                    AgentCatalog.id == catalog_id,
+                    sa.or_(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.organization_id == self.organization_id,
+                    ),
+                )
+            )
+            if catalog_row_id is None:
+                raise TracecatNotFoundError(
+                    "The default model is no longer available. Choose another "
+                    "default model in organization settings."
+                )
+            raise AgentProviderCredentialsNotFoundError(
                 "No organization credentials found for the default model. "
-                "Configure credentials in organization settings first."
+                "An organization admin can add them in organization settings under "
+                "Agent > Configuration."
             )
 
         # Cloud catalog rows store the invocation target inside the encrypted
@@ -1137,6 +1285,7 @@ class AgentManagementService(BaseOrgService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        prune_tool_tunnels: bool = True,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
@@ -1150,6 +1299,9 @@ class AgentManagementService(BaseOrgService):
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Optional preset version ID to pin
             preset_version: Deprecated compatibility input; current head is used
+            prune_tool_tunnels: Drop tool tunnels for tools the version no
+                longer grants. Pass False when the caller overrides actions
+                and prunes afterwards.
         """
         if self.presets is None:
             raise TracecatAuthorizationError(
@@ -1161,6 +1313,7 @@ class AgentManagementService(BaseOrgService):
             slug=slug,
             preset_version_id=preset_version_id,
             preset_version=preset_version,
+            prune_tool_tunnels=prune_tool_tunnels,
         )
 
         credentials: dict[str, str] | None = None
@@ -1208,9 +1361,10 @@ class AgentManagementService(BaseOrgService):
             )
 
         if not credentials:
-            raise TracecatNotFoundError(
+            raise AgentProviderCredentialsNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
-                "Please configure credentials for this provider first."
+                "An organization admin can add them in organization settings under "
+                "Agent > Configuration."
             )
 
         preset_config = self._resolve_custom_provider_config(

@@ -21,6 +21,7 @@ from tracecat.workspace_sync.adapters.base import (
 )
 from tracecat.workspace_sync.adapters.registry import (
     AGENT_PRESET_RESOURCE_ADAPTER,
+    BUNDLED_RESOURCE_ADAPTERS,
     CASE_DROPDOWN_RESOURCE_ADAPTER,
     CASE_DURATION_RESOURCE_ADAPTER,
     CASE_FIELD_RESOURCE_ADAPTER,
@@ -39,6 +40,7 @@ from tracecat.workspace_sync.adapters.registry import (
 
 __all__ = [
     "AGENT_PRESET_RESOURCE_ADAPTER",
+    "BUNDLED_RESOURCE_ADAPTERS",
     "CASE_DROPDOWN_RESOURCE_ADAPTER",
     "CASE_DURATION_RESOURCE_ADAPTER",
     "CASE_FIELD_RESOURCE_ADAPTER",

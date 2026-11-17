@@ -15,7 +15,7 @@ import type { VariableCreate } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -32,8 +32,11 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { toast } from "@/components/ui/use-toast"
 import { CreateVariableTooltip } from "@/components/workspaces/create-variable-tooltip"
+import {
+  variableKeySchema,
+  variableNameSchema,
+} from "@/components/workspaces/variables-utils"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -43,7 +46,7 @@ interface NewVariableDialogProps
   > {}
 
 const createVariableFormSchema = z.object({
-  name: z.string().default(""),
+  name: variableNameSchema,
   description: z.string().max(255).default(""),
   environment: z
     .string()
@@ -51,7 +54,7 @@ const createVariableFormSchema = z.object({
     .transform((val) => val || "default"), // "default" if null or empty
   values: z.array(
     z.object({
-      key: z.string(),
+      key: variableKeySchema,
       value: z.string(),
     })
   ),
@@ -97,17 +100,10 @@ export function NewVariableDialog({
     try {
       await createVariable(variableData)
       setShowDialog(false)
+      methods.reset()
     } catch (error) {
       console.log(error)
     }
-    methods.reset()
-  }
-  const onValidationFailed = () => {
-    console.error("Form validation failed")
-    toast({
-      title: "Form validation failed",
-      description: "A validation error occurred while adding the new variable.",
-    })
   }
   const inputKey = "values"
   const typedKey = inputKey as FieldPath<CreateVariableFormData>
@@ -119,14 +115,17 @@ export function NewVariableDialog({
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
       {children}
-      <DialogContent className={className}>
+      <DialogContent size="lg" className={className}>
         <DialogHeader>
-          <DialogTitle>Create new variable</DialogTitle>
+          <DialogTitle>Create variable</DialogTitle>
         </DialogHeader>
-        <CreateVariableTooltip />
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={methods.handleSubmit(onSubmit)}
+          >
+            <DialogBody>
+              <CreateVariableTooltip />
               <FormField
                 key="name"
                 control={control}
@@ -196,47 +195,56 @@ export function NewVariableDialog({
                     <FormLabel className="text-sm">Values</FormLabel>
                     <div className="flex flex-col space-y-2">
                       {fields.map((field, index) => {
+                        const keyError =
+                          methods.formState.errors.values?.[index]?.key?.message
                         return (
                           <div
                             key={`${field.id}.${index}`}
-                            className="flex w-full items-center gap-2"
+                            className="flex flex-col gap-1"
                           >
-                            <FormControl>
-                              <Input
-                                id={`key-${index}`}
-                                className="text-sm"
-                                {...register(
-                                  `${inputKey}.${index}.key` as const,
-                                  {
-                                    required: true,
-                                  }
-                                )}
-                                placeholder="Key"
-                              />
-                            </FormControl>
-                            <FormControl>
-                              <Input
-                                id={`value-${index}`}
-                                className="text-sm"
-                                {...register(
-                                  `${inputKey}.${index}.value` as const,
-                                  {
-                                    required: true,
-                                  }
-                                )}
-                                placeholder="Value"
-                                type="text"
-                              />
-                            </FormControl>
+                            <div className="flex w-full items-center gap-2">
+                              <FormControl>
+                                <Input
+                                  id={`key-${index}`}
+                                  className="text-sm"
+                                  {...register(
+                                    `${inputKey}.${index}.key` as const,
+                                    {
+                                      required: true,
+                                    }
+                                  )}
+                                  placeholder="Key"
+                                />
+                              </FormControl>
+                              <FormControl>
+                                <Input
+                                  id={`value-${index}`}
+                                  className="text-sm"
+                                  {...register(
+                                    `${inputKey}.${index}.value` as const,
+                                    {
+                                      required: true,
+                                    }
+                                  )}
+                                  placeholder="Value"
+                                  type="text"
+                                />
+                              </FormControl>
 
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => remove(index)}
-                              disabled={fields.length === 1}
-                            >
-                              <Trash2Icon className="size-3.5" />
-                            </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => remove(index)}
+                                disabled={fields.length === 1}
+                              >
+                                <Trash2Icon className="size-3.5" />
+                              </Button>
+                            </div>
+                            {keyError && (
+                              <p className="text-[0.8rem] font-medium text-destructive">
+                                {keyError}
+                              </p>
+                            )}
                           </div>
                         )
                       })}
@@ -247,22 +255,24 @@ export function NewVariableDialog({
                         className="space-x-2 text-xs"
                       >
                         <PlusCircle className="mr-2 size-4" />
-                        Add Item
+                        Add item
                       </Button>
                     </div>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <BracketsIcon className="mr-2 size-4" />
-                    Create variable
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                size="sm"
+                type="submit"
+                disabled={methods.formState.isSubmitting}
+              >
+                <BracketsIcon className="mr-2 size-4" />
+                Create variable
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

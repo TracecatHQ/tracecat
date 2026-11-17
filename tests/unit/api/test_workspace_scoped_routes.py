@@ -10,6 +10,7 @@ from tracecat.auth.dependencies import (
 
 WORKSPACE_ROUTE_PREFIXES = [
     "/actions",
+    "/agent/channel-bots",
     "/agent/channels/tokens",
     "/agent/presets",
     "/agent/sessions",
@@ -23,6 +24,7 @@ WORKSPACE_ROUTE_PREFIXES = [
     "/cases",
     "/editor",
     "/folders",
+    "/forms",
     "/inbox",
     "/integrations",
     "/mcp-integrations",

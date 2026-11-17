@@ -18,6 +18,14 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.managed_resources.guard import (
+    hold_for_customer_write,
+    refresh_for_customer_write,
+)
+from tracecat.managed_resources.values import (
+    changed_fields,
+    ensure_values_only_update,
+)
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
     AwsSecretResolutionErrorCode,
@@ -34,6 +42,7 @@ from tracecat.secrets.service import (
     build_external_secret_reference,
     is_external_reference,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 
@@ -76,6 +85,11 @@ class SecretReferencesService(SecretsService):
             ),
         )
 
+    async def list_all_authorized_stores(self) -> list[OrganizationSecretStore]:
+        """Return every external store the current workspace may reference."""
+        stmt = self._authorized_store_query().order_by(OrganizationSecretStore.name)
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def _get_authorized_store(
         self, store_id: uuid.UUID
     ) -> OrganizationSecretStore:
@@ -107,10 +121,23 @@ class SecretReferencesService(SecretsService):
             )
         return store
 
+    async def get_authorized_store_by_name(self, name: str) -> OrganizationSecretStore:
+        """Look up an authorized store by its organization-unique name."""
+        stmt = self._authorized_store_query().where(
+            OrganizationSecretStore.name == name
+        )
+        store = (await self.session.execute(stmt)).scalar_one_or_none()
+        if store is None:
+            raise TracecatAuthorizationError(
+                f"This workspace is not authorized to use a secret store named {name!r}."
+            )
+        return await self._get_authorized_store(store.id)
+
     @staticmethod
-    def _validate_reference(
+    def validate_reference(
         store: OrganizationSecretStore, remote_reference: str
     ) -> None:
+        """Raise ``ValueError`` when the reference doesn't fit the store."""
         backend = get_backend(store.provider)
         backend.validate_reference(parse_store_config(store), remote_reference)
 
@@ -125,8 +152,12 @@ class SecretReferencesService(SecretsService):
         encrypted empty key list so the column contract is unchanged.
         """
         workspace_id = self._require_workspace_id()
+        # Before the store lock, as rollouts order it: a rollout adopts a
+        # secret by (environment, name), so this create must not land between
+        # its conflict check and its import.
+        await hold_for_customer_write(self.session, workspace_id)
         store = await self._get_authorized_store(params.store_id)
-        self._validate_reference(store, params.remote_reference)
+        self.validate_reference(store, params.remote_reference)
         secret = Secret(
             workspace_id=workspace_id,
             name=params.name,
@@ -164,6 +195,27 @@ class SecretReferencesService(SecretsService):
         self, secret: Secret, params: AwsSecretReferenceUpdate
     ) -> None:
         """Update the reference or mapping of an AWS-backed workspace secret."""
+        await refresh_for_customer_write(self.session, self.role.workspace_id, secret)
+        # On a managed secret the FDE matches the store; the customer only
+        # points it at their own ARN or secret name.
+        await ensure_values_only_update(
+            self.session,
+            workspace_id=self.role.workspace_id,
+            resource_type=SyncResourceType.SECRET_METADATA,
+            local_id=secret.id,
+            fields_set=changed_fields(
+                params.model_dump(exclude_unset=True),
+                {
+                    "name": secret.name,
+                    "description": secret.description,
+                    "environment": secret.environment,
+                    "tags": secret.tags,
+                    "store_id": secret.store_id,
+                    "key_mapping": secret.remote_key_mapping,
+                },
+            ),
+            allowed_fields={"remote_reference"},
+        )
         if not is_external_reference(secret):
             raise ValueError("Secret is not backed by AWS Secrets Manager.")
         set_fields = params.model_dump(exclude_unset=True)
@@ -178,7 +230,7 @@ class SecretReferencesService(SecretsService):
         effective_reference = params.remote_reference or secret.remote_reference
         if effective_reference is None:
             raise ValueError("A secret ARN is required.")
-        self._validate_reference(store, effective_reference)
+        self.validate_reference(store, effective_reference)
 
         secret.store_id = store.id
         secret.remote_reference = effective_reference

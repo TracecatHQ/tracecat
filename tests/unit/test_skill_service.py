@@ -5,7 +5,6 @@ import base64
 import hashlib
 import os
 import uuid
-from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -510,119 +509,6 @@ class TestSkillService:
         assert draft.name == "yaml-skill"
         assert draft.description == "Line one\nLine two"
 
-    async def test_skill_md_frontmatter_accepts_crlf_delimiters(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """CRLF frontmatter delimiters should validate like LF delimiters."""
-
-        created = await skill_service.create_skill(SkillCreate(name="crlf-skill"))
-        draft = await skill_service.get_draft(created.id)
-        assert draft is not None
-
-        await skill_service.patch_draft(
-            skill_id=created.id,
-            params=SkillDraftPatch(
-                base_revision=draft.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content=(
-                            "---\r\n"
-                            "name: crlf-skill\r\n"
-                            "description: Created on Windows\r\n"
-                            "---\r\n"
-                            "# CRLF skill\r\n"
-                        ),
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
-
-        updated_draft = await skill_service.get_draft(created.id)
-
-        assert updated_draft is not None
-        assert updated_draft.is_publishable is True
-        assert updated_draft.validation_errors == []
-        assert updated_draft.name == "crlf-skill"
-        assert updated_draft.description == "Created on Windows"
-
-    async def test_skill_md_frontmatter_accepts_leading_utf8_bom(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """UTF-8 BOM-prefixed frontmatter should validate like plain frontmatter."""
-
-        created = await skill_service.create_skill(SkillCreate(name="bom-skill"))
-        draft = await skill_service.get_draft(created.id)
-        assert draft is not None
-
-        await skill_service.patch_draft(
-            skill_id=created.id,
-            params=SkillDraftPatch(
-                base_revision=draft.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content=(
-                            "\ufeff---\n"
-                            "name: bom-skill\n"
-                            "description: Saved with BOM\n"
-                            "---\n"
-                            "# BOM skill\n"
-                        ),
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
-
-        updated_draft = await skill_service.get_draft(created.id)
-
-        assert updated_draft is not None
-        assert updated_draft.is_publishable is True
-        assert updated_draft.validation_errors == []
-        assert updated_draft.name == "bom-skill"
-        assert updated_draft.description == "Saved with BOM"
-
-    async def test_skill_md_frontmatter_accepts_closing_delimiter_at_eof(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """EOF closing frontmatter delimiters should validate like newline delimiters."""
-
-        created = await skill_service.create_skill(SkillCreate(name="eof-skill"))
-        draft = await skill_service.get_draft(created.id)
-        assert draft is not None
-
-        await skill_service.patch_draft(
-            skill_id=created.id,
-            params=SkillDraftPatch(
-                base_revision=draft.draft_revision,
-                operations=[
-                    SkillDraftUpsertTextFileOp(
-                        path="SKILL.md",
-                        content=(
-                            "---\n"
-                            "name: eof-skill\n"
-                            "description: No trailing newline\n"
-                            "---"
-                        ),
-                        content_type="text/markdown; charset=utf-8",
-                    )
-                ],
-            ),
-        )
-
-        updated_draft = await skill_service.get_draft(created.id)
-
-        assert updated_draft is not None
-        assert updated_draft.is_publishable is True
-        assert updated_draft.validation_errors == []
-        assert updated_draft.name == "eof-skill"
-        assert updated_draft.description == "No trailing newline"
-
     def test_create_skill_rejects_non_spec_name(self) -> None:
         """Skill names must already satisfy the spec format."""
 
@@ -732,7 +618,7 @@ class TestSkillService:
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Invalid replacements should fail before writing blob objects."""
+        """Invalid uploads and replacements fail before writing blob objects."""
 
         async def _has_entitlement(_entitlement):
             return True
@@ -787,6 +673,22 @@ class TestSkillService:
                         )
                     ],
                 ),
+            )
+
+        with pytest.raises(TracecatValidationError, match="failed validation"):
+            await skill_service.upload_skill(
+                SkillUpload(
+                    name="invalid-upload",
+                    files=[
+                        SkillUploadFile(
+                            path="notes.txt",
+                            content_base64=base64.b64encode(
+                                b"not a valid skill manifest"
+                            ).decode(),
+                            content_type="text/plain; charset=utf-8",
+                        )
+                    ],
+                )
             )
 
         assert upload_called is False
@@ -856,50 +758,6 @@ class TestSkillService:
         assert len(blob_rows) == 1
         assert blob_rows[0].key == skill_service._storage_key_for(sha256)
 
-    async def test_upload_skill_rejects_invalid_manifest_before_blob_upload(
-        self,
-        skill_service: SkillService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Invalid one-shot uploads should fail before writing blob objects."""
-
-        upload_called = False
-
-        async def fake_upload_file(
-            *,
-            content: bytes,
-            key: str,
-            bucket: str,
-            content_type: str,
-            redact_log_identifiers: bool = False,
-        ) -> None:
-            del content, key, bucket, content_type, redact_log_identifiers
-            nonlocal upload_called
-            upload_called = True
-
-        monkeypatch.setattr(
-            "tracecat.agent.skill.service.blob.upload_file",
-            fake_upload_file,
-        )
-
-        with pytest.raises(TracecatValidationError, match="failed validation"):
-            await skill_service.upload_skill(
-                SkillUpload(
-                    name="invalid-upload",
-                    files=[
-                        SkillUploadFile(
-                            path="notes.txt",
-                            content_base64=base64.b64encode(
-                                b"not a valid skill manifest"
-                            ).decode(),
-                            content_type="text/plain; charset=utf-8",
-                        )
-                    ],
-                )
-            )
-
-        assert upload_called is False
-
     async def test_invalid_skill_md_frontmatter_stays_in_validation_channel(
         self,
         skill_service: SkillService,
@@ -968,40 +826,53 @@ class TestSkillService:
         assert listing.items[0].id == active.id
         assert listing.items[0].name == active.name
 
-    async def test_get_skill_by_identifier_accepts_uuid_or_slug(
+    async def test_get_skill_by_identifier_resolves_ids_and_live_slugs(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Identifiers resolve by UUID or live slug."""
+        """Identifiers resolve by UUID or live slug; IDs win over matching slugs."""
 
         created = await skill_service.create_skill(SkillCreate(name="lookup-skill"))
+        for identifier in (created.id, str(created.id), created.slug):
+            resolved = await skill_service.get_skill_by_identifier(identifier)
+            assert resolved is not None
+            assert resolved.id == created.id
 
-        by_uuid = await skill_service.get_skill_by_identifier(created.id)
-        by_uuid_string = await skill_service.get_skill_by_identifier(str(created.id))
-        by_slug = await skill_service.get_skill_by_identifier(created.slug)
+        # UUID-shaped slugs remain reachable when no skill ID matches.
+        uuid_like_slug = "00000000-0000-4000-8000-000000000001"
+        uuid_like = await skill_service.create_skill(SkillCreate(name=uuid_like_slug))
+        resolved = await skill_service.get_skill_by_identifier(uuid_like_slug)
+        assert resolved is not None
+        assert resolved.id == uuid_like.id
 
-        assert by_uuid is not None
-        assert by_uuid.id == created.id
-        assert by_uuid_string is not None
-        assert by_uuid_string.id == created.id
-        assert by_slug is not None
-        assert by_slug.id == created.id
+        # A UUID string matching one ID and another slug resolves to the ID.
+        by_slug = await skill_service.create_skill(SkillCreate(name=str(created.id)))
+        resolved = await skill_service.get_skill_by_identifier(str(created.id))
+        assert resolved is not None
+        assert resolved.id == created.id
+        assert resolved.id != by_slug.id
 
-    async def test_get_skill_by_identifier_falls_back_to_uuid_like_slug(
+        assert await skill_service.get_skill_by_identifier("missing-skill") is None
+
+    async def test_get_skill_by_identifier_ignores_archived_slugs(
         self,
         skill_service: SkillService,
     ) -> None:
-        """UUID-shaped slugs remain reachable when no skill ID matches."""
+        """Slug lookup ignores tombstones; reused slugs resolve to the live skill."""
 
-        uuid_like_slug = "00000000-0000-4000-8000-000000000001"
-        created = await skill_service.create_skill(SkillCreate(name=uuid_like_slug))
+        deleted = await skill_service.create_skill(SkillCreate(name="deleted-lookup"))
+        await skill_service.archive_skill(deleted.id)
 
-        by_uuid_like_slug = await skill_service.get_skill_by_identifier(uuid_like_slug)
+        assert await skill_service.get_skill_by_identifier(deleted.slug) is None
 
-        assert by_uuid_like_slug is not None
-        assert by_uuid_like_slug.id == created.id
+        recreated = await skill_service.create_skill(SkillCreate(name=deleted.slug))
+        resolved = await skill_service.get_skill_by_identifier(deleted.slug)
 
-    async def test_get_skill_by_identifier_resolves_slugless_legacy_row(
+        assert resolved is not None
+        assert resolved.id == recreated.id
+        assert resolved.id != deleted.id
+
+    async def test_get_skill_by_identifier_handles_slugless_legacy_rows(
         self,
         skill_service: SkillService,
         session: AsyncSession,
@@ -1011,6 +882,12 @@ class TestSkillService:
         Old pods insert skills with ``slug IS NULL`` during the expand
         window; reads advertise their name as the slug, so identifier
         lookup must honor it. An exact slug match wins over the fallback.
+
+        ``uq_skill_workspace_slug_active`` does not constrain NULL slugs and
+        old pods enforced no name uniqueness, so the expand window can leave
+        two live same-name slugless rows. Resolving one silently would be a
+        silent substitution; the lookup must raise instead. The edge
+        disappears at contract when slugs are backfilled NOT NULL.
         """
 
         legacy = await skill_service.create_skill(SkillCreate(name="legacy-lookup"))
@@ -1038,20 +915,6 @@ class TestSkillService:
         assert resolved_exact is not None
         assert resolved_exact.id == exact.id
 
-    async def test_get_skill_by_identifier_ambiguous_legacy_rows_raise(
-        self,
-        skill_service: SkillService,
-        session: AsyncSession,
-    ) -> None:
-        """Two live legacy rows projecting the same fallback slug fail loud.
-
-        ``uq_skill_workspace_slug_active`` does not constrain NULL slugs and
-        old pods enforced no name uniqueness, so the expand window can leave
-        two live same-name slugless rows. Resolving one silently would be a
-        silent substitution; the lookup must raise instead. The edge
-        disappears at contract when slugs are backfilled NOT NULL.
-        """
-
         first = await skill_service.create_skill(SkillCreate(name="legacy-dup"))
         second = await skill_service.create_skill(SkillCreate(name="legacy-dup"))
         rows = (
@@ -1070,57 +933,6 @@ class TestSkillService:
 
         with pytest.raises(TracecatValidationError, match="ambiguous"):
             await skill_service.get_skill_by_identifier("legacy-dup")
-
-    async def test_get_skill_by_identifier_prefers_id_over_matching_slug(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """A UUID string matching one ID and another slug resolves to the ID."""
-
-        by_id = await skill_service.create_skill(SkillCreate(name="collision-id"))
-        by_slug = await skill_service.create_skill(SkillCreate(name=str(by_id.id)))
-
-        resolved = await skill_service.get_skill_by_identifier(str(by_id.id))
-
-        assert resolved is not None
-        assert resolved.id == by_id.id
-        assert resolved.id != by_slug.id
-
-    async def test_get_skill_by_identifier_excludes_soft_deleted_slugs(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """Slug lookup ignores soft-deleted rows."""
-
-        deleted = await skill_service.create_skill(SkillCreate(name="deleted-lookup"))
-
-        await skill_service.archive_skill(deleted.id)
-
-        assert await skill_service.get_skill_by_identifier(deleted.slug) is None
-
-    async def test_get_skill_by_identifier_recreated_slug_resolves_to_new_skill(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """Reused slugs resolve to the new live skill, not the tombstone."""
-
-        deleted = await skill_service.create_skill(SkillCreate(name="recreated-lookup"))
-        await skill_service.archive_skill(deleted.id)
-        recreated = await skill_service.create_skill(SkillCreate(name=deleted.slug))
-
-        resolved = await skill_service.get_skill_by_identifier(deleted.slug)
-
-        assert resolved is not None
-        assert resolved.id == recreated.id
-        assert resolved.id != deleted.id
-
-    async def test_get_skill_by_identifier_unknown_returns_none(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """Unknown identifiers remain not found."""
-
-        assert await skill_service.get_skill_by_identifier("missing-skill") is None
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -2445,13 +2257,40 @@ class TestSkillService:
         ).scalars()
         assert upload_rows.all() == []
 
-    async def test_prepare_draft_uploads_rejects_transfer_file_limit_before_writes(
+    async def test_transfer_file_count_limit_applies_to_every_transfer(
         self,
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        created = await skill_service.create_skill(SkillCreate(name="bounded-transfer"))
+        """Upload prepare, patch and bulk download all cap the file count."""
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="bounded-transfer",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: bounded-transfer\n---\n\n# Bounded\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="scripts/helper.py",
+                        content_base64=base64.b64encode(b"print('ok')\n").decode(),
+                        content_type="text/x-python; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
         monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
+        expected_detail = {
+            "code": "skill_transfer_file_count_limit_exceeded",
+            "file_count": 2,
+            "max_file_count": 1,
+        }
 
         async def unexpected_generate_presigned_upload_url(**_kwargs: Any) -> str:
             raise AssertionError("Presigning must not start")
@@ -2460,26 +2299,19 @@ class TestSkillService:
             "tracecat.agent.skill.service.blob.generate_presigned_upload_url",
             unexpected_generate_presigned_upload_url,
         )
-        params = [
-            SkillUploadSessionCreate(
-                sha256=hashlib.sha256(content).hexdigest(),
-                size_bytes=len(content),
-                content_type="application/octet-stream",
-            )
-            for content in (b"a", b"b")
-        ]
-
         with pytest.raises(TracecatValidationError) as exc_info:
             await skill_service.prepare_draft_uploads(
                 skill_id=created.id,
-                params=params,
+                params=[
+                    SkillUploadSessionCreate(
+                        sha256=hashlib.sha256(content).hexdigest(),
+                        size_bytes=len(content),
+                        content_type="application/octet-stream",
+                    )
+                    for content in (b"a", b"b")
+                ],
             )
-
-        assert exc_info.value.detail == {
-            "code": "skill_transfer_file_count_limit_exceeded",
-            "file_count": 2,
-            "max_file_count": 1,
-        }
+        assert exc_info.value.detail == expected_detail
         upload_rows = (
             await skill_service.session.execute(
                 select(SkillUploadModel).where(
@@ -2488,6 +2320,35 @@ class TestSkillService:
             )
         ).scalars()
         assert upload_rows.all() == []
+
+        # Patch rejects before looking up any upload.
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/first.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/second.bin",
+                            upload_id=uuid.uuid4(),
+                        ),
+                    ],
+                ),
+            )
+        assert exc_info.value.detail == expected_detail
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.prepare_draft_download(skill_id=created.id)
+        assert exc_info.value.detail == expected_detail
+
+        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
+        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
+        assert prepared is not None
+        assert len(prepared.files) == 2
 
     @pytest.mark.parametrize(
         ("content_type", "reason"),
@@ -3095,140 +2956,6 @@ class TestSkillService:
 
         assert exc_info.value.detail is not None
         assert exc_info.value.detail["code"] == "skill_total_size_limit_exceeded"
-
-    async def test_patch_rejects_transfer_file_limit_before_upload_lookup(
-        self,
-        skill_service: SkillService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        created = await skill_service.create_skill(SkillCreate(name="bounded-complete"))
-        draft = await skill_service.get_draft(created.id)
-        assert draft is not None
-        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
-
-        with pytest.raises(TracecatValidationError) as exc_info:
-            await skill_service.patch_draft(
-                skill_id=created.id,
-                params=SkillDraftPatch(
-                    base_revision=draft.draft_revision,
-                    operations=[
-                        SkillDraftAttachUploadedBlobOp(
-                            path="references/first.bin",
-                            upload_id=uuid.uuid4(),
-                        ),
-                        SkillDraftAttachUploadedBlobOp(
-                            path="references/second.bin",
-                            upload_id=uuid.uuid4(),
-                        ),
-                    ],
-                ),
-            )
-
-        assert exc_info.value.detail == {
-            "code": "skill_transfer_file_count_limit_exceeded",
-            "file_count": 2,
-            "max_file_count": 1,
-        }
-
-    async def test_prepare_draft_download_enforces_transfer_file_limit(
-        self,
-        skill_service: SkillService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A bulk download is capped like uploads: over the limit is rejected."""
-
-        created = await skill_service.upload_skill(
-            SkillUpload(
-                name="bounded-download",
-                files=[
-                    SkillUploadFile(
-                        path="SKILL.md",
-                        content_base64=base64.b64encode(
-                            b"---\nname: bounded-download\n---\n\n# Bounded\n"
-                        ).decode(),
-                        content_type="text/markdown; charset=utf-8",
-                    ),
-                    SkillUploadFile(
-                        path="scripts/helper.py",
-                        content_base64=base64.b64encode(b"print('ok')\n").decode(),
-                        content_type="text/x-python; charset=utf-8",
-                    ),
-                ],
-            )
-        )
-
-        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 1)
-        with pytest.raises(TracecatValidationError) as exc_info:
-            await skill_service.prepare_draft_download(skill_id=created.id)
-        assert exc_info.value.detail == {
-            "code": "skill_transfer_file_count_limit_exceeded",
-            "file_count": 2,
-            "max_file_count": 1,
-        }
-
-        monkeypatch.setattr(config, "TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT", 2)
-        prepared = await skill_service.prepare_draft_download(skill_id=created.id)
-        assert prepared is not None
-        assert len(prepared.files) == 2
-
-    async def test_patch_draft_cancellation_deletes_published_objects(
-        self,
-        skill_service: SkillService,
-        svc_workspace: Workspace,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Cancellation mid-materialization still removes published objects."""
-
-        created = await skill_service.create_skill(SkillCreate(name="cancelled-patch"))
-        draft = await skill_service.get_draft(created.id)
-        assert draft is not None
-        cancelled_object = PublishedBlobObject(
-            bucket="skills-bucket", key="skills/cancelled/object"
-        )
-
-        async def cancel_after_publishing(
-            operations: Sequence[Any],
-            *,
-            published: list[PublishedBlobObject] | None = None,
-        ) -> dict[int, SkillBlob]:
-            del operations
-            assert published is not None
-            published.append(cancelled_object)
-            raise asyncio.CancelledError()
-
-        deleted: list[tuple[str, str]] = []
-
-        async def fake_delete_file(
-            *, key: str, bucket: str, redact_log_identifiers: bool = False
-        ) -> None:
-            assert redact_log_identifiers is True
-            deleted.append((key, bucket))
-
-        monkeypatch.setattr(
-            skill_service,
-            "_materialize_patch_operation_blobs",
-            cancel_after_publishing,
-        )
-        monkeypatch.setattr(
-            "tracecat.agent.skill.service.blob.delete_file", fake_delete_file
-        )
-
-        with pytest.raises(asyncio.CancelledError):
-            await skill_service.patch_draft(
-                skill_id=created.id,
-                params=SkillDraftPatch(
-                    base_revision=draft.draft_revision,
-                    operations=[
-                        SkillDraftUpsertTextFileOp(
-                            path="references/note.txt",
-                            content="cancelled",
-                        )
-                    ],
-                ),
-            )
-
-        assert deleted == [(cancelled_object.key, cancelled_object.bucket)]
-        await skill_service.session.refresh(svc_workspace)
 
     async def test_publish_requires_root_skill_md(
         self,
@@ -4044,37 +3771,19 @@ class TestSkillService:
         assert archived.archived_at is not None
         assert archived.deleted_at == archived.archived_at
 
-    async def test_legacy_archived_skill_is_hidden_from_active_lookups(
-        self,
-        session: AsyncSession,
-        skill_service: SkillService,
-    ) -> None:
-        """Legacy archived-only skills are excluded from every active read path."""
-
-        created = await skill_service.create_skill(SkillCreate(name="legacy-archive"))
-        active = await skill_service.create_skill(SkillCreate(name="still-active"))
-
-        await _legacy_archive_skill(session, created.id)
-
-        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
-
-        assert [skill.id for skill in listing.items] == [active.id]
-        assert await skill_service.get_skill(created.id) is None
-        assert await skill_service.get_skill_by_identifier(created.id) is None
-        assert await skill_service.get_skill_by_identifier(created.slug) is None
-        assert await skill_service.get_skill_read(created.id) is None
-
-    async def test_legacy_archived_skill_is_unbindable_but_existing_refs_resolve(
+    async def test_legacy_archived_skill_is_hidden_and_unbindable(
         self,
         session: AsyncSession,
         svc_role: Role,
         skill_service: SkillService,
     ) -> None:
-        """Legacy archived-only skills remain unbindable but refs still resolve."""
+        """Legacy archived-only skills leave active reads but existing refs resolve.
 
-        created = await skill_service.create_skill(
-            SkillCreate(name="legacy-resolution")
-        )
+        API projections expose the legacy archived_at as a deleted_at tombstone.
+        """
+
+        created = await skill_service.create_skill(SkillCreate(name="legacy-archive"))
+        active = await skill_service.create_skill(SkillCreate(name="still-active"))
         await skill_service.publish_skill(created.id)
         preset_service = AgentPresetService(session=session, role=svc_role)
         preset = await preset_service.create_preset(
@@ -4084,24 +3793,23 @@ class TestSkillService:
                 instructions="Use the selected skill",
                 model_name="gpt-4o-mini",
                 model_provider="openai",
-                skills=[
-                    AgentPresetSkillBindingBase(
-                        skill_id=created.id,
-                    )
-                ],
+                skills=[AgentPresetSkillBindingBase(skill_id=created.id)],
             )
         )
         assert preset.current_version_id is not None
 
-        await _legacy_archive_skill(session, created.id)
+        legacy_archived_at = await _legacy_archive_skill(session, created.id)
+
+        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
+        assert [skill.id for skill in listing.items] == [active.id]
+        assert await skill_service.get_skill(created.id) is None
+        assert await skill_service.get_skill_by_identifier(created.id) is None
+        assert await skill_service.get_skill_by_identifier(created.slug) is None
+        assert await skill_service.get_skill_read(created.id) is None
 
         with pytest.raises(TracecatValidationError) as bind_exc_info:
             await skill_service.validate_binding_inputs(
-                [
-                    AgentPresetSkillBindingBase(
-                        skill_id=created.id,
-                    )
-                ]
+                [AgentPresetSkillBindingBase(skill_id=created.id)]
             )
         bind_detail = bind_exc_info.value.detail
         assert bind_detail is not None
@@ -4114,24 +3822,12 @@ class TestSkillService:
             )
             assert [skill.skill_id for skill in resolved] == [created.id]
 
-    async def test_legacy_archived_skill_api_projection_reports_deleted_at(
-        self,
-        session: AsyncSession,
-        skill_service: SkillService,
-    ) -> None:
-        """Legacy archived-only API projections expose a deleted_at tombstone."""
-
-        created = await skill_service.create_skill(SkillCreate(name="legacy-api-read"))
-        legacy_archived_at = await _legacy_archive_skill(session, created.id)
-
         archived = await skill_service.get_skill(created.id, include_archived=True)
         assert archived is not None
         assert archived.archived_at == legacy_archived_at
         assert archived.deleted_at is None
-
         full_read = await skill_service._build_skill_read(archived)
         minimal_read = skill_service._build_skill_read_minimal(archived)
-
         assert full_read.deleted_at == legacy_archived_at
         assert minimal_read.deleted_at == legacy_archived_at
 
@@ -4691,3 +4387,93 @@ metadata:
             )
         assert exc_info.value.detail is not None
         assert exc_info.value.detail["code"] == "mcp_integration_referenced_by_skill"
+
+
+@pytest.mark.anyio
+class TestBatchBlobMaterialization:
+    async def test_get_or_create_blobs_uploads_new_blobs_concurrently(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """New blobs upload in parallel, up to the cap, once per digest, in input order."""
+
+        in_flight = 0
+        max_in_flight = 0
+        uploaded_keys: list[str] = []
+        release = asyncio.Event()
+
+        async def fake_upload_file(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del content, bucket, content_type, redact_log_identifiers
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            uploaded_keys.append(key)
+            if max_in_flight == skill_service_module.BLOB_UPLOAD_CONCURRENCY:
+                release.set()
+            # Uploads that ran one at a time would never fill the cap.
+            await asyncio.wait_for(release.wait(), timeout=5)
+            in_flight -= 1
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file", fake_upload_file
+        )
+        contents = [f"file {index}".encode() for index in range(12)]
+        contents.append(contents[0])
+
+        blobs = await skill_service._get_or_create_blobs(contents)
+
+        assert max_in_flight == skill_service_module.BLOB_UPLOAD_CONCURRENCY
+        assert len(uploaded_keys) == 12
+        assert [blob_row.sha256 for blob_row in blobs] == [
+            hashlib.sha256(content).hexdigest() for content in contents
+        ]
+        assert blobs[0] is blobs[-1]
+
+    async def test_get_or_create_blobs_drops_rows_whose_upload_failed(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed upload removes only its own claimed row and re-raises the error."""
+
+        failing = b"upload fails"
+        succeeding = b"upload succeeds"
+
+        async def fake_upload_file(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del key, bucket, content_type, redact_log_identifiers
+            if content == failing:
+                raise RuntimeError("object storage unavailable")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file", fake_upload_file
+        )
+
+        with pytest.raises(RuntimeError, match="object storage unavailable"):
+            await skill_service._get_or_create_blobs([failing, succeeding])
+        await session.flush()
+
+        remaining = set(
+            await session.scalars(
+                select(SkillBlob.sha256).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id
+                )
+            )
+        )
+        assert hashlib.sha256(failing).hexdigest() not in remaining
+        assert hashlib.sha256(succeeding).hexdigest() in remaining

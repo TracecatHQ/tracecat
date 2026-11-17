@@ -6,6 +6,7 @@ import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-secti
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import type { CasePanelKey } from "@/components/cases/case-panels"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
+import { CaseSubCasesPanel } from "@/components/cases/case-sub-cases"
 import { CaseTasksPanel } from "@/components/cases/case-tasks-panel"
 import { CaseFeed } from "@/components/cases/cases-feed"
 
@@ -68,5 +69,7 @@ export function CasePanelContent({
           caseFields={caseData.fields}
         />
       )
+    case "sub-cases":
+      return <CaseSubCasesPanel caseData={caseData} workspaceId={workspaceId} />
   }
 }

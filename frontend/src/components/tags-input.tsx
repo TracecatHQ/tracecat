@@ -95,6 +95,11 @@ export interface MultiTagCommandInputProps {
   disabled?: boolean
   /** ID applied to the underlying text input for accessible labels. */
   inputId?: string
+  /** ARIA state for the underlying text input, such as `aria-invalid`. */
+  inputAria?: Pick<
+    React.InputHTMLAttributes<HTMLInputElement>,
+    "aria-invalid" | "aria-describedby" | "aria-required"
+  >
   maxTags?: number
   searchKeys: (keyof Suggestion)[]
   /**
@@ -116,6 +121,7 @@ export function MultiTagCommandInput({
   inputClassName,
   disabled = false,
   inputId,
+  inputAria,
   maxTags,
   searchKeys,
   allowCustomTags = false,
@@ -381,6 +387,7 @@ export function MultiTagCommandInput({
             <input
               ref={inputRef}
               id={inputId}
+              {...inputAria}
               type="text"
               value={inputValue}
               onChange={(e) => handleInputChange(e.target.value)}

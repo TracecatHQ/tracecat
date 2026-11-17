@@ -247,7 +247,9 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
               {(categoryKey !== "organization" || currentLevel === "write") && (
                 <SelectItem value="write">Write</SelectItem>
               )}
-              {(categoryKey === "workflows" || categoryKey === "agents") && (
+              {(categoryKey === "workflows" ||
+                categoryKey === "agents" ||
+                categoryKey === "forms") && (
                 <SelectItem value="execute">Execute</SelectItem>
               )}
               <SelectItem value="admin">Admin</SelectItem>

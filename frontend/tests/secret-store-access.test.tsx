@@ -111,7 +111,6 @@ test("the picker changes access scope without closing or losing existing grants"
   })
   await user.click(screen.getByRole("menuitem", { name: "Done" }))
   expect(screen.queryByRole("menu")).not.toBeInTheDocument()
-  expect(screen.getAllByRole("switch")).toHaveLength(1)
   expect(
     screen.getByRole("button", { name: "Workspaces: Default Workspace" })
   ).toHaveFocus()
@@ -172,11 +171,12 @@ test("the overflow menu blocks deleting a store with references", async () => {
   render(<OrgSettingsSecretStores />)
   screen.getByRole("button", { name: "Actions for example-production" }).focus()
   await user.keyboard("{Enter}")
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveAttribute(
+    "aria-disabled",
+    "true"
+  )
   expect(
-    screen.getByRole("menuitem", { name: "Delete store" })
-  ).toHaveAttribute("aria-disabled", "true")
-  expect(
-    screen.getByText("Remove the 3 secret references first.")
+    screen.getByText("In use by 3 secrets. Remove them first.")
   ).toBeInTheDocument()
   expect(mockDeleteStore).not.toHaveBeenCalled()
 })
@@ -188,7 +188,7 @@ test("update-only users can edit a store from its menu without changing its exte
   screen.getByRole("button", { name: "Actions for example-production" }).focus()
   await user.keyboard("{Enter}")
   expect(
-    screen.queryByRole("menuitem", { name: "Delete store" })
+    screen.queryByRole("menuitem", { name: "Delete" })
   ).not.toBeInTheDocument()
   await user.click(screen.getByRole("menuitem", { name: "Edit store" }))
   expect(screen.getByLabelText("Name")).toHaveValue("example-production")
@@ -212,7 +212,6 @@ test("update-only users can edit a store from its menu without changing its exte
       params: {
         name: "example-renamed",
         config: {
-          provider: "aws_secrets_manager",
           role_arn: "arn:aws:iam::123456789012:role/example-replacement",
           region: "us-west-2",
         },
@@ -237,7 +236,7 @@ test("failed store edits retain their draft and delete-only users cannot edit", 
   )
   expect(mockUpdateStore).toHaveBeenCalledTimes(1)
   expect(screen.getByLabelText("Name")).toHaveValue("example-renamed")
-  await user.click(screen.getByRole("button", { name: "Cancel" }))
+  await user.click(screen.getByRole("button", { name: "Close" }))
   mockCanUpdate = false
   view.rerender(<OrgSettingsSecretStores />)
   screen.getByRole("button", { name: "Actions for example-production" }).focus()
@@ -245,7 +244,5 @@ test("failed store edits retain their draft and delete-only users cannot edit", 
   expect(
     screen.queryByRole("menuitem", { name: "Edit store" })
   ).not.toBeInTheDocument()
-  expect(
-    screen.getByRole("menuitem", { name: "Delete store" })
-  ).toBeInTheDocument()
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument()
 })

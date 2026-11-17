@@ -4,20 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
 import boto3
 import httpx
 import orjson
 from aiocache import Cache
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from fastapi import HTTPException, Request
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import (
+    APIConnectionError,
     AuthenticationError,
+    BadGatewayError,
+    InternalServerError,
+    MidStreamFallbackError,
     PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
 )
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
@@ -25,8 +30,16 @@ from litellm.types.router import RouterRateLimitError
 from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
 
+if TYPE_CHECKING:
+    from types_boto3_sts.client import STSClient
+
 from tracecat import config as app_config
 from tracecat.agent.diagnostics import parse_bounded_error_body
+from tracecat.agent.gateway_drain import (
+    GATEWAY_IDENTITY_HEADER,
+    gateway_identity,
+    install_drain_logging,
+)
 from tracecat.agent.gateway_outbound import (
     OutboundLLMHTTPHandler,
     install_outbound_http_policy,
@@ -51,6 +64,7 @@ from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
 install_outbound_http_policy()
+install_drain_logging()
 
 _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(
     {
@@ -176,19 +190,52 @@ def _get_aws_role_session_name(credentials: dict[str, str]) -> str:
     return _DEFAULT_AWS_ROLE_SESSION_NAME
 
 
+class _BedrockRoleDeniedError(Exception):
+    """STS denied the workspace ``AssumeRole`` request itself."""
+
+
+def _gateway_sts_client() -> STSClient:
+    """Build an STS client on the gateway's own AWS credentials, resolved now.
+
+    Freezing them up front means a failure refreshing them (IRSA, role
+    chaining) raises here, before the workspace request, so it stays a platform
+    error instead of reading as a workspace role denial.
+    """
+    session = boto3.Session()
+    if (source := session.get_credentials()) is None:
+        raise NoCredentialsError()
+    frozen = source.get_frozen_credentials()
+    return boto3.Session(
+        aws_access_key_id=frozen.access_key,
+        aws_secret_access_key=frozen.secret_key,
+        aws_session_token=frozen.token,
+        region_name=session.region_name,
+    ).client("sts")
+
+
 def _assume_bedrock_role(
     role_arn: str,
     *,
     external_id: str,
     session_name: str,
 ) -> dict[str, str]:
-    """Assume the configured AWS role and return temporary Bedrock credentials."""
-    sts_client = boto3.Session().client("sts")
-    response = sts_client.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=session_name,
-        ExternalId=external_id,
-    )
+    """Assume the configured AWS role and return temporary Bedrock credentials.
+
+    Raises:
+        _BedrockRoleDeniedError: STS returned ``AccessDenied`` for the
+            workspace role.
+    """
+    sts_client = _gateway_sts_client()
+    try:
+        response = sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=session_name,
+            ExternalId=external_id,
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "AccessDenied":
+            raise _BedrockRoleDeniedError() from exc
+        raise
     session_credentials = response["Credentials"]
     return {
         "AWS_ACCESS_KEY_ID": session_credentials["AccessKeyId"],
@@ -223,6 +270,21 @@ async def _resolve_bedrock_runtime_credentials(
                 external_id=external_id,
                 session_name=_get_aws_role_session_name(credentials),
             )
+        except _BedrockRoleDeniedError as exc:
+            # Usually the workspace-owned trust policy must change before a
+            # retry can succeed, but an IAM or SCP deny on Tracecat's own
+            # principal returns the same code, so keep a platform-visible log.
+            logger.warning("Bedrock AssumeRole denied by STS")
+            raise ProxyException(
+                message=(
+                    "AWS denied assuming the configured Bedrock role. Check "
+                    "that the role trust policy allows Tracecat and the "
+                    "workspace External ID."
+                ),
+                type="tracecat_llm_provider_role_denied",
+                param=None,
+                code=403,
+            ) from exc
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise ProxyException(
                 message="Failed to assume configured AWS role for Bedrock.",
@@ -394,6 +456,20 @@ class _ProviderAuthHTTPException(HTTPException):
     type = "tracecat_llm_provider_auth_failed"
 
 
+class _ProviderSubscriptionHTTPException(HTTPException):
+    """Retain Bedrock Marketplace subscription denials through serialization."""
+
+    type = "tracecat_llm_provider_subscription_required"
+
+
+def _is_bedrock_marketplace_denial(exc: PermissionDeniedError) -> bool:
+    # Bedrock reports missing or in-progress Marketplace model subscriptions as
+    # AccessDenied naming the aws-marketplace actions it needs.
+    return str(exc.llm_provider).startswith("bedrock") and "aws-marketplace:" in str(
+        exc
+    )
+
+
 class _ProviderQuotaHTTPException(HTTPException):
     """Retain structured provider quota evidence through gateway serialization."""
 
@@ -410,6 +486,12 @@ class _GatewayUnavailableHTTPException(HTTPException):
     """Distinguish router availability failures from upstream throttling."""
 
     type = "tracecat_llm_deployment_unavailable"
+
+
+class _ProviderUnavailableHTTPException(HTTPException):
+    """Attribute an upstream provider 5xx or connection failure to the provider."""
+
+    type = "tracecat_llm_provider_unavailable"
 
 
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
@@ -443,11 +525,36 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
+def _provider_rate_limit(error: Exception) -> Exception | None:
+    """Return the provider throttling error, unwrapping a mid-stream fallback.
+
+    LiteLLM raises ``MidStreamFallbackError`` (a ``ServiceUnavailableError``)
+    when a stream fails before content, but the wrapper copies the wrapped
+    provider error's ``status_code``. A 429 there is provider throttling.
+    """
+    if isinstance(error, RateLimitError):
+        return error
+    if isinstance(error, MidStreamFallbackError) and error.status_code == 429:
+        return error.original_exception or error
+    return None
+
+
 def _anthropic_error_message(error_type: str, message: str) -> str:
     """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
     return orjson.dumps(
         {"type": "error", "error": {"type": error_type, "message": message}}
     ).decode()
+
+
+def _trace_request_id(data: dict[str, Any]) -> str | None:
+    """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
+    match data.get("proxy_server_request"):
+        case {"headers": {"x-request-id": str() as trace_request_id}}:
+            # The LLM socket proxy only forwards IDs up to 128 characters, so
+            # this cap bounds the log field without breaking the exact join.
+            return trace_request_id[:128]
+        case _:
+            return None
 
 
 class TracecatCallbackHandler(CustomLogger):
@@ -471,6 +578,8 @@ class TracecatCallbackHandler(CustomLogger):
                 "tracecat_llm_token_invalid",
                 "tracecat_llm_provider_auth_failed",
                 "tracecat_llm_model_not_enabled",
+                "tracecat_llm_provider_subscription_required",
+                "tracecat_llm_provider_role_denied",
                 "budget_exceeded",
             }:
                 original_exception.message = _anthropic_error_message(
@@ -486,23 +595,56 @@ class TracecatCallbackHandler(CustomLogger):
                 detail="The LLM gateway has no available deployment; retry later",
             )
         elif isinstance(
+            original_exception, PermissionDeniedError
+        ) and _is_bedrock_marketplace_denial(original_exception):
+            replacement = _ProviderSubscriptionHTTPException(
+                status_code=original_exception.status_code,
+                detail=(
+                    "AWS Bedrock model access is not active; subscribe to the "
+                    "model or grant the required AWS Marketplace permissions"
+                ),
+            )
+        elif isinstance(
             original_exception, AuthenticationError | PermissionDeniedError
         ):
             replacement = _ProviderAuthHTTPException(
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
             )
-        elif isinstance(
-            original_exception, RateLimitError
-        ) and _is_provider_quota_exceeded(original_exception):
-            replacement = _ProviderQuotaHTTPException(
-                status_code=429,
-                detail="LLM provider quota exhausted; check billing or usage limits",
+        elif (rate_limit := _provider_rate_limit(original_exception)) is not None:
+            replacement = (
+                _ProviderQuotaHTTPException(
+                    status_code=429,
+                    detail="LLM provider quota exhausted; check billing or usage limits",
+                )
+                if _is_provider_quota_exceeded(rate_limit)
+                else _ProviderRateLimitHTTPException(
+                    status_code=429,
+                    detail="LLM provider rate limit exceeded; retry later",
+                )
             )
-        elif isinstance(original_exception, RateLimitError):
-            replacement = _ProviderRateLimitHTTPException(
-                status_code=429,
-                detail="LLM provider rate limit exceeded; retry later",
+        elif isinstance(
+            original_exception,
+            APIConnectionError
+            | BadGatewayError
+            | InternalServerError
+            | ServiceUnavailableError
+            | httpx.NetworkError
+            | httpx.RemoteProtocolError,
+        ):
+            # When a pre-first-chunk Anthropic stream fallback also fails, the
+            # router re-raises the wrapped transport error (e.g. httpx.ReadError)
+            # instead of a LiteLLM exception.
+            # Includes MidStreamFallbackError wrapping a provider 5xx or a
+            # dropped connection; wrapped throttling was handled above.
+            status_code = getattr(original_exception, "status_code", None)
+            replacement = _ProviderUnavailableHTTPException(
+                status_code=(
+                    status_code
+                    if isinstance(status_code, int) and status_code >= 500
+                    else 502
+                ),
+                detail="The LLM provider is temporarily unavailable; retry later",
             )
         else:
             return None
@@ -614,6 +756,10 @@ class TracecatCallbackHandler(CustomLogger):
             # adapter explicit even for model IDs containing a vendor prefix,
             # so LiteLLM cannot select another SDK and bypass this transport.
             data["custom_llm_provider"] = "hosted_vllm"
+            # Route through the hosted_vllm/* deployment so a literal ID such
+            # as ``openrouter/...`` cannot match another provider's route;
+            # LiteLLM strips only this prefix before forwarding upstream.
+            data["model"] = f"hosted_vllm/{data['model']}"
 
             if self._outbound_http_handler is None:
                 self._outbound_http_handler = OutboundLLMHTTPHandler()
@@ -637,8 +783,21 @@ class TracecatCallbackHandler(CustomLogger):
             workspace_id=str(workspace_id),
             provider=provider,
             model=model,
+            trace_request_id=_trace_request_id(data),
         )
         return data
+
+    async def async_post_call_response_headers_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        response: object,
+        request_headers: dict[str, str] | None = None,
+        litellm_call_info: dict[str, object] | None = None,
+    ) -> dict[str, str] | None:
+        """Tag every LLM response with the gateway worker that served it."""
+        del data, user_api_key_dict, response, request_headers, litellm_call_info
+        return {GATEWAY_IDENTITY_HEADER: gateway_identity()}
 
 
 callback_handler = TracecatCallbackHandler()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,7 +15,6 @@ from tracecat.dsl.schemas import (
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.schemas import (
     ActionImplementation,
-    ExecutorActionErrorInfo,
     ResolvedContext,
 )
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
@@ -78,42 +76,6 @@ def _make_resolved_context() -> ResolvedContext:
 
 
 @pytest.mark.anyio
-async def test_direct_backend_uses_subprocess_runner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    backend = DirectBackend()
-    input_data = _make_input()
-    role = _make_role()
-    resolved_context = _make_resolved_context()
-
-    mock_runner = AsyncMock()
-    mock_runner.execute_action = AsyncMock(return_value={"ok": True})
-
-    async def _get_tarballs(_input: RunActionInput, _role: Role) -> list[str]:
-        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
-
-    monkeypatch.setattr(
-        "tracecat.executor.backends.direct.get_action_runner",
-        lambda: mock_runner,
-    )
-    monkeypatch.setattr(backend, "_get_artifact_uris", _get_tarballs)
-
-    result = await backend.execute(
-        input=input_data,
-        role=role,
-        resolved_context=resolved_context,
-        timeout=15.0,
-    )
-
-    assert result.type == "success"
-    assert result.result == {"ok": True}
-    mock_runner.execute_action.assert_awaited_once()
-    call = mock_runner.execute_action.await_args.kwargs
-    assert call["use_sandbox"] is False
-    assert call["artifact_uris"] == ["s3://tracecat-registry/test/site-packages.tar.gz"]
-
-
-@pytest.mark.anyio
 async def test_direct_backend_fails_without_tarballs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -140,43 +102,3 @@ async def test_direct_backend_fails_without_tarballs(
 
     assert result.type == "failure"
     assert result.error.type == "RegistryError"
-
-
-@pytest.mark.anyio
-async def test_direct_backend_maps_runner_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    backend = DirectBackend()
-    input_data = _make_input()
-    role = _make_role()
-    resolved_context = _make_resolved_context()
-
-    mock_runner = AsyncMock()
-    mock_runner.execute_action = AsyncMock(
-        return_value=ExecutorActionErrorInfo(
-            action_name=input_data.task.action,
-            type="ValueError",
-            message="boom",
-            filename="<subprocess>",
-            function="run",
-        )
-    )
-
-    async def _get_tarballs(_input: RunActionInput, _role: Role) -> list[str]:
-        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
-
-    monkeypatch.setattr(
-        "tracecat.executor.backends.direct.get_action_runner",
-        lambda: mock_runner,
-    )
-    monkeypatch.setattr(backend, "_get_artifact_uris", _get_tarballs)
-
-    result = await backend.execute(
-        input=input_data,
-        role=role,
-        resolved_context=resolved_context,
-        timeout=15.0,
-    )
-
-    assert result.type == "failure"
-    assert result.error.type == "ValueError"

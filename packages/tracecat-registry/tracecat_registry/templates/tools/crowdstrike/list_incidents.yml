@@ -1,7 +1,13 @@
 type: action
 definition:
   title: List incidents
-  description: Query for Crowdstrike incidents via the Falcon SIEM API.
+  description: >-
+    Deprecated. Query legacy CrowdStrike incidents through the Incidents API,
+    which CrowdStrike is retiring. Use Case Management actions such as
+    `tools.crowdstrike.list_cases` instead; cases use a different data model.
+  deprecated: >-
+    Use `tools.crowdstrike.list_cases` instead. CrowdStrike is retiring the
+    Incidents API; cases are not a drop-in replacement for incidents.
   display_group: CrowdStrike
   doc_url: https://falconpy.io/Service-Collections/Incidents.html
   namespace: tools.crowdstrike
@@ -28,26 +34,16 @@ definition:
       description: Crowdstrike member CID.
       default: null
   steps:
-    - ref: build_filter
-      action: core.script.run_python
-      args:
-        inputs:
-          query: ${{ inputs.query }}
-          start_time: ${{ inputs.start_time }}
-          end_time: ${{ inputs.end_time }}
-        script: |
-          def main(query, start_time, end_time):
-              if query:
-                  return query
-              else:
-                  return f"created_date:>='{start_time.isoformat()}' + created_date:<'{end_time.isoformat()}'"
     - ref: query_incidents
       action: tools.falconpy.call_command
       args:
         operation_id: QueryIncidents
         member_cid: ${{ inputs.member_cid }}
         params:
-          filter: ${{ steps.build_filter.result }}
+          filter: >-
+            ${{ inputs.query || FN.format("created_date:>='{}' + created_date:<'{}'",
+            FN.format_datetime(FN.to_datetime(inputs.start_time, "UTC"), "%Y-%m-%dT%H:%M:%SZ"),
+            FN.format_datetime(FN.to_datetime(inputs.end_time, "UTC"), "%Y-%m-%dT%H:%M:%SZ")) }}
           limit: ${{ inputs.limit }}
     - ref: get_incidents
       action: tools.falconpy.call_command
@@ -57,4 +53,4 @@ definition:
         params:
           body:
             ids: ${{ steps.query_incidents.result.body.resources }}
-  returns: ${{ steps.get_incidents.result.data }}
+  returns: ${{ steps.get_incidents.result.body }}

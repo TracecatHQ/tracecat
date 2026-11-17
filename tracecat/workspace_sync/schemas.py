@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Literal
 
@@ -11,15 +12,28 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
+from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.secrets.schemas import (
+    AWS_SECRET_ID_PATTERN,
+    EXPRESSION_SECRET_NAME_PATTERN,
+    AwsSecretKeyMapping,
+)
 from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
     WorkflowDslPublishResult,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.types import (
+    ResourcePathMap,
+    SyncMappingTarget,
+    WorkflowExportCode,
+    WorkflowExportStage,
+)
 
 MANIFEST_FILENAME = "tracecat.json"
 WORKFLOW_ROOT = "workflows"
@@ -82,6 +96,50 @@ class WorkspaceManifestResources(BaseModel):
     )
 
 
+class PackageResourceEntry(BaseModel):
+    """One resource recorded in a managed resources package manifest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resource_type: SyncResourceType = Field(description="Kind of resource.")
+    source_id: str = Field(min_length=1, description="Stable Git source id.")
+
+
+class PackageRegistryRequirement(BaseModel):
+    """A custom registry repository version that a package's actions need."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin: str = Field(min_length=1, description="Registry repository origin.")
+    version: str = Field(min_length=1, description="Registry version string.")
+    commit_sha: str | None = Field(
+        default=None, description="Git commit of the registry version, if any."
+    )
+    actions: list[str] = Field(
+        default_factory=list,
+        description="Fully qualified action names the package uses from it.",
+    )
+
+
+class WorkspacePackageManifest(BaseModel):
+    """What a managed resources package export contains and needs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    explicit: list[PackageResourceEntry] = Field(
+        default_factory=list,
+        description="Resources matched by the include file.",
+    )
+    implied: list[PackageResourceEntry] = Field(
+        default_factory=list,
+        description="Dependencies of explicit resources, included automatically.",
+    )
+    registry: list[PackageRegistryRequirement] = Field(
+        default_factory=list,
+        description="Custom registry versions the packaged actions resolve to.",
+    )
+
+
 class WorkspaceManifest(BaseModel):
     """Top-level ``tracecat.json`` describing a workspace sync repository."""
 
@@ -91,6 +149,12 @@ class WorkspaceManifest(BaseModel):
     resources: WorkspaceManifestResources = Field(
         default_factory=WorkspaceManifestResources,
         description="Per-resource-type repository root directories.",
+    )
+    # Optional, so ordinary v2 manifests stay valid and serialize unchanged:
+    # canonical JSON omits null fields.
+    package: WorkspacePackageManifest | None = Field(
+        default=None,
+        description="Managed resources package metadata, on package exports only.",
     )
 
 
@@ -116,6 +180,11 @@ def manifest_resource_roots(manifest: WorkspaceManifest) -> tuple[str, ...]:
     )
 
 
+def normalize_workflow_source_id(value: str) -> str:
+    """Trim the whitespace and slashes a workflow ``id`` is stored without."""
+    return value.strip().strip("/")
+
+
 class WorkflowResourceSpec(BaseModel):
     """Canonical Git-owned desired state for a workflow resource."""
 
@@ -125,7 +194,7 @@ class WorkflowResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the workflow's single-segment file path key.",
+        description="Stable source id. It identifies the workflow; its path does not.",
     )
     alias: str | None = Field(
         default=None,
@@ -151,6 +220,10 @@ class WorkflowResourceSpec(BaseModel):
         default=None,
         description="Case-event trigger config, if the workflow has one.",
     )
+    form: RemoteForm | None = Field(
+        default=None,
+        description="Form config and status, if the workflow has a configured form.",
+    )
     definition: DSLInput = Field(
         description="The workflow DSL: the executable graph and its metadata.",
     )
@@ -159,7 +232,7 @@ class WorkflowResourceSpec(BaseModel):
     @classmethod
     def validate_source_id(cls, value: str) -> str:
         """Require the workflow id to be a non-empty single path segment."""
-        cleaned = value.strip().strip("/")
+        cleaned = normalize_workflow_source_id(value)
         if not cleaned:
             raise ValueError("workflow source id cannot be empty")
         if "/" in cleaned or "\\" in cleaned:
@@ -221,12 +294,20 @@ class AgentPresetResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the preset's single-segment file path key.",
+        description="Stable source id. It identifies the preset; its path does not.",
     )
     slug: str = Field(
         min_length=1, description="Unique preset slug used for cross-references."
     )
     name: str = Field(min_length=1, description="Human-readable preset name.")
+    use_in_chat: bool | None = Field(
+        default=None,
+        description="Whether the preset appears in chat mentions. Omit to preserve local state.",
+    )
+    is_workspace_default: bool | None = Field(
+        default=None,
+        description="Whether this preset is the workspace default. Omit to preserve local state.",
+    )
     folder_path: str | None = Field(
         default=None, description="Workspace folder the preset lives under, if any."
     )
@@ -283,6 +364,11 @@ class AgentPresetResourceSpec(BaseModel):
         default_factory=dict,
         exclude_if=lambda value: not value,
         description="Portable identity hints keyed by source MCP integration id.",
+    )
+    library_skills: list[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+        description="Tracecat library skill slugs; must be installed on import.",
     )
     retries: int = Field(
         default=3,
@@ -344,7 +430,7 @@ class SkillResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the skill's single-segment file path key.",
+        description="Stable source id. It identifies the skill; its path does not.",
     )
     slug: str = Field(
         min_length=1, description="Unique skill slug used for cross-references."
@@ -402,9 +488,13 @@ class TableResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the table's single-segment file path key.",
+        description="Stable source id. It identifies the table; its path does not.",
     )
     name: str = Field(min_length=1, description="Table name.")
+    folder_path: str | None = Field(
+        default=None,
+        description="Workspace folder the table lives under, if any.",
+    )
     columns: list[TableColumnSpec] = Field(
         default_factory=list, description="Column definitions for the table schema."
     )
@@ -421,7 +511,7 @@ class CaseTagResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the case tag's single-segment file path key.",
+        description="Stable source id. It identifies the case tag; its path does not.",
     )
     name: str = Field(min_length=1, description="Case tag name.")
     color: str | None = Field(default=None, description="Optional display color.")
@@ -438,7 +528,7 @@ class CaseDropdownResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the dropdown's single-segment file path key.",
+        description="Stable source id. It identifies the dropdown; its path does not.",
     )
     name: str = Field(min_length=1, description="Case dropdown field name.")
     options: list[dict[str, Any]] = Field(
@@ -488,7 +578,7 @@ class CaseDurationResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the duration's single-segment file path key.",
+        description="Stable source id. It identifies the duration; its path does not.",
     )
     name: str = Field(min_length=1, description="Case duration metric name.")
     description: str | None = Field(
@@ -513,7 +603,7 @@ class CaseFieldResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the field's single-segment file path key.",
+        description="Stable source id. It identifies the field; its path does not.",
     )
     name: str = Field(min_length=1, description="Case field name.")
     display_name: str | None = Field(
@@ -552,7 +642,7 @@ class VariableResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the variable's single-segment file path key.",
+        description="Stable source id. It identifies the variable; its path does not.",
     )
     name: str = Field(min_length=1, description="Variable name.")
     environment: str = Field(
@@ -592,7 +682,7 @@ class SecretMetadataResourceSpec(BaseModel):
     )
     id: str = Field(
         min_length=1,
-        description="Stable source id; the secret's single-segment file path key.",
+        description="Stable source id. It identifies the secret; its path does not.",
     )
     name: str = Field(min_length=1, description="Secret name.")
     environment: str = Field(
@@ -609,6 +699,25 @@ class SecretMetadataResourceSpec(BaseModel):
     description: str | None = Field(
         default=None, description="Optional secret description."
     )
+    source: SecretSource | None = Field(
+        default=None,
+        description="Where the values live. Omitted for secrets stored in Tracecat.",
+    )
+    store: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Name of the organization secret store an externally backed secret reads from. Omitted when the secret isn't linked to a store.",
+    )
+    remote_reference: str | None = Field(
+        default=None,
+        pattern=AWS_SECRET_ID_PATTERN,
+        max_length=2048,
+        description="Secret name or ARN in the external store.",
+    )
+    key_mapping: AwsSecretKeyMapping | None = Field(
+        default=None,
+        description="How the external value maps onto the declared keys.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -617,6 +726,32 @@ class SecretMetadataResourceSpec(BaseModel):
         if isinstance(data, dict) and ({"value", "values"} & data.keys()):
             raise ValueError("secret value material is not allowed in Git")
         return data
+
+    @model_validator(mode="after")
+    def validate_external_reference(self) -> SecretMetadataResourceSpec:
+        """Require a reference and mapping for external secrets, and none otherwise."""
+        reference = (self.store, self.remote_reference, self.key_mapping)
+        if self.source != SecretSource.AWS_SECRETS_MANAGER:
+            if any(part is not None for part in reference):
+                raise ValueError(
+                    "store, remote_reference, and key_mapping require source "
+                    "aws_secrets_manager"
+                )
+            return self
+        if self.key_mapping is None or self.remote_reference is None:
+            raise ValueError(
+                "AWS-backed secret metadata requires remote_reference and key_mapping"
+            )
+        if self.secret_type not in (None, SecretType.CUSTOM.value):
+            raise ValueError("AWS-backed secrets must use the custom type")
+        if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, self.name):
+            raise ValueError(
+                "AWS-backed secret names must be snake_case and start with a "
+                "letter or underscore"
+            )
+        if sorted(self.keys) != sorted(self.key_mapping.output_keys()):
+            raise ValueError("keys must match the key_mapping output keys")
+        return self
 
 
 # Resource-map fields on :class:`WorkspaceSpec`, paired with their sync resource
@@ -698,12 +833,21 @@ class WorkspaceSpec(BaseModel):
 class WorkspaceProjection(BaseModel):
     """Locally projected workspace state plus the files it serializes to."""
 
+    mapping_targets: list[SyncMappingTarget] = Field(default_factory=list)
+
     manifest: WorkspaceManifest = Field(
         description="Manifest describing the projected repository layout."
     )
     spec: WorkspaceSpec = Field(description="Projected workspace desired state.")
     files: dict[str, str] = Field(
         description="Serialized repository files keyed by repository-relative path."
+    )
+    paths: ResourcePathMap = Field(
+        default_factory=dict,
+        description=(
+            "Primary file path of each projected resource, by resource type "
+            "then source id."
+        ),
     )
 
 
@@ -719,6 +863,13 @@ class WorkspaceRemoteSnapshot(BaseModel):
     )
     spec: WorkspaceSpec = Field(
         description="Workspace desired state parsed from the commit."
+    )
+    paths: ResourcePathMap = Field(
+        default_factory=dict,
+        description=(
+            "Primary file path each resource was read from, by resource type "
+            "then source id. Empty when the snapshot was not parsed from files."
+        ),
     )
 
 
@@ -736,6 +887,30 @@ class ResourceRef(BaseModel):
         default=None,
         description="Local database id of the resource, if referenced by local id.",
     )
+
+
+class WorkflowExportDiagnostic(BaseModel):
+    """Safe workflow context for an export that cannot proceed."""
+
+    workflow_id: uuid.UUID = Field(description="Authorized local workflow ID.")
+    workflow_title: str = Field(description="Workflow display title.")
+    source_id: str | None = Field(default=None, description="Existing stable Git ID.")
+    source_path: str | None = Field(
+        default=None, description="Existing repository path."
+    )
+    stage: WorkflowExportStage = Field(description="Export stage that failed.")
+    code: WorkflowExportCode = Field(
+        description="Machine-readable corrective error code."
+    )
+    message: str = Field(description="Safe corrective message without workflow inputs.")
+
+
+class WorkspaceSyncExportError(BaseModel):
+    """Additive diagnostics while retaining the legacy string detail field."""
+
+    detail: str = Field(description="Human-readable failure summary.")
+    diagnostics: list[WorkflowExportDiagnostic] = Field(default_factory=list)
+    omitted_count: int = Field(default=0)
 
 
 class WorkspaceSyncExportRequest(BaseModel):
@@ -756,6 +931,14 @@ class WorkspaceSyncExportRequest(BaseModel):
     include_schedules: bool = Field(
         default=False,
         description="Whether to include workflow schedules in the export.",
+    )
+    package_include: list[str] | None = Field(
+        default=None,
+        description=(
+            "Include file patterns to write with a managed resources package "
+            "export. Only valid for the package source workspace; ``None`` keeps "
+            "the include file already in the repository."
+        ),
     )
 
     @field_validator("message")
@@ -784,6 +967,13 @@ class WorkspaceSyncExportPreviewRequest(BaseModel):
         description=(
             "Repository ref to compare the projected export against. When omitted, "
             "the preview only returns the export manifest summary."
+        ),
+    )
+    package_include: list[str] | None = Field(
+        default=None,
+        description=(
+            "Include file patterns to preview for a managed resources package "
+            "export. ``None`` uses the include file at ``compare_ref``."
         ),
     )
 
@@ -821,6 +1011,51 @@ class WorkspaceSyncExportPreview(BaseModel):
         description=(
             "Per-resource file diffs between the comparison ref and projected export."
         ),
+    )
+
+
+type PackageResourceStatus = Literal["explicit", "implied", "excluded"]
+
+
+class WorkspacePackageResource(BaseModel):
+    """One source workspace resource as the package picker shows it."""
+
+    resource_type: SyncResourceType = Field(description="Kind of resource.")
+    source_id: str = Field(description="Stable Git source id.")
+    local_id: uuid.UUID = Field(description="Workspace-local resource id.")
+    name: str = Field(description="Human-readable resource name.")
+    path: str = Field(description="Primary repository path of the resource.")
+    pattern: str = Field(description="Include pattern that selects the resource.")
+    status: PackageResourceStatus = Field(
+        description=(
+            "``explicit`` when a pattern selects it, ``implied`` when only a "
+            "dependency, ``excluded`` otherwise."
+        )
+    )
+    implied_by: list[str] = Field(
+        default_factory=list,
+        description="Names of the explicit resources that need an implied one.",
+    )
+
+
+class WorkspacePackageRead(BaseModel):
+    """The managed resources package selection of the source workspace."""
+
+    is_source: bool = Field(
+        description="Whether this workspace is the managed resources source."
+    )
+    ref: str | None = Field(
+        default=None, description="Branch the include file was read from."
+    )
+    patterns: list[str] = Field(
+        default_factory=list, description="Include file patterns in file order."
+    )
+    resources: list[WorkspacePackageResource] = Field(
+        default_factory=list,
+        description="Every syncable resource with its package status.",
+    )
+    warnings: list[str] = Field(
+        default_factory=list, description="Include file problems worth fixing."
     )
 
 

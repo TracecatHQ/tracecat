@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Query lookup table data
+  description: Retrieve items of a lookup table.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/516391/lookup-table-integration#get-pub-lookuptable-lookuptableid-data
+  namespace: tools.fortisiem
+  name: get_lookup_table_data
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    lookupTableId:
+      type: int
+      description: Lookup table ID.
+    start:
+      type: int | None
+      description: Offset the list of returned results by this amount. Default is zero.
+      default: null
+    size:
+      type: int | None
+      description: Number of items to retrieve. Default is 25, maximum is 1000.
+      default: null
+    searchText:
+      type: str | None
+      description: Search text.
+      default: null
+    sortBy:
+      type: str | None
+      description: Sort by one of the lookup table columns. Format is '<ColumnName> <ASC or DESC>'.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/pub/lookupTable/${{ inputs.lookupTableId }}/data
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          size: ${{ inputs.size }}
+          searchText: ${{ inputs.searchText }}
+          sortBy: ${{ inputs.sortBy }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

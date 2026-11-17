@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Delete device extension attributes
+  description: >-
+    Remove extension attributes by key from one or more devices. Calls DELETE
+    /restful/organization/deviceExtensionAttributes.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/13172920-public-apis-how-to-edit-device-extension-attributes
+  namespace: tools.swif
+  name: delete_device_extension_attributes
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    deviceIds:
+      type: list[str]
+      description: Swif device IDs to remove the attributes from.
+    keys:
+      type: list[str]
+      description: Extension attribute keys to remove.
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/deviceExtensionAttributes
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+        payload:
+          deviceIds: ${{ inputs.deviceIds }}
+          keys: ${{ inputs.keys }}
+  returns: ${{ steps.request.result }}

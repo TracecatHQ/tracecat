@@ -17,6 +17,14 @@ export const UNAVAILABLE_ROW_CLASS_RULES: RowClassRules<TableRowRead> = {
   "opacity-50": (params) => params.data?.[UNAVAILABLE_ROW_FLAG] === true,
 }
 
+/**
+ * Whether a grid row still has its source table row. A link whose row was
+ * deleted has nothing to edit.
+ */
+export function isAvailableRow(row: TableRowRead): boolean {
+  return row[UNAVAILABLE_ROW_FLAG] !== true
+}
+
 /** Flatten a case-row link into the grid row shape the table's columns expect. */
 export function toGridRow(link: CaseTableRowRead): TableRowRead {
   const payload =

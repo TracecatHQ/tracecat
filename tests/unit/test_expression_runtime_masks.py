@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from tracecat.contexts import ctx_secret_masks
+from tracecat.dsl.schemas import ActionRetryPolicy
 from tracecat.exceptions import ExecutionError, TracecatExpressionError
 from tracecat.executor import service
 from tracecat.executor.schemas import (
@@ -348,7 +349,13 @@ async def test_invocations_isolate_masks_and_restore_parent(
         with pytest.raises(ExecutionError) as caught:
             await service.invoke_once(
                 backend,
-                Mock(task=Mock(action="testing.probe", args={"own": own})),
+                Mock(
+                    task=Mock(
+                        action="testing.probe",
+                        args={"own": own},
+                        retry_policy=ActionRetryPolicy(),
+                    )
+                ),
                 Mock(role=Mock(organization_id="synthetic")),
             )
         assert ctx_secret_masks.get() is masks
@@ -394,7 +401,7 @@ async def test_invocation_preserves_derived_masks_on_failure(
     with pytest.raises(ExecutionError) as caught:
         await service.invoke_once(
             backend,
-            Mock(task=Mock(action="testing.probe")),
+            Mock(task=Mock(action="testing.probe", retry_policy=ActionRetryPolicy())),
             Mock(role=Mock(organization_id="synthetic")),
         )
     assert ENCODED not in str(caught.value)

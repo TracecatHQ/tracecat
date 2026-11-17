@@ -252,6 +252,26 @@ async def test_preview_download_url_inline_only_for_images(
 
 
 @pytest.mark.anyio
+async def test_download_url_keeps_original_filename(
+    configure_minio_for_attachments,
+    test_case: tuple,
+    attachments_service: CaseAttachmentService,
+    attachment_params: CaseAttachmentCreate,
+):
+    """Forced downloads are saved under the original name, not the storage key."""
+    case, _ = test_case
+    created = await attachments_service.create_attachment(case, attachment_params)
+
+    url, _, _ = await attachments_service.get_attachment_download_url(case, created.id)
+    disposition = parse_qs(urlparse(url).query)["response-content-disposition"][0]
+    assert disposition == (
+        f'attachment; filename="{attachment_params.file_name}"; '
+        f"filename*=UTF-8''{attachment_params.file_name}"
+    )
+    assert created.file.sha256 not in disposition
+
+
+@pytest.mark.anyio
 async def test_preview_forces_download_for_non_image(
     configure_minio_for_attachments,
     test_case: tuple,

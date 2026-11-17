@@ -5,6 +5,8 @@ import {
   BotIcon,
   BoxIcon,
   ChevronDown,
+  ClipboardListIcon,
+  GitBranchIcon,
   KeyRound,
   LayersIcon,
   ListChecksIcon,
@@ -12,7 +14,9 @@ import {
   LockIcon,
   type LucideIcon,
   MousePointerClickIcon,
+  NetworkIcon,
   Pyramid,
+  SendIcon,
   Sparkles,
   Table2Icon,
   TerminalIcon,
@@ -21,7 +25,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import type * as React from "react"
 import { useMemo, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -53,7 +57,10 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { VIEW_PARAM } from "@/hooks/use-case-view-state"
+import { useCaseViews } from "@/hooks/use-case-views"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
 import { formatPendingApprovalCount } from "@/lib/approvals"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -84,8 +91,119 @@ type NavItem = {
   }[]
 }
 
+function SidebarNavGroup({
+  label,
+  items,
+}: {
+  label: string
+  items: NavItem[]
+}) {
+  const visibleItems = items.filter((item) => item.visible === true)
+  if (visibleItems.length === 0) {
+    return null
+  }
+  return (
+    <Collapsible defaultOpen className="group/collapsible">
+      <SidebarGroup>
+        <SidebarGroupLabel asChild>
+          <CollapsibleTrigger className="w-full">
+            {label}
+            <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+          </CollapsibleTrigger>
+        </SidebarGroupLabel>
+        <CollapsibleContent>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {visibleItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  {item.items ? (
+                    <>
+                      {item.url ? (
+                        <SidebarMenuButton asChild isActive={item.isActive}>
+                          <Link href={item.url}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      ) : (
+                        <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
+                          <item.icon className="size-4 shrink-0" />
+                          <span className="font-medium">{item.title}</span>
+                        </div>
+                      )}
+                      <SidebarMenuSub>
+                        {item.items.map((subItem) => (
+                          <SidebarMenuSubItem key={subItem.url}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={subItem.isActive}
+                              className="text-[13px]"
+                            >
+                              <Link href={subItem.url}>
+                                <span>{subItem.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </>
+                  ) : item.isLocked ? (
+                    <SidebarMenuButton
+                      type="button"
+                      isActive={item.isActive}
+                      onClick={item.onSelect}
+                      className="text-muted-foreground"
+                    >
+                      <item.icon />
+                      <span>{item.title}</span>
+                      <LockedFeatureChip className="ml-auto shrink-0" />
+                    </SidebarMenuButton>
+                  ) : item.isPendingEntitlement ? (
+                    <SidebarMenuButton
+                      type="button"
+                      isActive={item.isActive}
+                      disabled
+                    >
+                      <item.icon />
+                      <span>{item.title}</span>
+                      {item.tag ? (
+                        <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                          {item.tag}
+                        </span>
+                      ) : null}
+                    </SidebarMenuButton>
+                  ) : (
+                    <SidebarMenuButton asChild isActive={item.isActive}>
+                      <Link href={item.url!}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                        {item.tag ? (
+                          <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                            {item.tag}
+                          </span>
+                        ) : null}
+                      </Link>
+                    </SidebarMenuButton>
+                  )}
+                  {item.locked ? (
+                    <SidebarMenuBadge>
+                      <LockIcon aria-hidden="true" className="size-3.5" />
+                      <span className="sr-only">Requires upgrade</span>
+                    </SidebarMenuBadge>
+                  ) : null}
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
+  )
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const basePath = `/workspaces/${workspaceId}`
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
@@ -104,13 +222,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  // The builder pages need one of these on top of `form:read`; a requester
+  // who can only fill in forms has no use for the list.
+  const canReadForms = useScopeCheck("form:read")
+  const canBuildForms = useScopeCheck(undefined, [
+    "form:update",
+    "form:submission:read",
+  ])
+  // Without the entitlement the link stays and the page explains why Forms is
+  // unavailable.
+  const formsAccess = useFormsAccess()
+  const formsVisible = formsAccess !== "loading"
+  const canViewTunnels = useScopeCheck("tunnel:read")
+  // Sync users push/pull; workspace admins manage the repository connection.
+  const canOpenGitSync = useScopeCheck(undefined, [
+    "workspace_sync:push",
+    "workspace_sync:pull",
+    "workspace:update",
+  ])
   const canAccessMissionControl =
     canExecuteAgents === true && canViewAgents === true
   const shouldLoadEntitlements =
     canViewAgents === true ||
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
-    canViewInbox === true
+    canViewInbox === true ||
+    canOpenGitSync === true ||
+    canViewCases === true
   const {
     hasEntitlement,
     hasEntitlementData,
@@ -119,14 +257,31 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     enabled: shouldLoadEntitlements,
   })
   const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const gitSyncEnabled = hasEntitlement("git_sync")
+  // Case views are an enterprise feature (case add-ons).
+  const caseViews = useCaseViews(
+    workspaceId,
+    canViewCases === true && hasEntitlement("case_addons")
+  )
+  const activeCaseViewId = pathname?.startsWith(`${basePath}/cases`)
+    ? (searchParams?.get(VIEW_PARAM) ?? null)
+    : null
+  // Only pinned views appear under Cases, built-in ones included.
+  const caseViewItems = useMemo(
+    () =>
+      caseViews.pinned.map((view) => ({
+        title: view.name,
+        url: `${basePath}/cases?${new URLSearchParams({ [VIEW_PARAM]: view.id })}`,
+        isActive: activeCaseViewId === view.id,
+      })),
+    [caseViews.pinned, basePath, activeCaseViewId]
+  )
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
     {
-      enabled:
-        canViewInbox === true && !entitlementsIsLoading && agentAddonsEnabled,
+      enabled: canViewInbox === true,
     }
   )
 
@@ -135,8 +290,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       {
         title: "Chat",
         url: `${basePath}/chat`,
-        icon: BotIcon,
-        tag: "Beta",
+        icon: SendIcon,
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
         isLocked: entitlementsKnown && !workspaceChatEnabled,
@@ -157,8 +311,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Cases",
         url: `${basePath}/cases`,
         icon: LayersIcon,
-        isActive: pathname?.startsWith(`${basePath}/cases`),
+        // Stay highlighted unless a listed view is the active one, so an
+        // unknown or deleted ?view= still marks Cases as the current page.
+        isActive:
+          pathname?.startsWith(`${basePath}/cases`) &&
+          !caseViewItems.some((item) => item.isActive),
         visible: canViewCases === true,
+        items: caseViewItems.length > 0 ? caseViewItems : undefined,
       },
       {
         title: "Agents",
@@ -167,6 +326,41 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
       },
+      {
+        title: "Skills",
+        url: `${basePath}/skills`,
+        icon: Pyramid,
+        isActive: pathname?.startsWith(`${basePath}/skills`),
+        visible: canViewAgents === true,
+      },
+      {
+        title: "Forms",
+        url: `${basePath}/forms`,
+        icon: ClipboardListIcon,
+        isActive: pathname?.startsWith(`${basePath}/forms`),
+        visible:
+          formsVisible && canReadForms === true && canBuildForms === true,
+      },
+    ],
+    [
+      basePath,
+      pathname,
+      canViewWorkflows,
+      formsVisible,
+      canReadForms,
+      canBuildForms,
+      canViewCases,
+      caseViewItems,
+      activeCaseViewId,
+      canAccessMissionControl,
+      entitlementsKnown,
+      workspaceChatEnabled,
+      canViewAgents,
+    ]
+  )
+
+  const navConfigure: NavItem[] = useMemo(
+    () => [
       {
         title: "Tables",
         url: `${basePath}/tables`,
@@ -203,13 +397,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible: canViewIntegrations === true,
       },
       {
-        title: "Skills",
-        url: `${basePath}/skills`,
-        icon: Pyramid,
-        isActive: pathname?.startsWith(`${basePath}/skills`),
-        visible: canViewAgents === true,
-      },
-      {
         title: "Actions",
         url: `${basePath}/actions`,
         icon: BoxIcon,
@@ -220,16 +407,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     [
       basePath,
       pathname,
-      canViewWorkflows,
-      canViewCases,
-      canAccessMissionControl,
       canViewTables,
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
-      entitlementsKnown,
-      workspaceChatEnabled,
-      canViewAgents,
       canViewActions,
     ]
   )
@@ -263,101 +444,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           open={lockedFeatureDialogOpen}
           onOpenChange={setLockedFeatureDialogOpen}
         />
-        {navWorkspace.some((item) => item.visible === true) && (
-          <Collapsible defaultOpen className="group/collapsible">
-            <SidebarGroup>
-              <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="w-full">
-                  Workspace
-                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-                </CollapsibleTrigger>
-              </SidebarGroupLabel>
-              <CollapsibleContent>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {navWorkspace
-                      .filter((item) => item.visible === true)
-                      .map((item) => (
-                        <SidebarMenuItem key={item.title}>
-                          {item.items ? (
-                            <SidebarMenuItem>
-                              <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
-                                <item.icon className="size-4 shrink-0" />
-                                <span className="font-medium">
-                                  {item.title}
-                                </span>
-                              </div>
-                              <SidebarMenuSub>
-                                {item.items.map((subItem) => (
-                                  <SidebarMenuSubItem key={subItem.title}>
-                                    <SidebarMenuSubButton
-                                      asChild
-                                      isActive={subItem.isActive}
-                                      className="text-[13px]"
-                                    >
-                                      <Link href={subItem.url}>
-                                        <span>{subItem.title}</span>
-                                      </Link>
-                                    </SidebarMenuSubButton>
-                                  </SidebarMenuSubItem>
-                                ))}
-                              </SidebarMenuSub>
-                            </SidebarMenuItem>
-                          ) : item.isLocked ? (
-                            <SidebarMenuButton
-                              type="button"
-                              isActive={item.isActive}
-                              onClick={item.onSelect}
-                              className="text-muted-foreground"
-                            >
-                              <item.icon />
-                              <span>{item.title}</span>
-                              <LockedFeatureChip className="ml-auto shrink-0" />
-                            </SidebarMenuButton>
-                          ) : item.isPendingEntitlement ? (
-                            <SidebarMenuButton
-                              type="button"
-                              isActive={item.isActive}
-                              disabled
-                            >
-                              <item.icon />
-                              <span>{item.title}</span>
-                              {item.tag ? (
-                                <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
-                                  {item.tag}
-                                </span>
-                              ) : null}
-                            </SidebarMenuButton>
-                          ) : (
-                            <SidebarMenuButton asChild isActive={item.isActive}>
-                              <Link href={item.url!}>
-                                <item.icon />
-                                <span>{item.title}</span>
-                                {item.tag ? (
-                                  <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
-                                    {item.tag}
-                                  </span>
-                                ) : null}
-                              </Link>
-                            </SidebarMenuButton>
-                          )}
-                          {item.locked ? (
-                            <SidebarMenuBadge>
-                              <LockIcon
-                                aria-hidden="true"
-                                className="size-3.5"
-                              />
-                              <span className="sr-only">Requires upgrade</span>
-                            </SidebarMenuBadge>
-                          ) : null}
-                        </SidebarMenuItem>
-                      ))}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </CollapsibleContent>
-            </SidebarGroup>
-          </Collapsible>
-        )}
+        <SidebarNavGroup label="Workspace" items={navWorkspace} />
+        <SidebarNavGroup label="Configure" items={navConfigure} />
         {navMonitor.some((item) => item.visible === true) && (
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
@@ -421,6 +509,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive: pathname?.startsWith(
                     `${basePath}/service-accounts`
                   ),
+                }
+              : null,
+            canOpenGitSync === true
+              ? {
+                  title: "Git sync",
+                  href: `${basePath}/git-sync`,
+                  icon: GitBranchIcon,
+                  isActive: pathname?.startsWith(`${basePath}/git-sync`),
+                  // Stays visible without the entitlement so the page can offer the upgrade.
+                  locked: entitlementsKnown && !gitSyncEnabled,
+                }
+              : null,
+            canViewTunnels === true
+              ? {
+                  title: "Tunnels",
+                  href: `${basePath}/tunnels`,
+                  icon: NetworkIcon,
+                  isActive: pathname?.startsWith(`${basePath}/tunnels`),
                 }
               : null,
             canViewMcpAccess === true

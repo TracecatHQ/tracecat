@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List snippets
+  description: List snippets. Calls GET /config/setup/v1/snippets directly; page with limit and offset.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/setup/list-snippets/
+  namespace: tools.pan_strata
+  name: list_snippets
+  secrets:
+  - type: oauth
+    provider_id: pan_strata
+    grant_type: client_credentials
+  expects:
+    limit:
+      type: int | None
+      description: Maximum number of results per page. SCM defaults to 200.
+      default: null
+    offset:
+      type: int | None
+      description: Number of results to skip before the first returned result. Use the response's total to page.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+  - ref: list
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/setup/v1/snippets
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
+  returns: ${{ steps.list.result }}

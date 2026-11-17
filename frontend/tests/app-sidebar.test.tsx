@@ -6,20 +6,36 @@ import { render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 
-const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
+const mockUseScopeCheck = jest.fn<
+  boolean | undefined,
+  [string | undefined, string[] | undefined]
+>()
 let mockPathname = "/workspaces/workspace-1/workflows"
 let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
 let mockEntitlementsIsLoading = false
 let mockHasEntitlementData = true
+let mockSearchParams = new URLSearchParams()
+type MockCaseView = { id: string; name: string }
+let mockCaseViews: { builtins: MockCaseView[]; pinned: MockCaseView[] } = {
+  builtins: [],
+  pinned: [],
+}
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({}),
   usePathname: () => mockPathname,
+  useSearchParams: () => mockSearchParams,
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
+  useScopeCheck: (scope: string | undefined, anyOf?: string[]) =>
+    mockUseScopeCheck(scope, anyOf),
+}))
+
+let mockFormsAccess = "loading"
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => mockFormsAccess,
 }))
 
 jest.mock("@/components/locked-feature-modal", () => ({
@@ -39,17 +55,17 @@ jest.mock("@/components/sidebar/sidebar-user-nav", () => ({
       title: string
       href: string
       isActive?: boolean
+      locked?: boolean
     }[]
   }) => (
     <nav>
       {manageItems.map((item) => (
-        <a
-          href={item.href}
-          data-active={item.isActive ? "true" : "false"}
-          key={item.href}
-        >
-          {item.title}
-        </a>
+        <span key={item.href}>
+          <a href={item.href} data-active={item.isActive ? "true" : "false"}>
+            {item.title}
+          </a>
+          {item.locked ? <span>Requires upgrade</span> : null}
+        </span>
       ))}
     </nav>
   ),
@@ -115,9 +131,13 @@ jest.mock("@/components/ui/sidebar", () => ({
   SidebarMenuSub: ({ children }: { children: ReactNode }) => (
     <ul>{children}</ul>
   ),
-  SidebarMenuSubButton: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  SidebarMenuSubButton: ({
+    children,
+    isActive,
+  }: {
+    children: ReactNode
+    isActive?: boolean
+  }) => <div data-active={isActive ? "true" : "false"}>{children}</div>,
   SidebarMenuSubItem: ({ children }: { children: ReactNode }) => (
     <li>{children}</li>
   ),
@@ -134,6 +154,16 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 
+jest.mock("@/hooks/use-case-views", () => ({
+  // Like the real hook, return nothing when disabled.
+  useCaseViews: (_workspaceId: string, enabled: boolean) => ({
+    ...(enabled ? mockCaseViews : { builtins: [], pinned: [] }),
+    personal: [],
+    shared: [],
+    isLoading: false,
+  }),
+}))
+
 jest.mock("@/hooks/use-pending-approvals-count", () => ({
   usePendingApprovalsCount: () => ({ data: 0 }),
 }))
@@ -145,6 +175,8 @@ jest.mock("@/providers/workspace-id", () => ({
 describe("AppSidebar", () => {
   beforeEach(() => {
     mockUseScopeCheck.mockReset()
+    mockSearchParams = new URLSearchParams()
+    mockCaseViews = { builtins: [], pinned: [] }
     mockPathname = "/workspaces/workspace-1/workflows"
     mockScopes = {}
     mockEntitlements = {
@@ -154,8 +186,36 @@ describe("AppSidebar", () => {
     }
     mockEntitlementsIsLoading = false
     mockHasEntitlementData = true
-    mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
+    mockUseScopeCheck.mockImplementation((scope, anyOf) =>
+      scope
+        ? (mockScopes[scope] ?? false)
+        : (anyOf ?? []).some((candidate) => mockScopes[candidate])
+    )
+    mockFormsAccess = "loading"
   })
+
+  it.each([
+    ["loading", { "form:read": true, "form:update": true }, false],
+    ["enabled", { "form:read": true, "form:update": true }, true],
+    ["locked", { "form:read": true, "form:submission:read": true }, true],
+    ["enabled", { "form:read": true, "form:submit": true }, false],
+    // The list itself needs `form:read`.
+    ["enabled", { "form:update": true, "form:submission:read": true }, false],
+  ])(
+    "links to Forms when access is %s with %j: %p",
+    (access, scopes, shown) => {
+      mockScopes = { "workflow:read": true, ...scopes }
+      mockFormsAccess = access
+
+      render(<AppSidebar />)
+
+      const titles = screen.getAllByRole("link").map((link) => link.textContent)
+      // Right after Workflows.
+      expect(titles.indexOf("Forms")).toBe(
+        shown ? titles.indexOf("Workflows") + 1 : -1
+      )
+    }
+  )
 
   it("hides Chat when the user can execute agents but cannot read them", () => {
     mockScopes = {
@@ -215,6 +275,39 @@ describe("AppSidebar", () => {
     expect(screen.getAllByText("Locked")).toHaveLength(1)
   })
 
+  it("keeps Git sync visible with a lock when the plan lacks it", () => {
+    mockScopes = { "workspace:update": true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git sync" })).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/git-sync"
+    )
+    expect(screen.getByText("Requires upgrade")).toBeInTheDocument()
+  })
+
+  it("shows Git sync without a lock when the plan includes it", () => {
+    mockScopes = { "workspace_sync:push": true }
+    mockEntitlements = { git_sync: true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git sync" })).toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
+  })
+
+  it("hides Git sync without sync or connection access", () => {
+    mockScopes = { "workspace:read": true }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Git sync" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
+  })
+
   it("only highlights MCP servers on the MCP servers page", () => {
     mockPathname = "/workspaces/workspace-1/mcp-servers"
     mockScopes = {
@@ -231,5 +324,92 @@ describe("AppSidebar", () => {
       "data-active",
       "false"
     )
+  })
+
+  it("lists only pinned case views and highlights the open one", () => {
+    const pinnedId = "00000000-0000-4000-8000-000000000001"
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockSearchParams = new URLSearchParams({ view: pinnedId })
+    mockScopes = { "case:read": true }
+    mockEntitlements = { case_addons: true }
+    mockCaseViews = {
+      builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
+      // The hook's pinned list holds pinned built-ins too.
+      pinned: [
+        { id: "assigned_to_me", name: "Assigned to me" },
+        { id: pinnedId, name: "Open phishing" },
+      ],
+    }
+
+    render(<AppSidebar />)
+
+    const builtin = screen.getByRole("link", { name: "Assigned to me" })
+    const pinned = screen.getByRole("link", { name: "Open phishing" })
+    expect(builtin).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/cases?view=assigned_to_me"
+    )
+    expect(pinned).toHaveAttribute(
+      "href",
+      `/workspaces/workspace-1/cases?view=${pinnedId}`
+    )
+    expect(pinned.closest("[data-active]")).toHaveAttribute(
+      "data-active",
+      "true"
+    )
+    expect(
+      screen.getByRole("link", { name: "Cases" }).closest("[data-active]")
+    ).toHaveAttribute("data-active", "false")
+  })
+
+  it("keeps Cases highlighted for a view that is not listed", () => {
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockSearchParams = new URLSearchParams({ view: "deleted-view" })
+    mockScopes = { "case:read": true }
+    mockEntitlements = { case_addons: true }
+    mockCaseViews = {
+      builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
+      pinned: [],
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.getByRole("link", { name: "Cases" }).closest("[data-active]")
+    ).toHaveAttribute("data-active", "true")
+  })
+
+  it("leaves unpinned built-in views out of the sidebar", () => {
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockScopes = { "case:read": true }
+    mockEntitlements = { case_addons: true }
+    mockCaseViews = {
+      builtins: [{ id: "assigned_to_me", name: "Assigned to me" }],
+      pinned: [],
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Assigned to me" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides pinned case views without the case add-ons entitlement", () => {
+    mockPathname = "/workspaces/workspace-1/cases"
+    mockScopes = { "case:read": true }
+    mockEntitlements = {}
+    mockCaseViews = {
+      builtins: [],
+      pinned: [
+        { id: "00000000-0000-4000-8000-000000000001", name: "Open phishing" },
+      ],
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Open phishing" })
+    ).not.toBeInTheDocument()
   })
 })

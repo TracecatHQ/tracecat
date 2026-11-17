@@ -11,10 +11,35 @@ Your agent then builds and runs workflows, agents, tables, and cases for you.
 
 <Columns cols={2}>
   <Card title="Getting started" icon="rocket" href="/overview/getting-started">
-    Try Tracecat today by self-hosting with Docker Compose.
+    Connect your coding agent to Tracecat Cloud or a self-hosted instance.
   </Card>
   <Card title="Tracecat MCP" icon="terminal" href="/automations/tracecat-mcp">
     View every tool your agent can call in Tracecat.
+  </Card>
+</Columns>
+
+## Deploy Tracecat
+
+Use Tracecat Cloud or self-host Tracecat in your own infrastructure.
+
+<Columns cols={2}>
+  <Card title="Tracecat Cloud" icon="cloud" href="https://platform.tracecat.com">
+    Sign up and start building without running any infrastructure.
+  </Card>
+  <Card title="Docker Compose" icon="container" href="/self-hosting/docker-compose">
+    Run every Tracecat service on a single host in minutes.
+  </Card>
+  <Card title="AWS ECS Fargate" icon="cloud-cog" href="/self-hosting/aws-fargate">
+    Deploy to your own AWS account with Terraform.
+  </Card>
+  <Card title="Kubernetes" icon="ship-wheel" href="/self-hosting/kubernetes">
+    Install the Helm chart on EKS, GKE, or any conformant cluster.
+  </Card>
+  <Card title="Air-gapped" icon="shield-off" href="/self-hosting/air-gapped">
+    Run on Kubernetes with no runtime internet access.
+  </Card>
+  <Card title="Architecture" icon="network" href="/self-hosting/architecture">
+    See how Tracecat services fit together before you deploy.
   </Card>
 </Columns>
 
@@ -50,8 +75,5 @@ Your agent then builds and runs workflows, agents, tables, and cases for you.
   </Card>
   <Card title="MCP servers" icon="boxes" href="/automations/integrations/mcp-integrations">
     Connect third-party remote and stdio MCP servers for your agents to call.
-  </Card>
-  <Card title="Self-hosting" icon="server" href="/self-hosting/docker-compose">
-    Host your Tracecat in your own infrastructure.
   </Card>
 </Columns>

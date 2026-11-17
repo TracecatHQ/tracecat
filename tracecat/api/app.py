@@ -12,12 +12,15 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
-from pydantic_core import to_jsonable_python
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
+from temporalio.service import RPCError
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.cases.views.router import router as case_views_router
 from tracecat_ee.scim.protocol import (
     is_scim_path,
     scim_error_response,
@@ -32,17 +35,30 @@ from tracecat_ee.secrets.references.router import (
     stores_router as workspace_secret_stores_router,
 )
 from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
+from tracecat_ee.tunnels.gateways import (
+    kubernetes_enabled,
+    start_tunnel_gateway_reconciler,
+)
+from tracecat_ee.tunnels.router import gateway_router as tunnel_gateway_router
+from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.admin.agent.router import router as admin_agent_router
+from tracecat.admin.build_info.router import router as admin_build_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
+from tracecat.admin.slack_app.router import router as admin_slack_app_router
 from tracecat.agent.access.router import router as agent_model_access_router
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
+from tracecat.agent.channel_bots.provider import get_channel_bot_admin
+from tracecat.agent.channel_bots.router import (
+    public_router as agent_channel_bots_public_router,
+)
+from tracecat.agent.channel_bots.router import router as agent_channel_bots_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
@@ -54,6 +70,7 @@ from tracecat.agent.router import router as agent_router
 from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.agent.skill.folders.router import router as skill_folders_router
+from tracecat.agent.skill.library.router import router as skill_library_router
 from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.agent.skill.tags.definitions_router import (
     router as skill_tag_definitions_router,
@@ -68,21 +85,34 @@ from tracecat.api.common import (
     auth_pool_exhausted_exception_handler,
     bootstrap_role,
     custom_generate_unique_id,
+    database_exception_handler,
     generic_exception_handler,
     http_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     table_row_exception_handler,
+    temporal_rpc_exception_handler,
     tracecat_exception_handler,
+    without_inputs,
+)
+from tracecat.api.extensions import (
+    include_api_extension_routers,
+    spawn_api_extension_tasks,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
-from tracecat.auth.credentials import authenticated_user_only
+from tracecat.auth.credentials import (
+    authenticated_user_only,
+    require_superuser,
+    require_superuser_step_up,
+)
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
+from tracecat.auth.mfa.router import router as mfa_router
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
@@ -108,6 +138,7 @@ from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.rows.router import linked_cases_router as case_linked_cases_router
 from tracecat.cases.rows.router import router as case_rows_router
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
@@ -119,7 +150,9 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
+    verify_rls_enforceable_login,
 )
+from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
@@ -136,6 +169,10 @@ from tracecat.exceptions import (
 )
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.forms.exceptions import FormError, form_error_handler
+from tracecat.forms.router import intake_router as forms_intake_router
+from tracecat.forms.router import router as forms_router
+from tracecat.forms.storage import run_file_expiry
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
@@ -148,6 +185,11 @@ from tracecat.integrations.router import (
 from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    LOCKED_MESSAGE,
+    ManagedResourceLockedError,
+)
+from tracecat.managed_resources.router import router as managed_resources_router
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
     router as mcp_personal_access_tokens_router,
@@ -192,6 +234,7 @@ from tracecat.storage.blob import (
     ensure_bucket_exists,
 )
 from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.folders.router import router as table_folders_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.variables.router import router as variables_router
@@ -212,6 +255,7 @@ from tracecat.workflow.management.router import router as workflow_management_ro
 from tracecat.workflow.schedules.router import router as schedules_router
 from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
+from tracecat.workspace_sync.operations.router import router as sync_operations_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
@@ -225,6 +269,7 @@ async def lifespan(app: FastAPI):
     # by tests and OpenAPI generation, before secrets are available.
     get_user_auth_secret()
     assert_soft_delete_listener_registered()
+    await verify_rls_enforceable_login()
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
@@ -288,6 +333,13 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+    supervisor.spawn_stoppable(run_file_expiry, name="form_file_expiry")
+
+    if kubernetes_enabled():
+        supervisor.spawn_stoppable(
+            start_tunnel_gateway_reconciler,
+            name="tunnel_gateway_reconciler",
+        )
 
     # SMTP configuration is loaded at process startup; enabling it needs a restart.
     if SMTPTransport.from_config() is not None:
@@ -295,6 +347,8 @@ async def lifespan(app: FastAPI):
             start_invitation_email_consumer,
             name="invitation_email_consumer",
         )
+
+    spawn_api_extension_tasks(supervisor)
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -367,6 +421,15 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
 
         return handler
 
+    async def _database(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request) and is_data_error(exc):
+            return scim_error_response(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request contains a value that cannot be stored",
+                scim_type="invalidValue",
+            )
+        return await database_exception_handler(request, exc)
+
     def _authorization(request: Request, exc: Exception) -> Response:
         if is_scim_path(request):
             return scim_error_response(
@@ -395,8 +458,12 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
         )
 
     app.add_exception_handler(Exception, _unexpected)
+    app.add_exception_handler(DBAPIError, _database)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)
     app.add_exception_handler(ScopeDeniedError, _scope_denied)
+    app.add_exception_handler(
+        ManagedResourceLockedError, managed_resource_locked_exception_handler
+    )
     app.add_exception_handler(HTTPException, _http_async)
     app.add_exception_handler(RequestValidationError, _validation)
     for exc_type in scim_statuses:
@@ -411,17 +478,27 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
             content={"detail": str(exc)},
         )
     errors = exc.errors()
-    ser_errors = to_jsonable_python(errors, fallback=str)
+    try:
+        ser_errors = serialize_validation_errors(errors)
+        response = ORJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": ser_errors},
+        )
+    except (ValueError, TypeError, RecursionError):
+        # The rejected input is nested past the Python, pydantic-core or orjson
+        # depth limit. Drop it so the request is still rejected with a 422.
+        ser_errors = serialize_validation_errors(without_inputs(errors))
+        response = ORJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": ser_errors},
+        )
     logger.error(
         "API Model Validation error",
         method=request.method,
         path=request.url.path,
-        errors=ser_errors,
+        errors=without_inputs(ser_errors),
     )
-    return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": ser_errors},
-    )
+    return response
 
 
 def fastapi_users_auth_exception_handler(request: Request, exc: Exception) -> Response:
@@ -489,6 +566,37 @@ def authorization_exception_handler(request: Request, exc: Exception) -> Respons
     )
 
 
+def managed_resource_locked_exception_handler(
+    request: Request, exc: Exception
+) -> Response:
+    """Answer 403 when a caller tries to change a managed resource.
+
+    The body tells the user why and what to do instead. It carries only the
+    resource type, never names or ids, matching the fixed-body rule for
+    authorization errors.
+    """
+    resource_type = (
+        exc.resource_type if isinstance(exc, ManagedResourceLockedError) else None
+    )
+    logger.info(
+        "Refused change to managed resource",
+        path=request.url.path,
+        role=ctx_role.get(),
+        resource_type=resource_type,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "detail": LOCKED_MESSAGE,
+            "error": {
+                "code": "managed_resource_locked",
+                "message": LOCKED_MESSAGE,
+                "resource_type": resource_type,
+            },
+        },
+    )
+
+
 def scope_denied_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle ScopeDeniedError exceptions with a 403 Forbidden response.
 
@@ -546,6 +654,79 @@ def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
     )
 
 
+_SUPERUSER_USER_ROUTE_NAMES = frozenset({"users:user"})
+_SUPERUSER_STEP_UP_USER_ROUTE_NAMES = frozenset(
+    {"users:patch_user", "users:delete_user"}
+)
+
+
+def _users_router() -> APIRouter:
+    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist.
+
+    Changing or deleting another user also needs a recent security key
+    verification, like the other privileged platform admin actions.
+    """
+    users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
+    for route in users_router.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        if route.name in _SUPERUSER_USER_ROUTE_NAMES:
+            route.dependencies.append(Depends(require_superuser))
+        elif route.name in _SUPERUSER_STEP_UP_USER_ROUTE_NAMES:
+            route.dependencies.append(Depends(require_superuser_step_up))
+    return users_router
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+def root() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+class AppInfo(BaseModel):
+    version: str
+    public_app_url: str
+    auth_allowed_types: list[AuthType]
+    saml_enabled: bool
+    saml_enforced: bool
+    ee_multi_tenant: bool
+
+
+async def info(session: AsyncDBSessionBypass) -> AppInfo:
+    """Non-sensitive information about the platform, for frontend configuration."""
+
+    keys = {"saml_enabled", "saml_enforced"}
+
+    # Use default organization for platform-level settings.
+    # Org-specific auth routing is handled by the /auth/discover endpoint.
+    org_id = await get_default_organization_id(session)
+    role = bootstrap_role(org_id)
+    await set_rls_context_from_role(session, role)
+    service = SettingsService(session, role=role)
+    settings = await service.list_org_settings(keys=keys)
+    keyvalues = {s.key: service.get_value(s) for s in settings}
+    for key in keys:
+        override_val = get_setting_override(key)
+        if override_val is not None:
+            keyvalues[key] = override_val
+        else:
+            keyvalues[key] = keyvalues.get(key, False)
+    return AppInfo(
+        version=APP_VERSION,
+        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
+        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
+        saml_enabled=keyvalues["saml_enabled"],
+        saml_enforced=keyvalues["saml_enforced"],
+        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
+    )
+
+
+async def check_health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -587,6 +768,7 @@ def create_app(**kwargs) -> FastAPI:
     # Routers
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
+    app.include_router(agent_channel_bots_public_router)
     app.include_router(workspaces_router)
     app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)
@@ -598,11 +780,15 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, managed_resources_router)
+    _include_workspace_scoped_router(app, sync_operations_router)
     # EE references register first so POST /secrets/aws wins over /secrets/{secret_id}.
     _include_workspace_scoped_router(app, external_secrets_router)
     _include_workspace_scoped_router(app, workspace_secret_stores_router)
     _include_workspace_scoped_router(app, secrets_router)
     _include_workspace_scoped_router(app, variables_router)
+    _include_workspace_scoped_router(app, tunnels_router)
+    app.include_router(tunnel_gateway_router)
     _include_workspace_scoped_router(app, schedules_router)
     _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
@@ -615,12 +801,14 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_custom_provider_router)
     _include_workspace_scoped_router(app, agent_workspace_router)
     _include_workspace_scoped_router(app, agent_channels_management_router)
+    _include_workspace_scoped_router(app, agent_channel_bots_router)
     _include_workspace_scoped_router(app, agent_preset_router)
     _include_workspace_scoped_router(app, agent_preset_tags_router)
     _include_workspace_scoped_router(app, agent_folders_router)
     _include_workspace_scoped_router(app, agent_tag_definitions_router)
     _include_workspace_scoped_router(app, agent_skill_router)
     _include_workspace_scoped_router(app, skill_folders_router)
+    _include_workspace_scoped_router(app, skill_library_router)
     _include_workspace_scoped_router(app, skill_tag_definitions_router)
     _include_workspace_scoped_router(app, skill_tags_router)
     _include_workspace_scoped_router(app, agent_session_router)
@@ -628,8 +816,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(watchtower_router)
     app.include_router(admin_router)
     app.include_router(admin_agent_router, prefix="/admin")
+    app.include_router(admin_build_router, prefix="/admin")
     app.include_router(admin_maintenance_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
+    app.include_router(admin_slack_app_router, prefix="/admin")
     _include_workspace_scoped_router(app, inbox_router)
     _include_workspace_scoped_router(app, editor_router)
     app.include_router(registry_repos_router)
@@ -638,12 +828,17 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secrets_router)
     app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, table_folders_router)
+    _include_workspace_scoped_router(app, forms_router)
+    app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
     _include_workspace_scoped_router(app, case_rows_router)
+    _include_workspace_scoped_router(app, case_linked_cases_router)
     _include_workspace_scoped_router(app, case_fields_router)
     _include_workspace_scoped_router(app, case_tags_router)
     _include_workspace_scoped_router(app, case_tag_definitions_router)
+    _include_workspace_scoped_router(app, case_views_router)
     _include_workspace_scoped_router(app, case_attachments_router)
     _include_workspace_scoped_router(app, case_dropdowns_router)
     _include_workspace_scoped_router(app, case_dropdown_values_router)
@@ -687,7 +882,7 @@ def create_app(**kwargs) -> FastAPI:
     # no session dependency and is mounted unguarded by the org gate.
     app.include_router(scim_protocol_router)
     app.include_router(
-        fastapi_users.get_users_router(UserRead, UserUpdate),
+        _users_router(),
         prefix="/users",
         tags=["users"],
         dependencies=[Depends(authenticated_user_only)],
@@ -738,6 +933,7 @@ def create_app(**kwargs) -> FastAPI:
     # The ACS callback resolves org context from RelayState, so requiring
     # query/cookie org context at router level can block legitimate IdP callbacks.
     app.include_router(saml_router)
+    app.include_router(mfa_router)
     app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -748,14 +944,24 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
+    # Built-ins mount before extensions so the shadow check covers them.
+    app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/info", info, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/health", check_health, methods=["GET"], tags=["public"])
+    include_api_extension_routers(app)
+    get_channel_bot_admin()  # Fail startup on two installed channel bot admins.
+
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(
         AuthPoolExhaustedError,
         auth_pool_exhausted_exception_handler,
     )
+    app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(FormError, form_error_handler)
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,
@@ -806,56 +1012,3 @@ def create_app(**kwargs) -> FastAPI:
 
 initialize_api_sentry_from_environment()
 app = create_app()
-
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-@app.get("/", include_in_schema=False)
-def root() -> HealthResponse:
-    return HealthResponse(status="ok")
-
-
-class AppInfo(BaseModel):
-    version: str
-    public_app_url: str
-    auth_allowed_types: list[AuthType]
-    saml_enabled: bool
-    saml_enforced: bool
-    ee_multi_tenant: bool
-
-
-@app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSessionBypass) -> AppInfo:
-    """Non-sensitive information about the platform, for frontend configuration."""
-
-    keys = {"saml_enabled", "saml_enforced"}
-
-    # Use default organization for platform-level settings.
-    # Org-specific auth routing is handled by the /auth/discover endpoint.
-    org_id = await get_default_organization_id(session)
-    role = bootstrap_role(org_id)
-    await set_rls_context_from_role(session, role)
-    service = SettingsService(session, role=role)
-    settings = await service.list_org_settings(keys=keys)
-    keyvalues = {s.key: service.get_value(s) for s in settings}
-    for key in keys:
-        override_val = get_setting_override(key)
-        if override_val is not None:
-            keyvalues[key] = override_val
-        else:
-            keyvalues[key] = keyvalues.get(key, False)
-    return AppInfo(
-        version=APP_VERSION,
-        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
-        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
-        saml_enabled=keyvalues["saml_enabled"],
-        saml_enforced=keyvalues["saml_enforced"],
-        ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
-    )
-
-
-@app.get("/health", tags=["public"])
-async def check_health() -> HealthResponse:
-    return HealthResponse(status="ok")

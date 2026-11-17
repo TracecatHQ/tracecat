@@ -154,50 +154,27 @@ def test_edge_dedup_key_trigger_ignores_handle() -> None:
 
 
 @pytest.mark.anyio
-async def test_add_edge_success_then_error_coexist(
+@pytest.mark.parametrize(
+    "handles",
+    [("success", "error"), ("error", "success")],
+    ids=["success_then_error", "error_then_success"],
+)
+async def test_add_edge_success_and_error_coexist(
     session: AsyncSession,
     svc_role: Role,
     workflow_pair: tuple[Workflow, Action, Action],
+    handles: tuple[EdgeHandle, EdgeHandle],
 ) -> None:
-    """Adding error after success leaves both edges intact (#2619)."""
+    """Adding both handles leaves both edges intact in either order (#2619)."""
     workflow, action_a, action_b = workflow_pair
     service = WorkflowGraphService(session, role=svc_role)
 
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "success")],
-    )
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "error")],
-    )
-
-    await session.refresh(action_b)
-    assert _handles_for(action_b, action_a.id) == ["error", "success"]
-
-
-@pytest.mark.anyio
-async def test_add_edge_error_then_success_coexist(
-    session: AsyncSession,
-    svc_role: Role,
-    workflow_pair: tuple[Workflow, Action, Action],
-) -> None:
-    """Insertion order does not matter."""
-    workflow, action_a, action_b = workflow_pair
-    service = WorkflowGraphService(session, role=svc_role)
-
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "error")],
-    )
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "success")],
-    )
+    for handle in handles:
+        await service.apply_operations(
+            WorkflowUUID.new(workflow.id),
+            workflow.graph_version,
+            [_add_edge_op(action_a.id, action_b.id, handle)],
+        )
 
     await session.refresh(action_b)
     assert _handles_for(action_b, action_a.id) == ["error", "success"]
@@ -445,3 +422,45 @@ async def test_auto_layout_includes_changes_from_same_batch(
     assert positions["Added in batch"] != (5000, 5000)
     assert positions["Action B"][1] > positions["Action A"][1]
     assert positions["Added in batch"][1] == positions["Action A"][1]
+
+
+@pytest.mark.anyio
+async def test_preview_auto_layout_does_not_persist(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow_pair: tuple[Workflow, Action, Action],
+) -> None:
+    """Previewing auto-layout returns laid-out positions without saving them."""
+    workflow, action_a, action_b = workflow_pair
+    service = WorkflowGraphService(session, role=svc_role)
+    await service.apply_operations(
+        WorkflowUUID.new(workflow.id),
+        workflow.graph_version,
+        [_add_edge_op(action_a.id, action_b.id, "success")],
+    )
+    await session.refresh(action_a)
+    await session.refresh(action_b)
+    await session.refresh(workflow)
+    stored = {
+        action.id: (action.position_x, action.position_y)
+        for action in (action_a, action_b)
+    }
+    stored_trigger = (workflow.trigger_position_x, workflow.trigger_position_y)
+    version = workflow.graph_version
+
+    preview = await service.preview_auto_layout(WorkflowUUID.new(workflow.id))
+
+    assert preview is not None
+    assert preview.version == version
+    positions = {str(node["id"]): node["position"] for node in preview.nodes}
+    trigger = next(node for node in preview.nodes if node["type"] == "trigger")
+    assert trigger["position"] == {"x": 0, "y": 0}
+    assert positions[str(action_b.id)]["y"] > positions[str(action_a.id)]["y"]
+
+    await session.refresh(action_a)
+    await session.refresh(action_b)
+    await session.refresh(workflow)
+    assert (action_a.position_x, action_a.position_y) == stored[action_a.id]
+    assert (action_b.position_x, action_b.position_y) == stored[action_b.id]
+    assert (workflow.trigger_position_x, workflow.trigger_position_y) == stored_trigger
+    assert workflow.graph_version == version

@@ -10,6 +10,7 @@ import dataclasses
 import json
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator, Iterator
+from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -52,13 +53,16 @@ from tracecat.agent.stream.events import (
     StreamError,
     StreamEvent,
     StreamKeepAlive,
+    StreamSessionEvent,
 )
 from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
+    AGENT_CHUNK_DATA_PART_TYPE,
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
     CANCELLED_DATA_PART_TYPE,
     COMPACTION_DATA_PART_TYPE,
+    USER_MESSAGE_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
@@ -527,6 +531,18 @@ class ToolOutputAvailableEventPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class PreliminaryToolOutputAvailableEventPayload:
+    """Progress output for a tool call that a later final output replaces."""
+
+    type: Literal["tool-output-available"] = dataclasses.field(
+        init=False, default="tool-output-available"
+    )
+    toolCallId: str
+    output: Any
+    preliminary: Literal[True] = dataclasses.field(init=False, default=True)
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class CompactionDataPayload:
     phase: Literal["started", "completed", "failed"]
     pre_tokens: int | None = None
@@ -549,6 +565,30 @@ class ErrorEventPayload:
     errorText: str
 
 
+@dataclasses.dataclass(slots=True, kw_only=True)
+class AgentChunkData:
+    """One child-session UI chunk, addressed for client-side routing."""
+
+    session_id: str
+    event_id: str
+    index: int
+    """Position of ``chunk`` among the chunks produced for ``event_id``.
+
+    ``(event_id, index)`` is the client dedupe key; stream reconnects replay the
+    turn from the start and reproduce the same keys.
+    """
+    chunk: VercelSSEPayload
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class AgentChunkEventPayload:
+    """Transient data part wrapping a child session's UI chunk."""
+
+    type: str = dataclasses.field(init=False, default=AGENT_CHUNK_DATA_PART_TYPE)
+    transient: Literal[True] = dataclasses.field(init=False, default=True)
+    data: AgentChunkData
+
+
 VercelSSEPayload = (
     StartEventPayload
     | FinishEventPayload
@@ -562,8 +602,10 @@ VercelSSEPayload = (
     | ToolInputDeltaEventPayload
     | ToolInputAvailableEventPayload
     | ToolOutputAvailableEventPayload
+    | PreliminaryToolOutputAvailableEventPayload
     | DataEventPayload
     | ErrorEventPayload
+    | AgentChunkEventPayload
 )
 
 
@@ -613,6 +655,11 @@ class VercelStreamContext:
     # exist in the original stream, so sse_vercel must emit them but neither count
     # them toward the composite frame index nor apply the resume-drop filter.
     repair_frames: int = 0
+    # Stable seed for part ids created while converting the current event. Child
+    # session contexts set it to the runtime's event id so a replay from the
+    # start recreates the same part ids, keeping client-side chunk dedupe valid.
+    # Root contexts leave it unset and use random ids.
+    part_id_seed: str | None = None
 
     def _create_part_state(
         self,
@@ -621,7 +668,10 @@ class VercelStreamContext:
         tool_call: ToolCallContent | None = None,
     ) -> _PartState:
         """Register a fresh part and return its tracking record."""
-        part_id = f"msg_{uuid.uuid4().hex}"
+        if self.part_id_seed is None:
+            part_id = f"msg_{uuid.uuid4().hex}"
+        else:
+            part_id = f"msg_{self.part_id_seed}:{index}"
         state = _PartState(part_id=part_id, part_type=part_type, tool_call=tool_call)
         self.part_states[index] = state
         if tool_call is not None:
@@ -847,6 +897,16 @@ class VercelStreamContext:
                     )
                     self.tool_input_emitted[tool_call_id] = True
 
+                if event.preliminary:
+                    # Progress output: keep the call correlated so the final
+                    # result still maps onto the same tool part without
+                    # re-emitting its input.
+                    yield PreliminaryToolOutputAvailableEventPayload(
+                        toolCallId=tool_call_id,
+                        output=event.tool_output,
+                    )
+                    return
+
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
 
@@ -913,6 +973,16 @@ class VercelStreamContext:
                     },
                 )
 
+            case StreamEventType.USER_MESSAGE:
+                message_id = (event.metadata or {}).get("id")
+                yield DataEventPayload(
+                    type=USER_MESSAGE_DATA_PART_TYPE,
+                    data={
+                        "id": message_id if isinstance(message_id, str) else None,
+                        "text": event.text or "",
+                    },
+                )
+
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
 
@@ -962,6 +1032,8 @@ class MutableToolPart:
     input: Any
     output: Any | None = None
     error_text: str | None = None
+    # When the result row was recorded; the row itself merges into this part.
+    completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.input, dict):
@@ -1028,7 +1100,23 @@ class MutableToolPart:
             output=content,
         )
 
-    def to_ui_part(self) -> ToolUIPart:
+    def _result_metadata(
+        self, extra: ProviderMetadata | None
+    ) -> ProviderMetadata | None:
+        """Merge the completion time into the result's Tracecat metadata."""
+        if self.completed_at is None:
+            return extra
+        tracecat = {
+            **(extra or {}).get("tracecat", {}),
+            "completed_at": self.completed_at.isoformat(),
+        }
+        return {**(extra or {}), "tracecat": tracecat}
+
+    def to_ui_part(
+        self, *, result_metadata: ProviderMetadata | None = None
+    ) -> ToolUIPart:
+        """Build the UI part, attaching ``result_metadata`` to a recorded result."""
+        result_metadata = self._result_metadata(result_metadata)
         if self.state == "input-available":
             return ToolUIPartInputAvailable(
                 type=self.type,
@@ -1037,20 +1125,26 @@ class MutableToolPart:
                 input=self.input,
             )
         if self.state == "output-available":
-            return ToolUIPartOutputAvailable(
+            available = ToolUIPartOutputAvailable(
                 type=self.type,
                 toolCallId=self.tool_call_id,
                 state="output-available",
                 input=self.input,
                 output=self.output,
             )
-        return ToolUIPartOutputError(
+            if result_metadata is not None:
+                available["callProviderMetadata"] = result_metadata
+            return available
+        error = ToolUIPartOutputError(
             type=self.type,
             toolCallId=self.tool_call_id,
             state="output-error",
             input=self.input,
             errorText=self.error_text or "",
         )
+        if result_metadata is not None:
+            error["callProviderMetadata"] = result_metadata
+        return error
 
 
 @dataclasses.dataclass
@@ -1058,6 +1152,7 @@ class MutableMessage:
     id: str
     role: Literal["system", "user", "assistant"]
     parts: list[MutableToolPart | UIMessagePart]
+    created_at: datetime | None = None
 
 
 UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
@@ -1189,6 +1284,29 @@ def convert_chat_messages_to_ui(
         and message.approval.status == ApprovalStatus.PENDING
         for message in messages
     )
+    # Denied calls record an error result for the model. Tag it so the UI shows
+    # the denial rather than a tool error, even after the approval card is gone.
+    denied_results: dict[str, ProviderMetadata] = {
+        message.approval.tool_call_id: {
+            "tracecat": {"approval": "rejected", "reason": message.approval.reason}
+        }
+        for message in messages
+        if message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.REJECTED
+    }
+    # A call approved with edited arguments ran with those, so show them.
+    approved_overrides: dict[str, dict[str, Any]] = {
+        message.approval.tool_call_id: override_args
+        for message in messages
+        if message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.APPROVED
+        and isinstance(message.approval.decision, dict)
+        and isinstance(
+            override_args := message.approval.decision.get("override_args"), dict
+        )
+    }
 
     for chat_message in messages:
         # Handle compaction status badges from DB (kind=COMPACTION)
@@ -1275,7 +1393,12 @@ def convert_chat_messages_to_ui(
 
         assert message_data is not None
 
-        mutable_message = MutableMessage(id=message_id, role=role, parts=[])
+        mutable_message = MutableMessage(
+            id=message_id,
+            role=role,
+            parts=[],
+            created_at=chat_message.created_at,
+        )
         approval_payload = _extract_approval_payload_from_message(message_data)
 
         for part_type, part in _iter_message_parts(message_data):
@@ -1310,7 +1433,9 @@ def convert_chat_messages_to_ui(
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
-                    tool_input = sanitize_agent_tool_input(tool_name, tool_input)
+                    tool_input = sanitize_agent_tool_input(
+                        tool_name, approved_overrides.get(part.id, tool_input)
+                    )
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
@@ -1329,6 +1454,7 @@ def convert_chat_messages_to_ui(
                         existing.set_result(
                             part.content, structured_error, is_error=part.is_error
                         )
+                        existing.completed_at = chat_message.created_at
                     else:
                         # Create fallback part when no existing tool entry is found
                         tool_part = MutableToolPart.with_result(
@@ -1364,18 +1490,66 @@ def convert_chat_messages_to_ui(
         parts: list[UIMessagePart] = []
         for part in message.parts:
             if isinstance(part, MutableToolPart):
-                parts.append(part.to_ui_part())
+                parts.append(
+                    part.to_ui_part(
+                        result_metadata=denied_results.get(part.tool_call_id)
+                    )
+                )
             else:
                 parts.append(part)
-        raw_messages.append(
-            {
-                "id": message.id,
-                "role": message.role,
-                "parts": parts,
-            }
-        )
+        raw_message: dict[str, Any] = {
+            "id": message.id,
+            "role": message.role,
+            "parts": parts,
+        }
+        # Lets the UI tell how long a turn took once it reloads from history.
+        if message.created_at is not None:
+            raw_message["metadata"] = {"created_at": message.created_at.isoformat()}
+        raw_messages.append(raw_message)
 
     return UIMessagesTA.validate_python(raw_messages)
+
+
+async def _session_event_chunks(
+    child_contexts: dict[uuid.UUID, VercelStreamContext],
+    stream_event: StreamSessionEvent,
+) -> AsyncIterator[tuple[AgentChunkEventPayload, VercelStreamContext]]:
+    """Convert a child session event into addressed ``data-agent-chunk`` parts.
+
+    Each child keeps its own context and its chunks form an independent UI
+    message stream: a ``start`` chunk (``messageId`` = child session id) on first
+    sight, then the child's parts. No ``finish`` is emitted; the parent's final
+    tool result marks the child as complete.
+
+    Yields each wrapped chunk with the child context that produced it, so the
+    caller can apply that context's repair-frame accounting.
+    """
+    session_id = str(stream_event.session_id)
+    event_id = stream_event.event_id
+    index = 0
+
+    def wrap(chunk: VercelSSEPayload) -> AgentChunkEventPayload:
+        nonlocal index
+        payload = AgentChunkEventPayload(
+            data=AgentChunkData(
+                session_id=session_id,
+                event_id=event_id,
+                index=index,
+                chunk=chunk,
+            )
+        )
+        index += 1
+        return payload
+
+    child_context = child_contexts.get(stream_event.session_id)
+    if child_context is None:
+        child_context = VercelStreamContext(message_id=session_id)
+        child_contexts[stream_event.session_id] = child_context
+        yield wrap(StartEventPayload(messageId=session_id)), child_context
+
+    child_context.part_id_seed = event_id
+    async for chunk in child_context.handle_event(stream_event.event):
+        yield wrap(chunk), child_context
 
 
 async def sse_vercel(
@@ -1397,14 +1571,20 @@ async def sse_vercel(
     """
 
     context = VercelStreamContext(message_id=message_id)
+    # One context per child session: part ids and part states are per-session,
+    # so sharing the root context would let children collide with each other.
+    child_contexts: dict[uuid.UUID, VercelStreamContext] = {}
     resume_cursor = parse_vercel_frame_cursor(resume_from)
 
     # Composite-id state: the Redis id of the entry currently fanning out and a
     # per-entry frame counter. emit() omits id: when redis_id is None.
     redis_id: str | None = None
     frame_index = 0
+    end_event_id: str | None = None
 
-    def emit(payload: VercelSSEPayload) -> str | None:
+    def emit(
+        payload: VercelSSEPayload, source: VercelStreamContext = context
+    ) -> str | None:
         nonlocal frame_index
         # Repair frames (a part-start the handler synthesized on resume because
         # the real start was before the cursor) did not exist in the original
@@ -1412,8 +1592,8 @@ async def sse_vercel(
         # frames keep their original indices and the drop math stays correct.
         # They carry no id: the client never needs to resume *to* a synthesized
         # frame, and reusing the next real frame's id would collide.
-        if context.repair_frames > 0:
-            context.repair_frames -= 1
+        if source.repair_frames > 0:
+            source.repair_frames -= 1
             return format_sse(payload)
         sse_id = f"{redis_id}:{frame_index}" if redis_id else None
         current_frame_index = frame_index
@@ -1442,6 +1622,13 @@ async def sse_vercel(
                     async for msg in context.handle_event(agent_event):
                         if frame := emit(msg):
                             yield frame
+                case StreamSessionEvent(id=entry_id):
+                    redis_id, frame_index = entry_id, 0
+                    async for msg, child_context in _session_event_chunks(
+                        child_contexts, stream_event
+                    ):
+                        if frame := emit(msg, child_context):
+                            yield frame
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()
                 case StreamError(error=error):
@@ -1452,9 +1639,10 @@ async def sse_vercel(
                     yield format_sse(TextDeltaEventPayload(id=error_part_id, delta=msg))
                     yield format_sse(TextEndEventPayload(id=error_part_id))
                     yield format_sse(ErrorEventPayload(errorText=msg))
-                case StreamEnd():
+                case StreamEnd(id=end_id):
                     # End of stream marker from Redis
                     logger.debug("End-of-stream marker from Redis")
+                    end_event_id = f"tracecat:end:{end_id}"
                     break
 
         # 3. Finalize any open parts at the end of the stream.
@@ -1465,6 +1653,26 @@ async def sse_vercel(
         for message in context.collect_current_part_end_events():
             if frame := emit(message):
                 yield frame
+
+        # Use the same finalization as the root, but only after an explicit end
+        # marker. A disconnected reader must leave child parts open for replay.
+        # Synthetic closing chunks have no cursor; the marker supplies stable
+        # dedupe keys so a full replay closes each child part exactly once.
+        if end_event_id is not None:
+            for session_id, child_context in child_contexts.items():
+                for index, chunk in enumerate(
+                    child_context.collect_current_part_end_events()
+                ):
+                    yield format_sse(
+                        AgentChunkEventPayload(
+                            data=AgentChunkData(
+                                session_id=str(session_id),
+                                event_id=end_event_id,
+                                index=index,
+                                chunk=chunk,
+                            )
+                        )
+                    )
 
     except Exception as e:
         # 4. Handle errors

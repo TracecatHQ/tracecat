@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -20,13 +22,18 @@ from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import GitHubAppRepository
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.schemas import (
     WorkflowDslPublish,
     WorkflowDslPublishResult,
     WorkflowSyncPullRequest,
 )
 from tracecat.workflow.store.service import WorkflowStoreService
+from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
 from tracecat.workspace_sync.schemas import (
+    WorkspacePackageRead,
+    WorkspaceSyncExportError,
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
@@ -40,37 +47,54 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 @router.post(
     "/{workflow_id}/publish",
     response_model=WorkflowDslPublishResult,
+    responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workflow:update")
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workflow:update", "workspace_sync:push")
 async def publish_workflow(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowDslPublish,
-) -> WorkflowDslPublishResult:
+) -> WorkflowDslPublishResult | JSONResponse:
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    defn_svc = WorkflowDefinitionsService(session=session)
-    defn = await defn_svc.get_definition_by_workflow_id(workflow_id)
-    if not defn:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow definition not found",
+    workflow = await WorkflowsManagementService(
+        session=session, role=role
+    ).get_workflow(workflow_id, normalize=False)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    definitions = WorkflowDefinitionsService(session=session, role=role)
+    definition = await definitions.get_definition_by_workflow_id(
+        workflow_id, version=workflow.version
+    )
+    diagnostics = WorkflowExportDiagnosticsService(session=session, role=role)
+    if definition is None:
+        code = "publish_required" if workflow.version is None else "missing_definition"
+        return _export_validation_response(
+            await diagnostics.with_mappings(
+                diagnostics.validation_error(workflow, code=code)
+            )
         )
-    # Load workflow relationship after initial load
-    await session.refresh(defn, ["workflow"])
-    dsl = DSLInput.model_validate(defn.content)
-    store_svc = WorkflowStoreService(session=session)
+    try:
+        dsl = DSLInput.model_validate(definition.content)
+    except ValidationError as exc:
+        return _export_validation_response(
+            await diagnostics.with_mappings(
+                diagnostics.validation_error(workflow, error=exc)
+            )
+        )
+    store_svc = WorkflowStoreService(session=session, role=role)
     try:
         return await store_svc.publish_workflow_dsl(
             workflow_id=workflow_id,
             dsl=dsl,
             params=params,
-            workflow=defn.workflow,
+            workflow=workflow,
         )
+    except WorkflowExportValidationError as e:
+        return _export_validation_response(e)
     except TracecatSettingsError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -121,7 +145,7 @@ async def list_workflow_repositories(
 
 
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_workflow_commits(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -186,7 +210,7 @@ async def list_workflow_commits(
 
 
 @router.get("/sync/branches", response_model=list[GitBranchInfo])
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_workflow_branches(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -237,13 +261,17 @@ async def list_workflow_branches(
         ) from e
 
 
-@router.post("/sync/export", response_model=WorkspaceSyncExportResult)
-@require_scope("workspace_sync:sync")
+@router.post(
+    "/sync/export",
+    response_model=WorkspaceSyncExportResult,
+    responses={400: {"model": WorkspaceSyncExportError}},
+)
+@require_scope("workspace_sync:push")
 async def export_workspace_sync(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: WorkspaceSyncExportRequest,
-) -> WorkspaceSyncExportResult:
+) -> WorkspaceSyncExportResult | JSONResponse:
     """Export workspace workflow specs to a Git branch and optional PR."""
     if not role.workspace_id:
         raise HTTPException(
@@ -255,6 +283,8 @@ async def export_workspace_sync(
             session=session, role=role
         )
         return await sync_service.export_workspace(params)
+    except WorkflowExportValidationError as e:
+        return _export_validation_response(e)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -271,13 +301,57 @@ async def export_workspace_sync(
         ) from e
 
 
-@router.post("/sync/export/preview", response_model=WorkspaceSyncExportPreview)
-@require_scope("workspace_sync:sync")
+@router.get(
+    "/sync/package",
+    response_model=WorkspacePackageRead,
+    responses={400: {"model": WorkspaceSyncExportError}},
+)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
+async def get_workspace_sync_package(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    ref: str | None = Query(default=None, max_length=255),
+) -> WorkspacePackageRead | JSONResponse:
+    """Read the managed resources package selection of the source workspace."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
+        return await sync_service.read_package(ref=ref)
+    except WorkflowExportValidationError as e:
+        return _export_validation_response(e)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/sync/export/preview",
+    response_model=WorkspaceSyncExportPreview,
+    responses={400: {"model": WorkspaceSyncExportError}},
+)
+@require_scope("workspace_sync:push")
 async def preview_export_workspace_sync(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: WorkspaceSyncExportPreviewRequest,
-) -> WorkspaceSyncExportPreview:
+) -> WorkspaceSyncExportPreview | JSONResponse:
     """Project which resources an export would commit, without writing to Git."""
     if not role.workspace_id:
         raise HTTPException(
@@ -289,6 +363,8 @@ async def preview_export_workspace_sync(
             session=session, role=role
         )
         return await sync_service.preview_export_workspace(params)
+    except WorkflowExportValidationError as e:
+        return _export_validation_response(e)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -306,7 +382,7 @@ async def preview_export_workspace_sync(
 
 
 @router.post("/sync/pull", response_model=PullResult)
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:pull")
 async def pull_workflows(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -335,6 +411,10 @@ async def pull_workflows(
             mcp_integration_mappings={
                 mapping.source_mcp_integration_id: mapping.target_mcp_integration_id
                 for mapping in params.mcp_integration_mappings
+            },
+            secret_store_mappings={
+                mapping.source_store: mapping.target_store_id
+                for mapping in params.secret_store_mappings
             },
         )
         sync_service = await WorkspaceSyncService.for_workspace(
@@ -378,3 +458,13 @@ async def pull_workflows(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to pull workflows from repository",
         ) from e
+
+
+def _export_validation_response(error: WorkflowExportValidationError) -> JSONResponse:
+    """Preserve legacy detail while supplying typed diagnostics to new clients."""
+    body = WorkspaceSyncExportError(
+        detail=str(error),
+        diagnostics=error.diagnostics,
+        omitted_count=error.omitted_count,
+    )
+    return JSONResponse(status_code=400, content=body.model_dump(mode="json"))

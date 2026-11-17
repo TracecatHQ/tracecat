@@ -7,6 +7,7 @@ SUPERUSER_ADMIN_ROUTERS = (
     Path("tracecat/admin/agent/router.py"),
     Path("tracecat/admin/maintenance/router.py"),
     Path("tracecat/admin/registry/router.py"),
+    Path("tracecat/admin/slack_app/router.py"),
     Path("packages/tracecat-ee/tracecat_ee/admin/organizations/router.py"),
     Path("packages/tracecat-ee/tracecat_ee/admin/users/router.py"),
     Path("packages/tracecat-ee/tracecat_ee/admin/settings/router.py"),
@@ -38,7 +39,7 @@ def test_superuser_routes_use_bypass_session_dependency() -> None:
                 continue
 
             annotation_names = _annotation_names(node)
-            if "SuperuserRole" not in annotation_names:
+            if annotation_names.isdisjoint({"SuperuserRole", "SuperuserStepUpRole"}):
                 continue
             if "AsyncDBSession" in annotation_names:
                 violations.append(f"{router_path}:{node.lineno}")

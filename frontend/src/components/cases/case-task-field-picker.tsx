@@ -68,7 +68,7 @@ export interface CaseTaskFieldPickerProps {
  * not come through here — they are closed sets of four and six, so they use
  * the plain {@link CaseTaskFieldMenu} dropdown, with no search box and no
  * checkbox. Digits carry no shortcuts here — they only ever type into the
- * search. Panel-level `1`–`6`
+ * search. Panel-level `1`–`7`
  * shortcuts stay inert while the palette is open: its content is portaled
  * into a Radix popper wrapper, which `use-digit-shortcuts.ts` treats as a
  * blocking layer.

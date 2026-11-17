@@ -54,6 +54,7 @@ from tracecat.agent.common.config import (
     AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__EXECUTOR_BACKEND,
+    is_agent_runtime_protected_env_var,
 )
 from tracecat.agent.common.exceptions import (
     AgentPreparationError,
@@ -104,8 +105,10 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_NAME
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
+from tracecat.process_env import is_loader_env_var
 from tracecat.runtime.errors import RuntimeErrorClassification
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 from tracecat.sandbox.file_io import (
@@ -118,8 +121,17 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 # Headroom reserved for session-envelope metadata when checking whether a
 # serialized session line still fits inside a MAX_PAYLOAD_SIZE socket frame.
 _SESSION_FRAME_MARGIN = 4096
+MODEL_REQUEST_FAILED_MESSAGE = (
+    "The model request failed after retries. Please retry the agent execution."
+)
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
+ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
+# The approval hook may wait ROOT_MESSAGE_DONE_TIMEOUT_SECONDS for the root
+# message to finish, then interrupt (an SDK control request with its own 60 s
+# timeout), before it denies the call. The hook must outlive both: the CLI's
+# default hook timeout (60 s) would otherwise give up before the deny.
+PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS = ROOT_MESSAGE_DONE_TIMEOUT_SECONDS + 90.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -248,6 +260,9 @@ CLAUDE_CODE_STATEFUL_TOOLS = [
     "CronList",
     "EnterWorktree",
     "ExitWorktree",
+    # Session wakeups and agent discovery need an interactive harness.
+    "ScheduleWakeup",
+    "ListAgents",
 ]
 
 DISALLOWED_TOOLS = [
@@ -359,6 +374,9 @@ class ClaudeAgentRuntime:
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
         self._pending_approval_tool_ids: set[str] = set()
+        # Set while no root assistant message is streaming.
+        self._root_message_done = asyncio.Event()
+        self._root_message_done.set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
         self._interrupt_requested: str | None = None
@@ -606,17 +624,21 @@ class ClaudeAgentRuntime:
                 if sanitized_args:
                     server_config["args"] = sanitized_args
             if env := stdio_config.get("env"):
+                # Loader keys are counted, not named: a prefix match is not a known
+                # constant and could be a resolved secret.
                 protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
-                if protected_env_keys:
+                loader_env_key_count = sum(1 for key in env if is_loader_env_var(key))
+                if protected_env_keys or loader_env_key_count:
                     logger.warning(
                         "Ignoring protected stdio MCP environment variables",
                         server_name=server_name,
                         env_keys=sorted(protected_env_keys),
+                        loader_env_key_count=loader_env_key_count,
                     )
                 if sanitized_env := {
                     key: value
                     for key, value in env.items()
-                    if key not in AGENT_RUNTIME_PROTECTED_ENV_VARS
+                    if not is_agent_runtime_protected_env_var(key)
                 }:
                     server_config["env"] = sanitized_env
             if (timeout := stdio_config.get("timeout")) is not None:
@@ -1107,6 +1129,19 @@ class ClaudeAgentRuntime:
         """
         await self._emit_approval_request(tool_name, tool_input, tool_use_id)
 
+        # The CLI runs a tool as soon as its block streams, so interrupting now
+        # would cut off the parallel calls the model has yet to write.
+        try:
+            await asyncio.wait_for(
+                self._root_message_done.wait(),
+                timeout=ROOT_MESSAGE_DONE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Assistant message still streaming, interrupting anyway",
+                tool_name=tool_name,
+            )
+
         logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
         await self._interrupt_once()
@@ -1477,6 +1512,13 @@ class ClaudeAgentRuntime:
                 mcpServers=mcp_server_configs or None,
                 disallowedTools=disallowed_tools,
                 maxTurns=subagent.max_turns,
+                # Preloading needs no Skill/Read grant; qualified names keep
+                # workspace namesakes from shadowing the staged plugin copy.
+                skills=[
+                    f"{PLATFORM_SKILL_PLUGIN_NAME}:{slug}"
+                    for slug in subagent.config.library_skills or []
+                ]
+                or None,
             )
 
         return definitions
@@ -1596,6 +1638,11 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
+        # Claude Code adds an attribution block (x-anthropic-billing-header) with
+        # a per-request hash to the system prompt. That breaks prompt caching on
+        # non-Anthropic providers, so turn it off there.
+        if payload.config.model_provider != "anthropic":
+            env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
         # Bedrock does not consistently support tool search across APIs, models,
         # and opaque inference profiles. Explicitly disable it for Bedrock roots
         # so the CLI sends full tool definitions without tool_reference blocks.
@@ -1603,6 +1650,10 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # The CLI backgrounds subagents and Bash by default, ending the turn
+        # before results arrive. The sandbox never re-invokes the agent, so
+        # force synchronous execution.
+        env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
         # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
         # shim points the SDK at its OtelBridge).
         if payload.agent_otel_sandbox_env:
@@ -1662,7 +1713,12 @@ class ClaudeAgentRuntime:
             stderr=stderr,
             sandbox=self._sandbox_settings(),
             hooks={
-                "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
+                "PreToolUse": [
+                    HookMatcher(
+                        hooks=[self._pre_tool_use_hook],
+                        timeout=PRE_TOOL_USE_HOOK_TIMEOUT_SECONDS,
+                    )
+                ],
                 "Stop": [HookMatcher(hooks=[self._stop_hook])],
             },
             cwd=self._cwd,
@@ -1704,6 +1760,58 @@ class ClaudeAgentRuntime:
                 )
             )
             self._session_flush_event.set()
+
+        # api_retry: the CLI is retrying a failed model request itself, for
+        # example after the LLM proxy ended an interrupted stream.
+        elif message.subtype == "api_retry":
+            await self._event_writer.send_log(
+                "warning",
+                "Claude SDK retrying model request",
+                attempt=message.data.get("attempt"),
+                max_retries=message.data.get("max_retries"),
+                retry_delay_ms=message.data.get("retry_delay_ms"),
+                error_status=message.data.get("error_status"),
+                error=message.data.get("error"),
+            )
+
+    async def _handle_result_message(self, message: ResultMessage) -> None:
+        """Send the turn's final result, or fail the turn on a model API error."""
+        await self._event_writer.send_log(
+            "info",
+            "Agent turn completed",
+            num_turns=message.num_turns,
+            duration_ms=message.duration_ms,
+            usage=message.usage,
+        )
+        # An "api_error" terminal reason means the CLI's last model request
+        # failed after its own retries, for example a gateway that keeps
+        # cutting streams. The result text is that API error, not an answer.
+        # Keep the usage, drop the text, and fail the turn. Refusals and other
+        # error results keep their existing handling.
+        model_request_failed = (
+            message.is_error
+            and message.subtype == "success"
+            and message.terminal_reason == "api_error"
+        )
+        if model_request_failed:
+            result_output = None
+        elif message.structured_output is not None:
+            result_output = message.structured_output
+        else:
+            result_output = message.result
+        await self._event_writer.send_result(
+            usage=message.usage,
+            num_turns=message.num_turns,
+            duration_ms=message.duration_ms,
+            output=result_output,
+        )
+        if model_request_failed:
+            await self._event_writer.send_log(
+                "error",
+                "Claude SDK model request failed after retries",
+                api_error_status=message.api_error_status,
+            )
+            await self._event_writer.send_error(MODEL_REQUEST_FAILED_MESSAGE)
 
     async def _emit_user_tool_results(self, message: UserMessage) -> None:
         """Stream non-approval tool results from SDK user messages."""
@@ -1910,6 +2018,13 @@ class ClaudeAgentRuntime:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
 
+                            if message.parent_tool_use_id is None:
+                                event_type = message.event.get("type")
+                                if event_type == "message_start":
+                                    self._root_message_done.clear()
+                                elif event_type == "message_stop":
+                                    self._root_message_done.set()
+
                             # Partial streaming delta - forward to UI.
                             # ping events are upstream keep-alives with no content
                             if message.event.get("type") != "ping":
@@ -1918,29 +2033,12 @@ class ClaudeAgentRuntime:
                             self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):
-                            await self._event_writer.send_log(
-                                "info",
-                                "Agent turn completed",
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                usage=message.usage,
-                            )
                             log_benchmark_phase(
                                 "runtime_result_received",
                                 duration_ms=message.duration_ms,
                                 num_turns=message.num_turns,
                             )
-                            result_output = (
-                                message.structured_output
-                                if message.structured_output is not None
-                                else message.result
-                            )
-                            await self._event_writer.send_result(
-                                usage=message.usage,
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                output=result_output,
-                            )
+                            await self._handle_result_message(message)
 
                         elif isinstance(message, SystemMessage):
                             await self._handle_system_message(message)

@@ -23,6 +23,7 @@ import {
   Bug,
   Building2Icon,
   CirclePlay,
+  CircleStop,
   Code,
   Cpu,
   Crosshair,
@@ -36,40 +37,44 @@ import {
   Globe,
   GlobeLock,
   Headset,
+  IterationCw,
   KeyRound,
   Landmark,
   Laptop,
   Link,
   ListChecks,
   LogInIcon,
-  MailIcon,
   MailSearch,
   MapPin,
   MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
+  MessageCircleX,
   Microscope,
   MonitorX,
+  MousePointerClick,
+  Network,
   Newspaper,
   Plug2,
   Radar,
-  RefreshCcw,
+  Repeat,
   ScanSearch,
   Search,
   SendIcon,
   Server,
   ShieldAlert,
   ShieldBan,
-  ShieldCheck,
   ShieldPlus,
   Sparkles,
   SplitIcon,
+  SquarePen,
+  SquareTerminal,
   Swords,
   Table,
   Telescope,
+  Timer,
   UserSearch,
   Users,
-  WandSparkles,
   Waypoints,
   WorkflowIcon,
   ZapIcon,
@@ -231,71 +236,87 @@ export const Icons = {
   login: (props: IconProps) => <LogInIcon {...props} />,
 }
 
-export function getFlairSize(size: "sm" | "md" | "lg"): string {
-  switch (size) {
-    case "sm":
-      return "size-2"
-    case "lg":
-      return "size-6"
-    default:
-      return "size-4"
-  }
-}
-
-export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
-  // Try exact match
-  if (UDFIcons[key]) {
-    return UDFIcons[key](props ?? {})
-  }
+function resolveIconKey(key: string): string | undefined {
   const segments = key.split(".")
-  // Try all until last segment
   for (let i = segments.length; i > 0; i--) {
     const subKey = segments.slice(0, i).join(".")
     if (UDFIcons[subKey]) {
-      return UDFIcons[subKey](props ?? {})
+      return subKey
     }
   }
+  return undefined
+}
 
-  // Try top level namespace match
-  const topLevelNamespace = segments[0]
-  if (UDFIcons[topLevelNamespace]) {
-    return UDFIcons[topLevelNamespace](props ?? {})
+/** Return a stable identity for the icon shared by action or namespace keys. */
+export function getIconSource(key: string): object | string {
+  const resolvedKey = resolveIconKey(key)
+  if (!resolvedKey) {
+    return "default"
+  }
+  const renderer: IconRenderer = UDFIcons[resolvedKey]
+  return renderer.source ?? renderer
+}
+
+// Icon factories return a styled wrapper; preserve its props for button content.
+function inlineIcon(icon: JSX.Element): JSX.Element {
+  return icon.type === "div" ? <span {...icon.props} /> : icon
+}
+
+/** Render the closest matching action or namespace icon. */
+export function getIcon(
+  key: string,
+  { inline = false, ...props }: CustomIconProps & { inline?: boolean } = {}
+): JSX.Element {
+  const resolvedKey = resolveIconKey(key)
+  if (resolvedKey) {
+    const icon = UDFIcons[resolvedKey](props)
+    return inline ? inlineIcon(icon) : icon
   }
 
   // return default icon
-  const { className, ...rest } = props ?? {}
+  const { className, ...rest } = props
+  const Wrapper = inline ? "span" : "div"
   return (
-    <div
+    <Wrapper
       className={cn(
         basicIconsCommon,
-        "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+        "bg-muted text-muted-foreground",
         className
       )}
     >
       <BoxIcon className="size-6" {...rest} />
-    </div>
+    </Wrapper>
   )
 }
 export const basicIconsCommon =
   "flex p-1 shrink-0 rounded-full items-center justify-center bg-muted"
 
+type IconRenderer = ((props: CustomIconProps) => JSX.Element) & {
+  source?: object
+}
+
 function createIconRenderer(
   Icon: (props: IconProps) => JSX.Element,
   options?: { wrapperClassName?: string; iconClassName?: string }
 ) {
-  return ({
+  function renderIcon({
     className,
     iconClassName,
     flairsize: _unusedFlairSize,
     ...rest
-  }: CustomIconProps) => (
-    <div className={cn(basicIconsCommon, options?.wrapperClassName, className)}>
-      <Icon
-        {...rest}
-        className={cn("size-full", options?.iconClassName, iconClassName)}
-      />
-    </div>
-  )
+  }: CustomIconProps) {
+    return (
+      <div
+        className={cn(basicIconsCommon, options?.wrapperClassName, className)}
+      >
+        <Icon
+          {...rest}
+          className={cn("size-full", options?.iconClassName, iconClassName)}
+        />
+      </div>
+    )
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
 function createCatalogIconRenderer(
@@ -303,40 +324,39 @@ function createCatalogIconRenderer(
   options?: { wrapperClassName?: string; iconClassName?: string }
 ) {
   const Icon = mcpCatalogProviderIcons[key]
-  return ({ className, iconClassName, ...rest }: CustomIconProps) =>
-    Icon({
+  function renderIcon({ className, iconClassName, ...rest }: CustomIconProps) {
+    return Icon({
       ...rest,
       className: cn(basicIconsCommon, options?.wrapperClassName, className),
       iconClassName: cn(options?.iconClassName, iconClassName),
     })
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
 function createColoredLucideRenderer(Icon: LucideIcon, colorClassName: string) {
-  return ({
+  function renderIcon({
     className,
     iconClassName,
     flairsize: _unusedFlairSize,
     ...rest
-  }: CustomIconProps) => (
-    <div className={cn(basicIconsCommon, colorClassName, className)}>
-      <Icon className={iconClassName} {...rest} />
-    </div>
-  )
+  }: CustomIconProps) {
+    return (
+      <div className={cn(basicIconsCommon, colorClassName, className)}>
+        <Icon className={iconClassName} {...rest} />
+      </div>
+    )
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
+/** Icon renderers keyed by registry action or namespace. */
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
-    trigger: ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-          className
-        )}
-      >
-        <ZapIcon {...rest} />
-      </div>
+    trigger: createColoredLucideRenderer(
+      ZapIcon,
+      "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
     ),
     // Core namespace
     core: ({ className, ...rest }) => (
@@ -362,7 +382,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
 
-    "core.http_poll": ({ className, ...rest }) => (
+    "core.http_paginate": ({ className, ...rest }) => (
       <div
         className={cn(
           basicIconsCommon,
@@ -370,19 +390,16 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
           className
         )}
       >
-        <RefreshCcw {...rest} />
+        <Globe {...rest} />
       </div>
     ),
-    "core.require": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <ListChecks {...rest} />
-      </div>
+    "core.http_poll": createColoredLucideRenderer(
+      Timer,
+      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    ),
+    "core.require": createColoredLucideRenderer(
+      ListChecks,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
     ),
     "core.transform": ({ className, ...rest }) => (
       <div
@@ -419,38 +436,17 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
-    "core.loop": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-          className
-        )}
-      >
-        <RefreshCcw {...rest} />
-      </div>
+    "core.loop": createColoredLucideRenderer(
+      Repeat,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
-    "core.loop.start": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-          className
-        )}
-      >
-        <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
-      </div>
+    "core.loop.start": createColoredLucideRenderer(
+      IterationCw,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
-    "core.loop.end": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-          className
-        )}
-      >
-        <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
-      </div>
+    "core.loop.end": createColoredLucideRenderer(
+      CircleStop,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
     "core.cases": ({ className, ...rest }) => (
       <div
@@ -464,60 +460,25 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
 
-    "core.cases.update": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <ShieldPlus {...rest} />
-      </div>
+    "core.cases.create_case": createColoredLucideRenderer(
+      ShieldPlus,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.cases.create_comment": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <MessageCircleMore {...rest} />
-      </div>
+    "core.cases.update_case": createColoredLucideRenderer(
+      SquarePen,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.cases.update_comment": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <MessageCirclePlus {...rest} />
-      </div>
+    "core.cases.create_comment": createColoredLucideRenderer(
+      MessageCirclePlus,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.receive_email": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-          className
-        )}
-      >
-        <MailIcon {...rest} />
-      </div>
+    "core.cases.update_comment": createColoredLucideRenderer(
+      MessageCircleMore,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.send_email": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-lime-500/10 text-lime-600 dark:text-lime-400",
-          className
-        )}
-      >
-        <SendIcon {...rest} />
-      </div>
+    "core.cases.delete_comment": createColoredLucideRenderer(
+      MessageCircleX,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
     "core.send_email_smtp": ({ className, ...rest }) => (
       <div
@@ -530,6 +491,14 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <SendIcon {...rest} />
       </div>
     ),
+    "core.grpc": createColoredLucideRenderer(
+      Network,
+      "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+    ),
+    "core.ssh": createColoredLucideRenderer(
+      SquareTerminal,
+      "bg-slate-500/10 text-slate-600 dark:text-slate-400"
+    ),
     "core.script": ({ className, ...rest }) => (
       <div
         className={cn(
@@ -539,24 +508,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         )}
       >
         <Code {...rest} />
-      </div>
-    ),
-    /* AI subnamespace */
-    "core.ai_action": ({ className, flairsize = "md", ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-          className
-        )}
-      >
-        <WandSparkles {...rest} />
-        <Sparkles
-          className={cn(
-            "absolute top-0 right-0 -translate-y-1/8 translate-x-1/8 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairsize)
-          )}
-        />
       </div>
     ),
     "core.workflow": ({ className, ...rest }) => (
@@ -581,27 +532,13 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Table {...rest} />
       </div>
     ),
-    "core.sql": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-          className
-        )}
-      >
-        <DatabaseIcon {...rest} />
-      </div>
+    "core.sql": createColoredLucideRenderer(
+      DatabaseIcon,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
-    "core.duckdb": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-          className
-        )}
-      >
-        <DatabaseIcon {...rest} />
-      </div>
+    "core.duckdb": createColoredLucideRenderer(
+      DatabaseIcon,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
     tools: createIconRenderer((props: IconProps) => <BlocksIcon {...props} />),
     "tools.datadog": createIconRenderer(DatadogIcon),
@@ -610,7 +547,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       iconClassName: "h-auto w-full",
     }),
     // Sublime namespace
-    "tools.sublime": createIconRenderer(SublimeIcon, {
+    "tools.sublime": createIconRenderer(EmailrepIcon, {
       iconClassName: "h-auto w-full",
     }),
     // URLScan namespace
@@ -620,6 +557,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.pagerduty": createIconRenderer(PagerDutyToolIcon, {
       wrapperClassName: "rounded-xl",
     }),
+    "tools.fortisiem": createIconRenderer(FortinetIcon),
     "tools.gophish": createIconRenderer(GophishToolIcon, {
       wrapperClassName: "rounded-full",
       iconClassName: "h-full w-auto",
@@ -628,6 +566,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.slack": createIconRenderer(SlackIcon),
     "tools.slack_blocks": createIconRenderer(SlackIcon),
     "tools.jira": createIconRenderer(JiraIcon),
+    "tools.jira_service_management": createIconRenderer(AtlassianIcon),
     "tools.github": createIconRenderer(GitHubIcon),
     "tools.microsoft_defender_endpoint": createIconRenderer(
       MicrosoftDefenderIcon
@@ -666,7 +605,15 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.okta": createIconRenderer(OktaIcon),
     "tools.okta_oar": createIconRenderer(OktaIcon),
     "tools.okta_sdk": createIconRenderer(OktaIcon),
+    "tools.pan_os": createIconRenderer(PaloAltoIcon),
+    "tools.pan_prisma": createIconRenderer(PaloAltoIcon),
+    "tools.pan_strata": createIconRenderer(PaloAltoIcon),
+    "tools.proofpoint_tap": createIconRenderer(ProofpointIcon),
+    "tools.proofpoint_threat_protection": createIconRenderer(ProofpointIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
+    "tools.spur": createIconRenderer(SpurIcon),
+    "tools.swif": createIconRenderer(SwifIcon),
+    "tools.trend_vision_one": createIconRenderer(TrendMicroIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
     "tools.typesafe": createIconRenderer(TypeSafeIcon, {
@@ -697,6 +644,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.elastic_security": createCatalogIconRenderer("elastic_mcp"),
     "tools.elasticsearch": createCatalogIconRenderer("elastic_mcp"),
     "tools.greynoise": createCatalogIconRenderer("greynoise_mcp"),
+    "tools.incident_io": createCatalogIconRenderer("incident_io_mcp"),
     "tools.iru": createCatalogIconRenderer("iru_mcp"),
     "tools.jamf": createCatalogIconRenderer("jamf_mcp"),
     "tools.panther": createCatalogIconRenderer("panther_mcp"),
@@ -836,11 +784,17 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       Link,
       "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "tools.wazuh": createColoredLucideRenderer(
-      ShieldCheck,
-      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-    ),
+    "tools.wazuh": createIconRenderer(WazuhIcon),
     // AI namespace
+    ai: createColoredLucideRenderer(Sparkles, "bg-primary/10 text-primary"),
+    "ai.agent": createColoredLucideRenderer(
+      MousePointerClick,
+      "bg-primary/10 text-primary"
+    ),
+    "ai.preset_agent": createColoredLucideRenderer(
+      MousePointerClick,
+      "bg-primary/10 text-primary"
+    ),
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
 
@@ -1021,6 +975,11 @@ export const providerIcons: Record<
       <GitHubIcon {...rest} />
     </div>
   ),
+  atlassian: ({ className, ...rest }) => (
+    <div className={className}>
+      <AtlassianIcon {...rest} />
+    </div>
+  ),
   servicenow: ({ className, ...rest }) => (
     <div className={className}>
       <ServiceNowIcon {...rest} />
@@ -1044,9 +1003,24 @@ export const providerIcons: Record<
       <SnowflakeIcon {...rest} />
     </div>
   ),
+  pan_strata: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  proofpoint_threat_protection: ({ className, ...rest }) => (
+    <div className={className}>
+      <ProofpointIcon {...rest} />
+    </div>
+  ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
   google_chronicle: createCatalogIconRenderer("google_cloud_secops_mcp"),
   rapid7: createCatalogIconRenderer("rapid7_mcp"),
+  zendesk: ({ className, ...rest }) => (
+    <div className={className}>
+      <ZendeskIcon {...rest} />
+    </div>
+  ),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
@@ -1069,6 +1043,33 @@ const mcpProviderIconAliases: Record<string, string> = {
   "secure-annex-mcp": "secureannex_mcp",
   secureannex: "secureannex_mcp",
   "secureannex-mcp": "secureannex_mcp",
+}
+
+/** Map a model provider to its shared provider icon. */
+export function getModelProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "mistral":
+      return "mistral"
+    case "openai":
+      return "openai"
+    case "litellm":
+    case "ollama":
+    case "openrouter":
+    case "vllm":
+      return provider
+    default:
+      return "custom"
+  }
 }
 
 export function getMcpProviderIconId(slug: string | null | undefined): string {
@@ -1101,24 +1102,27 @@ export function getMcpProviderIconId(slug: string | null | undefined): string {
   )
 }
 
+/** Render a provider badge, optionally with phrasing content for use in buttons. */
 export function ProviderIcon({
   providerId,
   className,
+  inline = false,
   ...rest
 }: {
   providerId: string
   className?: string
+  inline?: boolean
 }) {
   const Icon = providerIcons[providerId] ?? providerIcons["custom"]
-  return (
-    <Icon
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
-        className
-      )}
-      {...rest}
-    />
-  )
+  const props = {
+    className: cn(
+      "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
+      className
+    ),
+    ...rest,
+  }
+  if (inline) return inlineIcon(Icon(props))
+  return <Icon {...props} />
 }
 
 /**
@@ -1159,6 +1163,43 @@ export const secretIcons: Record<
       <JiraIcon {...rest} />
     </div>
   ),
+  pan_os: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  pan_prisma: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  fortisiem: ({ className, ...rest }) => (
+    <div className={className}>
+      <FortinetIcon {...rest} />
+    </div>
+  ),
+  proofpoint_tap: ({ className, ...rest }) => (
+    <div className={className}>
+      <ProofpointIcon {...rest} />
+    </div>
+  ),
+  spur: ({ className, ...rest }) => (
+    <div className={className}>
+      <SpurIcon {...rest} />
+    </div>
+  ),
+  swif: ({ className, ...rest }) => (
+    <div className={className}>
+      <SwifIcon {...rest} />
+    </div>
+  ),
+  trend_vision_one: ({ className, ...rest }) => (
+    <div className={className}>
+      <TrendMicroIcon {...rest} />
+    </div>
+  ),
+  incident_io: createCatalogIconRenderer("incident_io_mcp"),
+  incident_io_alert_source: createCatalogIconRenderer("incident_io_mcp"),
   jamf: createCatalogIconRenderer("jamf_mcp"),
   iru: createCatalogIconRenderer("iru_mcp"),
   datadog: ({ className, ...rest }) => (
@@ -1272,6 +1313,11 @@ export const secretIcons: Record<
   snowflake: ({ className, ...rest }) => (
     <div className={className}>
       <SnowflakeIcon {...rest} />
+    </div>
+  ),
+  zendesk: ({ className, ...rest }) => (
+    <div className={className}>
+      <ZendeskIcon {...rest} />
     </div>
   ),
   // Default fallback using KeyRound icon
@@ -1519,6 +1565,27 @@ export function SublimeIcon(props: IconProps) {
   return <EmailrepIcon {...props} />
 }
 
+export function WazuhIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="100%"
+      height="100%"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="xMidYMid meet"
+      className={className}
+      {...rest}
+    >
+      <circle cx="50" cy="50" r="50" style={{ fill: "#3595f9" }} />
+      <polygon
+        points="51.91 56.54 44.71 33.07 39.02 33.07 31.75 56.54 24.62 33 18 33 28.51 67.27 33.84 67.27 41.83 42.5 49.82 67.27 55.15 67.27 65.66 33.07 59.11 33.07"
+        style={{ fill: "#fff" }}
+      />
+      <circle cx="74" cy="62.5" r="4.8" style={{ fill: "#fff" }} />
+    </svg>
+  )
+}
+
 export function VirusTotalIcon({ className, ...rest }: IconProps) {
   return (
     <svg
@@ -1664,6 +1731,23 @@ export function JiraIcon({ className, ...rest }: IconProps) {
           <stop offset="1" stopColor="#2684FF" />
         </linearGradient>
       </defs>
+    </svg>
+  )
+}
+
+export function AtlassianIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M7.12 11.084a.683.683 0 0 0-1.16.126L.075 22.974a.703.703 0 0 0 .63 1.018h8.19a.678.678 0 0 0 .63-.39c1.767-3.65.696-9.203-2.406-12.52ZM11.434.386a15.515 15.515 0 0 0-.906 15.317l3.95 7.9a.703.703 0 0 0 .628.388h8.19a.703.703 0 0 0 .63-1.017L12.63.38a.664.664 0 0 0-1.196.006Z"
+        fill="#0052CC"
+      />
     </svg>
   )
 }
@@ -2897,6 +2981,23 @@ export function VaultIcon({ className, ...rest }: IconProps) {
   )
 }
 
+export function FortinetIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="65.7 -11.85 78.5 78.5"
+      className={className}
+      {...rest}
+    >
+      <title>Fortinet</title>
+      <path
+        fill="#DA291C"
+        d="M144.2 20.4v14.2H122V20.4h22.2zM93.9 54.8H116V40.6H93.9v14.2zm50.3-42.9c0-6.6-5.3-11.9-11.9-11.9h-10.2v14.2h22.1v-2.3zM93.9 0v14.2H116V0H93.9zM65.7 20.4v14.2h22.1V20.4H65.7zM122 54.8h10.2c6.6 0 11.9-5.3 11.9-11.9v-2.3H122v14.2zM65.7 42.9c0 6.6 5.3 11.9 11.9 11.9h10.2V40.6H65.7v2.3zm0-31v2.3h22.1V0H77.6C71 0 65.7 5.3 65.7 11.9z"
+      />
+    </svg>
+  )
+}
+
 export function PaloAltoIcon({ className, ...rest }: IconProps) {
   return (
     <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
@@ -2904,6 +3005,65 @@ export function PaloAltoIcon({ className, ...rest }: IconProps) {
       <path
         fill="#F04E23"
         d="m10.278 15.443 1.705 1.705-3.426 3.426-3.427-3.426 8.592-8.591-1.705-1.705 3.426-3.426 3.427 3.426-8.592 8.591zM0 12.017l3.426 3.426 8.591-8.59-3.426-3.427L0 12.017zm11.983 5.13 3.426 3.427L24 11.983l-3.426-3.426-8.591 8.59z"
+      />
+    </svg>
+  )
+}
+
+export function ProofpointIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="-4.3 6.9 29.1 29.1"
+      className={cn("text-[#022F2D] dark:text-white", className)}
+      {...rest}
+    >
+      <title>Proofpoint</title>
+      <path
+        fill="currentColor"
+        d="M14.8587 17.8897C14.8587 21.6478 13.0474 23.8784 10.27 23.8784C7.26834 23.8784 5.53751 21.74 5.53751 17.8897C5.53751 13.7454 7.18784 11.607 10.1895 11.607C13.1911 11.607 14.8874 13.7742 14.8587 17.8897ZM0 36H5.49151V25.3482C6.88307 27.4521 9.06242 28.5357 11.7766 28.5357C16.7333 28.5357 20.4997 24.2934 20.4997 17.6418C20.4997 10.9902 16.831 6.92664 11.7133 6.92664C8.97042 6.92664 7.02683 8.01026 5.3995 10.3735V7.6356H0V35.9942V36Z"
+      />
+    </svg>
+  )
+}
+
+export function SpurIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 -4.06 38.5645 38.5645"
+      className={cn("text-[#0A0A0A] dark:text-[#FAFAFA]", className)}
+      {...rest}
+    >
+      <title>Spur</title>
+      <path
+        fill="currentColor"
+        d="M19.7852 0C20.1147 5.07404 20.293 10.1515 20.293 15.2256C20.293 20.2996 20.114 25.3742 19.7852 30.4482H18.7705C18.4517 25.3742 18.2627 20.2996 18.2627 15.2256C18.2627 10.1515 18.4517 5.07404 18.7705 0H19.7852ZM15.7314 13.6963C16.0219 14.1289 16.2379 14.6054 16.2393 15.1055C16.2378 15.6054 16.0219 16.0541 15.7314 16.4873L8.12012 27.3975H7.10449C7.11677 27.3747 12.4345 17.501 13.4482 16.9941V16.2334C11.9258 16.2334 0 15.7256 0 15.7256V14.7109C0 14.7109 11.9258 14.2031 13.4482 14.2031V13.4424C12.4333 12.4274 7.10449 3.03906 7.10449 3.03906H8.12012L15.7314 13.6963ZM31.46 3.03906C31.46 3.03906 26.1312 12.4274 25.1162 13.4424V14.2031C26.6386 14.2031 38.5645 14.7109 38.5645 14.7109V15.7256C38.5645 15.7256 26.6386 16.2334 25.1162 16.2334V16.9941C26.1301 18.008 31.4485 27.3772 31.46 27.3975H30.4443L22.833 16.4873C22.5426 16.0541 22.3266 15.6054 22.3252 15.1055C22.3265 14.6055 22.5425 14.1289 22.833 13.6963L30.4443 3.03906H31.46Z"
+      />
+    </svg>
+  )
+}
+
+export function SwifIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 512 512" className={className} {...rest}>
+      <title>Swif</title>
+      <path
+        fill="#3AE87C"
+        transform="matrix(1 0 0 -1 0 512)"
+        d="M209 485 c-20 -1 -41 -3 -51 -4 -22 -3 -28 -3 -45 -6 -10 -2 -14 -2 -35 -7 -16 -3 -16 -3 -46 -11 -14 -3 -16 -7 -16 -26 0 -19 1 -20 16 -30 6 -4 16 -12 24 -17 7 -5 19 -13 26 -18 7 -5 17 -12 23 -16 5 -4 15 -10 20 -14 6 -4 15 -10 20 -14 6 -4 16 -11 22 -15 6 -4 16 -12 22 -16 6 -4 16 -11 22 -15 5 -4 15 -10 20 -14 6 -4 15 -10 20 -14 15 -11 30 -21 43 -30 13 -9 28 -19 43 -30 6 -4 13 -9 16 -11 7 -5 7 -5 2 -11 -21 -26 -51 -50 -85 -66 -16 -8 -15 -8 -28 -1 -55 26 -105 81 -127 138 -1 3 -3 6 -4 8 -3 7 -3 7 -4 12 -4 9 -7 18 -8 19 0 0 -4 3 -8 5 -3 3 -11 8 -16 12 -6 4 -14 10 -20 14 -5 4 -14 10 -20 14 -5 4 -10 7 -10 7 -2 0 -1 -8 6 -40 6 -29 20 -67 33 -94 9 -18 18 -32 32 -53 37 -52 100 -99 154 -114 8 -2 9 -2 20 3 2 1 4 2 5 2 1 0 36 17 44 21 52 31 94 74 121 125 2 4 5 8 5 9 1 1 1 2 1 2 0 0 -2 2 -4 4 -3 1 -9 6 -15 10 -10 7 -22 15 -42 29 -5 4 -14 10 -20 14 -5 4 -15 10 -20 14 -15 11 -30 21 -43 30 -6 4 -16 11 -22 15 -10 7 -15 11 -41 29 -6 4 -15 11 -21 15 -6 4 -15 10 -20 14 -6 4 -15 10 -22 15 -7 5 -17 12 -22 16 -6 3 -14 9 -17 12 -11 7 -11 7 -2 8 4 1 10 1 15 2 59 8 144 8 204 1 15 -2 35 -5 42 -6 2 0 7 -1 11 -2 4 -1 8 -2 11 -2 2 -1 6 -1 9 -2 l5 -1 0 -11 c0 -16 -3 -49 -7 -67 -1 -3 -2 -8 -2 -11 -1 -3 -2 -10 -4 -16 -3 -13 -3 -11 10 -20 21 -15 31 -22 36 -25 6 -5 6 -5 8 0 1 3 2 6 2 7 1 2 2 7 5 18 1 2 2 6 2 9 1 2 2 6 2 9 2 7 4 22 7 39 1 6 3 22 4 40 1 15 1 52 0 63 -1 13 -3 15 -16 19 -10 2 -31 8 -37 9 -4 1 -8 2 -10 2 -3 1 -7 1 -10 2 -23 4 -27 5 -51 8 -47 6 -116 9 -162 6z"
+      />
+    </svg>
+  )
+}
+
+export function TrendMicroIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 24 24" className={className} {...rest}>
+      <title>Trend Micro</title>
+      <path
+        fill="#D71921"
+        d="M12 0C5.38 0 0 5.37 0 12C0 14.45 .734 16.72 2 18.62C1.5 17.45 1.58 15.94 2.19 14.29L2.2 14.25L2.25 14.12L2.3 14L2.32 13.95C2.54 13.4 2.82 12.83 3.16 12.26C3.21 12.16 3.25 12.07 3.3 12L1.86 12L2.21 11.21C3.4 10.88 5.38 10.22 7.27 8.39L7.32 8.39H8.32L7.03 11.14L9.1 11.14L8.72 11.96L6.66 11.96S5.69 13.9 5.36 15.28C5.11 16.82 5.36 18 6.74 18.41C7.59 18.67 8.66 18.61 9.81 18.29C12.5 17.45 15.34 15.62 17.43 13.18C20.87 9.19 20.94 5.1 17.58 4.05C15.43 3.38 12.39 4.13 9.58 5.8C13.08 3.54 16.94 2.5 19.59 3.31C20.09 3.46 20.53 3.68 20.89 3.94A11.97 11.97 0 0 0 12 0M22.17 5.63C23 7.81 21.97 11.07 19.2 14.29C15.04 19.13 8.47 22.05 4.5 20.83A4.46 4.46 0 0 1 3.24 20.21A11.96 11.96 0 0 0 12 24C18.63 24 24 18.63 24 12C24 9.66 23.33 7.5 22.17 5.63Z"
       />
     </svg>
   )

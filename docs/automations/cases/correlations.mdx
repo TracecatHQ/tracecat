@@ -1,0 +1,68 @@
+---
+title: "Correlations"
+description: "Find other cases that link the same indicator, asset, or detection row."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+## Correlations
+
+Correlations show every other case that links the same table row.
+Use them to spot campaigns, repeat offenders, and shared infrastructure: if two cases link the same IP address row, the cases are related.
+
+![View related cases](/img/cases/related-cases.gif)
+
+Correlations build on [linked rows](/automations/cases/linked-rows).
+Tracecat matches rows by row ID, so link the existing row instead of inserting a duplicate when the same indicator appears in a new case.
+
+## View related cases
+
+<Steps>
+  <Step title="Open the Tables tab">
+    Open the case and select the Tables tab.
+  </Step>
+  <Step title="Right-click a row">
+    Right-click a linked row and select `View related cases`.
+  </Step>
+  <Step title="Review the cases">
+    The `Related cases` drawer shows the row's data and every other case that links it.
+    The current case is left out.
+  </Step>
+</Steps>
+
+![Row menu](/img/cases/related-cases-menu.png)
+
+Each related case shows its short ID, summary, priority, severity, tags, and when it was created and updated.
+Hover a case to preview its status, assignee, tasks, dropdowns, and custom fields.
+Click a case to keep its preview open. Click `Open case`, or Ctrl-click or Cmd-click the case, to open it in a new tab.
+If more cases link the row, click `Load more` at the bottom of the list.
+
+![Related cases drawer](/img/cases/related-cases-drawer.png)
+
+## Correlate cases in workflows
+
+Use `core.cases.list_cases_by_row` to find cases that link a row.
+Pass `exclude_case_id` to leave out the current case.
+
+```yaml
+- ref: linked_rows
+  action: core.cases.get_linked_case_rows
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+
+- ref: related_cases
+  action: core.cases.list_cases_by_row
+  args:
+    table_id: ${{ ACTIONS.linked_rows.result[0].table_id }}
+    row_id: ${{ ACTIONS.linked_rows.result[0].row_id }}
+    exclude_case_id: ${{ TRIGGER.case_id }}
+```
+
+Combine it with a [case trigger](/automations/cases/workflow-triggers) on `table_row_linked` to comment on or escalate a case as soon as an analyst or workflow links a row that already appears in other cases.
+
+## Related pages
+
+- See [Linked rows](/automations/cases/linked-rows) to link indicators, assets, and detections to a case.
+- See [Linked row actions](/automations/core-actions/case-actions/linked-rows) for every input of `core.cases.list_cases_by_row`.
+- See [Workflow triggers](/automations/cases/workflow-triggers) to run workflows when rows are linked or unlinked.

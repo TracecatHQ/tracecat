@@ -22,7 +22,7 @@ from tracecat_registry import ctx, registry, types
 async def create_task(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to create a task for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to create a task for."),
     ],
     title: Annotated[
         str,
@@ -98,7 +98,7 @@ async def get_task(
 async def list_tasks(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to list tasks for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to list tasks for."),
     ],
 ) -> list[types.CaseTaskRead]:
     """List all tasks for a case."""
@@ -173,6 +173,35 @@ async def update_task(
         update_params["default_trigger_values"] = default_trigger_values
 
     return await ctx.cases.aio.update_task(task_id=task_id, **update_params)
+
+
+@registry.register(
+    default_title="Run case task",
+    display_group="Cases",
+    description=(
+        "Run the workflow linked to a case task. The run uses the task's default "
+        "trigger values, gets `case_id` and `task_id` as inputs, and shows on the "
+        "task like a run started from the case."
+    ),
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def run_task(
+    case_id: Annotated[
+        str,
+        Doc("The ID or short ID (e.g. CASE-0042) of the case the task belongs to."),
+    ],
+    task_id: Annotated[
+        str,
+        Doc("The ID of the task to run."),
+    ],
+    inputs: Annotated[
+        dict[str, Any] | None,
+        Doc("Trigger inputs that override the task's default trigger values."),
+    ] = None,
+) -> types.CaseTaskRunRead:
+    """Run the workflow linked to a case task."""
+    return await ctx.cases.aio.run_task(case_id, task_id, inputs=inputs)
 
 
 @registry.register(

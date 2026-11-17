@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import NotRequired, Self, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
@@ -22,6 +23,7 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
+    close_sub_cases_with_parent: NotRequired[bool | None]
 
 
 # Schema
@@ -33,6 +35,7 @@ class WorkspaceSettingsRead(Schema):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
+    close_sub_cases_with_parent: bool | None = None
 
     @computed_field
     @property
@@ -74,6 +77,10 @@ class WorkspaceSettingsUpdate(Schema):
     validate_attachment_magic_number: bool | None = Field(
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
+    )
+    close_sub_cases_with_parent: bool | None = Field(
+        default=None,
+        description="Whether closing or resolving a parent case also closes its open sub-cases and fills their empty required-on-closure fields and dropdowns from the parent. Defaults to true.",
     )
 
     @model_validator(mode="after")
@@ -124,6 +131,10 @@ class WorkspaceCreate(Schema):
 class WorkspaceUpdate(Schema):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
+    default_agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Default agent preset for this workspace. Set to null to clear.",
+    )
 
 
 class WorkspaceSearch(Schema):
@@ -149,6 +160,7 @@ class WorkspaceMember(Schema):
 class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
+    default_agent_preset_id: uuid.UUID | None = Field(default=None)
     settings: WorkspaceSettingsRead | None = None
     organization_id: OrganizationID
     unsafe_disable_secret_error_withholding_allowed: bool = Field(

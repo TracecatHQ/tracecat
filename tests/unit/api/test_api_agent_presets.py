@@ -24,8 +24,41 @@ def test_delete_preset_documents_not_found_response() -> None:
     )
 
     assert route.responses == {
-        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"}
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Agent preset is the default agent of an installed channel app"
+        },
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", ["by_id", "by_slug"])
+async def test_delete_preset_maps_a_refusal_to_a_client_error(
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    route: str,
+) -> None:
+    """A preset still answering a channel app install stays a 400 with its reason."""
+    reason = "make another agent the default before deleting this one"
+    service = AsyncMock()
+    service.get_preset.return_value = SimpleNamespace(id=uuid.uuid4())
+    service.get_preset_by_slug.return_value = SimpleNamespace(id=uuid.uuid4())
+    service.delete_preset.side_effect = TracecatValidationError(reason)
+    for module in (agent_preset_router, agent_preset_internal_router):
+        monkeypatch.setattr(module, "AgentPresetService", lambda *a, **k: service)
+
+    with pytest.raises(HTTPException) as exc_info:
+        if route == "by_id":
+            await agent_preset_router.delete_agent_preset(
+                preset_id=uuid.uuid4(), role=test_admin_role, session=AsyncMock()
+            )
+        else:
+            await agent_preset_internal_router.delete_preset_by_slug(
+                role=test_admin_role, session=AsyncMock(), slug="triage"
+            )
+
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert exc_info.value.detail == reason
 
 
 @pytest.mark.anyio

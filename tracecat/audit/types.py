@@ -44,9 +44,14 @@ AuditAction = Literal[
     "sync",
     "promote",
     "demote",
+    # Managed resources
+    "detach",
+    "preview",
+    "apply",
 ]
 AuditResourceType = Literal[
     "user",
+    "security_key",
     "organization",
     "auth",
     "workspace",
@@ -54,9 +59,12 @@ AuditResourceType = Literal[
     "workflow_execution",
     "schedule",
     "case_trigger",
+    "form",
+    "form_submission",
     "webhook",
     "webhook_api_key",
     "workspace_variable",
+    "workspace_tunnel",
     "tag",
     "table",
     "table_column",
@@ -97,6 +105,12 @@ AuditResourceType = Literal[
     "platform_registry_repository",
     "platform_registry_version",
     "tier",
+    # Managed resources
+    "managed_resource",
+    "managed_target",
+    "managed_rollout",
+    "managed_reference_match",
+    "managed_package_release",
 ]
 
 

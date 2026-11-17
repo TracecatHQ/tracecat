@@ -6,8 +6,10 @@ This router consolidates chat and session endpoints into a unified /agent/sessio
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
+from redis.exceptions import RedisError
+from tenacity import RetryError
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
     require_workspace_chat_entitlement_for_entity,
@@ -15,10 +17,16 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.backends.access import can_use_backend
 from tracecat.agent.backends.registry import (
     get_agent_backends,
 )
-from tracecat.agent.backends.types import SessionDispatchUncertain
+from tracecat.agent.backends.types import (
+    AgentControlRejected,
+    AgentControlUncertain,
+    SessionDispatchUncertain,
+)
+from tracecat.agent.control.schemas import AgentControlReceipt, AgentControlRequest
 from tracecat.agent.session.schemas import (
     AgentBackendRead,
     AgentSessionArtifactsRead,
@@ -26,6 +34,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionForkRequest,
+    AgentSessionPendingRead,
     AgentSessionRead,
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
@@ -35,16 +44,18 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     TurnLifecycle,
+    is_ownerless_channel_session,
     is_session_readonly,
 )
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.stream.feed import SessionFeed
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.chat.schemas import (
     ChatRead,
     ChatReadMinimal,
@@ -52,10 +63,12 @@ from tracecat.chat.schemas import (
     ChatRequest,
     ContinueRunRequest,
 )
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, ReleaseRequestSession
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -112,6 +125,15 @@ def _require_session_write_access(
     )
 
 
+def _require_builder_edit_access(
+    role: WorkspaceActorRouteRole, entity_type: AgentSessionEntity | str
+) -> None:
+    """A preset builder chat edits its preset, so creating or running one needs
+    ``agent:update`` as well as ``agent:execute``."""
+    if entity_type == AgentSessionEntity.AGENT_PRESET_BUILDER:
+        check_scopes(role, "agent:update")
+
+
 async def _require_workspace_chat_entitlement_for_session_tree(
     *,
     svc: AgentSessionService,
@@ -160,16 +182,29 @@ async def _build_session_read_with_entitlement(
     return build_session_read(agent_session, role, readonly=readonly)
 
 
+async def _can_use_backend(
+    *, session: AsyncDBSession, role: WorkspaceActorRouteRole, backend_id: str
+) -> bool:
+    if role.organization_id is None:
+        return False
+    # Lists backends for any surface; workflow actions are gated per session.
+    return await can_use_backend(
+        session, role.organization_id, backend_id, entity_type=None
+    )
+
+
 @router.get("/backends")
 @require_scope("agent:read")
 async def list_agent_backends(
     role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
 ) -> list[AgentBackendRead]:
-    """List enabled installed backends available to new sessions."""
+    """List enabled installed backends this organization may start sessions on."""
     return [
         AgentBackendRead(id=key, name=backend.name)
         for key, backend in get_agent_backends().items()
         if backend.is_enabled()
+        and await _can_use_backend(session=session, role=role, backend_id=key)
     ]
 
 
@@ -177,7 +212,7 @@ async def list_agent_backends(
     "",
     responses={
         403: {
-            "description": "Workspace Chat entitlement or parent session write access required"
+            "description": "Workspace Chat or agent backend entitlement, or parent session write access required"
         },
         404: {"description": "Parent session not found in this workspace"},
     },
@@ -189,6 +224,7 @@ async def create_session(
     session: AsyncDBSession,
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
+    _require_builder_edit_access(role, request.entity_type)
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,
@@ -431,6 +467,7 @@ async def update_session(
         )
 
     _require_session_write_access(role, agent_session)
+    _require_builder_edit_access(role, agent_session.entity_type)
 
     await _require_workspace_chat_entitlement_for_session_tree(
         session=session,
@@ -527,7 +564,7 @@ async def delete_session(
     await svc.delete_session(agent_session)
 
 
-@router.post("/{session_id}/messages")
+@router.post("/{session_id}/messages", dependencies=[ReleaseRequestSession])
 @require_scope("agent:execute")
 async def send_message(
     session_id: uuid.UUID,
@@ -571,7 +608,15 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
-            _require_session_write_access(role, agent_session)
+            # Workspace members may decide approvals on a channel's session.
+            if not (
+                isinstance(request, ContinueRunRequest)
+                and is_ownerless_channel_session(
+                    agent_session.entity_type, agent_session.created_by
+                )
+            ):
+                _require_session_write_access(role, agent_session)
+            _require_builder_edit_access(role, agent_session.entity_type)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc,
                 session=svc.session,
@@ -694,6 +739,13 @@ async def send_message(
             media_type="text/event-stream",
             headers=_sse_headers("vercel"),
         )
+    except AgentProviderCredentialsNotFoundError as e:
+        # The session exists, but its model can't run until the provider is
+        # configured; the message tells the user what to set up.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -706,12 +758,12 @@ async def send_message(
             status_code=status.HTTP_409_CONFLICT,
             detail=e.detail or str(e),
         ) from e
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except EntitlementRequired:
+    except (EntitlementRequired, ScopeDeniedError):
         raise
     except HTTPException:
         raise
@@ -727,7 +779,7 @@ async def send_message(
         ) from e
 
 
-@router.get("/{session_id}/stream")
+@router.get("/{session_id}/stream", dependencies=[ReleaseRequestSession])
 @require_scope("agent:read")
 async def stream_session_events(
     role: WorkspaceActorRouteRole,
@@ -832,6 +884,82 @@ async def stream_session_events(
     )
 
 
+@router.get("/{session_id}/feed", dependencies=[ReleaseRequestSession])
+@require_scope("agent:read")
+async def stream_session_feed(
+    role: WorkspaceActorRouteRole,
+    request: Request,
+    session_id: uuid.UUID,
+) -> StreamingResponse:
+    """Stream the session's run state changes via Server-Sent Events (SSE).
+
+    Sends a snapshot of the current run first, then ``run.started``,
+    ``run.paused``, ``run.resumed`` and ``run.finished``. Clients attach to a
+    run's output through ``/stream``. A reconnect gets a fresh snapshot, so
+    there is no resume cursor.
+    """
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+    try:
+        feed = await SessionFeed.new(workspace_id=workspace_id, session_id=session_id)
+        # Read the feed position before the row, so a change between them is replayed.
+        after_id = await feed.latest_id()
+    except (RedisError, RuntimeError, RetryError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Session feed is unavailable",
+        ) from e
+    async with AgentSessionService.with_session(role=role) as svc:
+        snapshot = await svc.get_feed_snapshot(session_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with ID {session_id} not found",
+        )
+    return StreamingResponse(
+        feed.sse(snapshot, after_id, request.is_disconnected),
+        media_type="text/event-stream",
+        headers=dict(SSE_HEADERS),
+    )
+
+
+@router.get("/{session_id}/pending")
+@require_scope("agent:read")
+async def list_pending_messages(
+    session_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionPendingRead:
+    """List the user messages the model has not read yet, in send order.
+
+    Covers steers waiting to join the running turn and messages queued for a
+    later turn. The list is short-lived and small, so it is not paginated. Only
+    the session's owner sees it: the messages are theirs until the model reads
+    them.
+    """
+    svc = AgentSessionService(session, role)
+    try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
+        return await svc.list_pending(session_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+
+
 @router.post("/{session_id}/fork")
 @require_scope("agent:execute")
 async def fork_session(
@@ -864,6 +992,7 @@ async def fork_session(
         entity_type = request.entity_type if request else None
         if entity_type is None:
             entity_type = AgentSessionEntity(parent_session.entity_type)
+        _require_builder_edit_access(role, entity_type)
         await require_workspace_chat_entitlement_for_entity(
             session=session,
             role=role,
@@ -889,9 +1018,14 @@ async def fork_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
-@router.post("/{session_id}/cancel")
+@router.post("/{session_id}/cancel", deprecated=True)
 @require_scope("agent:execute")
 async def cancel_session(
     session_id: uuid.UUID,
@@ -899,7 +1033,10 @@ async def cancel_session(
     session: AsyncDBSession,
     request: AgentSessionCancelRequest | None = None,
 ) -> AgentSessionCancelResponse:
-    """Request graceful cancellation for the active agent session turn."""
+    """Request graceful cancellation for the active agent session turn.
+
+    Deprecated: send a `cancel` control to `/control` instead.
+    """
     svc = AgentSessionService(session, role)
     reason = request.reason if request else "user_cancel"
     try:
@@ -923,4 +1060,68 @@ async def cancel_session(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=e.detail or str(e),
+        ) from e
+    except AgentControlUncertain as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cancel outcome is unknown; retry",
+        ) from e
+
+
+@router.post("/{session_id}/control")
+@require_scope("agent:execute")
+async def control_session(
+    session_id: uuid.UUID,
+    request: Annotated[AgentControlRequest, Body()],
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentControlReceipt:
+    """Steer, withdraw from, or cancel the active turn without waiting for it."""
+    logger.info(
+        "Agent session control requested",
+        session_id=str(session_id),
+        control_type=request.type,
+        control_id=str(request.id),
+    )
+    svc = AgentSessionService(session, role)
+    try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
+        # Cancelling stays open to the owner, so a revoked scope can still stop a run.
+        if request.type != "cancel":
+            _require_builder_edit_access(role, agent_session.entity_type)
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
+            session=session,
+            role=role,
+            agent_session=agent_session,
+        )
+        return await svc.control(session_id, request)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        # The message, which the composer shows as the reason.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    except AgentControlRejected as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The turn is no longer running",
+        ) from e
+    except AgentControlUncertain as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control outcome is unknown; retry with the same ID",
         ) from e

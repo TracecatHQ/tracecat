@@ -14,6 +14,8 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, cast, get_args
 
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -22,12 +24,35 @@ from tracecat.identifiers import InternalServiceID
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
 
+# Replaced by `workspace_sync:push` and `workspace_sync:pull`. They grant nothing
+# in this version, but migrated custom roles and service accounts keep them
+# until a contract migration drops them, and the previous app version still
+# honors them. Grant ceilings treat them as held when the caller holds both
+# replacements.
+DEPRECATED_SYNC_SCOPES: frozenset[str] = frozenset(
+    {"workflow:sync", "workspace_sync:sync"}
+)
+SYNC_REPLACEMENT_SCOPES: frozenset[str] = frozenset(
+    {"workspace_sync:push", "workspace_sync:pull"}
+)
+
 # =============================================================================
 # Workspace Role Scopes
 # =============================================================================
 
+# Intake-only users fill in forms and see nothing else in the workspace.
+INTAKE_SCOPES: frozenset[str] = frozenset(
+    {
+        "form:read",
+        "form:submit",
+    }
+)
+
 VIEWER_SCOPES: frozenset[str] = frozenset(
     {
+        "form:read",
+        "form:submit",
+        "form:submission:read",
         "inbox:read",
         "workflow:read",
         "integration:read",
@@ -38,6 +63,7 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
         "secret:read",
         "tag:read",
         "variable:read",
+        "tunnel:read",
         "workspace:read",
         "workspace:member:read",
     }
@@ -45,8 +71,9 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
 
 EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
     {
-        "workflow:sync",
-        "workspace_sync:sync",
+        "form:create",
+        "form:update",
+        "workspace_sync:push",
         "workflow:create",
         "workflow:update",
         "workflow:execute",
@@ -74,6 +101,10 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
 
 ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
     {
+        # Pulling overwrites workspace resources from Git, so editors can only push.
+        "workspace_sync:pull",
+        "form:delete",
+        "form:submission:delete",
         "workflow:delete",
         "case:delete",
         "table:delete",
@@ -81,6 +112,9 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "secret:delete",
         "tag:delete",
         "variable:delete",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "agent:delete",
         "integration:delete",
         "workspace:update",
@@ -128,6 +162,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:rbac:delete",
         # SCIM provisioning administration
         "org:scim:manage",
+        "org:scim:token",  # OWNER-only
         # Service account management
         "org:service_account:read",
         "org:service_account:create",
@@ -159,9 +194,16 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:service_account:disable",
         # Full resource control
         "inbox:read",
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:delete",
+        "form:submit",
+        "form:submission:read",
+        "form:submission:delete",
         "workflow:read",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
+        "workspace_sync:pull",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -187,6 +229,10 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -260,9 +306,16 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:service_account:disable",
         # Full resource control
         "inbox:read",
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:delete",
+        "form:submit",
+        "form:submission:read",
+        "form:submission:delete",
         "workflow:read",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
+        "workspace_sync:pull",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -288,6 +341,10 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -313,12 +370,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
 
 ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
     {
-        # Baseline org access; workspace/resource access requires workspace membership
+        # Baseline org access; workspace/resource access, agents included,
+        # requires a workspace role
         "org:read",
         "org:member:read",
         "org:registry:read",
-        "agent:read",
-        "agent:execute",
         "org:secret:read",
     }
 )
@@ -337,6 +393,7 @@ ORG_MEMBER_ROLE_SLUG = "organization-member"
 
 PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     # Workspace roles
+    "workspace-intake": INTAKE_SCOPES,
     "workspace-viewer": VIEWER_SCOPES,
     "workspace-editor": EDITOR_SCOPES,
     "workspace-admin": ADMIN_SCOPES,
@@ -346,16 +403,49 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     "organization-member": ORG_MEMBER_SCOPES,
 }
 
+
+def is_org_level_role(scope_names: Iterable[str]) -> bool:
+    """Return whether a role's scopes make it an organization-level role.
+
+    Any ``org:*`` scope pins a role to org-wide grants. Every other role is a
+    workspace role, granted on one workspace or org-wide for all of them.
+    """
+    return any(name.startswith("org:") for name in scope_names)
+
+
+# Platform-owned roots with authorization meaning: role level and workspace
+# administration. Custom scopes cannot claim them. action: stays open so custom
+# registry actions can be granted.
+RESERVED_SCOPE_ROOTS: frozenset[str] = frozenset({"org", "workspace"})
+
+
+def is_reserved_scope_name(name: str) -> bool:
+    """Return whether a custom scope name claims a platform-owned root.
+
+    Scope matching is fnmatch-based, so a wildcard root such as ``*`` or ``o*``
+    that matches a reserved root claims it too.
+    """
+    root = name.split(":", 1)[0]
+    return any(fnmatchcase(reserved, root) for reserved in RESERVED_SCOPE_ROOTS)
+
+
 # =============================================================================
 # Service Principal Scope Allowlist
 # =============================================================================
 
 WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
     {
+        # No form:submit or form:delete: workflows read and edit forms and
+        # manage submissions, but never submit or remove a form.
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:submission:read",
+        "form:submission:delete",
         "inbox:read",
         "workflow:read",
-        "workflow:sync",
-        "workspace_sync:sync",
+        "workspace_sync:push",
+        "workspace_sync:pull",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -377,6 +467,7 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
         "secret:read",
         "secret:create",
         "secret:update",

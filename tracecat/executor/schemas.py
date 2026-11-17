@@ -117,6 +117,18 @@ class ResolvedContext(BaseModel):
     secret_projection: SecretEnvProjection | None = Field(default=None, exclude=True)
     """Runtime-ready secret env cached for host-side execution reuse."""
 
+    tunnel_name: str | None = None
+    """Tunnel this action is routed through, if any."""
+
+    tunnel_proxy_url: str | None = Field(default=None, repr=False)
+    """Gateway proxy URL carrying a short-lived proxy token."""
+
+    tunnel_gateway_ip: str | None = None
+    """Gateway address the sandbox network is locked to."""
+
+    tunnel_gateway_port: int | None = None
+    """Gateway port the sandbox network is locked to."""
+
 
 class ExecutorActionErrorInfo(BaseModel):
     """An error that occurred in the registry."""

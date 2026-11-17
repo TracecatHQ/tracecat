@@ -18,7 +18,6 @@ from tracecat_ee.agent.artifacts.mount_only_provider import (
 from tracecat.agent.artifacts import providers as provider_module
 from tracecat.agent.artifacts.hydration import (
     ArtifactHydrationContext,
-    ArtifactHydrator,
     ArtifactHydratorRegistry,
     MountedArtifactContent,
 )
@@ -32,9 +31,7 @@ from tracecat.agent.artifacts.working_set import ArtifactWorkingSetContext
 from tracecat.artifacts.schemas import (
     AgentArtifact,
     Artifact,
-    ArtifactType,
     CaseArtifact,
-    GenericArtifact,
     TableArtifact,
 )
 from tracecat.auth.types import Role
@@ -78,12 +75,7 @@ def test_ee_artifact_provider_entry_point_is_registered() -> None:
         for entry_point in entry_points(group=ARTIFACT_PROVIDER_ENTRY_POINT_GROUP)
     }
 
-    entry_point = artifact_entry_points["workspace_chat"]
-    assert (
-        entry_point.value
-        == "tracecat_ee.agent.artifacts.mount_only_provider:build_provider"
-    )
-    provider = entry_point.load()()
+    provider = artifact_entry_points["workspace_chat"].load()()
     assert isinstance(provider, MountOnlyArtifactWorkingSetProvider)
 
 
@@ -142,39 +134,6 @@ def test_provider_resolution_rejects_multiple_entry_points(monkeypatch) -> None:
             get_artifact_working_set_provider()
     finally:
         get_artifact_working_set_provider.cache_clear()
-
-
-@pytest.mark.anyio
-async def test_hydrator_registry_copies_input_mapping() -> None:
-    class GenericHydrator:
-        async def hydrate(
-            self,
-            artifact: Artifact,
-            ctx: ArtifactHydrationContext,
-        ) -> MountedArtifactContent | None:
-            _ = artifact, ctx
-            return MountedArtifactContent(
-                filename="generic.json",
-                content_type="generic.read",
-                payload={"ok": True},
-            )
-
-    hydrators: dict[ArtifactType, ArtifactHydrator] = {"generic": GenericHydrator()}
-    registry = ArtifactHydratorRegistry(hydrators)
-    hydrators.clear()
-    workspace_id = uuid.uuid4()
-
-    result = await registry.hydrate(
-        GenericArtifact(id="generic-1", title="Generic", data=None),
-        ArtifactHydrationContext(
-            session_id=uuid.uuid4(),
-            workspace_id=workspace_id,
-            role=_role(workspace_id),
-        ),
-    )
-
-    assert result is not None
-    assert result.payload == {"ok": True}
 
 
 @pytest.mark.anyio

@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get device
+  description: Get a device onboarded to Strata Cloud Manager with GET /config/setup/v1/devices/{id}.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/setup/get-device-by-id/
+  namespace: tools.pan_strata
+  name: get_device
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    device_id:
+      type: str
+      description: Device ID (serial number).
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/setup/v1/devices/${{ FN.url_encode(inputs.device_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+  returns: ${{ steps.get.result }}

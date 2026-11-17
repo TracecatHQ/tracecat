@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Get job
+  description: Get a configuration job with GET /config/operations/v1/jobs/{id}. Returns normalized status, result, done, and succeeded fields along with the raw job.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/operations/get-jobs-by-id/
+  namespace: tools.pan_strata
+  name: get_job
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    job_id:
+      type: str
+      description: Job ID, e.g. the job_id returned by push_candidate_config.
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/operations/v1/jobs/${{ FN.url_encode(inputs.job_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+    - ref: normalize
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.get.result }}
+          job_id: ${{ inputs.job_id }}
+          raise_on_failure: false
+        script: |
+          TERMINAL_STATUS = {"FIN", "PUSHFAIL", "PUSHABORT", "PUSHTIMEOUT"}
+          TERMINAL_RESULT = {"OK", "FAIL", "CANCELLED", "TIMEOUT"}
+          FAILED_STATUS = {"PUSHFAIL", "PUSHABORT", "PUSHTIMEOUT"}
+
+          def main(response, job_id, raise_on_failure):
+              jobs = (response.get("data") or {}).get("data") or []
+              if not jobs:
+                  raise ValueError(f"SCM job {job_id} not found: {response.get('data')}")
+              job = jobs[0]
+              status = job.get("status_str")
+              result = job.get("result_str")
+              done = status in TERMINAL_STATUS or result in TERMINAL_RESULT
+              succeeded = done and result == "OK" and status not in FAILED_STATUS
+              if raise_on_failure and done and not succeeded:
+                  raise ValueError(
+                      f"SCM job {job_id} ({job.get('type_str')}) finished with status {status} "
+                      f"and result {result}: {job.get('summary') or ''} {job.get('details') or ''}".strip()
+                  )
+              return {
+                  "job_id": job.get("id", job_id),
+                  "type": job.get("type_str"),
+                  "status": status,
+                  "result": result,
+                  "percent": job.get("percent"),
+                  "summary": job.get("summary"),
+                  "details": job.get("details"),
+                  "done": done,
+                  "succeeded": succeeded,
+                  "job": job,
+              }
+  returns: ${{ steps.normalize.result }}

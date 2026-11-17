@@ -100,7 +100,6 @@ class AppSettingsRead(BaseSettingsGroup):
 
     app_registry_validation_enabled: bool
     app_executions_query_limit: int
-    app_interactions_enabled: bool
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
@@ -119,10 +118,6 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_executions_query_limit: int = Field(
         default=100,
         description="The maximum number of executions to return in a single query.",
-    )
-    app_interactions_enabled: bool = Field(
-        default=False,
-        description="Whether app interactions are enabled.",
     )
     app_workflow_export_enabled: bool = Field(
         default=True,
@@ -342,6 +337,8 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
     agent_case_chat_inject_content: bool
+    # Defaulted: orgs created before this setting have no stored value.
+    agent_auto_migrate_retired_models: bool = Field(default=False)
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -362,6 +359,10 @@ class AgentSettingsUpdate(BaseSettingsGroup):
     agent_case_chat_inject_content: bool = Field(
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
+    )
+    agent_auto_migrate_retired_models: bool = Field(
+        default=False,
+        description="Whether runs on a retired model move to its replacement when that model is enabled.",
     )
 
 

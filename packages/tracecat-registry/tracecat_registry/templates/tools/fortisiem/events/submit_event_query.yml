@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Submit event query
+  description: Submit an event query to FortiSIEM and return the query ID. Poll the query with get_event_query_progress and fetch results with get_event_query_results, or use run_event_query to do all three.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/451674/events-and-report-integration#request-api-specifications
+  namespace: tools.fortisiem
+  name: submit_event_query
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    query_xml:
+      type: str
+      description: XML document that defines the event query, with a <Reports><Report> root containing the Name, CustomerScope, SelectClause, OrderByClause, PatternClause (SubPattern/SingleEvtConstr filter) and ReportInterval (Low/High epoch seconds, or Window unit/val) elements.
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/query/eventQuery
+        method: POST
+        headers:
+          Content-Type: text/xml
+        content: ${{ inputs.query_xml }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

@@ -27,14 +27,18 @@ import {
 } from "@/components/ui/tooltip"
 import { PushResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
 import { getWorkspaceSyncResourceLabel } from "@/components/workspace-sync/resource-metadata"
+import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
 import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import { cn } from "@/lib/utils"
 
 interface PushResourcePreviewProps {
+  workspaceId?: string
+  operationId?: string
+  diffCount?: number
   preview: WorkspaceSyncExportPreview | undefined
   isLoading: boolean
   compareRef: string | undefined
-  errorMessage?: string
+  errorMessage?: React.ReactNode
   hasRequestedPreview: boolean
   onRequestPreview: () => void
 }
@@ -43,6 +47,9 @@ interface PushResourcePreviewProps {
  * Shows the on-demand push preview: a resource manifest first, then file diffs.
  */
 export function PushResourcePreview({
+  workspaceId,
+  operationId,
+  diffCount = 0,
   preview,
   isLoading,
   compareRef,
@@ -104,7 +111,15 @@ export function PushResourcePreview({
     <div className="flex flex-col gap-3">
       {header}
       <PushResourceManifest preview={preview} isLoading={false} />
-      <ResourceDiffSection diffs={resourceDiffs} emptyRef={compareRef} />
+      {workspaceId && operationId ? (
+        <OperationDiffs
+          workspaceId={workspaceId}
+          operationId={operationId}
+          count={diffCount}
+        />
+      ) : (
+        <ResourceDiffSection diffs={resourceDiffs} emptyRef={compareRef} />
+      )}
     </div>
   )
 }
@@ -170,7 +185,7 @@ function getPreviewButtonLabel({
 /**
  * File-level details within a sync preview.
  */
-export function ResourceDiffSection({
+function ResourceDiffSection({
   diffs,
   emptyRef,
 }: {
@@ -219,39 +234,47 @@ const CHANGE_TYPE_META: Record<
 }
 
 /**
+ * Identify one resource's diff. Bundled resources, such as case tags, share
+ * one `source_path`, so the path alone is not unique.
+ */
+function diffKey(diff: PullResourceDiff): string {
+  return `${diff.resource_type}:${diff.source_id}:${diff.source_path}`
+}
+
+/**
  * Review list for per-resource sync diffs.
  */
-export function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
+function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
   const [viewed, setViewed] = useState<Set<string>>(() => new Set())
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
-    const currentPaths = new Set(diffs.map((diff) => diff.source_path))
-    setViewed((previous) => setIntersection(previous, currentPaths))
-    setCollapsed((previous) => setIntersection(previous, currentPaths))
+    const currentKeys = new Set(diffs.map(diffKey))
+    setViewed((previous) => setIntersection(previous, currentKeys))
+    setCollapsed((previous) => setIntersection(previous, currentKeys))
   }, [diffs])
 
   const viewedCount = diffs.reduce(
-    (total, diff) => (viewed.has(diff.source_path) ? total + 1 : total),
+    (total, diff) => (viewed.has(diffKey(diff)) ? total + 1 : total),
     0
   )
   const allViewed = diffs.length > 0 && viewedCount === diffs.length
   const viewedPercent =
     diffs.length === 0 ? 0 : (viewedCount / diffs.length) * 100
 
-  function setItemViewed(sourcePath: string, value: boolean) {
-    setViewed((previous) => withMember(previous, sourcePath, value))
-    setCollapsed((previous) => withMember(previous, sourcePath, value))
+  function setItemViewed(key: string, value: boolean) {
+    setViewed((previous) => withMember(previous, key, value))
+    setCollapsed((previous) => withMember(previous, key, value))
   }
 
-  function setItemOpen(sourcePath: string, open: boolean) {
-    setCollapsed((previous) => withMember(previous, sourcePath, !open))
+  function setItemOpen(key: string, open: boolean) {
+    setCollapsed((previous) => withMember(previous, key, !open))
   }
 
   function markAllViewed() {
-    const paths = diffs.map((diff) => diff.source_path)
-    setViewed(new Set(paths))
-    setCollapsed(new Set(paths))
+    const keys = diffs.map(diffKey)
+    setViewed(new Set(keys))
+    setCollapsed(new Set(keys))
   }
 
   return (
@@ -281,16 +304,19 @@ export function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
         </div>
 
         <div className="divide-y">
-          {diffs.map((diff) => (
-            <ResourceDiffItem
-              key={diff.source_path}
-              diff={diff}
-              viewed={viewed.has(diff.source_path)}
-              open={!collapsed.has(diff.source_path)}
-              onViewedChange={(value) => setItemViewed(diff.source_path, value)}
-              onOpenChange={(open) => setItemOpen(diff.source_path, open)}
-            />
-          ))}
+          {diffs.map((diff) => {
+            const key = diffKey(diff)
+            return (
+              <ResourceDiffItem
+                key={key}
+                diff={diff}
+                viewed={viewed.has(key)}
+                open={!collapsed.has(key)}
+                onViewedChange={(value) => setItemViewed(key, value)}
+                onOpenChange={(open) => setItemOpen(key, open)}
+              />
+            )
+          })}
         </div>
       </div>
     </TooltipProvider>

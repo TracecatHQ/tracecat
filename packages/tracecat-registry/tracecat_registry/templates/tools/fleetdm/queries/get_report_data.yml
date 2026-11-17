@@ -16,6 +16,33 @@ definition:
     report_id:
       type: int
       description: Numeric Fleet report ID.
+    fleet_id:
+      type: int | None
+      description: Filter the report to only include hosts that are associated with the fleet specified.
+      default: null
+    query:
+      type: str | None
+      description: Search query keywords. Matches the host's display name and any result column value.
+      default: null
+    page:
+      type: int | None
+      description: Page number of the results to fetch. Only applies when `per_page` is set.
+      default: null
+    per_page:
+      type: int | None
+      description: Results per page. If omitted, all results are returned and `meta` is not included.
+      default: null
+    order_key:
+      type: str | None
+      description: What to order results by. Valid options are `"last_fetched"`, `"host_name"`, `"host_id"`,
+        or the name of a result column. Result column values are sorted as strings, and the built-in
+        options take precedence over a result column with the same name. Default is `"last_fetched"`.
+      default: null
+    order_direction:
+      type: str | None
+      description: '**Requires `order_key`**. The direction of the order given the order key. Options
+        include `"asc"` and `"desc"`. Default is `"desc"`.'
+      default: null
   steps:
     - ref: report_data
       action: core.http_request
@@ -24,4 +51,11 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          fleet_id: ${{ inputs.fleet_id }}
+          query: ${{ inputs.query }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
   returns: ${{ steps.report_data.result.data }}

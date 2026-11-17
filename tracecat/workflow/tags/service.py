@@ -7,8 +7,10 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.identifiers import TagID
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowTagsService(BaseWorkspaceService):
@@ -70,6 +72,12 @@ class WorkflowTagsService(BaseWorkspaceService):
         self, wf_id: WorkflowID, tag_id: TagID
     ) -> WorkflowTagLink:
         """Add a tag association to a workflow."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(wf_id),
+        )
         await self._require_workflow_and_tag_in_workspace(wf_id, tag_id)
         stmt = (
             pg_insert(WorkflowTagLink)
@@ -87,5 +95,11 @@ class WorkflowTagsService(BaseWorkspaceService):
     @require_scope("workflow:update")
     async def remove_workflow_tag(self, wf_tag: WorkflowTagLink) -> None:
         """Delete a workflow tag association."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=wf_tag.workflow_id,
+        )
         await self.session.delete(wf_tag)
         await self.session.commit()

@@ -36,7 +36,24 @@ model_list:
     litellm_params:
       model: openai/*
 
-  # Catch-all: unqualified model names are routed to OpenAI's Chat Completions API.
+  - model_name: openrouter/*
+    litellm_params:
+      model: openrouter/*
+
+  - model_name: ollama_chat/*
+    litellm_params:
+      model: ollama_chat/*
+
+  - model_name: hosted_vllm/*
+    litellm_params:
+      model: hosted_vllm/*
+
+  - model_name: litellm_proxy/*
+    litellm_params:
+      model: litellm_proxy/*
+
+  # Catch-all: unqualified model names route through hosted_vllm/*, the
+  # OpenAI-compatible Chat Completions adapter.
   - model_name: "*"
     litellm_params:
       model: hosted_vllm/*
@@ -44,6 +61,12 @@ model_list:
 general_settings:
   custom_auth: tracecat.agent.gateway.user_api_key_auth
   database_url: null
+
+router_settings:
+  # Credentials are injected per request, so each caller's key becomes its own
+  # single-deployment group with nothing to fail over to. A cooldown would only
+  # replace that caller's real provider error (e.g. a 401) with a gateway 503.
+  disable_cooldowns: true
 
 litellm_settings:
   callbacks:

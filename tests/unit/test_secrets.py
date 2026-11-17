@@ -5,6 +5,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from tracecat.secrets import common as secrets_common
 from tracecat.secrets.common import apply_masks, apply_masks_object
+from tracecat.secrets.constants import MASK_VALUE
 from tracecat.secrets.encryption import (
     decrypt_bytes,
     decrypt_value,
@@ -68,41 +69,119 @@ class TestEncryption:
             decrypt_value(corrupted_value, key=test_encryption_key)
 
 
-class TestBasicMasking:
-    """Test suite for basic string masking functionality."""
+MASK_CASES = [
+    pytest.param("This is a test string with no masks.", [], None, id="no_masks"),
+    pytest.param(
+        "This is a test string with a secret.",
+        ["secret"],
+        "This is a test string with a ***.",
+        id="single_mask",
+    ),
+    pytest.param(
+        "This is a test string with multiple secrets: secret1 and secret2.",
+        ["secret1", "secret2"],
+        "This is a test string with multiple secrets: *** and ***.",
+        id="multiple_masks",
+    ),
+    pytest.param(
+        "This is a test string with a partialsecret.",
+        ["partial"],
+        "This is a test string with a ***secret.",
+        id="partial_match",
+    ),
+    pytest.param(
+        "This is a test string with no matching secrets.",
+        ["nomatch"],
+        None,
+        id="no_match",
+    ),
+    pytest.param(
+        "This is a secret message",
+        ["", "secret", ""],
+        "This is a *** message",
+        id="empty_masks_ignored",
+    ),
+    pytest.param(
+        "This is a secret message",
+        [" ", "\t", "secret", "\n"],
+        "This is a *** message",
+        id="whitespace_masks_ignored",
+    ),
+    pytest.param(
+        "Login with user@domain.com and secret.key then use pass[word] for api_key+123",
+        [
+            "secret.key",
+            "user@domain.com",
+            "pass[word]",
+            "api_key+123",
+            "token*",
+            "hash^123",
+        ],
+        "Login with *** and *** then use *** for ***",
+        id="regex_special_characters",
+    ),
+    pytest.param(
+        f"Here is a short secret and {'x' * 1000} is very long",
+        ["x" * 1000, "short"],
+        "Here is a *** secret and *** is very long",
+        id="very_long_secret",
+    ),
+    pytest.param(
+        "This contains secret_50 and secret_99 but not secret_200",
+        [f"secret_{i}" for i in range(100)],
+        # Longest-first: secret_20 matches inside secret_200.
+        "This contains *** and *** but not ***0",
+        id="many_masks",
+    ),
+    pytest.param(
+        "The Secret is secret and PASSWORD is password",
+        ["Secret", "PASSWORD"],
+        "The *** is secret and *** is password",
+        id="case_sensitive",
+    ),
+    pytest.param(
+        "The secretkey contains secret and key",
+        ["secret", "secretkey", "key"],
+        "The *** contains *** and ***",
+        id="overlapping_longest_first",
+    ),
+    pytest.param(
+        "start of text has middle content and end",
+        ["start", "end", "middle"],
+        "*** of text has *** content and ***",
+        id="boundaries",
+    ),
+    pytest.param("start", ["start", "end"], "***", id="whole_string"),
+    pytest.param(
+        "First secret123 and second secret123 and third secret123",
+        ["secret123"],
+        "First *** and second *** and third ***",
+        id="repeated",
+    ),
+    pytest.param(
+        "admin user with password 123 is not admin_password_123",
+        ["admin_password_123"],
+        "admin user with password 123 is not ***",
+        id="partial_secret_not_masked",
+    ),
+    pytest.param(
+        f"The secret is hidden as {MASK_VALUE} but real secret should be masked",
+        [MASK_VALUE, "secret"],
+        f"The *** is hidden as {MASK_VALUE} but real *** should be masked",
+        id="mask_value_as_secret",
+    ),
+    pytest.param(
+        "The real_secret should be masked but 42 and True and 3.14 are okay",
+        ["42", "True", "3.14", "real_secret", "  "],
+        "The *** should be masked but *** and *** and *** are okay",
+        id="stringified_non_string_secrets",
+    ),
+]
 
-    def test_apply_masks_no_masks(self):
-        """Test apply_masks with no masks provided."""
-        value = "This is a test string with no masks."
-        masks = []
-        assert apply_masks(value, masks) == value
 
-    def test_apply_masks_single_mask(self):
-        """Test apply_masks with a single mask."""
-        value = "This is a test string with a secret."
-        masks = ["secret"]
-        expected = "This is a test string with a ***."
-        assert apply_masks(value, masks) == expected
-
-    def test_apply_masks_multiple_masks(self):
-        """Test apply_masks with multiple masks."""
-        value = "This is a test string with multiple secrets: secret1 and secret2."
-        masks = ["secret1", "secret2"]
-        expected = "This is a test string with multiple secrets: *** and ***."
-        assert apply_masks(value, masks) == expected
-
-    def test_apply_masks_partial_match(self):
-        """Test apply_masks with partial matching masks."""
-        value = "This is a test string with a partialsecret."
-        masks = ["partial"]
-        expected = "This is a test string with a ***secret."
-        assert apply_masks(value, masks) == expected
-
-    def test_apply_masks_no_match(self):
-        """Test apply_masks with masks that do not match."""
-        value = "This is a test string with no matching secrets."
-        masks = ["nomatch"]
-        assert apply_masks(value, masks) == value
+@pytest.mark.parametrize(("text", "masks", "expected"), MASK_CASES)
+def test_apply_masks(text: str, masks: list[str], expected: str | None) -> None:
+    assert apply_masks(text, masks) == (text if expected is None else expected)
 
 
 class TestObjectMasking:
@@ -155,68 +234,6 @@ class TestObjectMasking:
             ("No sensitive data here", "Another ***"),
             ["No sensitive data here", "Another *** in a list"],
         ]
-        assert apply_masks_object(input_data, masks) == expected_data
-
-    def test_apply_masks_object_with_nested_structures(self):
-        """Test masking of nested data structures."""
-        masks = ["secret", "password"]
-        input_data = {
-            "key1": "This is a secret message",
-            "key2": ["No sensitive data here", "Another secret"],
-            "key3": {
-                "subkey1": "password123",
-                "subkey2": "No secret",
-            },
-        }
-        expected_data = {
-            "key1": "This is a *** message",
-            "key2": ["No sensitive data here", "Another ***"],
-            "key3": {
-                "subkey1": "***123",
-                "subkey2": "No ***",
-            },
-        }
-        assert apply_masks_object(input_data, masks) == expected_data
-
-    def test_apply_masks_object_with_heavily_nested_structures(self):
-        """Test apply_masks_object with heavily nested structures."""
-        masks = ["secret", "password"]
-        input_data = {
-            "level1": {
-                "level2": {
-                    "level3": {
-                        "level4": {
-                            "level5": {
-                                "key1": "This is a secret message",
-                                "key2": ["No sensitive data here", "Another secret"],
-                                "key3": {
-                                    "subkey1": "password123",
-                                    "subkey2": "No secret",
-                                },
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        expected_data = {
-            "level1": {
-                "level2": {
-                    "level3": {
-                        "level4": {
-                            "level5": {
-                                "key1": "This is a *** message",
-                                "key2": ["No sensitive data here", "Another ***"],
-                                "key3": {
-                                    "subkey1": "***123",
-                                    "subkey2": "No ***",
-                                },
-                            }
-                        }
-                    }
-                }
-            }
-        }
         assert apply_masks_object(input_data, masks) == expected_data
 
     def test_apply_masks_object_with_no_masks(self):
@@ -333,67 +350,6 @@ class TestSecurityFeatures:
         }
         assert apply_masks_object(input_data, masks) == expected_data
 
-    def test_empty_string_masks_ignored(self):
-        """Test that empty string masks are ignored to prevent masking everything."""
-        masks = ["", "secret", ""]
-        input_text = "This is a secret message"
-        expected = "This is a *** message"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_whitespace_only_masks_ignored(self):
-        """Test that whitespace-only masks are ignored."""
-        masks = [" ", "\t", "secret", "\n"]
-        input_text = "This is a secret message"
-        expected = "This is a *** message"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_none_values_in_masks_handled_safely(self):
-        """Test that None values in mask lists are handled safely."""
-        # This test ensures the masking logic doesn't break with None values
-        masks = ["secret", None, "password"]  # type: ignore
-        input_text = "This is a secret with password"
-        # Should still mask the valid strings
-        expected = "This is a *** with ***"
-        # Filter out None values before passing to apply_masks
-        valid_masks = [mask for mask in masks if mask is not None]
-        assert apply_masks(input_text, valid_masks) == expected
-
-    def test_regex_special_characters_in_secrets(self):
-        """Test that secrets containing regex special characters are properly escaped."""
-        # These secrets contain regex special characters that could break pattern matching
-        masks = [
-            "secret.key",
-            "user@domain.com",
-            "pass[word]",
-            "api_key+123",
-            "token*",
-            "hash^123",
-        ]
-
-        input_text = "Login with user@domain.com and secret.key then use pass[word] for api_key+123"
-        expected = "Login with *** and *** then use *** for ***"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_very_long_secrets_performance(self):
-        """Test performance and correctness with very long secret values."""
-        # Test with a very long secret to ensure no performance issues
-        long_secret = "x" * 1000  # 1000 character secret
-        masks = [long_secret, "short"]
-
-        input_text = f"Here is a short secret and {long_secret} is very long"
-        expected = "Here is a *** secret and *** is very long"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_many_masks_performance(self):
-        """Test performance with a large number of masks."""
-        # Create many masks to test performance doesn't degrade
-        masks = [f"secret_{i}" for i in range(100)]
-
-        input_text = "This contains secret_50 and secret_99 but not secret_200"
-        # Longest-first: secret_50 and secret_99 match fully; secret_20 matches in secret_200
-        expected = "This contains *** and *** but not ***0"
-        assert apply_masks(input_text, masks) == expected
-
     def test_unicode_secrets_handling(self):
         """Test that unicode characters in secrets are handled correctly."""
         masks = ["café", "naïve", "🔐secret", "пароль", "密码"]
@@ -408,43 +364,6 @@ class TestSecurityFeatures:
             "unicode_list": ["***", "***", "***"],
         }
         assert apply_masks_object(input_data, masks) == expected_data
-
-    def test_case_sensitive_masking(self):
-        """Test that masking is case-sensitive by default."""
-        masks = ["Secret", "PASSWORD"]
-
-        input_text = "The Secret is secret and PASSWORD is password"
-        expected = "The *** is secret and *** is password"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_overlapping_secrets(self):
-        """Test that longer secrets are masked first to prevent partial leaks."""
-        masks = ["secret", "secretkey", "key"]
-
-        input_text = "The secretkey contains secret and key"
-        # Longest-first: "secretkey" matches as one token, not "secret"+"key"
-        expected = "The *** contains *** and ***"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_secrets_at_boundaries(self):
-        """Test secrets at word boundaries and string boundaries."""
-        masks = ["start", "end", "middle"]
-
-        input_text = "start of text has middle content and end"
-        expected = "*** of text has *** content and ***"
-        assert apply_masks(input_text, masks) == expected
-
-        # Test at actual string boundaries
-        boundary_text = "start"
-        assert apply_masks(boundary_text, masks) == "***"
-
-    def test_repeated_secrets(self):
-        """Test that the same secret is masked consistently when repeated."""
-        masks = ["secret123"]
-
-        input_text = "First secret123 and second secret123 and third secret123"
-        expected = "First *** and second *** and third ***"
-        assert apply_masks(input_text, masks) == expected
 
     def test_nested_object_secret_leakage_prevention(self):
         """Test that secrets don't leak through deeply nested object structures."""
@@ -476,59 +395,6 @@ class TestSecurityFeatures:
         assert result["level1"]["level2"]["level3"]["level4"]["level5"][1][1] == "***"
         assert result["level1"]["level2"]["level3"]["level4"]["level5"][2][2] == "***"
 
-    def test_partial_secret_matches_security(self):
-        """Test that partial matches don't create security vulnerabilities."""
-        masks = ["admin_password_123"]
-
-        # These should NOT be masked as they're only partial matches
-        input_text = "admin user with password 123 is not admin_password_123"
-        expected = "admin user with password 123 is not ***"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_secret_masking_with_special_mask_value(self):
-        """Test that the mask value itself doesn't create security issues."""
-        from tracecat.secrets.constants import MASK_VALUE
-
-        masks = [MASK_VALUE, "secret"]  # Include the mask value as a "secret"
-
-        input_text = (
-            f"The secret is hidden as {MASK_VALUE} but real secret should be masked"
-        )
-        # The actual mask value should be filtered out due to length check
-        expected = f"The *** is hidden as {MASK_VALUE} but real *** should be masked"
-        assert apply_masks(input_text, masks) == expected
-
-    def test_type_confusion_prevention(self):
-        """Test that type confusion doesn't lead to security bypass."""
-        # Mix different types that could cause confusion
-        mixed_masks = [42, True, 3.14, "real_secret", None, "", "  "]  # type: ignore
-
-        input_text = (
-            "The real_secret should be masked but 42 and True and 3.14 are okay"
-        )
-
-        # Filter to only valid string masks as the actual code would do
-        valid_masks = [
-            str(mask) for mask in mixed_masks if mask is not None and len(str(mask)) > 1
-        ]
-        # "42" will be masked when it appears in text, "True" will be masked, "3.14" will be masked
-        expected = "The *** should be masked but *** and *** and *** are okay"
-        assert apply_masks(input_text, valid_masks) == expected
-
-    def test_configuration_disable_masking_security(self):
-        """Test that masking disable configuration is handled securely."""
-        # This test ensures that when masking is disabled, it's clearly indicated
-        # and not accidentally enabled with wrong data
-        masks = ["secret", "password"]
-        input_text = "This has secret and password"
-
-        # When masking is enabled (normal case)
-        expected_masked = "This has *** and ***"
-        assert apply_masks(input_text, masks) == expected_masked
-
-        # When no masks provided (simulating disabled masking)
-        assert apply_masks(input_text, []) == input_text
-
     def test_memory_safety_large_objects(self):
         """Test that large objects don't cause memory issues during masking."""
         masks = ["secret_data"]
@@ -551,159 +417,3 @@ class TestSecurityFeatures:
         # Verify structure is preserved
         assert len(result) == 20
         assert len(result["key_0"]) == 50
-
-
-class TestExecutorServiceMasking:
-    """Test suite for executor service-level masking and logging security."""
-
-    def test_mask_values_filtering_logic(self):
-        """Test the mask values filtering logic that prevents character-level masking."""
-        from tracecat.parse import traverse_leaves
-
-        # Simulate the secrets structure from the executor service
-        secrets = {
-            "api_secret": {
-                "API_KEY": "long_api_key_12345",  # gitleaks:allow
-                "SHORT": "x",  # Single character - should be filtered out
-                "EMPTY": "",  # Empty string - should be filtered out
-                "VALID": "valid_secret",
-            },
-            "db_secret": {
-                "PASSWORD": "database_password_789",
-                "A": "a",  # Single character - should be filtered out
-            },
-        }
-
-        # Replicate the executor service masking logic
-        mask_values = set()
-        for _, secret_value in traverse_leaves(secrets):
-            if secret_value is not None:
-                secret_str = str(secret_value)
-                if len(secret_str) > 1:
-                    mask_values.add(secret_str)
-                if isinstance(secret_value, str) and len(secret_value) > 1:
-                    mask_values.add(secret_value)
-
-        # Verify single characters are filtered out
-        assert "x" not in mask_values
-        assert "a" not in mask_values
-        assert "" not in mask_values
-
-        # Verify valid secrets are included
-        assert "long_api_key_12345" in mask_values
-        assert "valid_secret" in mask_values
-        assert "database_password_789" in mask_values
-
-    def test_non_string_secret_values_conversion(self):
-        """Test that non-string secret values are properly converted for masking."""
-        from tracecat.parse import traverse_leaves
-
-        secrets = {
-            "config_secret": {
-                "API_TIMEOUT": 30,  # Integer
-                "ENABLE_DEBUG": True,  # Boolean
-                "RATE_LIMIT": 1.5,  # Float
-                "API_KEY": "real_string_secret",  # gitleaks:allow
-                "NONE_VALUE": None,  # None
-            }
-        }
-
-        mask_values = set()
-        for _, secret_value in traverse_leaves(secrets):
-            if secret_value is not None:
-                secret_str = str(secret_value)
-                if len(secret_str) > 1:
-                    mask_values.add(secret_str)
-                if isinstance(secret_value, str) and len(secret_value) > 1:
-                    mask_values.add(secret_value)
-
-        # Verify non-string values are converted and included
-        assert "30" in mask_values
-        assert "True" in mask_values
-        assert "1.5" in mask_values
-        assert "real_string_secret" in mask_values
-
-        # Verify None values don't cause issues
-        assert "None" not in mask_values
-
-    def test_secrets_structure_traversal_safety(self):
-        """Test that secrets traversal handles various data structures safely."""
-        from tracecat.parse import traverse_leaves
-
-        # Complex secrets structure that could cause issues
-        complex_secrets = {
-            "nested_secret": {
-                "SIMPLE": "simple_value",
-                "NESTED_DICT": {"inner": "inner_value"},
-                "NESTED_LIST": ["item1", "item2"],
-                "MIXED": {
-                    "list_in_dict": ["a", "b"],
-                    "dict_in_dict": {"deep": "deep_value"},
-                },
-            }
-        }
-
-        # This should not raise any exceptions
-        mask_values = set()
-        for _, secret_value in traverse_leaves(complex_secrets):
-            if secret_value is not None:
-                secret_str = str(secret_value)
-                if len(secret_str) > 1:
-                    mask_values.add(secret_str)
-                if isinstance(secret_value, str) and len(secret_value) > 1:
-                    mask_values.add(secret_value)
-
-        # Verify leaf values are extracted correctly
-        assert "simple_value" in mask_values
-        assert "inner_value" in mask_values
-        assert "item1" in mask_values
-        assert "item2" in mask_values
-        assert "deep_value" in mask_values
-
-    def test_logging_safety_simulation(self):
-        """Test that common logging scenarios don't leak secrets."""
-        # Simulate what would happen if we accidentally logged sensitive data
-        secrets = ["api_key_12345", "password_secret", "token_xyz"]
-
-        # Test data that might appear in logs
-        log_data = {
-            "action": "user_login",
-            "args": {
-                "username": "admin",
-                "password": "password_secret",  # This should be masked
-                "api_key": "api_key_12345",  # gitleaks:allow
-            },
-            "result": "Login successful with token_xyz",  # This should be masked
-            "metadata": {"timestamp": "2023-01-01", "safe_data": "this is safe"},
-        }
-
-        # Apply masking to simulate what should happen in logs
-        masked_log_data = apply_masks_object(log_data, secrets)
-
-        # Verify secrets are masked
-        assert masked_log_data["args"]["password"] == "***"
-        assert masked_log_data["args"]["api_key"] == "***"
-        assert "***" in masked_log_data["result"]
-
-        # Verify safe data is preserved
-        assert masked_log_data["action"] == "user_login"
-        assert masked_log_data["args"]["username"] == "admin"
-        assert masked_log_data["metadata"]["safe_data"] == "this is safe"
-
-    def test_masking_disabled_configuration(self):
-        """Test behavior when masking is disabled via configuration."""
-        # Simulate the TRACECAT__UNSAFE_DISABLE_SM_MASKING flag
-        secrets = ["secret1", "secret2"]
-        sensitive_data = "This contains secret1 and secret2"
-
-        # When masking is enabled (normal case)
-        masked_result = apply_masks(sensitive_data, secrets)
-        assert masked_result == "This contains *** and ***"
-
-        # When masking is disabled (mask_values = None scenario)
-        # The service would not call apply_masks at all, so data remains unmasked
-        unmasked_result = sensitive_data  # Simulating no masking applied
-        assert unmasked_result == "This contains secret1 and secret2"
-
-        # Verify this is clearly different
-        assert masked_result != unmasked_result

@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     SecretStr,
     StringConstraints,
     field_validator,
@@ -385,13 +386,18 @@ AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
 AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
 
+def aws_partition_for_region(region: str) -> str | None:
+    """Return the AWS partition for a region, or None when botocore doesn't know it."""
+    try:
+        return botocore.session.get_session().get_partition_for_region(region)
+    except UnknownRegionError:
+        return None  # Region is newer than the pinned botocore; let AWS decide.
+
+
 def check_aws_partition(role_arn: str, region: str) -> None:
     """Reject a role ARN from a different AWS partition than the region."""
-    try:
-        partition = botocore.session.get_session().get_partition_for_region(region)
-    except UnknownRegionError:
-        return  # Region is newer than the pinned botocore; let AWS decide.
-    if role_arn.split(":")[1] != partition:
+    partition = aws_partition_for_region(region)
+    if partition is not None and role_arn.split(":")[1] != partition:
         raise ValueError(
             f"Role ARN partition must be {partition!r} for region {region!r}"
         )
@@ -449,7 +455,10 @@ class AwsSecretsManagerStoreConfig(BaseModel):
     provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
         SecretStoreProvider.AWS_SECRETS_MANAGER
     )
-    role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
+    # None until the admin creates the role from the generated trust policy.
+    role_arn: str | None = Field(
+        default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
+    )
     region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
     external_id: str = Field(..., min_length=1, max_length=255)
 
@@ -460,12 +469,15 @@ class AwsSecretsManagerStoreCreate(BaseModel):
     provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
         SecretStoreProvider.AWS_SECRETS_MANAGER
     )
-    role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
+    role_arn: str | None = Field(
+        default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
+    )
     region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
 
     @model_validator(mode="after")
     def validate_partition(self) -> AwsSecretsManagerStoreCreate:
-        check_aws_partition(self.role_arn, self.region)
+        if self.role_arn is not None:
+            check_aws_partition(self.role_arn, self.region)
         return self
 
 
@@ -519,6 +531,13 @@ class SecretStoreUpdate(BaseModel):
         return value
 
 
+class SecretStoreWorkspaceUsage(BaseModel):
+    """Number of secrets in one workspace that reference a store."""
+
+    workspace_id: WorkspaceID
+    secret_count: int
+
+
 class SecretStoreRead(BaseModel):
     """Organization view of a secret store, including trust-policy inputs."""
 
@@ -532,8 +551,16 @@ class SecretStoreRead(BaseModel):
     all_workspaces: bool
     tracecat_aws_account_id: str | None = None
     tracecat_aws_principal_arn: str | None = None
+    aws_partition: str | None = Field(
+        default=None,
+        description="AWS partition of the store region, when botocore knows it.",
+    )
     authorized_workspace_ids: list[WorkspaceID] = Field(default_factory=list)
     reference_count: int = 0
+    workspace_usage: list[SecretStoreWorkspaceUsage] = Field(
+        default_factory=list,
+        description="Referencing secret counts per workspace, most used first.",
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -542,26 +569,45 @@ class SecretStoreRead(BaseModel):
         obj: OrganizationSecretStore,
         *,
         authorized_workspace_ids: list[WorkspaceID],
-        reference_count: int,
+        workspace_usage: list[SecretStoreWorkspaceUsage],
         tracecat_aws_account_id: str | None,
         tracecat_aws_principal_arn: str | None,
     ) -> SecretStoreRead:
+        config = SecretStoreConfig.model_validate(obj.config)
         return SecretStoreRead(
             id=obj.id,
             organization_id=obj.organization_id,
             name=obj.name,
             description=obj.description,
             provider=SecretStoreProvider(obj.provider),
-            config=SecretStoreConfig.model_validate(obj.config),
+            config=config,
             enabled=obj.enabled,
             all_workspaces=obj.all_workspaces,
             tracecat_aws_account_id=tracecat_aws_account_id,
             tracecat_aws_principal_arn=tracecat_aws_principal_arn,
+            aws_partition=aws_partition_for_region(config.region),
             authorized_workspace_ids=authorized_workspace_ids,
-            reference_count=reference_count,
+            reference_count=sum(u.secret_count for u in workspace_usage),
+            workspace_usage=workspace_usage,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )
+
+
+class SecretStoreRequestValidationError(BaseModel):
+    """Standard FastAPI request validation fields for the shared 422 response."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+    input: JsonValue = Field(default=None)
+    ctx: dict[str, JsonValue] | None = Field(default=None)
+
+
+class SecretStoreErrorResponse(BaseModel):
+    """Invalid store configuration, or enabling a store before setup finishes."""
+
+    detail: str | list[SecretStoreRequestValidationError]
 
 
 class SecretStoreAuthorizationCreate(BaseModel):

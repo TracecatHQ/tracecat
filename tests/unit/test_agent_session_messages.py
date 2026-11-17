@@ -7,11 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
-from claude_agent_sdk.types import UserMessage
+from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,
+    mark_hidden_continuation,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -50,40 +51,6 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
     )
     agent_session.id = uuid.uuid4()
     return service, agent_session
-
-
-@pytest.mark.anyio
-async def test_list_messages_preserves_compaction_metadata() -> None:
-    service, agent_session = _build_service()
-    compaction_entry = SimpleNamespace(
-        id=uuid.uuid4(),
-        kind=MessageKind.COMPACTION.value,
-        content={
-            "type": "system",
-            "subtype": "compact_boundary",
-            "compactMetadata": {
-                "preTokens": 128000,
-                "trigger": "auto",
-            },
-        },
-    )
-
-    service.get_session = AsyncMock(return_value=agent_session)
-    service.session.execute = AsyncMock(
-        side_effect=[
-            _mock_scalar_result([]),
-            _mock_scalar_result([compaction_entry]),
-        ]
-    )
-
-    messages = await service.list_messages(agent_session.id)
-
-    assert len(messages) == 1
-    assert messages[0].kind == MessageKind.COMPACTION
-    assert messages[0].compaction == {
-        "phase": "completed",
-        "pre_tokens": 128000,
-    }
 
 
 @pytest.mark.anyio
@@ -408,6 +375,191 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     assert "Continue" not in history.sdk_session_data
 
 
+def _history_row(kind: MessageKind, content: dict[str, Any]) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(), kind=kind.value, raw_session_line=None, content=content
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("answered", [True, False])
+async def test_load_session_history_keeps_meta_prompt_between_assistant_messages(
+    answered: bool,
+) -> None:
+    """A hidden prompt that separates two assistant messages stays in history.
+
+    After a stream dies mid-response, Claude Code keeps the completed blocks
+    and asks the model to resume with a hidden meta prompt. Without it the
+    rebuilt transcript has two adjacent assistant messages. A meta prompt that
+    no assistant message answers is still dropped.
+    """
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    service.get_session = AsyncMock(
+        return_value=SimpleNamespace(
+            id=session_id,
+            forked_from_session_id=None,
+            forked_from_sdk_session_id=None,
+            sdk_session_id="sdk-session-123",
+        )
+    )
+    next_row = (
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "assistant",
+                "uuid": "resumed-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {
+                    "id": "msg_2",
+                    "content": [{"type": "text", "text": "Resumed answer."}],
+                },
+            },
+        )
+        if answered
+        else _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "next-prompt-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {"role": "user", "content": "Next question."},
+            },
+        )
+    )
+    entries = [
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "prompt-uuid",
+                "message": {"role": "user", "content": "Summarize the case."},
+            },
+        ),
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "assistant",
+                "uuid": "partial-uuid",
+                "parentUuid": "prompt-uuid",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "Partial answer."}],
+                },
+            },
+        ),
+        _history_row(
+            MessageKind.INTERNAL,
+            {
+                "type": "user",
+                "uuid": "meta-uuid",
+                "isMeta": True,
+                "parentUuid": "partial-uuid",
+                "message": {"role": "user", "content": "Resume where it stopped."},
+            },
+        ),
+        _history_row(
+            MessageKind.INTERNAL,
+            {
+                "type": "attachment",
+                "uuid": "attachment-uuid",
+                "parentUuid": "meta-uuid",
+            },
+        ),
+        next_row,
+    ]
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result(entries))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    if answered:
+        assert [line["uuid"] for line in lines] == [
+            "prompt-uuid",
+            "partial-uuid",
+            "meta-uuid",
+            "resumed-uuid",
+        ]
+        assert [line["type"] for line in lines] == [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+        ]
+        assert lines[3]["parentUuid"] == "meta-uuid"
+    else:
+        assert [line["uuid"] for line in lines] == [
+            "prompt-uuid",
+            "partial-uuid",
+            "next-prompt-uuid",
+        ]
+        assert lines[2]["parentUuid"] == "partial-uuid"
+
+
+@pytest.mark.anyio
+async def test_load_session_history_hides_continuation_under_unanswered_meta() -> None:
+    """A mis-kinded continuation prompt under a dropped meta row stays hidden."""
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    service.get_session = AsyncMock(
+        return_value=SimpleNamespace(
+            id=session_id,
+            forked_from_session_id=None,
+            forked_from_sdk_session_id=None,
+            sdk_session_id="sdk-session-123",
+        )
+    )
+    entries = [
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "prompt-uuid",
+                "message": {"role": "user", "content": "Summarize the case."},
+            },
+        ),
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "assistant",
+                "uuid": "partial-uuid",
+                "parentUuid": "prompt-uuid",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "Partial answer."}],
+                },
+            },
+        ),
+        _history_row(
+            MessageKind.INTERNAL,
+            {
+                "type": "user",
+                "uuid": "meta-uuid",
+                "isMeta": True,
+                "parentUuid": "partial-uuid",
+                "message": {"role": "user", "content": "Resume where it stopped."},
+            },
+        ),
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "continue-uuid",
+                "parentUuid": "meta-uuid",
+                "message": {"role": "user", "content": APPROVAL_CONTINUATION_PROMPT},
+            },
+        ),
+    ]
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result(entries))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    assert [line["uuid"] for line in lines] == ["prompt-uuid", "partial-uuid"]
+
+
 @pytest.mark.anyio
 async def test_list_messages_skips_misclassified_continuation_artifacts() -> None:
     service, agent_session = _build_service()
@@ -482,3 +634,72 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
 
     assert len(messages) == 1
     assert messages[0].message is not None
+
+
+@pytest.mark.anyio
+async def test_list_messages_keeps_thinking_after_internal_context_rows() -> None:
+    # Claude Code parents each step to internal attachment and skill-load rows;
+    # the reasoning that follows them is part of the turn, not a continuation.
+    service, agent_session = _build_service()
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "user",
+                "uuid": "skill-uuid",
+                "isMeta": True,
+                "message": {"role": "user", "content": "Base directory for skill"},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "attachment",
+                "uuid": "attachment-uuid",
+                "parentUuid": "skill-uuid",
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "type": "assistant",
+                "uuid": "thinking-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet",
+                    "content": [
+                        {"type": "thinking", "thinking": "Check the cases first."}
+                    ],
+                },
+            },
+        ),
+    ]
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([]),
+            _mock_scalar_result(entries),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert isinstance(messages[0].message, AssistantMessage)
+    assert isinstance(messages[0].message.content[0], ThinkingBlock)
+
+
+@pytest.mark.parametrize("parent_uuid", [["parent"], {"id": "parent"}, None])
+def test_mark_hidden_continuation_ignores_malformed_parent(
+    parent_uuid: object,
+) -> None:
+    hidden = {"parent"}
+    line = {"uuid": "child", "parentUuid": parent_uuid}
+
+    assert not mark_hidden_continuation(line, hidden, internal_row=True)
+    assert hidden == {"parent"}

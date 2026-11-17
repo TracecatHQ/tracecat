@@ -1791,7 +1791,7 @@ export function createEnvCompletion() {
         {
           label: "trigger_type",
           detail: "Trigger type",
-          info: "Type of trigger that initiated this workflow",
+          info: "Type of trigger that initiated this workflow ('manual', 'scheduled', 'webhook', 'case' or 'form')",
         },
       ]
 

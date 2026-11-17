@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CloudIcon, PlusCircle, Trash2Icon } from "lucide-react"
+import React from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
@@ -11,7 +12,7 @@ import type {
 } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { DialogFooter } from "@/components/ui/dialog"
+import { DialogBody, DialogFooter } from "@/components/ui/dialog"
 import {
   Form,
   FormControl,
@@ -29,31 +30,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   useAuthorizedSecretStores,
   useAwsSecretReferences,
 } from "@/hooks/use-secret-stores"
+import {
+  validateAwsSecretId,
+  validateSecretKey,
+  validateSecretName,
+} from "@/lib/aws-secret-validation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const SECRET_ID_REGEX =
-  /^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+|[A-Za-z0-9/_+=.@-]{1,512})$/
-const KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
+function refineWith(validate: (value: string) => string | null) {
+  return (value: string, ctx: z.RefinementCtx) => {
+    const message = validate(value)
+    if (message) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+    }
+  }
+}
 
 const awsReferenceSchema = z
   .object({
-    name: z
-      .string()
-      .min(1, "Name is required")
-      .regex(
-        /^[a-z_][a-z0-9_]*$/,
-        "Use lowercase letters, digits, and underscores; do not start with a digit"
-      ),
+    name: z.string().superRefine(refineWith(validateSecretName)),
     description: z.string().max(255).default(""),
     environment: z.string().default(""),
     store_id: z.string().min(1, "Select an authorized store"),
-    remote_reference: z
-      .string()
-      .regex(SECRET_ID_REGEX, "Enter a Secrets Manager secret name or ARN"),
+    remote_reference: z.string().superRefine(refineWith(validateAwsSecretId)),
     mode: z.enum(["whole_string", "json"]),
     whole_string_key: z.string().default(""),
     fields: z
@@ -67,11 +71,12 @@ const awsReferenceSchema = z
   })
   .superRefine((values, ctx) => {
     if (values.mode === "whole_string") {
-      if (!KEY_REGEX.test(values.whole_string_key)) {
+      const keyError = validateSecretKey(values.whole_string_key)
+      if (keyError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["whole_string_key"],
-          message: "Declare one output key name",
+          message: keyError,
         })
       }
       return
@@ -80,33 +85,35 @@ const awsReferenceSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["fields"],
-        message: "Declare at least one JSON field",
+        message: "Add at least one JSON field to read from the secret.",
       })
     }
     const seen = new Set<string>()
     values.fields.forEach((entry, index) => {
-      if (!KEY_REGEX.test(entry.key)) {
+      const key = entry.key.trim()
+      const keyError = validateSecretKey(key)
+      if (keyError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["fields", index, "key"],
-          message: "Invalid key name",
+          message: keyError,
         })
       }
       if (entry.field.trim() === "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["fields", index, "field"],
-          message: "JSON field is required",
+          message: "Enter the top-level JSON field to read, e.g. api_key",
         })
       }
-      if (seen.has(entry.key)) {
+      if (key && seen.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["fields", index, "key"],
-          message: "Output keys must be unique",
+          message: `Output key ${key} is already used. Each key must be unique.`,
         })
       }
-      seen.add(entry.key)
+      seen.add(key)
     })
   })
 
@@ -136,6 +143,8 @@ interface AwsSecretReferenceFormProps {
   initialName?: string
   /** Declared keys to seed the JSON mapping with. */
   initialKeys?: string[]
+  /** Store chosen by the parent's source picker; hides the store field. */
+  storeId?: string
   onSaved: () => void
 }
 
@@ -148,6 +157,7 @@ export function AwsSecretReferenceForm({
   secret,
   initialName = "",
   initialKeys = [],
+  storeId,
   onSaved,
 }: AwsSecretReferenceFormProps) {
   const workspaceId = useWorkspaceId()
@@ -158,6 +168,11 @@ export function AwsSecretReferenceForm({
   } = useAuthorizedSecretStores(workspaceId)
   const { createReference, updateReference } =
     useAwsSecretReferences(workspaceId)
+  // A managed AWS secret only lets the customer change the secret name or
+  // ARN. Inputs are read-only rather than disabled so their values still
+  // submit unchanged.
+  const { isManaged } = useManagedResources(workspaceId)
+  const referenceOnly = isManaged("secret_metadata", secret?.id)
   const mapping = secret?.remote_key_mapping
 
   const methods = useForm<AwsReferenceForm>({
@@ -166,7 +181,7 @@ export function AwsSecretReferenceForm({
       name: secret?.name ?? initialName,
       description: secret?.description ?? "",
       environment: secret?.environment ?? "",
-      store_id: secret?.store_id ?? "",
+      store_id: storeId ?? secret?.store_id ?? "",
       remote_reference: secret?.remote_reference ?? "",
       mode: mapping?.mode ?? (initialKeys.length > 1 ? "json" : "whole_string"),
       whole_string_key:
@@ -176,7 +191,14 @@ export function AwsSecretReferenceForm({
   })
   const { control, register } = methods
   const mode = methods.watch("mode")
+  const name = methods.watch("name")
   const { fields, append, remove } = useFieldArray({ control, name: "fields" })
+  const storeControlled = storeId !== undefined
+  React.useEffect(() => {
+    if (storeId !== undefined) {
+      methods.setValue("store_id", storeId, { shouldValidate: true })
+    }
+  }, [storeId, methods])
 
   const availableStores = (stores ?? []).filter(
     (store) => store.enabled || store.id === secret?.store_id
@@ -207,11 +229,11 @@ export function AwsSecretReferenceForm({
     <Form {...methods}>
       <form
         onSubmit={methods.handleSubmit(onSubmit)}
-        className="flex flex-col flex-1 min-h-0"
+        className="flex min-h-0 flex-1 flex-col"
         data-testid="aws-secret-reference-form"
       >
-        <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
-          {storesError && (
+        <DialogBody>
+          {!storeControlled && storesError && (
             <Alert variant="destructive">
               <AlertTitle>Could not load secret stores</AlertTitle>
               <AlertDescription>
@@ -219,17 +241,20 @@ export function AwsSecretReferenceForm({
               </AlertDescription>
             </Alert>
           )}
-          {!storesLoading && !storesError && availableStores.length === 0 && (
-            <Alert>
-              <CloudIcon className="size-4" />
-              <AlertTitle>No authorized AWS stores</AlertTitle>
-              <AlertDescription>
-                An organization admin must add an AWS Secrets Manager store and
-                authorize this workspace before you can reference secrets from
-                it.
-              </AlertDescription>
-            </Alert>
-          )}
+          {!storeControlled &&
+            !storesLoading &&
+            !storesError &&
+            availableStores.length === 0 && (
+              <Alert>
+                <CloudIcon className="size-4" />
+                <AlertTitle>No authorized AWS stores</AlertTitle>
+                <AlertDescription>
+                  An organization admin must add an AWS Secrets Manager store
+                  and authorize this workspace before you can reference secrets
+                  from it.
+                </AlertDescription>
+              </Alert>
+            )}
           <FormField
             control={control}
             name="name"
@@ -237,13 +262,18 @@ export function AwsSecretReferenceForm({
               <FormItem>
                 <FormLabel className="text-sm">Name</FormLabel>
                 <FormDescription className="text-sm">
-                  Referenced as <code>SECRETS.&lt;name&gt;.&lt;key&gt;</code>.
+                  Referenced as{" "}
+                  <code>
+                    SECRETS.
+                    {validateSecretName(name) ? "<name>" : name}
+                    .&lt;key&gt;
+                  </code>
                 </FormDescription>
                 <FormControl>
                   <Input
                     className="text-sm"
-                    placeholder="Name (snake case)"
-                    readOnly={Boolean(initialName)}
+                    placeholder="hello_world"
+                    readOnly={Boolean(initialName) || referenceOnly}
                     {...register("name")}
                   />
                 </FormControl>
@@ -261,6 +291,7 @@ export function AwsSecretReferenceForm({
                   <Input
                     className="text-sm"
                     placeholder="Description"
+                    readOnly={referenceOnly}
                     {...register("description")}
                   />
                 </FormControl>
@@ -278,6 +309,7 @@ export function AwsSecretReferenceForm({
                   <Input
                     className="text-sm"
                     placeholder='Default environment: "default"'
+                    readOnly={referenceOnly}
                     {...register("environment")}
                   />
                 </FormControl>
@@ -285,36 +317,42 @@ export function AwsSecretReferenceForm({
               </FormItem>
             )}
           />
-          <FormField
-            control={control}
-            name="store_id"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-sm">AWS secret store</FormLabel>
-                <FormDescription className="text-sm">
-                  Only stores authorized for this workspace are listed.
-                </FormDescription>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger className="text-sm">
-                      <SelectValue placeholder="Select a store" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {availableStores.map((store) => (
-                      <SelectItem key={store.id} value={store.id}>
-                        {store.name}{" "}
-                        <span className="text-muted-foreground">
-                          ({store.region}){!store.enabled && " · Disabled"}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {!storeControlled && (
+            <FormField
+              control={control}
+              name="store_id"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">AWS secret store</FormLabel>
+                  <FormDescription className="text-sm">
+                    Only stores authorized for this workspace are listed.
+                  </FormDescription>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={referenceOnly}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="text-sm">
+                        <SelectValue placeholder="Select a store" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {availableStores.map((store) => (
+                        <SelectItem key={store.id} value={store.id}>
+                          {store.name}{" "}
+                          <span className="text-muted-foreground">
+                            ({store.region}){!store.enabled && " · Disabled"}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
           <FormField
             control={control}
             name="remote_reference"
@@ -345,7 +383,11 @@ export function AwsSecretReferenceForm({
                 <FormDescription className="text-sm">
                   How the remote SecretString maps onto secret keys.
                 </FormDescription>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  disabled={referenceOnly}
+                >
                   <FormControl>
                     <SelectTrigger className="text-sm">
                       <SelectValue />
@@ -375,6 +417,7 @@ export function AwsSecretReferenceForm({
                     <Input
                       className="text-sm"
                       placeholder="API_TOKEN"
+                      readOnly={referenceOnly}
                       {...register("whole_string_key")}
                     />
                   </FormControl>
@@ -405,6 +448,7 @@ export function AwsSecretReferenceForm({
                                 <Input
                                   className="text-sm"
                                   placeholder="Output key"
+                                  readOnly={referenceOnly}
                                   {...register(`fields.${index}.key`)}
                                 />
                               </FormControl>
@@ -421,6 +465,7 @@ export function AwsSecretReferenceForm({
                                 <Input
                                   className="text-sm"
                                   placeholder="JSON field"
+                                  readOnly={referenceOnly}
                                   {...register(`fields.${index}.field`)}
                                 />
                               </FormControl>
@@ -433,6 +478,7 @@ export function AwsSecretReferenceForm({
                           variant="ghost"
                           size="icon"
                           aria-label="Remove field"
+                          disabled={referenceOnly}
                           onClick={() => remove(index)}
                         >
                           <Trash2Icon className="size-4" />
@@ -444,6 +490,7 @@ export function AwsSecretReferenceForm({
                     type="button"
                     variant="outline"
                     size="sm"
+                    disabled={referenceOnly}
                     onClick={() => append({ key: "", field: "" })}
                   >
                     <PlusCircle className="mr-2 size-4" />
@@ -454,10 +501,10 @@ export function AwsSecretReferenceForm({
               )}
             />
           )}
-        </div>
-        <DialogFooter className="flex-shrink-0 pt-4">
+        </DialogBody>
+        <DialogFooter>
           <Button
-            className="ml-auto"
+            size="sm"
             type="submit"
             disabled={
               storesLoading ||

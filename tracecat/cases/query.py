@@ -9,9 +9,16 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import FromClause
 
-from tracecat.cases.constants import RESERVED_CASE_FIELDS
+from tracecat.cases.constants import (
+    MAX_PAYLOAD_FIELDS,
+    MAX_PAYLOAD_PATH_KEYS,
+    MAX_PAYLOAD_PATHS,
+    RESERVED_CASE_FIELDS,
+)
 from tracecat.cases.enums import (
+    CaseEventType,
     CaseFieldKind,
     CasePriority,
     CaseSeverity,
@@ -19,6 +26,7 @@ from tracecat.cases.enums import (
 from tracecat.cases.types import (
     CaseFieldJoinSpec,
     CustomFieldDefinition,
+    PayloadSelection,
     ResolvedCaseAggregationField,
 )
 from tracecat.db.models import (
@@ -26,6 +34,7 @@ from tracecat.db.models import (
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
+    CaseEvent,
     CaseTag,
     CaseTagLink,
 )
@@ -54,6 +63,7 @@ if TYPE_CHECKING:
 CUSTOM_FIELD_PREFIX = "fields."
 CUSTOM_FIELDS_JOIN_KEY = "case_fields"
 DROPDOWN_PREFIX = "dropdowns."
+PAYLOAD_PREFIX = "payload."
 TAG_OPS = frozenset({FilterOp.CONTAINS, FilterOp.IN, FilterOp.IS_NULL})
 
 TEXT_OPS = frozenset(
@@ -132,7 +142,43 @@ _RANGE_OPS = frozenset({FilterOp.GT, FilterOp.GTE, FilterOp.LT, FilterOp.LTE})
 _CUSTOM_FIELD_RESERVED_NAMES = frozenset(RESERVED_CASE_FIELDS)
 
 
+CREATED_BY_OPS = frozenset({FilterOp.EQ, FilterOp.IN, FilterOp.IS_NULL})
+
+
+def _created_by_predicate(
+    op: FilterOp,
+    value: NormalizedFilterValue | None,
+) -> ColumnElement[bool]:
+    """Match the user recorded on the case's ``case_created`` event.
+
+    Cases have no creator column; the creation event records the acting user.
+    A workflow or agent acting on a user's behalf records that user, so its
+    cases count as theirs. Scheduled, webhook, and other runs with no user
+    record none, so ``is_null`` matches their cases and ``eq``/``in`` never do.
+    """
+    creation_event = (
+        sa.select(1)
+        .where(
+            CaseEvent.workspace_id == Case.workspace_id,
+            CaseEvent.case_id == Case.id,
+            CaseEvent.type == CaseEventType.CASE_CREATED,
+        )
+        .correlate(Case)
+    )
+    if op is FilterOp.IS_NULL:
+        return sa.not_(sa.exists(creation_event.where(CaseEvent.user_id.is_not(None))))
+    return sa.exists(
+        creation_event.where(compile_predicate(CaseEvent.user_id.expression, op, value))
+    )
+
+
 _FIXED_FILTER_FIELDS: Mapping[str, ResolvedField] = {
+    "created_by": ResolvedField(
+        expr=_created_by_predicate,
+        kind=FieldKind.UUID,
+        allowed_ops=CREATED_BY_OPS,
+        value_type=CaseEvent.user_id.type,
+    ),
     "status": ResolvedField(
         expr=Case.status,
         kind=FieldKind.ENUM,
@@ -249,6 +295,23 @@ class CaseFieldResolver:
 
     def resolve(self, field: str) -> ResolvedField | None:
         """Return the filter field, or ``None`` when the address is unknown."""
+        if field.startswith(PAYLOAD_PREFIX):
+            path = field.removeprefix(PAYLOAD_PREFIX).split(".")
+            if (
+                len(path) > MAX_PAYLOAD_PATH_KEYS
+                or len(field) > 1000
+                or any(not key or "\x00" in key for key in path)
+            ):
+                raise TracecatValidationError(f"Invalid payload filter path {field!r}")
+            # Tuple subscripts bind literal object keys; no user-supplied SQL or
+            # JSONPath is evaluated. JSONB equality preserves scalar types.
+            expression = Case.payload[tuple(path)]
+
+            return ResolvedField(
+                expr=expression,
+                kind=FieldKind.JSON_SCALAR,
+                allowed_ops=frozenset({FilterOp.EQ, FilterOp.NE, FilterOp.IS_NULL}),
+            )
         if field == "priority":
             return _ranked_enum_field(
                 field,
@@ -269,6 +332,9 @@ class CaseFieldResolver:
             return _joined_filter_field(dropdown, ENUM_OPS)
         if custom_field := self._resolve_custom_field_address(field):
             expression, kind, allowed_ops = self._custom_field_expression(custom_field)
+            value_type = expression.type
+            if custom_field.sql_type is SqlType.SELECT and custom_field.options:
+                value_type = sa.Enum(*custom_field.options, native_enum=False)
             return ResolvedField(
                 expr=_joined_field_predicate_factory(
                     self._custom_fields_join,
@@ -276,7 +342,7 @@ class CaseFieldResolver:
                 ),
                 kind=kind,
                 allowed_ops=allowed_ops,
-                value_type=expression.type,
+                value_type=value_type,
             )
         return None
 
@@ -393,11 +459,20 @@ def _parse_custom_field_schema(
             raise TracecatValidationError(
                 f"Case custom field {name!r} has invalid kind {raw_kind!r}"
             ) from exc
+        options = metadata.get("options")
+        if options is not None and (
+            not isinstance(options, list)
+            or any(not isinstance(option, str) for option in options)
+        ):
+            raise TracecatValidationError(
+                f"Case custom field {name!r} has invalid options"
+            )
         parsed[name] = CustomFieldDefinition(
             name=name,
             physical_name=sanitize_identifier(name),
             sql_type=sql_type,
             kind=kind,
+            options=tuple(options) if options is not None else None,
         )
     return parsed
 
@@ -436,6 +511,7 @@ def _ranked_enum_field[
         kind=FieldKind.ENUM,
         allowed_ops=RANKED_ENUM_OPS,
         value_type=column.type,
+        range_choices=tuple(str(member.value) for member in ranks),
     )
 
 
@@ -569,4 +645,81 @@ def _invalid_custom_field(
 ) -> TracecatValidationError:
     return TracecatValidationError(
         f"Case custom field {field.name!r} is invalid: {message}"
+    )
+
+
+def case_payload_projection(
+    fields: Sequence[str],
+    paths: Sequence[Sequence[str]] = (),
+) -> ColumnElement[dict[str, Any] | None]:
+    """Select object paths in PostgreSQL, keeping the original nesting and nulls."""
+    if len(fields) > MAX_PAYLOAD_FIELDS:
+        raise TracecatValidationError(
+            f"At most {MAX_PAYLOAD_FIELDS} payload fields may be selected"
+        )
+    if len(paths) > MAX_PAYLOAD_PATHS:
+        raise TracecatValidationError(
+            f"At most {MAX_PAYLOAD_PATHS} payload paths may be selected"
+        )
+    selection: PayloadSelection = dict.fromkeys(fields)
+    for path in paths:
+        if not 1 <= len(path) <= MAX_PAYLOAD_PATH_KEYS:
+            raise TracecatValidationError(
+                f"Payload paths must contain 1 to {MAX_PAYLOAD_PATH_KEYS} keys"
+            )
+        node = selection
+        for key in path[:-1]:
+            if key in node and node[key] is None:
+                break  # A selected parent already includes every descendant.
+            child = node.setdefault(key, {})
+            assert child is not None
+            node = child
+        else:
+            node[path[-1]] = None
+
+    selected = _payload_object_projection(
+        Case.payload.expression, selection, Case.__table__
+    )
+    return sa.case(
+        (
+            sa.func.jsonb_typeof(Case.payload) == "object",
+            sa.func.coalesce(selected, sa.literal({}, type_=postgresql.JSONB)),
+        ),
+        else_=None,
+    )
+
+
+def _payload_object_projection(
+    payload: ColumnElement[Any], selection: PayloadSelection, parent: FromClause
+) -> ColumnElement[dict[str, Any] | None]:
+    # Guard each level: array indexes and traversal through scalar values do not
+    # match object keys. Whole arrays/scalars are still selectable as leaves.
+    empty = sa.literal({}, type_=postgresql.JSONB)
+    source = sa.case((sa.func.jsonb_typeof(payload) == "object", payload), else_=empty)
+    entries = sa.func.jsonb_each(source).table_valued("key", "value").alias()
+    branches = [
+        (
+            entries.c.key == key,
+            _payload_object_projection(entries.c.value, child, entries),
+        )
+        for key, child in selection.items()
+        if child is not None
+    ]
+    value = sa.case(*branches, else_=entries.c.value) if branches else entries.c.value
+    selected = (
+        sa.select(entries.c.key, value.label("value"))
+        .where(entries.c.key.in_(list(selection)))
+        .correlate(parent)
+        # Keep this level separate: flattening duplicates the nested expression
+        # in both the aggregate and NULL filter, growing work at every depth.
+        .offset(0)
+        .subquery()
+    )
+    # SQL NULL marks a missing descendant; a JSON null remains a selected value.
+    # Aggregate siblings together so selecting two paths cannot overwrite either.
+    return (
+        sa.select(sa.func.jsonb_object_agg(selected.c.key, selected.c.value))
+        .where(selected.c.value.is_not(None))
+        .correlate(parent)
+        .scalar_subquery()
     )

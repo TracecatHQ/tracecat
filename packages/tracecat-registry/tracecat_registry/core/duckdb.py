@@ -31,6 +31,20 @@ _DEFAULT_EXTENSION_DIRECTORY = "/usr/local/lib/duckdb/extensions"
 # of a few hundred bytes each.
 _ADDRESS_SPACE_PER_THREAD = 512 * 1024 * 1024
 
+# DuckDB 2.0 starts an async I/O pool (``async_threads``, 32 by default) at
+# connect, alongside the worker pool. Under the sandbox's RLIMIT_NPROC (64 tasks
+# by default) that leaves no room for the threads httpfs starts, so thread
+# creation fails with "Resource temporarily unavailable". Size the pool from the
+# task cap instead.
+_TASKS_PER_ASYNC_THREAD = 16
+_DEFAULT_ASYNC_THREADS = 32
+
+# Share of the sandbox memory budget (TRACECAT__SANDBOX_MEMORY_MB) DuckDB may
+# use before spilling to disk. The jail hides its memory cgroup, so DuckDB would
+# otherwise size itself from host RAM and be OOM-killed instead of spilling. The
+# remainder covers the Python process and the rows converted for the result.
+_SANDBOX_MEMORY_FRACTION = 0.7
+
 _M_ARENA_MAX = -8
 _MAX_MALLOC_ARENAS = 2
 
@@ -74,6 +88,24 @@ def _cap_malloc_arenas() -> None:
         pass
 
 
+def _out_of_memory_message(exc: duckdb.OutOfMemoryException) -> str:
+    """Explain a DuckDB OOM so callers (often agents) narrow the query instead of retrying."""
+    cap = ""
+    if resource is not None:
+        soft_limit, _ = resource.getrlimit(resource.RLIMIT_AS)
+        if soft_limit != resource.RLIM_INFINITY:
+            cap = f" (address-space cap {soft_limit // (1024 * 1024)} MiB)"
+    detail = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    return (
+        f"DuckDB ran out of memory in the action sandbox{cap}: {detail}. "
+        "Running the same query again will fail the same way. Reduce the data "
+        "the query reads: use a narrower glob, prefix, or date range, query "
+        "fewer files at a time and combine the results, or select only the "
+        "fields you need. JSON objects whose keys vary between rows use far "
+        "more memory than objects with a fixed set of keys."
+    )
+
+
 def _thread_limit() -> int | None:
     """Thread count that fits the process address-space cap, or None when uncapped.
 
@@ -88,19 +120,48 @@ def _thread_limit() -> int | None:
     return min(by_address_space, os.cpu_count() or 1)
 
 
+def _async_thread_limit() -> int | None:
+    """Async I/O thread count that fits the process task cap, or None when uncapped."""
+    if resource is None:
+        return None
+    soft_limit, _ = resource.getrlimit(resource.RLIMIT_NPROC)
+    if soft_limit == resource.RLIM_INFINITY:
+        return None
+    by_task_cap = max(1, soft_limit // _TASKS_PER_ASYNC_THREAD)
+    return min(by_task_cap, _DEFAULT_ASYNC_THREADS)
+
+
+def _memory_limit() -> str | None:
+    """DuckDB memory limit within the sandbox memory budget, or None outside one."""
+    try:
+        budget_mb = int(os.environ.get("TRACECAT__SANDBOX_MEMORY_MB") or 0)
+    except ValueError:
+        return None
+    if budget_mb <= 0:
+        return None
+    return f"{max(1, int(budget_mb * _SANDBOX_MEMORY_FRACTION))}MiB"
+
+
 def _connect() -> duckdb.DuckDBPyConnection:
     """Open an in-process DuckDB connection.
 
     Loads extensions from the preinstalled directory (see ``_extension_directory``)
     instead of autoinstalling over the network when that directory is available.
-    Caps the thread pool to the address-space limit (see ``_thread_limit``).
+    Caps the thread pool to the address-space limit (see ``_thread_limit``) and
+    the async I/O pool to the task limit (see ``_async_thread_limit``). Inside a
+    sandbox, limits memory to the sandbox budget (see ``_memory_limit``) so
+    large queries spill to disk instead of being OOM-killed.
     """
     _cap_malloc_arenas()
     config: dict[str, str | bool | int | float | list[str]] = {}
     if extension_directory := _extension_directory():
-        config["extension_directory"] = extension_directory
+        config["extension_directories"] = [extension_directory]
     if (threads := _thread_limit()) is not None:
         config["threads"] = threads
+    if (async_threads := _async_thread_limit()) is not None:
+        config["async_threads"] = async_threads
+    if (memory_limit := _memory_limit()) is not None:
+        config["memory_limit"] = memory_limit
     return duckdb.connect(config=config)
 
 
@@ -232,5 +293,7 @@ def execute_sql(
             return con.rowcount
         rows = con.fetchall()
         return _rows_to_json(columns, rows)
+    except duckdb.OutOfMemoryException as exc:
+        raise RuntimeError(_out_of_memory_message(exc)) from exc
     finally:
         con.close()

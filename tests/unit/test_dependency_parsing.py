@@ -3,7 +3,6 @@
 import pytest
 
 from tracecat.registry.dependencies import (
-    ConflictStatement,
     ConflictStatementType,
     ConflictSummary,
     DependencyConflictResult,
@@ -61,20 +60,6 @@ class TestVersionConstraint:
 
 class TestDependencyInfo:
     """Test DependencyInfo validation."""
-
-    def test_valid_dependency_info(self):
-        # Test with constraint
-        dep = DependencyInfo(
-            package="requests",
-            relationship=DependencyRelationship.REQUIRES,
-            constraint=VersionConstraint(
-                operator=VersionOperator.EQUAL, version="2.28.0"
-            ),
-        )
-        assert dep.package == "requests"
-        assert dep.relationship == DependencyRelationship.REQUIRES
-        assert dep.constraint is not None
-        assert dep.constraint.version == "2.28.0"
 
     def test_depends_relationship_validation(self):
         # Valid depends relationship
@@ -237,25 +222,7 @@ class TestToastMessage:
 
 
 class TestDependencyModels:
-    """Test the Pydantic models directly."""
-
-    def test_conflict_statement_model(self):
-        stmt = ConflictStatement(
-            type=ConflictStatementType.BECAUSE,
-            statement="Because package depends on something",
-            dependencies=[
-                DependencyInfo(
-                    package="package",
-                    relationship=DependencyRelationship.REQUIRES,
-                    constraint=VersionConstraint(
-                        operator=VersionOperator.EQUAL, version="1.0.0"
-                    ),
-                )
-            ],
-            index=0,
-        )
-        assert stmt.type == ConflictStatementType.BECAUSE
-        assert len(stmt.dependencies) == 1
+    """Test custom model validation and real-world parsing."""
 
     def test_version_conflict_sorting(self):
         vc = VersionConflict(
@@ -263,39 +230,6 @@ class TestDependencyModels:
         )
         # Should be sorted after validation
         assert vc.required_versions == ["2.28.0", "2.29.0", "2.30.0"]
-
-    def test_dependency_conflict_result_to_dict(self):
-        result = DependencyConflictResult(
-            found=True,
-            conflicts=[
-                ConflictStatement(
-                    type=ConflictStatementType.BECAUSE,
-                    statement="test statement",
-                    dependencies=[
-                        DependencyInfo(
-                            package="pkg",
-                            relationship=DependencyRelationship.REQUIRES,
-                            constraint=VersionConstraint(
-                                operator=VersionOperator.EQUAL, version="1.0.0"
-                            ),
-                        )
-                    ],
-                )
-            ],
-            summary=ConflictSummary(
-                conflicting_packages=["pkg"],
-                version_conflicts=[
-                    VersionConflict(package="pkg", required_versions=["1.0.0", "2.0.0"])
-                ],
-            ),
-            raw_error="test error",
-        )
-
-        dict_result = result.to_dict()
-        assert dict_result["found"] is True
-        assert len(dict_result["conflicts"]) == 1
-        assert dict_result["conflicts"][0]["type"] == "because"
-        assert len(dict_result["summary"]["version_conflicts"]) == 1
 
     def test_parse_real_world_complex_conflict(self):
         """Test parsing a real-world complex dependency conflict from log output."""

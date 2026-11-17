@@ -1,14 +1,36 @@
+import base64
+import binascii
 import logging
 import os
 import uuid
 from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
+from urllib.parse import urlsplit
 
-from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+from tracecat import __version__
+from tracecat.agent.constants import (
+    AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+)
 from tracecat.auth.enums import AuthType
+from tracecat.db.iam.types import (
+    TOKEN_SSLMODES,
+    DbAuth,
+    DbAuthMode,
+    DbAwsIamAuth,
+    DbAzureEntraAuth,
+    DbPasswordAuth,
+)
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
+from tracecat.redis.types import (
+    RedisAuth,
+    RedisAuthMode,
+    RedisAwsIamAuth,
+    RedisAzureEntraAuth,
+    RedisPasswordAuth,
+)
 
 # === Logger === #
 logger = logging.getLogger(__name__)
@@ -82,6 +104,13 @@ class RLSMode(StrEnum):
     OFF = "off"
     SHADOW = "shadow"
     ENFORCE = "enforce"
+
+
+class DBEncryptionAlgorithm(StrEnum):
+    """Cipher used to encrypt new database values."""
+
+    FERNET = "fernet"
+    AES256GCM = "aes256gcm"
 
 
 # === Internal Services === #
@@ -220,6 +249,30 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
 )
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
 
+TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = bound_env(
+    "TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS",
+    3,
+    lower=1,
+)
+"""Mount attempts per SquashFS artifact before falling back to extraction.
+
+Losers of a node-wide loop-device race retry; raise this before raising
+in-pod mount concurrency."""
+
+TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS", 2, lower=1
+)
+"""Concurrent cold registry artifact downloads per executor process.
+
+Each download reserves its bytes against the cache cap before writing."""
+
+TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS", 1, lower=1
+)
+"""Concurrent registry artifact extractions per executor process.
+
+unsquashfs already uses every visible core, so one is the default."""
+
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
     os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
 )
@@ -287,8 +340,160 @@ TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 """The SSL mode to connect to the database with."""
 
+
+def _parse_db_auth() -> DbAuth:
+    raw_mode = (
+        os.environ.get("TRACECAT__DB_AUTH_MODE") or ""
+    ).strip().lower() or "password"
+    # Don't echo the value, not even as the enum's chained error: a credential
+    # pasted into the wrong variable would end up in the logs. So the error is
+    # raised outside the except block.
+    try:
+        mode: DbAuthMode | None = DbAuthMode(raw_mode)
+    except ValueError:
+        mode = None
+    match mode:
+        case None:
+            raise ValueError(
+                f"TRACECAT__DB_AUTH_MODE must be one of {', '.join(DbAuthMode)}"
+            )
+        case DbAuthMode.PASSWORD:
+            return DbPasswordAuth()
+        case DbAuthMode.AZURE_ENTRA:
+            client_id = os.environ.get("TRACECAT__DB_AZURE_CLIENT_ID", "").strip()
+            return DbAzureEntraAuth(client_id=client_id or None)
+        case DbAuthMode.AWS_IAM:
+            host = (
+                os.environ.get("TRACECAT__DB_AWS_IAM_HOST")
+                or os.environ.get("TRACECAT__DB_ENDPOINT")
+                or ""
+            ).strip()
+            raw_port = (
+                os.environ.get("TRACECAT__DB_AWS_IAM_PORT")
+                or os.environ.get("TRACECAT__DB_PORT")
+                or "5432"
+            ).strip()
+            region = (
+                os.environ.get("TRACECAT__DB_AWS_REGION")
+                or os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or ""
+            ).strip()
+            missing = [
+                name
+                for name, value in (
+                    ("TRACECAT__DB_AWS_IAM_HOST (or TRACECAT__DB_ENDPOINT)", host),
+                    ("TRACECAT__DB_AWS_REGION", region),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"TRACECAT__DB_AUTH_MODE=aws_iam requires {', '.join(missing)}"
+                )
+            if not raw_port.isdigit():
+                raise ValueError(
+                    "TRACECAT__DB_AWS_IAM_PORT (or TRACECAT__DB_PORT) must be a "
+                    "port number"
+                )
+            return DbAwsIamAuth(host=host, port=int(raw_port), region=region)
+
+
+TRACECAT__DB_AUTH: DbAuth = _parse_db_auth()
+"""How Tracecat logs in to Postgres, from ``TRACECAT__DB_AUTH_MODE`` (default
+``password``).
+
+- ``password``: ``DbPasswordAuth``; ``TRACECAT__DB_PASS``,
+  ``TRACECAT__DB_PASS__ARN`` or ``TRACECAT__DB_URI``, as before.
+- ``aws_iam``: ``DbAwsIamAuth``. Each new connection logs in as
+  ``TRACECAT__DB_USER`` with an RDS IAM token signed for
+  ``TRACECAT__DB_AWS_IAM_HOST`` / ``TRACECAT__DB_AWS_IAM_PORT`` (default: the
+  connection's ``TRACECAT__DB_ENDPOINT`` / ``TRACECAT__DB_PORT``; set them to
+  the RDS endpoint when connecting through a pooler that passes the token
+  through) in ``TRACECAT__DB_AWS_REGION`` (default ``AWS_REGION``, then
+  ``AWS_DEFAULT_REGION``).
+- ``azure_entra``: ``DbAzureEntraAuth``. Each new connection logs in as
+  ``TRACECAT__DB_USER`` (the identity's Postgres role name) with an Entra ID
+  token for ``TRACECAT__DB_AZURE_CLIENT_ID`` (optional; DefaultAzureCredential
+  reads ``AZURE_CLIENT_ID`` otherwise).
+
+The token modes connect with ``TRACECAT__DB_USER``, ``TRACECAT__DB_ENDPOINT``,
+``TRACECAT__DB_PORT`` and ``TRACECAT__DB_NAME`` (``TRACECAT__DB_URI`` is not
+used, and must be unset), refuse a static password, and require ``TRACECAT__DB_SSLMODE`` of
+``require`` or stricter.
+"""
+
+# Fail at startup: a token mode with a leftover password or a plaintext-capable
+# sslmode is a misconfiguration, not something to fall back from.
+if not isinstance(TRACECAT__DB_AUTH, DbPasswordAuth):
+    if _db_missing := [
+        name
+        for name, value in (
+            ("TRACECAT__DB_USER", TRACECAT__DB_USER),
+            ("TRACECAT__DB_ENDPOINT", TRACECAT__DB_ENDPOINT),
+            ("TRACECAT__DB_PORT", TRACECAT__DB_PORT),
+            ("TRACECAT__DB_NAME", TRACECAT__DB_NAME),
+        )
+        if not value
+    ]:
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} requires "
+            f"{', '.join(_db_missing)}"
+        )
+    if not ((_port := TRACECAT__DB_PORT or "").isdigit() and 0 < int(_port) < 65536):
+        raise ValueError("TRACECAT__DB_PORT must be a port number")
+    if TRACECAT__DB_PASS or os.environ.get("TRACECAT__DB_PASS__ARN"):
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
+            "unset TRACECAT__DB_PASS and TRACECAT__DB_PASS__ARN"
+        )
+    # The token modes don't use TRACECAT__DB_URI, and alembic would log in with
+    # it instead of a token, so it may not carry a credential (in the userinfo
+    # or the query). Commands that run alembic with an explicit URI drop
+    # TRACECAT__DB_AUTH_MODE from its environment.
+    if os.environ.get("TRACECAT__DB_URI"):
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} logs in with a token: "
+            "unset TRACECAT__DB_URI"
+        )
+    if TRACECAT__DB_SSLMODE not in TOKEN_SSLMODES:
+        raise ValueError(
+            f"TRACECAT__DB_AUTH_MODE={TRACECAT__DB_AUTH.mode} requires TLS: set "
+            f"TRACECAT__DB_SSLMODE to one of {', '.join(sorted(TOKEN_SSLMODES))}"
+        )
+
+TRACECAT__DB_ADMIN_URI = os.environ.get("TRACECAT__DB_ADMIN_URI") or None
+"""Admin connection for ``tracecat db roles`` (``bootstrap``, ``upgrade``,
+``status``) only.
+
+A superuser or a ``CREATEROLE`` role such as the RDS master. Never give it to
+app components. ``tracecat db roles migrate`` logs in as ``migrator`` and
+doesn't read it (Compose's migrations service has it for its role setup step).
+"""
+TRACECAT__DB_MIGRATOR_PASSWORD = (
+    os.environ.get("TRACECAT__DB_MIGRATOR_PASSWORD") or None
+)
+"""Password that ``tracecat.db.roles bootstrap --login password`` sets on ``migrator``."""
+TRACECAT__DB_APP_PASSWORD = os.environ.get("TRACECAT__DB_APP_PASSWORD") or None
+"""Password that ``tracecat.db.roles bootstrap --login password`` sets on ``app``."""
+TRACECAT__DB_AGENT_RUNTIME_PASSWORD = (
+    os.environ.get("TRACECAT__DB_AGENT_RUNTIME_PASSWORD") or None
+)
+"""Password that ``tracecat.db.roles bootstrap --login password`` sets on ``agent_runtime``."""
+
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
+
+TRACECAT__DB_DYNAMIC_OWNER_ROLE = (
+    os.environ.get("TRACECAT__DB_DYNAMIC_OWNER_ROLE") or ""
+).strip() or "app_owner"
+"""Role that owns new dynamic schemas and tables (``tables_*``, ``custom_fields_*``).
+
+Defaults to ``app_owner``, the topology's dynamic keyring. Objects are handed
+over only when the role exists and the connecting role can act as it
+(``tracecat.db.roles bootstrap`` grants ``app_owner`` to ``app`` with INHERIT
+and SET); otherwise the connecting role keeps ownership, as before role setup.
+"""
 
 TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW") or 60)
 """The maximum number of connections to allow in the pool."""
@@ -380,6 +585,10 @@ OIDC_CLIENT_ID = (
 OIDC_CLIENT_SECRET = (
     os.environ.get("OIDC_CLIENT_SECRET") or os.environ.get("OAUTH_CLIENT_SECRET") or ""
 )
+OIDC_CREDENTIALS__ARN = os.environ.get("OIDC_CREDENTIALS__ARN")
+"""AWS Secrets Manager ARN of a JSON secret with ``clientId`` and ``clientSecret``.
+Takes precedence over ``OIDC_CLIENT_ID`` and ``OIDC_CLIENT_SECRET``. Only the
+API service reads it."""
 OIDC_SCOPES = tuple(
     scope
     for scope in (
@@ -393,6 +602,40 @@ OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
+_db_encryption_algorithm_raw = (
+    os.environ.get("TRACECAT__DB_ENCRYPTION_ALGORITHM") or DBEncryptionAlgorithm.FERNET
+)
+try:
+    TRACECAT__DB_ENCRYPTION_ALGORITHM = DBEncryptionAlgorithm(
+        _db_encryption_algorithm_raw.strip().lower()
+    )
+except ValueError as e:
+    raise ValueError(
+        "TRACECAT__DB_ENCRYPTION_ALGORITHM must be one of "
+        f"{', '.join(DBEncryptionAlgorithm)} (got {_db_encryption_algorithm_raw!r})"
+    ) from e
+"""Cipher for new database writes (fernet|aes256gcm). Reads accept both."""
+
+
+def _parse_db_encryption_previous_keys() -> tuple[str, ...]:
+    raw = os.environ.get("TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS") or ""
+    keys = tuple(key for part in raw.split(",") if (key := part.strip()))
+    for index, key in enumerate(keys):
+        try:
+            decoded = base64.urlsafe_b64decode(key)
+        except (binascii.Error, ValueError):
+            decoded = b""
+        if len(decoded) != 32:
+            # Never echo the key itself; name its position instead.
+            raise ValueError(
+                f"TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS entry {index} is not "
+                "32 url-safe base64-encoded bytes"
+            )
+    return keys
+
+
+TRACECAT__DB_ENCRYPTION_PREVIOUS_KEYS = _parse_db_encryption_previous_keys()
+"""Comma-separated retired DB encryption keys, used for reads only during rotation."""
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
     "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
@@ -452,6 +695,16 @@ TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
 TEMPORAL__CLUSTER_QUEUE = os.environ.get(
     "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
 )
+TRACECAT__BACKGROUND_QUEUE = (
+    os.environ.get("TRACECAT__BACKGROUND_QUEUE") or "shared-background-queue"
+)
+TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES = int(
+    os.environ.get("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES") or 10
+)
+if TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES < 1:
+    raise ValueError(
+        "TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES must be at least 1"
+    )
 TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
 TEMPORAL__API_KEY = os.environ.get("TEMPORAL__API_KEY")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT") or "900"
@@ -697,7 +950,26 @@ TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
 TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB") or 2048
 )
-"""Default memory limit for sandbox execution in megabytes (2 GiB)."""
+"""Aggregate cgroup memory budget for action and Python sandboxes in MiB."""
+if TRACECAT__SANDBOX_DEFAULT_MEMORY_MB <= 0:
+    raise ValueError("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB must be positive")
+
+_sandbox_address_space_mb = os.environ.get(
+    "TRACECAT__SANDBOX_ADDRESS_SPACE_MB", ""
+).strip()
+TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
+    int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
+)
+"""Per-process address-space cap in MiB.
+
+Unset means uncapped under the sandbox cgroup memory limit, which bounds RAM;
+without that cgroup it defaults to twice the memory budget.
+"""
+if (
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB is not None
+    and TRACECAT__SANDBOX_ADDRESS_SPACE_MB <= 0
+):
+    raise ValueError("TRACECAT__SANDBOX_ADDRESS_SPACE_MB must be positive")
 
 TRACECAT__SANDBOX_PYPI_INDEX_URL = os.environ.get(
     "TRACECAT__SANDBOX_PYPI_INDEX_URL", "https://pypi.org/simple"
@@ -773,6 +1045,30 @@ Empty by default. Configure exact IPs or narrow CIDRs only for intentional priva
 integrations. Every workspace using these clients can reach an allowed address.
 Set this in the process/container environment, not workspace or action inputs.
 """
+
+TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS", default=False
+)
+"""Break-glass override that skips the platform admin IP allowlist.
+
+Lets operators recover platform admin access after a lockout. Organization IP
+allowlists are unaffected.
+"""
+
+TRACECAT__PLATFORM_ADMIN_MFA_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", default=False
+)
+"""Break-glass override that skips security key (MFA) checks for platform admins.
+
+Skips both the sign-in challenge and step-up verification for platform
+superusers so operators can recover access after losing every security key.
+Organization members are unaffected.
+"""
+
+TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = bound_env(
+    "TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS", 300, lower=30, upper=3600
+)
+"""How long a security key verification satisfies step-up checks (30 s to 1 h)."""
 
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
@@ -850,6 +1146,15 @@ TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
 )
 """Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
+TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS"
+)
+"""Additional CIDRs reachable from sandboxes on TCP/UDP port 53 only.
+
+CNIs with socket-level load balancing (for example Cilium with socket LB)
+rewrite the resolver ClusterIP to a backend pod IP before the packet reaches
+NSTUN. List the backend CIDR here so DNS to those addresses is allowed."""
+
 TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
     "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
 )
@@ -870,7 +1175,28 @@ TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
-"""Default timeout in seconds for executor client operations (default: 300s)."""
+"""Maximum seconds one action function call may run (default: 300s).
+
+The executor caps each UDF subprocess call at this value and uses it as the
+action timeout when the timeout is 0. Template totals and run_python follow the
+action's own timeout. Agent services also use it to bound executor tool calls."""
+
+TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
+)
+"""Seconds added to an action's timeout for the executor activity's start-to-close timeout.
+
+The action timeout budgets only the action function call. This allowance covers
+platform work in the same activity (context materialization, secret resolution,
+registry artifacts, sandbox startup, and result storage)."""
+
+TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
+    os.environ.get("TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE") or 60
+)
+"""Seconds an action subprocess may run beyond the action timeout before it is killed.
+
+Covers sandbox startup, imports, and result serialization around the timed
+function call, which the action runner enforces itself."""
 
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (
@@ -896,11 +1222,12 @@ If not set, will be auto-detected from a known dependency's location.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT")
+    or AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 )
-"""Ceiling for agent execution timeouts in seconds (default one hour).
+"""Ceiling for agent execution timeouts in seconds.
 
-Per-action agent timeouts clamp to [AGENT_TIMEOUT_SECONDS_DEFAULT, this].
+Per-action agent timeouts clamp to [min(AGENT_TIMEOUT_SECONDS_FLOOR, this), this].
 """
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
@@ -999,6 +1326,15 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 
 This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
+
+TRACECAT__AGENT_SESSION_BACKEND = (
+    os.environ.get("TRACECAT__AGENT_SESSION_BACKEND") or "oss"
+)
+"""Agent backend for new sessions whose caller does not choose one.
+
+Applies to workspace, agent preset, preset builder, case and external channel
+(Slack) sessions, including case-comment and MCP preset runs, for organizations
+entitled to non-default backends. Workflow runs keep the built-in backend."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)
@@ -1133,6 +1469,17 @@ TRACECAT__AGG_STATEMENT_TIMEOUT_MS = bound_env(
 )
 """PostgreSQL statement timeout for aggregation queries, in milliseconds."""
 
+TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS = bound_env(
+    "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS",
+    30_000,
+    lower=1,
+    upper=POSTGRES_STATEMENT_TIMEOUT_MAX_MS,
+)
+"""PostgreSQL statement timeout for case text search, in milliseconds.
+
+A slow search holds a pooled database connection for up to this long.
+"""
+
 TRACECAT__LIMIT_DEFAULT = 20
 """Default list/search page size."""
 
@@ -1214,10 +1561,94 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 REDIS_URL__ARN = os.environ.get("REDIS_URL__ARN")
 """(AWS only) ARN of the secret containing the Redis URL."""
 
+
+def _parse_redis_auth() -> RedisAuth:
+    raw_mode = (os.environ.get("REDIS_AUTH_MODE") or "password").strip().lower()
+    try:
+        mode = RedisAuthMode(raw_mode)
+    except ValueError as e:
+        raise ValueError(
+            f"REDIS_AUTH_MODE must be one of {', '.join(RedisAuthMode)} (got {raw_mode!r})"
+        ) from e
+    match mode:
+        case RedisAuthMode.PASSWORD:
+            return RedisPasswordAuth()
+        case RedisAuthMode.AZURE_ENTRA:
+            client_id = os.environ.get("REDIS_AZURE_CLIENT_ID", "").strip() or None
+            return RedisAzureEntraAuth(client_id=client_id)
+        case RedisAuthMode.AWS_IAM:
+            user_id = os.environ.get("REDIS_AWS_IAM_USER_ID", "").strip()
+            group_id = (
+                os.environ.get("REDIS_AWS_IAM_REPLICATION_GROUP_ID", "").strip().lower()
+            )
+            region = (
+                os.environ.get("REDIS_AWS_REGION")
+                or os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or ""
+            ).strip()
+            missing = [
+                name
+                for name, value in (
+                    ("REDIS_AWS_IAM_USER_ID", user_id),
+                    ("REDIS_AWS_IAM_REPLICATION_GROUP_ID", group_id),
+                    ("REDIS_AWS_REGION", region),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"REDIS_AUTH_MODE=aws_iam requires {', '.join(missing)}"
+                )
+            return RedisAwsIamAuth(
+                user_id=user_id, replication_group_id=group_id, region=region
+            )
+
+
+REDIS_AUTH: RedisAuth = _parse_redis_auth()
+"""How the Redis client logs in, from ``REDIS_AUTH_MODE`` (default ``password``).
+
+- ``password``: ``RedisPasswordAuth``; credentials, if any, come from the URL.
+- ``aws_iam``: ``RedisAwsIamAuth`` from ``REDIS_AWS_IAM_USER_ID``,
+  ``REDIS_AWS_IAM_REPLICATION_GROUP_ID`` and ``REDIS_AWS_REGION`` (defaults to
+  ``AWS_REGION``, then ``AWS_DEFAULT_REGION``).
+- ``azure_entra``: ``RedisAzureEntraAuth`` from ``REDIS_AZURE_CLIENT_ID``
+  (optional; DefaultAzureCredential reads ``AZURE_CLIENT_ID`` otherwise).
+
+The IAM modes require a ``rediss://`` URL with no username or password in it.
+"""
+
+# Fail at startup when the URL is known up front. A URL read from
+# REDIS_URL__ARN is checked again when the client is built.
+if not isinstance(REDIS_AUTH, RedisPasswordAuth) and not REDIS_URL__ARN:
+    if not REDIS_URL.startswith("rediss://"):
+        raise ValueError(
+            f"REDIS_AUTH_MODE={REDIS_AUTH.mode} requires TLS: REDIS_URL must use rediss://"
+        )
+    _redis_url_parts = urlsplit(REDIS_URL)
+    if _redis_url_parts.username or _redis_url_parts.password:
+        raise ValueError(
+            f"REDIS_AUTH_MODE={REDIS_AUTH.mode} logs in with a token: remove the "
+            "username and password from REDIS_URL"
+        )
+
 TRACECAT__CASE_TRIGGERS_ENABLED = env_bool(
     "TRACECAT__CASE_TRIGGERS_ENABLED", default=True
 )
-"""Enable case event workflow triggers. Defaults to true."""
+"""Enable case event workflow triggers. Defaults to true.
+
+Set it on the API and the background worker: the API stops writing outbox
+rows, and the background worker's dispatcher leaves queued rows in place.
+"""
+
+TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY = max(
+    1, int(os.environ.get("TRACECAT__CASE_TRIGGER_DISPATCH_CONCURRENCY") or 8)
+)
+"""Outbox rows the case trigger dispatcher handles at once. Defaults to 8.
+
+Each row in flight holds up to two database connections on the background
+worker, so the dispatcher uses at most twice this many.
+"""
 
 TRACECAT__CASE_TRIGGERS_STREAM_KEY = os.environ.get(
     "TRACECAT__CASE_TRIGGERS_STREAM_KEY", "case-events"
@@ -1364,12 +1795,88 @@ TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
 }
 """The allowed MIME types for case attachment files."""
 
+# === Build metadata === #
+TRACECAT__BUILD_COMMIT = os.environ.get("TRACECAT__BUILD_COMMIT") or None
+"""Tracecat source commit the image was built from, set as an image build arg."""
+
+TRACECAT__BUILD_TIME = os.environ.get("TRACECAT__BUILD_TIME") or None
+"""ISO 8601 time the image was built, set as an image build arg."""
+
 # === Enterprise Edition === #
 ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 """Whether the enterprise edition is enabled."""
 
 TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
+
+# === Managed tunnels (Pangolin) === #
+TRACECAT__PANGOLIN_ENDPOINT = os.environ.get("TRACECAT__PANGOLIN_ENDPOINT")
+"""Pangolin server URL that sites and machine clients connect to, e.g. Pangolin Cloud."""
+
+TRACECAT__PANGOLIN_API_URL = os.environ.get("TRACECAT__PANGOLIN_API_URL")
+"""Pangolin Integration API base URL (ending in /v1) used to provision managed tunnels."""
+
+TRACECAT__PANGOLIN_ORG_ID = os.environ.get("TRACECAT__PANGOLIN_ORG_ID")
+"""Pangolin organization that holds every managed tunnel's site, client, and resources."""
+
+TRACECAT__PANGOLIN_API_KEY = os.environ.get("TRACECAT__PANGOLIN_API_KEY")
+"""Pangolin organization API key. Managed tunnels are disabled when unset."""
+
+TRACECAT__PANGOLIN_API_KEY__ARN = os.environ.get("TRACECAT__PANGOLIN_API_KEY__ARN")
+"""AWS Secrets Manager ARN holding the Pangolin API key. Takes precedence over
+``TRACECAT__PANGOLIN_API_KEY``. Only the API service reads it."""
+
+# === Tunnel gateways === #
+TRACECAT__TUNNEL_GATEWAY_BACKEND = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_BACKEND", "none").strip().lower()
+)
+"""Who runs tunnel gateways: ``kubernetes`` (the API creates one per tunnel) or
+``none`` (gateways are run by hand, e.g. Docker Compose and most self-hosted installs)."""
+
+TRACECAT__TUNNEL_GATEWAY_NAMESPACE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_NAMESPACE", "tracecat-tunnels"
+)
+"""Kubernetes namespace that holds tunnel gateway objects."""
+
+TRACECAT__TUNNEL_GATEWAY_IMAGE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_IMAGE",
+    f"ghcr.io/tracecathq/tracecat-tunnel-gateway:{__version__}",
+)
+"""Container image for tunnel gateways created by the ``kubernetes`` backend.
+
+Defaults to this release's version tag. Pin a digest for an immutable image.
+"""
+
+TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS = env_networks(
+    "TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS"
+)
+"""Extra CIDRs, such as cluster pod and service ranges, that gateways never dial."""
+
+TRACECAT__TUNNEL_GATEWAY_API_URL = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_API_URL", TRACECAT__API_URL
+)
+"""Tracecat API URL that gateways poll for their policy."""
+
+TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE", "squat.ai/tun"
+)
+"""Extended resource that grants a gateway pod ``/dev/net/tun``. Empty disables the request."""
+
+TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL = float(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL") or 60
+)
+"""Seconds between reconciles of gateway objects against tunnels."""
+
+TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE")
+    or f"tunnel-{{tunnel_id}}.{TRACECAT__TUNNEL_GATEWAY_NAMESPACE}.svc.cluster.local"
+)
+"""Host executors use to reach a tunnel's gateway. ``{tunnel_id}`` is replaced."""
+
+TRACECAT__TUNNEL_GATEWAY_PORT = int(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_PORT") or 8080
+)
+"""Port tunnel gateways listen on."""
 
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()

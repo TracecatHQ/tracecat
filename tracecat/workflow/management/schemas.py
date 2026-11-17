@@ -14,7 +14,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
 from tracecat.core.schemas import Schema
 from tracecat.db.models import Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.common import DSLInput, DSLRunArgs, apply_expects_order
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import WorkspaceID
@@ -134,6 +134,26 @@ class WorkflowDefinitionRead(Schema):
         ):
             return value
         return {"origins": value, "actions": {}}
+
+    @field_validator("content")
+    @classmethod
+    def apply_stored_expects_order(
+        cls, content: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Return inputs in the author's order and drop the internal order key.
+
+        Stored content keeps ``entrypoint.expects_order`` next to ``expects``
+        because JSONB does not keep key order. The key is storage detail and
+        never leaves the API.
+        """
+        match content:
+            case {"entrypoint": {"expects_order": order, **entrypoint}}:
+                if isinstance(expects := entrypoint.get("expects"), dict):
+                    entrypoint["expects"] = apply_expects_order(expects, order)
+                # A new dict: the stored content must not be changed.
+                return content | {"entrypoint": entrypoint}
+            case _:
+                return content
 
     @computed_field
     @property

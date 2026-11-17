@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Update policy
+  description: Update an existing policy. Calls PUT /policy/{id} directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/update-policy/
+  namespace: tools.pan_prisma
+  name: update_policy
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    id:
+      type: str
+      description: Policy ID.
+    payload:
+      # Generic: Prisma Cloud keeps existing values only for omitted fields, so an
+      # explicit null from a literal map could clear them.
+      type: dict[str, Any]
+      description: >-
+        API-native request body containing only the fields to change; omitted fields keep their
+        current values. Documented fields for PUT /policy/{id}: name, policyType, severity, rule,
+        cloudType, description, recommendation, labels, enabled, complianceMetadata, remediation,
+        findingTypes.
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/policy/${{ FN.url_encode(inputs.id) }}
+      method: PUT
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+      payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

@@ -80,14 +80,18 @@ def test_derived_membership_requires_admission_and_deduplicates_sources() -> Non
     """Execute the production selectables against a mixed eligible cohort."""
     with sqlite3.connect(":memory:") as db:
         db.executescript("""
-            CREATE TABLE user_role_assignment(user_id TEXT, organization_id TEXT, workspace_id TEXT);
-            CREATE TABLE group_role_assignment(group_id TEXT, organization_id TEXT, workspace_id TEXT);
+            CREATE TABLE user_role_assignment(user_id TEXT, organization_id TEXT, workspace_id TEXT, role_id TEXT);
+            CREATE TABLE group_role_assignment(group_id TEXT, organization_id TEXT, workspace_id TEXT, role_id TEXT);
+            CREATE TABLE workspace(id TEXT, organization_id TEXT);
+            CREATE TABLE role_scope(role_id TEXT, scope_id TEXT);
+            CREATE TABLE scope(id TEXT, name TEXT);
             CREATE TABLE group_member(group_id TEXT, user_id TEXT, added_at TEXT);
             CREATE TABLE external_group_mapping(group_id TEXT, external_group_id TEXT);
             CREATE TABLE external_group_member(external_group_id TEXT, external_user_id TEXT);
             CREATE TABLE external_user(id TEXT, user_id TEXT, organization_id TEXT, active BOOLEAN);
             CREATE TABLE organization_membership(user_id TEXT, organization_id TEXT);
-            INSERT INTO group_role_assignment VALUES ('target', 'org', 'workspace');
+            INSERT INTO group_role_assignment VALUES ('target', 'org', 'workspace', 'role');
+            INSERT INTO workspace VALUES ('workspace', 'org');
             INSERT INTO external_group_mapping VALUES ('target','source1'),('target','source2');
             INSERT INTO external_user VALUES ('e1','eligible','org',1),('e2','pending','org',1),('e3','inactive','org',0),('e4','other-org','org',1);
             INSERT INTO external_group_member VALUES ('source1','e1'),('source2','e1'),('source1','e2'),('source1','e3'),('source1','e4');

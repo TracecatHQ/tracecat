@@ -10,6 +10,7 @@ type TableRowErrorCode = Literal[
     "unknown_column",
     "invalid_value",
     "duplicate_value",
+    "empty_update",
 ]
 
 

@@ -22,7 +22,7 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(
             description="Whether add-on agent capabilities are enabled"
-            " (approvals, presets)"
+            " (agent folders, tags, and case agent runs)"
         ),
     ]
     case_addons: Annotated[
@@ -67,5 +67,62 @@ class EntitlementsDict(TypedDict, total=False):
             title="External secret stores",
             description="Whether workspace secrets may reference external"
             " secret stores such as AWS Secrets Manager",
+        ),
+    ]
+    agent_channels: Annotated[
+        bool,
+        Field(
+            title="Agent channels",
+            description="Whether agent channels are enabled (agent approvals"
+            " and interactions via Slack and Microsoft Teams)",
+        ),
+    ]
+    semantic_search: Annotated[
+        bool,
+        Field(
+            title="Semantic search",
+            description="Whether semantic (vector) search over table columns"
+            " is enabled",
+        ),
+    ]
+    forms: Annotated[
+        bool,
+        Field(
+            title="Forms",
+            description="Whether workflow forms are enabled",
+        ),
+    ]
+    tunnels: Annotated[
+        bool,
+        Field(
+            title="Tunnels",
+            description="Whether workspaces may route actions through private"
+            " network tunnels such as Pangolin",
+        ),
+    ]
+    agent_runtime_preview: Annotated[
+        bool,
+        Field(
+            title="Agent runtime preview",
+            description="Whether agent backends other than the built-in one may be"
+            " listed, used to create or fork agent sessions, and used to run"
+            " new turns in existing sessions",
+        ),
+    ]
+    agent_runtime_workflows: Annotated[
+        bool,
+        Field(
+            title="Agent runtime for workflows",
+            description="Whether workflow agent actions may run on agent backends"
+            " other than the built-in one. Takes effect only together with"
+            " agent_runtime_preview",
+        ),
+    ]
+    agent_channels_preview: Annotated[
+        bool,
+        Field(
+            title="Agent channels preview",
+            description="Whether the organization uses the channel bot API in place"
+            " of legacy agent channels",
         ),
     ]

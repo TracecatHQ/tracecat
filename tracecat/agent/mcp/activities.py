@@ -9,6 +9,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPProbeResult,
     sanitize_stdio_probe_error,
 )
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.integrations.service import IntegrationService
 
 
@@ -25,7 +26,7 @@ async def persist_stdio_mcp_connection_activity(
                 mcp_integration_id=input.mcp_integration_id,
                 discovered_tools=input.tools,
             )
-        except ValueError as exc:
+        except (TracecatNotFoundError, ValueError) as exc:
             return StdioMCPProbeResult(
                 success=False,
                 message="MCP integration probe result could not be persisted",

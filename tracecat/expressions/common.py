@@ -194,9 +194,8 @@ def eval_jsonpath(
         # Try to evaluate the expression
         jsonpath_expr = parse_jsonpath(expr)
     except JsonPathParserError as e:
-        logger.error(
-            "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
-        )
+        # Paths can carry literal credentials typed into a template.
+        logger.error("Invalid jsonpath expression", context_type=context_type)
         formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
     found = (
@@ -250,9 +249,9 @@ def eval_jsonpath(
         if strict:
             # We know that if this function is called, there was a templated field.
             # Therefore, it means the jsonpath was valid but there was no match.
-            # Operands may contain sensitive values, so log and report the
-            # expression only.
-            logger.error("Jsonpath no match", expr=repr(expr))
+            # Operands may contain sensitive values and paths may carry
+            # literals, so log only the context and report the expression.
+            logger.error("Jsonpath no match", context_type=context_type)
             formatted_expr = _expr_with_context(expr, context_type)
             raise TracecatExpressionError(
                 f"Couldn't resolve expression {formatted_expr!r} in the context",

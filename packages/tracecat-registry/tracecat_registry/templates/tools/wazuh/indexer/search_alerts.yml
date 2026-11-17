@@ -1,0 +1,153 @@
+type: action
+definition:
+  name: search_alerts
+  namespace: tools.wazuh
+  title: Search alerts
+  description: Search Wazuh alerts in the Wazuh indexer by agent, rule, level, rule group, MITRE technique, IP address, time range, or free text. Results are sorted newest first.
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/wazuh-indexer/wazuh-indexer-api.html
+  secrets:
+    - name: wazuh_indexer
+      keys: ["WAZUH_INDEXER_USERNAME", "WAZUH_INDEXER_PASSWORD"]
+  expects:
+    start_time:
+      type: str | None
+      description: Start of the time range, as ISO 8601 or date math (e.g. `now-24h`).
+      default: null
+    end_time:
+      type: str | None
+      description: End of the time range, as ISO 8601 or date math (e.g. `now`).
+      default: null
+    agent_ids:
+      type: list[str] | None
+      description: Filter by agent IDs (`agent.id`).
+      default: null
+    rule_ids:
+      type: list[str] | None
+      description: Filter by rule IDs (`rule.id`).
+      default: null
+    min_level:
+      type: int | None
+      description: Minimum rule level (`rule.level`), from 0 to 15.
+      default: null
+    rule_groups:
+      type: list[str] | None
+      description: Filter by rule groups (`rule.groups`). Matches alerts in any of the groups.
+      default: null
+    mitre_ids:
+      type: list[str] | None
+      description: Filter by MITRE ATT&CK technique IDs (`rule.mitre.id`, e.g. `T1110`).
+      default: null
+    srcip:
+      type: str | None
+      description: Filter by source IP address (`data.srcip`).
+      default: null
+    dstip:
+      type: str | None
+      description: Filter by destination IP address (`data.dstip`).
+      default: null
+    query:
+      type: str | None
+      description: Free text query in OpenSearch simple query string syntax (e.g. `sshd AND "Failed password"`).
+      default: null
+    extra_filters:
+      type: list[dict[str, Any]] | None
+      description: 'Additional OpenSearch query DSL clauses added to the bool filter (e.g. `[{"term": {"agent.name": "web-01"}}]`).'
+      default: null
+    size:
+      type: int
+      description: Maximum number of alerts to return.
+      default: 100
+    index:
+      type: str
+      description: Alerts index pattern.
+      default: wazuh-alerts-*
+    base_url:
+      type: str | None
+      description: Wazuh indexer URL (e.g. https://wazuh-indexer:9200). Defaults to the `wazuh_indexer.base_url` variable.
+      default: null
+    verify_ssl:
+      type: bool
+      description: If false, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: build_query
+      action: core.script.run_python
+      args:
+        inputs:
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          agent_ids: ${{ inputs.agent_ids }}
+          rule_ids: ${{ inputs.rule_ids }}
+          min_level: ${{ inputs.min_level }}
+          rule_groups: ${{ inputs.rule_groups }}
+          mitre_ids: ${{ inputs.mitre_ids }}
+          srcip: ${{ inputs.srcip }}
+          dstip: ${{ inputs.dstip }}
+          query: ${{ inputs.query }}
+          extra_filters: ${{ inputs.extra_filters }}
+          size: ${{ inputs.size }}
+        script: |
+          def main(
+              start_time,
+              end_time,
+              agent_ids,
+              rule_ids,
+              min_level,
+              rule_groups,
+              mitre_ids,
+              srcip,
+              dstip,
+              query,
+              extra_filters,
+              size,
+          ):
+              filters = []
+              if start_time or end_time:
+                  time_range = {}
+                  if start_time:
+                      time_range["gte"] = start_time
+                  if end_time:
+                      time_range["lte"] = end_time
+                  filters.append({"range": {"timestamp": time_range}})
+              for field, values in (
+                  ("agent.id", agent_ids),
+                  ("rule.id", rule_ids),
+                  ("rule.groups", rule_groups),
+                  ("rule.mitre.id", mitre_ids),
+              ):
+                  if values:
+                      filters.append({"terms": {field: values}})
+              if min_level is not None:
+                  filters.append({"range": {"rule.level": {"gte": min_level}}})
+              if srcip:
+                  filters.append({"term": {"data.srcip": srcip}})
+              if dstip:
+                  filters.append({"term": {"data.dstip": dstip}})
+              if query:
+                  filters.append(
+                      {
+                          "simple_query_string": {
+                              "query": query,
+                              "default_operator": "AND",
+                              "lenient": True,
+                          }
+                      }
+                  )
+              filters.extend(extra_filters or [])
+              return {
+                  "size": size,
+                  "sort": [{"timestamp": {"order": "desc"}}],
+                  "query": {"bool": {"filter": filters}},
+              }
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh_indexer.base_url }}/${{ FN.url_encode(inputs.index, "*,-_") }}/_search
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_indexer.WAZUH_INDEXER_USERNAME + ":" + SECRETS.wazuh_indexer.WAZUH_INDEXER_PASSWORD) }}
+          Content-Type: application/json
+        payload: ${{ steps.build_query.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

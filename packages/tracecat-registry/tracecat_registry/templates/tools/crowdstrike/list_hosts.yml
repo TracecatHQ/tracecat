@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: List hosts
+  description: >-
+    Search for host IDs by platform, hostname, IP, and other criteria. Returns host
+    IDs; use `tools.crowdstrike.get_hosts` for details. Requires the Hosts: Read API
+    scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/hosts/#querydevicesbyfilter
+  namespace: tools.crowdstrike
+  name: list_hosts
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter, for example `hostname:'WIN-*'+platform_name:'Windows'`.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of host IDs to return. Maximum 5000.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start retrieving records from.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `hostname.asc`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_hosts
+      action: tools.falconpy.call_command
+      args:
+        operation_id: QueryDevicesByFilter
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_hosts.result }}

@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: "Get campaign"
+  description: "Get details for a campaign, including its description, actors, malware families, techniques, and threat variants, with GET /v2/campaign/{campaignId}."
+  display_group: Proofpoint TAP
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Campaign_API
+  namespace: tools.proofpoint_tap
+  name: get_campaign
+  secrets:
+    - name: proofpoint_tap
+      keys: ["PROOFPOINT_TAP_SERVICE_PRINCIPAL", "PROOFPOINT_TAP_SERVICE_SECRET"]
+  expects:
+    campaignId:
+      type: str
+      description: "Campaign ID."
+    base_url:
+      type: str | None
+      description: "Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_tap.base_url || "https://tap-api-v2.proofpoint.com" }}/v2/campaign/${{ FN.url_encode(inputs.campaignId) }}
+        method: GET
+        auth:
+          username: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_PRINCIPAL }}
+          password: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_SECRET }}
+  returns: ${{ steps.request.result }}

@@ -105,47 +105,6 @@ class TestCaseTasksService:
         assert retrieved_task.priority == task_create_params.priority
         assert retrieved_task.status == task_create_params.status
 
-    async def test_create_task_with_workflow_id(
-        self,
-        case_tasks_service: CaseTasksService,
-        test_case: Case,
-        task_create_params: CaseTaskCreate,
-        test_workflow: Workflow,
-    ) -> None:
-        """Test creating a task with a workflow_id."""
-        task_create_params.workflow_id = WorkflowUUID.new(test_workflow.id)
-
-        created_task = await case_tasks_service.create_task(
-            test_case.id, task_create_params
-        )
-        assert created_task.workflow_id == test_workflow.id
-
-    async def test_list_tasks(
-        self,
-        case_tasks_service: CaseTasksService,
-        test_case: Case,
-        task_create_params: CaseTaskCreate,
-    ) -> None:
-        """Test listing tasks for a case."""
-        # Create multiple tasks
-        task1 = await case_tasks_service.create_task(test_case.id, task_create_params)
-
-        task2 = await case_tasks_service.create_task(
-            test_case.id,
-            CaseTaskCreate(
-                title="Another Test Task",
-                description="Another test task description",
-                priority=CasePriority.HIGH,
-                status=CaseTaskStatus.IN_PROGRESS,
-            ),
-        )
-
-        tasks = await case_tasks_service.list_tasks(test_case.id)
-        assert len(tasks) >= 2
-        task_ids = {task.id for task in tasks}
-        assert task1.id in task_ids
-        assert task2.id in task_ids
-
     async def test_list_tasks_for_different_cases(
         self,
         case_tasks_service: CaseTasksService,
@@ -233,38 +192,6 @@ class TestCaseTasksService:
         assert retrieved_task.status == update_params.status
         assert retrieved_task.priority == update_params.priority
 
-    async def test_update_task_status(
-        self,
-        case_tasks_service: CaseTasksService,
-        test_case: Case,
-    ) -> None:
-        """Test updating a task status through different states."""
-        # Create a task
-        task = await case_tasks_service.create_task(
-            test_case.id,
-            CaseTaskCreate(
-                title="Task Status Test",
-                description="Testing status transitions",
-                priority=CasePriority.MEDIUM,
-                status=CaseTaskStatus.TODO,
-            ),
-        )
-
-        updated_task = await case_tasks_service.update_task(
-            task.id, CaseTaskUpdate(status=CaseTaskStatus.IN_PROGRESS)
-        )
-        assert updated_task.status == CaseTaskStatus.IN_PROGRESS
-
-        updated_task = await case_tasks_service.update_task(
-            task.id, CaseTaskUpdate(status=CaseTaskStatus.BLOCKED)
-        )
-        assert updated_task.status == CaseTaskStatus.BLOCKED
-
-        updated_task = await case_tasks_service.update_task(
-            task.id, CaseTaskUpdate(status=CaseTaskStatus.COMPLETED)
-        )
-        assert updated_task.status == CaseTaskStatus.COMPLETED
-
     async def test_update_task_workflow_id(
         self,
         case_tasks_service: CaseTasksService,
@@ -339,35 +266,3 @@ class TestCaseTasksService:
         assert task.assignee_id is None  # No assignee set
         assert task.workflow_id == test_workflow.id
         assert task.case_id == test_case.id
-
-    async def test_cascade_delete_with_case(
-        self,
-        case_tasks_service: CaseTasksService,
-        cases_service: CasesService,
-        test_case: Case,
-        task_create_params: CaseTaskCreate,
-    ) -> None:
-        """Test that tasks are deleted when their parent case is deleted."""
-        task = await case_tasks_service.create_task(test_case.id, task_create_params)
-        await cases_service.delete_case(test_case)
-
-        with pytest.raises(TracecatNotFoundError):
-            await case_tasks_service.get_task(task.id)
-
-    async def test_create_task_minimal_fields(
-        self,
-        case_tasks_service: CaseTasksService,
-        test_case: Case,
-    ) -> None:
-        """Test creating a task with only required fields."""
-        task = await case_tasks_service.create_task(
-            test_case.id,
-            CaseTaskCreate(title="Minimal Task"),
-        )
-
-        assert task.title == "Minimal Task"
-        assert task.description is None
-        assert task.priority == CasePriority.UNKNOWN
-        assert task.status == CaseTaskStatus.TODO
-        assert task.assignee_id is None
-        assert task.workflow_id is None

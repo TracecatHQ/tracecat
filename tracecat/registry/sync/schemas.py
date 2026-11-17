@@ -31,6 +31,7 @@ class SyncErrorCode(StrEnum):
 
     PACKAGE_NOT_FOUND = "package_not_found"
     TEMPLATE_LOAD_FAILED = "template_load_failed"
+    IMPORT_FAILED = "import_failed"
 
 
 class SyncResultSuccess(BaseModel):

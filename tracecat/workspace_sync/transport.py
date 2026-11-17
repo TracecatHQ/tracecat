@@ -5,33 +5,55 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import io
 import itertools
 import json
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+import tarfile
+import uuid
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from email.utils import parseaddr
 from functools import partial
 from tempfile import TemporaryDirectory
-from typing import Any, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from github.GithubException import GithubException
 from github.GitTreeElement import GitTreeElement
 from github.InputGitTreeElement import InputGitTreeElement
-from pydantic import BaseModel
+from github.Repository import Repository
+from pydantic import BaseModel, JsonValue
 from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.git.plumbing import GitPlumbing, GitRefConflictError, validate_path
 from tracecat.git.types import GitUrl
-from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
+from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
+from tracecat.registry.repositories.schemas import (
+    GitBranchInfo,
+    GitCommitInfo,
+    GitTagInfo,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
-from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
+from tracecat.vcs.bitbucket.app import (
+    BitbucketError,
+    BitbucketTokenService,
+    BitbucketTransportError,
+)
 from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
 from tracecat.vcs.bitbucket.types import (
     BitbucketBranch,
@@ -39,6 +61,7 @@ from tracecat.vcs.bitbucket.types import (
     BitbucketPage,
     BitbucketPullRequest,
     BitbucketRepository,
+    BitbucketTag,
 )
 from tracecat.vcs.bitbucket_data_center.app import BitbucketDataCenterTokenService
 from tracecat.vcs.bitbucket_data_center.types import (
@@ -46,8 +69,10 @@ from tracecat.vcs.bitbucket_data_center.types import (
     DataCenterCommit,
     DataCenterPage,
     DataCenterPullRequest,
+    DataCenterTag,
 )
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
+from tracecat.vcs.github.types import GitHubTagRefsResponse
 from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
 from tracecat.vcs.gitlab.types import (
@@ -61,8 +86,10 @@ from tracecat.vcs.gitlab.types import (
     GitLabCreateMergeRequestPayload,
     GitLabListCommitsParams,
     GitLabListMergeRequestsParams,
+    GitLabListTagsParams,
     GitLabMergeRequest,
     GitLabProject,
+    GitLabTag,
     GitLabTreeEntry,
     GitLabTreeParams,
 )
@@ -73,6 +100,19 @@ from tracecat.workspace_sync.schemas import (
     manifest_resource_roots,
     workspace_manifest_from_json,
 )
+from tracecat.workspace_sync.tags import (
+    GITHUB_LIST_TAGS_QUERY,
+    TAG_PAGE_MAX,
+    TagCommit,
+    bitbucket_tag_commit,
+    decode_tag_cursor,
+    encode_tag_cursor,
+    github_tag_commit,
+    github_upstream_status,
+    gitlab_commit_date,
+    gitlab_tag_commit,
+)
+from tracecat.workspace_sync.types import SyncCommitConflictError
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -93,8 +133,20 @@ class VcsTreeSnapshot:
 class VcsSyncTransport(Protocol):
     """Transport that can read and write workspace sync files."""
 
-    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
-        """Read workspace sync files at a ref."""
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
+    ) -> VcsTreeSnapshot:
+        """Read workspace sync files at a ref.
+
+        ``resource_filter`` limits which resource files have their contents
+        fetched; ``blob_paths`` still lists every file. The manifest and the
+        package include file are always read.
+        """
         ...
 
     async def write_files(
@@ -106,7 +158,10 @@ class VcsSyncTransport(Protocol):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         """Commit workspace sync files to a branch."""
         ...
@@ -121,6 +176,10 @@ class VcsSyncTransport(Protocol):
         """List commits from a branch."""
         ...
 
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        """Resolve one exact branch; propagate permission and transport errors."""
+        ...
+
     async def list_branches(
         self,
         *,
@@ -128,6 +187,34 @@ class VcsSyncTransport(Protocol):
         limit: int = 100,
     ) -> list[GitBranchInfo]:
         """List repository branches."""
+        ...
+
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Return one page of tags, newest first, and the next page's cursor.
+
+        Tags are ordered newest first by the provider's tag or commit date.
+        The page size is ``min(limit, 100)``. ``cursor`` is an opaque token
+        from a previous call on the same repository; ``None`` starts at the
+        newest tag, and ``None`` is returned after the last page. Reusing a
+        cursor with a different effective page size, or passing a malformed
+        one, may raise ``TracecatValidationError``. Malformed tags, tags that do not point at
+        a commit, and undated tags are skipped with a warning, so a page can
+        hold fewer tags than its page size.
+        """
+        ...
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag ``tag`` pointing at commit ``sha``.
+
+        Raises a ``VcsProviderError`` if the provider refuses, for example
+        because the tag already exists.
+        """
         ...
 
 
@@ -163,6 +250,13 @@ def vcs_transport_for_provider(
             return BitbucketWorkspaceSyncTransport(session=session, role=role)
 
 
+def sync_commit_message(message: str, operation_id: uuid.UUID | None) -> str:
+    """Identify durable writes without changing their user-facing PR title."""
+    if operation_id is None:
+        return message
+    return f"{message}\n\nTracecat-Sync-Operation: {operation_id}"
+
+
 def _normalized_roots(roots: Sequence[str]) -> tuple[str, ...]:
     """Strip surrounding slashes off each root and drop empty entries."""
     return tuple(root.strip("/") for root in roots if root.strip("/"))
@@ -174,6 +268,11 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
 
 
 _GITHUB_BLOB_CONCURRENCY = 8
+_GITHUB_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
+"""Largest compressed commit tarball downloaded before falling back to blob reads."""
+_GITHUB_ARCHIVE_MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
+"""Largest total size of tree-matched archive members decoded from one tarball."""
+_GITHUB_ARCHIVE_TIMEOUT_SECONDS = 30.0
 """Maximum concurrent GitHub blob/content calls during sync reads and writes."""
 
 _GITHUB_TREE_CHUNK_SIZE = 128
@@ -230,9 +329,73 @@ class _GitHubTreeChunk:
 
 def _git_blob_sha(content: str) -> str:
     """Return the Git blob object SHA for UTF-8 ``content``."""
-    content_bytes = content.encode("utf-8")
-    framed_content = b"blob " + str(len(content_bytes)).encode() + b"\0" + content_bytes
+    return _git_blob_sha_bytes(content.encode("utf-8"))
+
+
+def _git_blob_sha_bytes(content: bytes) -> str:
+    """Return the Git blob object SHA for raw ``content``."""
+    framed_content = b"blob " + str(len(content)).encode() + b"\0" + content
     return hashlib.sha1(framed_content, usedforsecurity=False).hexdigest()
+
+
+class _GitHubArchiveTooLargeError(Exception):
+    """Raised when a commit tarball exceeds the download size cap."""
+
+
+async def _download_github_archive(url: str) -> bytes:
+    """Download a GitHub archive link, enforcing the compressed size cap."""
+    async with httpx.AsyncClient(
+        timeout=_GITHUB_ARCHIVE_TIMEOUT_SECONDS,
+        follow_redirects=True,
+    ) as client:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > _GITHUB_ARCHIVE_MAX_BYTES:
+                    raise _GitHubArchiveTooLargeError(
+                        f"Archive exceeds {_GITHUB_ARCHIVE_MAX_BYTES} bytes"
+                    )
+                chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _verified_archive_texts(
+    archive: bytes,
+    blob_shas: Mapping[str, str],
+) -> dict[str, str | None]:
+    """Decode tarball members whose bytes hash to the commit tree's blob SHA.
+
+    GitHub nests every member under a ``{owner}-{repo}-{sha}/`` directory.
+    Members that are absent (``export-ignore``) or whose bytes differ from the
+    tree blob (``export-subst``, LFS objects) are omitted, so callers read them
+    through the blob API instead. Values are ``None`` for non-UTF-8 blobs.
+    """
+    texts: dict[str, str | None] = {}
+    extracted_bytes = 0
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            _, _, path = member.name.partition("/")
+            expected_sha = blob_shas.get(path)
+            if expected_sha is None:
+                continue
+            extracted_bytes += member.size
+            if extracted_bytes > _GITHUB_ARCHIVE_MAX_EXTRACTED_BYTES:
+                break
+            if (member_file := tar.extractfile(member)) is None:
+                continue
+            content = member_file.read()
+            if _git_blob_sha_bytes(content) != expected_sha:
+                continue
+            try:
+                texts[path] = content.decode("utf-8")
+            except UnicodeDecodeError:
+                texts[path] = None
+    return texts
 
 
 def _sized_git_tree_element(element: InputGitTreeElement) -> _SizedGitTreeElement:
@@ -333,6 +496,28 @@ async def _github_write_with_retry[T](
             await asyncio.sleep(retry_after)
 
 
+_DATA_CENTER_PAGE_MAX = 100
+"""Largest page read from Bitbucket Data Center in one request."""
+
+_DATA_CENTER_TAG_COMMIT_CONCURRENCY = 8
+"""Concurrent commit reads when dating Data Center tags."""
+
+
+def _data_center_timestamp(milliseconds: int) -> str:
+    """Convert a Data Center epoch-millisecond timestamp to ISO 8601."""
+    return datetime.fromtimestamp(milliseconds / 1000, UTC).isoformat()
+
+
+def _bitbucket_models[T: BaseModel](
+    model: type[T], values: Sequence[JsonValue]
+) -> list[T]:
+    """Validate a Bitbucket page's values, reporting bad payloads as provider errors."""
+    try:
+        return [model.model_validate(value) for value in values]
+    except PydanticValidationError as e:
+        raise BitbucketError(f"Bitbucket returned an invalid {model.__name__}") from e
+
+
 class BaseWorkspaceSyncTransport(BaseWorkspaceService):
     """Shared, provider-neutral helpers for workspace sync transports.
 
@@ -341,6 +526,55 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
     export inputs are validated, and what the generated PR/MR body says. Those
     provider-neutral pieces live here so both transports stay in lockstep.
     """
+
+    # Used only by the standalone read phase, which has no pending mutations.
+    release_read_session: bool = False
+
+    async def _release_read_connection(self) -> None:
+        if self.release_read_session:
+            await self.session.commit()
+
+    def _tag_entries[ModelT: BaseModel](
+        self, model: type[ModelT], values: Sequence[JsonValue]
+    ) -> list[ModelT]:
+        """Validate a provider page's tag entries one by one, skipping bad ones."""
+        entries: list[ModelT] = []
+        for value in values:
+            try:
+                entries.append(model.model_validate(value))
+            except PydanticValidationError:
+                self.logger.warning(
+                    "Skipping malformed tag entry", model=model.__name__
+                )
+        return entries
+
+    def _build_tags(
+        self, tags: Iterable[tuple[str, TagCommit | None]]
+    ) -> list[GitTagInfo]:
+        """Build tag entries from ``(name, commit)`` pairs.
+
+        A single unusable tag (not pointing at a commit, undated, or with an
+        unexpected name or SHA) is logged and skipped; it must not fail the
+        whole listing.
+        """
+        result: list[GitTagInfo] = []
+        for name, commit in tags:
+            if commit is None:
+                self.logger.warning(
+                    "Skipping tag that does not point to a commit", tag=name
+                )
+            elif not commit.date:
+                self.logger.warning("Skipping tag with no tag or commit date", tag=name)
+            else:
+                try:
+                    result.append(
+                        GitTagInfo(name=name, commit_sha=commit.sha, date=commit.date)
+                    )
+                except PydanticValidationError:
+                    self.logger.warning(
+                        "Skipping tag with an unexpected name or SHA", tag=name
+                    )
+        return result
 
     @staticmethod
     def _normalize_commit_message(files: dict[str, str], message: str) -> str:
@@ -352,11 +586,12 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
             raise ValueError("A non-empty commit message is required")
         return message
 
+    @staticmethod
     async def _select_snapshot_files(
-        self,
         *,
         blob_paths: Sequence[str],
         fetch_text: Callable[[str], Awaitable[str | None]],
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> dict[str, str]:
         """Decode the manifest and managed-resource blobs from a commit tree.
 
@@ -384,11 +619,19 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
                 except Exception:
                     pass
 
+        # The package include file is the only other root-level file read; it
+        # only exists in a managed resources source repository.
         resource_paths = [
             path
             for path in sorted(paths)
             if path != MANIFEST_FILENAME
-            and any(path.startswith(f"{root}/") for root in resource_roots)
+            and (
+                path == PACKAGE_INCLUDE_FILENAME
+                or (
+                    any(path.startswith(f"{root}/") for root in resource_roots)
+                    and (resource_filter is None or resource_filter(path))
+                )
+            )
         ]
         for path, content in await asyncio.gather(
             *(fetch_path(path) for path in resource_paths)
@@ -431,6 +674,8 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         *,
         url: GitUrl,
         ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``.
 
@@ -439,9 +684,14 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         :class:`VcsTreeSnapshot`. Blobs that are not valid UTF-8 are skipped.
         """
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            if ref_kind == "branch":
+                branch = await asyncio.to_thread(repo.get_branch, ref)
+                ref = branch.commit.sha
             commit = await asyncio.to_thread(repo.get_commit, ref)
             # GitHub's git/trees endpoint keys off the tree SHA, not the commit
             # SHA; passing the commit SHA 404s for many repositories.
@@ -456,10 +706,23 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 for item in tree.tree
                 if item.type == "blob" and item.path
             }
+            archive_texts: dict[str, str | None] = {}
+            # A filtered read wants a few files, so per-blob reads beat
+            # downloading the whole commit archive.
+            if resource_filter is None and is_feature_enabled(
+                FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE
+            ):
+                archive_texts = await self._read_archive_texts(
+                    repo,
+                    commit_sha=commit.sha,
+                    blob_shas=blob_shas,
+                )
             blob_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
 
             async def fetch_text(path: str) -> str | None:
                 """Fetch a blob and decode it as UTF-8, or ``None`` if binary."""
+                if path in archive_texts:
+                    return archive_texts[path]
                 async with blob_semaphore:
                     blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
                 try:
@@ -470,6 +733,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             files = await self._select_snapshot_files(
                 blob_paths=list(blob_shas),
                 fetch_text=fetch_text,
+                resource_filter=resource_filter,
             )
             return VcsTreeSnapshot(
                 commit_sha=commit.sha,
@@ -482,6 +746,47 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         finally:
             gh.close()
 
+    async def _read_archive_texts(
+        self,
+        repo: Repository,
+        *,
+        commit_sha: str,
+        blob_shas: Mapping[str, str],
+    ) -> dict[str, str | None]:
+        """Read tree-verified file texts from the commit tarball in one request.
+
+        Returns an empty mapping when the archive cannot be used, so every
+        path falls back to the per-blob API.
+        """
+        try:
+            archive_url = await asyncio.to_thread(
+                repo.get_archive_link, "tarball", commit_sha
+            )
+            archive = await _download_github_archive(archive_url)
+            texts = await asyncio.to_thread(_verified_archive_texts, archive, blob_shas)
+        except (
+            GithubException,
+            httpx.HTTPError,
+            _GitHubArchiveTooLargeError,
+            tarfile.TarError,
+            OSError,
+            EOFError,
+        ) as e:
+            self.logger.warning(
+                "GitHub archive read failed; falling back to blob reads",
+                commit_sha=commit_sha,
+                error_type=type(e).__name__,
+            )
+            return {}
+        self.logger.info(
+            "Read GitHub archive for workspace sync",
+            commit_sha=commit_sha,
+            archive_bytes=len(archive),
+            tree_blob_count=len(blob_shas),
+            verified_file_count=len(texts),
+        )
+        return texts
+
     async def write_files(
         self,
         *,
@@ -491,7 +796,10 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         """Commit ``files`` to ``branch``, optionally opening a pull request.
 
@@ -505,7 +813,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         message = self._normalize_commit_message(files, message)
 
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         github_stage = "resolve_repository"
         github_endpoint = "GET /repos/{owner}/{repo}"
         retry_budget = _GitHubRetryBudget(_GITHUB_RETRY_BUDGET_SECONDS)
@@ -520,19 +830,36 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
 
+            target_exists = True
             try:
                 target_branch = await asyncio.to_thread(repo.get_branch, branch)
             except GithubException as e:
                 if e.status != 404:
                     raise
-                await _github_write_with_retry(
-                    lambda: repo.create_git_ref(
-                        ref=f"refs/heads/{branch}",
-                        sha=base_branch.commit.sha,
-                    ),
-                    budget=retry_budget,
+                start_branch = (
+                    await asyncio.to_thread(repo.get_branch, branch_start_ref)
+                    if branch_start_ref and branch_start_ref != base_branch_name
+                    else base_branch
                 )
-                target_branch = await asyncio.to_thread(repo.get_branch, branch)
+                if (
+                    expected_commit_sha is not None
+                    and start_branch.commit.sha != expected_commit_sha
+                ):
+                    raise SyncCommitConflictError(
+                        "Base branch changed; create a new preview"
+                    ) from None
+                # Publish only the complete sync commit: an intermediate base-only
+                # ref cannot pass operation-marker recovery after a failed write.
+                target_exists = False
+                target_branch = start_branch
+
+            if (
+                expected_commit_sha is not None
+                and target_branch.commit.sha != expected_commit_sha
+            ):
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
 
             github_stage = "resolve_target_commit"
             github_endpoint = "GET /repos/{owner}/{repo}/git/commits/{sha}"
@@ -583,10 +910,13 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             if not changed_files and not stale_paths:
                 github_stage = "reuse_pull_request"
                 github_endpoint = "GET|POST /repos/{owner}/{repo}/compare|pulls"
-                branch_has_commits = await self._branch_has_commits_between(
-                    repo=repo,
-                    base_branch_name=base_branch_name,
-                    branch_name=branch,
+                branch_has_commits = (
+                    target_exists
+                    and await self._branch_has_commits_between(
+                        repo=repo,
+                        base_branch_name=base_branch_name,
+                        branch_name=branch,
+                    )
                 )
                 if create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_pull_request(
@@ -694,21 +1024,85 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             github_endpoint = "POST /repos/{owner}/{repo}/git/commits"
             commit = await _github_write_with_retry(
                 lambda: repo.create_git_commit(
-                    message,
+                    sync_commit_message(message, operation_id),
                     tree,
                     [target_commit],
                 ),
                 budget=retry_budget,
             )
-            github_stage = "resolve_target_ref"
-            github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
-            ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
-            github_stage = "update_target_ref"
-            github_endpoint = "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
-            await _github_write_with_retry(
-                lambda: ref.edit(sha=commit.sha),
-                budget=retry_budget,
-            )
+            try:
+                if expected_commit_sha is not None:
+                    # updateRefs atomically checks beforeOid, unlike REST's
+                    # fast-forward-only edit, which accepts an ancestor reset.
+                    github_stage = "publish_guarded_ref"
+                    github_endpoint = "POST /graphql updateRefs"
+                    await _github_write_with_retry(
+                        lambda: gh.requester.graphql_named_mutation(
+                            "updateRefs",
+                            {
+                                "repositoryId": repo.node_id,
+                                "refUpdates": [
+                                    {
+                                        "name": f"refs/heads/{branch}",
+                                        "beforeOid": expected_commit_sha
+                                        if target_exists
+                                        else "0" * 40,
+                                        "afterOid": commit.sha,
+                                        "force": False,
+                                    }
+                                ],
+                            },
+                            "clientMutationId",
+                        ),
+                        budget=retry_budget,
+                    )
+                elif target_exists:
+                    github_stage = "resolve_target_ref"
+                    github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
+                    ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
+                    github_stage = "update_target_ref"
+                    github_endpoint = (
+                        "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
+                    )
+                    await _github_write_with_retry(
+                        lambda: ref.edit(sha=commit.sha), budget=retry_budget
+                    )
+                else:
+                    github_stage = "create_target_ref"
+                    github_endpoint = "POST /repos/{owner}/{repo}/git/refs"
+                    await _github_write_with_retry(
+                        lambda: repo.create_git_ref(
+                            ref=f"refs/heads/{branch}", sha=commit.sha
+                        ),
+                        budget=retry_budget,
+                    )
+            except GithubException as e:
+                already_published = False
+                if expected_commit_sha is not None and e.status in {400, 404, 409, 422}:
+                    # Repository rules can also reject publication. Only classify
+                    # staleness when a fresh read proves a branch race.
+                    try:
+                        current = await asyncio.to_thread(repo.get_branch, branch)
+                    except GithubException as read_error:
+                        if read_error.status == 404 and target_exists:
+                            raise SyncCommitConflictError(
+                                "Target branch was deleted; create a new preview"
+                            ) from e
+                    else:
+                        if current.commit.sha == commit.sha:
+                            # A previous attempt may have published successfully
+                            # before its acknowledgement was lost. The exact new
+                            # OID proves this operation already performed the CAS.
+                            already_published = True
+                        elif (
+                            not target_exists
+                            or current.commit.sha != expected_commit_sha
+                        ):
+                            raise SyncCommitConflictError(
+                                "Target branch changed; create a new preview"
+                            ) from e
+                if not already_published:
+                    raise
             self.logger.info(
                 "Updated GitHub workspace sync ref",
                 tree_sha=tree.sha,
@@ -790,7 +1184,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> list[GitCommitInfo]:
         """Return up to ``limit`` most recent commits on ``branch``."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             commits_paginated = await asyncio.to_thread(repo.get_commits, sha=branch)
@@ -813,6 +1209,27 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         finally:
             gh.close()
 
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            try:
+                await asyncio.to_thread(repo.get_branch, branch)
+            except GithubException as exc:
+                if exc.status == 404:
+                    return False
+                raise
+            return True
+        except GithubException as exc:
+            raise GitHubAppError(
+                f"GitHub API error: {exc.status} - {exc.data}"
+            ) from exc
+        finally:
+            gh.close()
+
     async def list_branches(
         self,
         *,
@@ -821,22 +1238,89 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> list[GitBranchInfo]:
         """Return up to ``limit`` branches, flagging the repository default."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             branches_paginated = await asyncio.to_thread(repo.get_branches)
             raw_branches = await asyncio.to_thread(
                 lambda: list(itertools.islice(branches_paginated, limit))
             )
+            names = [branch_obj.name for branch_obj in raw_branches]
+            # Branches list alphabetically, so the default can fall past the limit.
+            if names and repo.default_branch not in names:
+                names = [repo.default_branch, *names[: limit - 1]]
             return [
-                GitBranchInfo(
-                    name=branch_obj.name,
-                    is_default=branch_obj.name == repo.default_branch,
-                )
-                for branch_obj in raw_branches
+                GitBranchInfo(name=name, is_default=name == repo.default_branch)
+                for name in names
             ]
         except GithubException as e:
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+        finally:
+            gh.close()
+
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Return one page of tags, newest tagged commit first.
+
+        One GraphQL query reads the refs ordered by ``TAG_COMMIT_DATE`` along
+        with their targets, so dates cost no extra requests. The cursor is
+        GitHub's own ``endCursor``. GitHub caps a page at 100 refs.
+        """
+        if limit <= 0:
+            return [], None
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
+        variables = {
+            "owner": url.org,
+            "name": url.repo,
+            "first": min(limit, TAG_PAGE_MAX),
+            "after": cursor,
+        }
+        try:
+            _headers, data = await asyncio.to_thread(
+                gh.requester.graphql_query, GITHUB_LIST_TAGS_QUERY, variables
+            )
+        except GithubException as e:
+            raise GitHubAppError(
+                f"GitHub API error: {e.status} - {e.data}",
+                status_code=github_upstream_status(e),
+            ) from e
+        finally:
+            gh.close()
+        try:
+            response = GitHubTagRefsResponse.model_validate(data)
+        except PydanticValidationError as e:
+            raise GitHubAppError("GitHub returned an invalid tag response") from e
+        repository = response.data.repository
+        if repository is None:
+            raise GitHubAppError("GitHub repository not found", status_code=404)
+        tags = self._build_tags(
+            (ref.name, github_tag_commit(ref.target)) for ref in repository.refs.nodes
+        )
+        page_info = repository.refs.pageInfo
+        return tags, page_info.endCursor if page_info.hasNextPage else None
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the Git refs API."""
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(url)
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            await asyncio.to_thread(repo.create_git_ref, f"refs/tags/{tag}", sha)
+        except GithubException as e:
+            raise GitHubAppError(
+                f"GitHub API error: {e.status} - {e.data}",
+                status_code=github_upstream_status(e),
+            ) from e
         finally:
             gh.close()
 
@@ -894,7 +1378,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
 
 
 class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
-    """GitLab token-backed REST transport for workspace sync."""
+    """GitLab token-backed transport with atomic Git publication."""
 
     service_name = "workspace_gitlab_sync"
 
@@ -903,10 +1387,17 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         *,
         url: GitUrl,
         ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``."""
         async with self._authed_client(url) as client:
-            return await self._read_files_with_client(client=client, url=url, ref=ref)
+            return await self._read_files_with_client(
+                client=client,
+                url=url,
+                ref=f"refs/heads/{ref}" if ref_kind == "branch" else ref,
+                resource_filter=resource_filter,
+            )
 
     async def write_files(
         self,
@@ -917,7 +1408,10 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         """Commit ``files`` to ``branch``, optionally opening a merge request."""
         message = self._normalize_commit_message(files, message)
@@ -938,6 +1432,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 project_id=project_id,
                 branch=base_branch_name,
             )
+            target_exists = True
             try:
                 await self._get_branch(
                     client=client,
@@ -947,18 +1442,30 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             except GitLabApiError as e:
                 if e.status_code != 404:
                     raise
-                await self._create_branch(
-                    client=client,
-                    project_id=project_id,
-                    branch=branch,
-                    ref=base_branch_name,
-                )
+                target_exists = False
 
             current = await self._read_files_with_client(
                 client=client,
                 url=url,
-                ref=branch,
+                ref=f"refs/heads/{branch if target_exists else branch_start_ref or base_branch_name}",
             )
+            if (
+                expected_commit_sha is not None
+                and current.commit_sha != expected_commit_sha
+            ):
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
+            # Guarded writes create a missing branch atomically with their commit.
+            # Legacy writes still create the branch here, pinned to the fetched SHA.
+            if not target_exists and expected_commit_sha is None:
+                await self._create_branch(
+                    client=client,
+                    project_id=project_id,
+                    branch=branch,
+                    ref=current.commit_sha,
+                )
+                target_exists = True
             current_blob_paths = current.blob_paths or frozenset(current.files)
             changed_files = {
                 path: content
@@ -976,11 +1483,14 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             pr_number: int | None = None
             pr_reused = False
             if not changed_files and not stale_paths:
-                branch_has_commits = await self._branch_has_commits_between(
-                    client=client,
-                    project_id=project_id,
-                    base_branch_name=base_branch_name,
-                    branch_name=branch,
+                branch_has_commits = (
+                    target_exists
+                    and await self._branch_has_commits_between(
+                        client=client,
+                        project_id=project_id,
+                        base_branch_name=base_branch_name,
+                        branch_name=branch,
+                    )
                 )
                 if create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_merge_request(
@@ -1013,19 +1523,30 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             for path in sorted(stale_paths):
                 actions.append({"action": "delete", "file_path": path})
 
-            commit_payload: GitLabCreateCommitPayload = {
-                "branch": branch,
-                "commit_message": message,
-                "actions": actions,
-            }
-            commit = await self._gitlab_model(
-                client,
-                "POST",
-                f"/projects/{project_id}/repository/commits",
-                model=GitLabCommit,
-                json=commit_payload,
-            )
-            commit_sha = commit.id
+            if expected_commit_sha is not None:
+                commit_sha = await self._write_guarded_commit(
+                    url=url,
+                    parent=current.commit_sha,
+                    branch=branch,
+                    expected_head=current.commit_sha if target_exists else None,
+                    files=changed_files,
+                    deleted=stale_paths,
+                    message=sync_commit_message(message, operation_id),
+                )
+            else:
+                commit_payload: GitLabCreateCommitPayload = {
+                    "branch": branch,
+                    "commit_message": sync_commit_message(message, operation_id),
+                    "actions": actions,
+                }
+                commit = await self._gitlab_model(
+                    client,
+                    "POST",
+                    f"/projects/{project_id}/repository/commits",
+                    model=GitLabCommit,
+                    json=commit_payload,
+                )
+                commit_sha = commit.id
 
             if create_pr:
                 pr_url, pr_number, pr_reused = await self._upsert_merge_request(
@@ -1046,6 +1567,46 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 pr_reused=pr_reused,
                 message="Committed workspace sync changes.",
             )
+
+    async def _write_guarded_commit(
+        self,
+        *,
+        url: GitUrl,
+        parent: str,
+        branch: str,
+        expected_head: str | None,
+        files: dict[str, str],
+        deleted: set[str],
+        message: str,
+    ) -> str:
+        """Publish the prepared tree with a whole-branch compare-and-swap.
+
+        GitLab's REST commits API guards individual files only. A native Git
+        lease also rejects concurrent additions and edits outside those actions.
+        """
+        validate_path(f"{url.org}/{url.repo}", GitLabError)
+        credentials = await self._credentials()
+        remote = (
+            f"{credentials.base_url}/"
+            f"{quote(url.org, safe='/')}/{quote(url.repo, safe='')}.git"
+        )
+        with TemporaryDirectory() as directory:
+            git = GitPlumbing(
+                directory,
+                credentials.token,
+                credential_url=f"{credentials.base_url}/",
+                error_type=GitLabError,
+            )
+            await git.initialize()
+            await git.fetch(remote, parent, ref_kind="commit")
+            sha = await git.commit(parent, files, deleted, message)
+            if sha is None:
+                raise GitLabError("Prepared GitLab changes produced no commit")
+            try:
+                await git.push_with_lease(remote, sha, branch, expected_head)
+            except GitRefConflictError as exc:
+                raise SyncCommitConflictError(str(exc)) from exc
+            return sha
 
     async def list_commits(
         self,
@@ -1071,14 +1632,31 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 message=commit.message or commit.title or "",
                 author=commit.author_name or "Unknown",
                 author_email=commit.author_email or "",
-                date=commit.authored_date
-                or commit.committed_date
-                or commit.created_at
-                or "",
+                date=gitlab_commit_date(commit) or "",
                 tags=[],
             )
             for commit in raw_commits
         ]
+
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        async with self._authed_client(url) as client:
+            try:
+                await self._get_branch(
+                    client=client, project_id=_gitlab_project_id(url), branch=branch
+                )
+            except GitLabApiError as exc:
+                if exc.status_code == 404:
+                    # Project metadata can be visible without repository access.
+                    # Only classify absence after a repository-scoped read succeeds.
+                    await self._gitlab_response(
+                        client,
+                        "GET",
+                        f"/projects/{_gitlab_project_id(url)}/repository/branches",
+                        params={"per_page": 1},
+                    )
+                    return False
+                raise
+            return True
 
     async def list_branches(
         self,
@@ -1092,6 +1670,55 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 client=client,
                 url=url,
                 limit=limit,
+            )
+
+    async def list_tags(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Return one page of tags, most recently updated first.
+
+        Annotated tags carry GitLab's tag ``created_at``; lightweight tags fall
+        back to the commit date that :meth:`list_commits` reports. The cursor
+        carries GitLab's ``x-next-page`` page number.
+        """
+        if limit <= 0:
+            return [], None
+        per_page = min(limit, TAG_PAGE_MAX)
+        page = decode_tag_cursor(cursor, page_size=per_page, first=1)
+        async with self._authed_client(url) as client:
+            tags_params: GitLabListTagsParams = {"order_by": "updated", "sort": "desc"}
+            values, next_header = await self._gitlab_page(
+                client,
+                f"/projects/{_gitlab_project_id(url)}/repository/tags",
+                params=tags_params,
+                page=page,
+                per_page=per_page,
+            )
+        tags = self._build_tags(
+            (tag.name, gitlab_tag_commit(tag))
+            for tag in self._tag_entries(GitLabTag, values)
+        )
+        next_page = _gitlab_next_page(next_header)
+        if next_page is None:
+            return tags, None
+        try:
+            return tags, encode_tag_cursor(next_page, per_page)
+        except PydanticValidationError as e:
+            # An out-of-range x-next-page is a bad provider response, not a 500.
+            raise GitLabError("GitLab pagination response was invalid") from e
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the repository tags API."""
+        async with self._authed_client(url) as client:
+            await self._gitlab_json(
+                client,
+                "POST",
+                f"/projects/{_gitlab_project_id(url)}/repository/tags",
+                json={"tag_name": tag, "ref": sha},
             )
 
     async def _credentials(self) -> GitLabTokenCredentials:
@@ -1124,6 +1751,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         instance host, and ports are ignored so custom SSH ports still match.
         """
         credentials = await self._credentials()
+        await self._release_read_connection()
         expected_host = _gitlab_instance_host(credentials.base_url)
         repo_host = _gitlab_instance_host(url.host)
         if expected_host and not (
@@ -1144,6 +1772,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         client: httpx.AsyncClient,
         url: GitUrl,
         ref: str,
+        resource_filter: Callable[[str], bool] | None = None,
     ) -> VcsTreeSnapshot:
         """Read workspace sync files with an existing GitLab client."""
         project_id = _gitlab_project_id(url)
@@ -1183,6 +1812,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         files = await self._select_snapshot_files(
             blob_paths=list(blob_shas),
             fetch_text=fetch_text,
+            resource_filter=resource_filter,
         )
         return VcsTreeSnapshot(
             commit_sha=commit_sha,
@@ -1393,33 +2023,48 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         results: list[ModelT] = []
         page = 1
         while True:
-            page_params = {
-                **(params or {}),
-                "page": page,
-                "per_page": _GITLAB_PAGE_SIZE,
-            }
-            response = await self._gitlab_response(
+            values, next_header = await self._gitlab_page(
                 client,
-                "GET",
                 path,
-                params=page_params,
+                params=params,
+                page=page,
+                per_page=_GITLAB_PAGE_SIZE,
             )
-            data = self._json(response)
-            if not isinstance(data, list):
-                raise GitLabError("GitLab list response was invalid")
             try:
-                results.extend(model.model_validate(item) for item in data)
+                results.extend(model.model_validate(value) for value in values)
             except PydanticValidationError as e:
                 raise GitLabError("GitLab list response was invalid") from e
             if limit is not None and len(results) >= limit:
                 return results[:limit]
-            next_page = response.headers.get("x-next-page")
-            if not next_page:
+            next_page = _gitlab_next_page(next_header)
+            if next_page is None:
                 return results
-            try:
-                page = int(next_page)
-            except ValueError as e:
-                raise GitLabError("GitLab pagination response was invalid") from e
+            page = next_page
+
+    async def _gitlab_page(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None,
+        page: int,
+        per_page: int,
+    ) -> tuple[list[JsonValue], str | None]:
+        """Read one page of a GitLab list: its raw items and ``x-next-page``.
+
+        The header is returned unparsed so callers only parse it when they need
+        another page; see :func:`_gitlab_next_page`.
+        """
+        response = await self._gitlab_response(
+            client,
+            "GET",
+            path,
+            params={**(params or {}), "page": page, "per_page": per_page},
+        )
+        data = self._json(response)
+        if not isinstance(data, list):
+            raise GitLabError("GitLab list response was invalid")
+        return data, response.headers.get("x-next-page")
 
     async def _gitlab_model[ModelT: BaseModel](
         self,
@@ -1492,6 +2137,19 @@ def _gitlab_project_id(url: GitUrl) -> str:
     return quote(f"{url.org}/{url.repo}", safe="")
 
 
+def _gitlab_next_page(header: str | None) -> int | None:
+    """Parse GitLab's ``x-next-page`` header; empty means the last page."""
+    if not header:
+        return None
+    try:
+        page = int(header)
+    except ValueError as e:
+        raise GitLabError("GitLab pagination response was invalid") from e
+    if page < 1:
+        raise GitLabError("GitLab pagination response was invalid")
+    return page
+
+
 def _gitlab_error_message(response: httpx.Response) -> str:
     """Extract a readable GitLab error without branching on error strings."""
     try:
@@ -1520,6 +2178,7 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         credentials = await BitbucketTokenService(
             session=self.session, role=self.role
         ).get_bitbucket_token_credentials()
+        await self._release_read_connection()
         with TemporaryDirectory(prefix="tracecat-bitbucket-") as directory:
             git = BitbucketGit(directory, credentials.token)
             await git.initialize()
@@ -1551,10 +2210,20 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             or not target.path.startswith("/2.0/repositories/")
         ):
             raise BitbucketError("Invalid Bitbucket Cloud API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Cloud API request failed", error_type=type(e).__name__
+            )
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketTransportError(
+                "Bitbucket Cloud API request failed: could not reach Bitbucket."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
-                f"Bitbucket Cloud API request failed (HTTP {response.status_code}). Check token permissions and repository access."
+                f"Bitbucket Cloud API request failed (HTTP {response.status_code}). Check token permissions and repository access.",
+                status_code=response.status_code,
             )
         return response
 
@@ -1562,7 +2231,12 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         self, client: httpx.AsyncClient, path: str, model: type[T]
     ) -> T:
         response = await self._request(client, "GET", path)
-        return model.model_validate_json(response.content)
+        try:
+            return model.model_validate_json(response.content)
+        except PydanticValidationError as e:
+            raise BitbucketError(
+                f"Bitbucket returned an invalid {model.__name__}"
+            ) from e
 
     async def _list[T: BaseModel](
         self,
@@ -1579,12 +2253,34 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             if path in seen:
                 raise BitbucketError("Invalid Bitbucket pagination loop")
             seen.add(path)
-            response = await self._request(client, "GET", path, params=params)
-            page = BitbucketPage[model].model_validate_json(response.content)
-            results.extend(page.values)
-            path = page.next or ""
+            values, next_path = await self._cloud_page(client, path, params=params)
+            results.extend(_bitbucket_models(model, values))
+            path = next_path or ""
             params = None
         return results[:limit]
+
+    async def _cloud_page(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+    ) -> tuple[list[JsonValue], str | None]:
+        """Read one page of a Cloud listing: its raw values and ``next`` link.
+
+        Data Center pages by start offset and overrides this to fail loudly;
+        it uses :meth:`BitbucketDataCenterWorkspaceSyncTransport._page_at`.
+        """
+        response = await self._request(client, "GET", path, params=params)
+        try:
+            page = BitbucketPage[JsonValue].model_validate_json(response.content)
+        except PydanticValidationError as e:
+            raise BitbucketError("Bitbucket returned an invalid page") from e
+        return page.values, page.next
+
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        async with self._connection(url) as (client, git, _path):
+            return await git.branch_exists(self._git_remote(url, client), branch)
 
     async def list_branches(
         self, *, url: GitUrl, limit: int = 100
@@ -1639,12 +2335,56 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             return result
 
+    async def list_tags(
+        self, *, url: GitUrl, limit: int = 100, cursor: str | None = None
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Return one page of tags, newest target commit first.
+
+        Uses the tag's own ``date`` when Bitbucket has one (annotated tags),
+        otherwise the target commit's ``date``. The cursor carries the page
+        number, never Bitbucket's ``next`` URL, so a caller cannot point the
+        organization's credentials at another repository.
+        """
+        if limit <= 0:
+            return [], None
+        pagelen = min(limit, TAG_PAGE_MAX)
+        page = decode_tag_cursor(cursor, page_size=pagelen, first=1)
+        async with self._connection(url) as (client, _git, path):
+            values, next_link = await self._cloud_page(
+                client,
+                f"{path}/refs/tags",
+                params={"pagelen": pagelen, "page": page, "sort": "-target.date"},
+            )
+        tags = self._build_tags(
+            (tag.name, bitbucket_tag_commit(tag))
+            for tag in self._tag_entries(BitbucketTag, values)
+        )
+        next_cursor = encode_tag_cursor(page + 1, pagelen) if next_link else None
+        return tags, next_cursor
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the refs API."""
+        async with self._connection(url) as (client, _git, path):
+            await self._request(
+                client,
+                "POST",
+                f"{path}/refs/tags",
+                body={"name": tag, "target": {"hash": sha}},
+            )
+
     def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
         return f"https://bitbucket.org/{repository_path(url)}.git"
 
-    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+        resource_filter: Callable[[str], bool] | None = None,
+    ) -> VcsTreeSnapshot:
         async with self._connection(url) as (client, git, _path):
-            sha = await git.fetch(self._git_remote(url, client), ref)
+            sha = await git.fetch(self._git_remote(url, client), ref, ref_kind=ref_kind)
             entries = await git.entries(sha)
             # Bound subprocesses when the shared selector gathers all managed files.
             semaphore = asyncio.Semaphore(8)
@@ -1658,7 +2398,9 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                     return None
 
             files = await self._select_snapshot_files(
-                blob_paths=list(entries), fetch_text=fetch_text
+                blob_paths=list(entries),
+                fetch_text=fetch_text,
+                resource_filter=resource_filter,
             )
             tree = (await git.run("rev-parse", f"{sha}^{{tree}}")).decode().strip()
             return VcsTreeSnapshot(
@@ -1677,7 +2419,10 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         message = self._normalize_commit_message(files, message)
         async with self._connection(url) as (client, git, path):
@@ -1702,15 +2447,33 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 params={"q": f"name={json.dumps(branch)}", "pagelen": 1},
             )
             remote = f"https://bitbucket.org/{repository_path(url)}.git"
-            parent = await git.fetch(remote, branch if branches else base)
+            parent = await git.fetch(
+                remote,
+                branch if branches else branch_start_ref or base,
+                ref_kind="branch",
+            )
+            if expected_commit_sha is not None and parent != expected_commit_sha:
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
             entries = await git.entries(parent)
             roots = _normalized_roots(delete_missing_paths_under)
             deleted = {
                 p for p in entries if p not in files and _path_is_under_roots(p, roots)
             }
-            sha = await git.commit(parent, files, deleted, message)
+            sha = await git.commit(
+                parent, files, deleted, sync_commit_message(message, operation_id)
+            )
             if sha:
-                await git.push(remote, sha, branch)
+                if expected_commit_sha is not None:
+                    try:
+                        await git.push_with_lease(
+                            remote, sha, branch, parent if branches else None
+                        )
+                    except GitRefConflictError as exc:
+                        raise SyncCommitConflictError(str(exc)) from exc
+                else:
+                    await git.push(remote, sha, branch)
             info = CommitInfo(
                 status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
                 sha=sha,
@@ -1780,6 +2543,7 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         credentials = await BitbucketDataCenterTokenService(
             session=self.session, role=self.role
         ).get_bitbucket_data_center_token_credentials()
+        await self._release_read_connection()
         base = httpx.URL(credentials.base_url + "/")
         if url.host.lower() != base.host.lower() or any(
             not re.fullmatch(r"[A-Za-z0-9_~][A-Za-z0-9_.~-]*", part)
@@ -1832,10 +2596,21 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
             or target.fragment
         ):
             raise BitbucketError("Invalid Data Center API URL")
-        response = await client.request(method, target, params=params, json=body)
+        try:
+            response = await client.request(method, target, params=params, json=body)
+        except httpx.HTTPError as e:
+            self.logger.warning(
+                "Bitbucket Data Center API request failed", error_type=type(e).__name__
+            )
+            # The exception text can name the host; keep it out of the user message.
+            raise BitbucketTransportError(
+                "Bitbucket Data Center API request failed: could not reach the"
+                " Bitbucket host. Check the URL and network access."
+            ) from e
         if not response.is_success:
             raise BitbucketError(
-                f"Bitbucket Data Center API request failed (HTTP {response.status_code})"
+                f"Bitbucket Data Center API request failed (HTTP {response.status_code})",
+                status_code=response.status_code,
             )
         return response
 
@@ -1849,26 +2624,57 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         params: Mapping[str, str | int] | None = None,
     ) -> list[T]:
         results: list[T] = []
-        start = 0
-        while len(results) < limit:
-            response = await self._request(
+        start: int | None = 0
+        while start is not None and len(results) < limit:
+            values, start = await self._page_at(
                 client,
-                "GET",
                 path,
-                params={
-                    **(params or {}),
-                    "start": start,
-                    "limit": min(100, limit - len(results)),
-                },
+                start=start,
+                limit=min(_DATA_CENTER_PAGE_MAX, limit - len(results)),
+                params=params,
             )
-            page = DataCenterPage[model].model_validate_json(response.content)
-            results.extend(page.values)
-            if page.isLastPage:
-                break
-            if page.nextPageStart is None or page.nextPageStart <= start:
-                raise BitbucketError("Invalid Data Center pagination")
-            start = page.nextPageStart
+            results.extend(_bitbucket_models(model, values))
         return results[:limit]
+
+    async def _cloud_page(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+    ) -> NoReturn:
+        """Refuse Cloud ``next``-link paging; Data Center pages by offset."""
+        raise NotImplementedError(
+            "Bitbucket Data Center pages by start offset; use _page_at"
+        )
+
+    async def _page_at(
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        *,
+        start: int,
+        limit: int,
+        params: Mapping[str, str | int] | None = None,
+    ) -> tuple[list[JsonValue], int | None]:
+        """Read one page from ``start``: its raw values and the next start, if any."""
+        response = await self._request(
+            client,
+            "GET",
+            path,
+            params={**(params or {}), "start": start, "limit": limit},
+        )
+        try:
+            page = DataCenterPage[JsonValue].model_validate_json(response.content)
+        except PydanticValidationError as e:
+            raise BitbucketError(
+                "Bitbucket Data Center returned an invalid page"
+            ) from e
+        if page.isLastPage:
+            return page.values, None
+        if page.nextPageStart is None or page.nextPageStart <= start:
+            raise BitbucketError("Invalid Data Center pagination")
+        return page.values, page.nextPageStart
 
     async def list_branches(
         self, *, url: GitUrl, limit: int = 100
@@ -1908,12 +2714,97 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                     message=c.message,
                     author=c.author.name,
                     author_email=c.author.emailAddress,
-                    date=datetime.fromtimestamp(
-                        c.authorTimestamp / 1000, UTC
-                    ).isoformat(),
+                    date=_data_center_timestamp(c.authorTimestamp),
                 )
                 for c in commits
             ]
+
+    async def list_tags(
+        self, *, url: GitUrl, limit: int = 100, cursor: str | None = None
+    ) -> tuple[list[GitTagInfo], str | None]:
+        """Return one page of tags, most recently modified first.
+
+        Data Center's tag API has no tag date, so this uses the tagged commit's
+        author date, read with one request per distinct commit. The cursor
+        carries Data Center's ``nextPageStart`` offset.
+        """
+        if limit <= 0:
+            return [], None
+        page_size = min(limit, TAG_PAGE_MAX)
+        start = decode_tag_cursor(cursor, page_size=page_size, first=0)
+        async with self._connection(url) as (client, _git, path):
+            values, next_start = await self._page_at(
+                client,
+                f"{path}/tags",
+                start=start,
+                limit=page_size,
+                params={"orderBy": "MODIFICATION"},
+            )
+            entries = self._tag_entries(DataCenterTag, values)
+            dates = await self._data_center_commit_dates(
+                client, path, {tag.latestCommit for tag in entries}
+            )
+        tags = self._build_tags(
+            (tag.name, TagCommit(sha=tag.latestCommit, date=dates[tag.latestCommit]))
+            for tag in entries
+        )
+        next_cursor = (
+            encode_tag_cursor(next_start, page_size) if next_start is not None else None
+        )
+        return tags, next_cursor
+
+    async def create_tag(self, *, url: GitUrl, tag: str, sha: str) -> None:
+        """Create a lightweight tag through the repository tags API."""
+        async with self._connection(url) as (client, _git, path):
+            await self._request(
+                client, "POST", f"{path}/tags", body={"name": tag, "startPoint": sha}
+            )
+
+    async def _data_center_commit_dates(
+        self, client: httpx.AsyncClient, path: str, shas: set[str]
+    ) -> dict[str, str | None]:
+        """Return each commit's author date, or ``None`` if that commit is bad.
+
+        A commit that is missing (404) or malformed leaves its tags undated, so
+        they are skipped instead of failing the whole page. Any other failure
+        (auth, rate limit, server error, unreachable host) is about the request,
+        not the tag, and is raised so the page is not silently incomplete.
+        """
+        semaphore = asyncio.Semaphore(_DATA_CENTER_TAG_COMMIT_CONCURRENCY)
+
+        async def commit_date(sha: str) -> tuple[str, str | None]:
+            try:
+                async with semaphore:
+                    commit = await self._model(
+                        client,
+                        f"{path}/commits/{quote(sha, safe='')}",
+                        DataCenterCommit,
+                    )
+            except BitbucketTransportError:
+                # An unreachable host is about the request, not this commit.
+                raise
+            except BitbucketError as e:
+                # Validation failures carry no status; 404 means this commit.
+                if e.status_code not in (None, 404):
+                    raise
+                self.logger.warning(
+                    "Could not read a tagged commit's date",
+                    commit_sha=sha,
+                    status_code=e.status_code,
+                )
+                return sha, None
+            return sha, _data_center_timestamp(commit.authorTimestamp)
+
+        tasks = [asyncio.create_task(commit_date(sha)) for sha in shas]
+        try:
+            return dict(await asyncio.gather(*tasks))
+        except BaseException:
+            # Stop the sibling reads before the caller closes the client, and
+            # collect their outcomes so none is left unretrieved.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def write_files(
         self,
@@ -1924,7 +2815,10 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         message = self._normalize_commit_message(files, message)
         async with self._connection(url) as (client, git, path):
@@ -1938,25 +2832,35 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                 raise TracecatValidationError(
                     "The sync branch must differ from the pull request base branch"
                 )
-            # Data Center filterText is a substring filter; require an exact name match.
-            candidates = await self._list(
-                client,
-                f"{path}/branches",
-                DataCenterBranch,
-                limit=10000,
-                params={"filterText": branch},
-            )
-            exists = any(b.name == branch for b in candidates)
             remote = self._git_remote(url, client)
-            parent = await git.fetch(remote, branch if exists else base)
+            exists = await git.branch_exists(remote, branch)
+            parent = await git.fetch(
+                remote,
+                branch if exists else branch_start_ref or base,
+                ref_kind="branch",
+            )
+            if expected_commit_sha is not None and parent != expected_commit_sha:
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
             entries = await git.entries(parent)
             roots = _normalized_roots(delete_missing_paths_under)
             deleted = {
                 p for p in entries if p not in files and _path_is_under_roots(p, roots)
             }
-            sha = await git.commit(parent, files, deleted, message)
+            sha = await git.commit(
+                parent, files, deleted, sync_commit_message(message, operation_id)
+            )
             if sha:
-                await git.push(remote, sha, branch)
+                if expected_commit_sha is not None:
+                    try:
+                        await git.push_with_lease(
+                            remote, sha, branch, parent if exists else None
+                        )
+                    except GitRefConflictError as exc:
+                        raise SyncCommitConflictError(str(exc)) from exc
+                else:
+                    await git.push(remote, sha, branch)
             info = CommitInfo(
                 status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
                 sha=sha,

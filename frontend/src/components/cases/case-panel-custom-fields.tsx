@@ -5,8 +5,8 @@ import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
 import {
   ExpandFieldCell,
-  JsonFieldDialog,
-  LongTextFieldDialog,
+  JsonFieldDrawer,
+  LongTextFieldDrawer,
 } from "@/components/cases/case-field-kind-dialogs"
 import {
   UrlFieldPopover,
@@ -187,7 +187,7 @@ function LongTextCustomField({
         onClick={() => setDialogOpen(true)}
         hasValue={currentValue.length > 0}
       />
-      <LongTextFieldDialog
+      <LongTextFieldDrawer
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         fieldLabel={customField.display_name}
@@ -267,7 +267,7 @@ function JsonCustomField({
         onClick={() => setDialogOpen(true)}
         hasValue={hasValue}
       />
-      <JsonFieldDialog
+      <JsonFieldDrawer
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         fieldLabel={customField.display_name}

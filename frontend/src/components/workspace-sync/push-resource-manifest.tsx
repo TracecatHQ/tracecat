@@ -3,8 +3,6 @@
 import { ChevronRightIcon, LockIcon } from "lucide-react"
 import { useState } from "react"
 import type {
-  PullResourceDiff,
-  PullResult,
   ResourcePullCount,
   SyncPreviewResource,
   SyncResourceType,
@@ -123,7 +121,7 @@ function buildResourceGroups(
 interface PushResourceManifestProps {
   preview: WorkspaceSyncExportPreview | undefined
   isLoading: boolean
-  errorMessage?: string
+  errorMessage?: React.ReactNode
 }
 
 /**
@@ -145,19 +143,6 @@ export function PushResourceManifest({
   )
 }
 
-/**
- * Enumerates resources found by a dry-run pull before the file-level diff.
- */
-export function PullResourceManifest({ result }: { result: PullResult }) {
-  return (
-    <WorkspaceSyncResourceManifest
-      preview={pullResultToResourceManifest(result)}
-      isLoading={false}
-      direction="pull"
-    />
-  )
-}
-
 function WorkspaceSyncResourceManifest({
   preview,
   isLoading,
@@ -166,7 +151,7 @@ function WorkspaceSyncResourceManifest({
 }: {
   preview: ResourceManifestPreview | undefined
   isLoading: boolean
-  errorMessage?: string
+  errorMessage?: React.ReactNode
   direction: "push" | "pull"
 }) {
   const [expanded, setExpanded] = useState<Set<SyncResourceType>>(
@@ -225,9 +210,11 @@ function WorkspaceSyncResourceManifest({
         <span className="text-xs font-semibold">
           Included in this {direction}
         </span>
-        <span className="font-mono text-xs text-muted-foreground">
-          {fileCount} {fileCount === 1 ? "file" : "files"}
-        </span>
+        {fileCount > 0 && (
+          <span className="font-mono text-xs text-muted-foreground">
+            {fileCount} {fileCount === 1 ? "file" : "files"}
+          </span>
+        )}
       </div>
       <ul className="max-h-56 divide-y overflow-y-auto">
         {groups.map((group) => {
@@ -333,30 +320,6 @@ function formatGroupSummary(group: ResourceGroup): string {
     return visibleNames
   }
   return `${visibleNames} +${remaining} more`
-}
-
-function pullResultToResourceManifest(
-  result: PullResult
-): ResourceManifestPreview {
-  return {
-    resource_counts: result.resource_counts ?? {},
-    files:
-      result.files ??
-      (result.resource_diffs ?? []).map((diff) => diff.source_path),
-    resources:
-      result.resources ?? resourcesFromDiffs(result.resource_diffs ?? []),
-  }
-}
-
-function resourcesFromDiffs(
-  resourceDiffs: PullResourceDiff[]
-): ResourceManifestResource[] {
-  return resourceDiffs.map((diff) => ({
-    resource_type: diff.resource_type,
-    source_id: diff.source_id,
-    name: diff.title ?? diff.source_id,
-    path: diff.source_path,
-  }))
 }
 
 function getResourceCount(

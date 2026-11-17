@@ -79,3 +79,27 @@ metadata:
 ---
 """
         )
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        pytest.param(
+            "---\r\nname: portable-skill\r\ndescription: Portable\r\n---\r\n# Skill\r\n",
+            id="crlf",
+        ),
+        pytest.param(
+            "\ufeff---\nname: portable-skill\ndescription: Portable\n---\n# Skill\n",
+            id="utf8-bom",
+        ),
+        pytest.param(
+            "---\nname: portable-skill\ndescription: Portable\n---", id="closing-at-eof"
+        ),
+    ],
+)
+def test_parse_skill_frontmatter_accepts_portable_delimiters(markdown: str) -> None:
+    parsed = parse_skill_markdown(markdown)
+
+    assert parsed is not None
+    assert parsed.name == "portable-skill"
+    assert parsed.description == "Portable"

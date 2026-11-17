@@ -104,28 +104,77 @@ def test_version_bump(
         )
 
 
-def test_alpha_hotfix_replaces_complete_tags_in_tracked_files(checkout: Path) -> None:
-    seed_versions(checkout, "1.2.0-alpha.1.1", "1.2.0a1.post1")
-    # Different old versions exercise pattern replacement, not just literal replacement.
-    content = (
-        "${TRACECAT__IMAGE_TAG:-1.2.0-alpha.1.9}\n"
-        "https://raw.githubusercontent.com/TracecatHQ/tracecat/1.2.0-alpha.1.9/file\n"
-        "https://github.com/TracecatHQ/tracecat/blob/1.2.0-alpha.1.9/file\n"
-        "`1.2.0-alpha.1.9`\n"
-        "TF_VAR_tracecat_image_tag=1.2.0-alpha.1.9\n"
-        "Current version: 1.2.0-alpha.1.1\n"
-    )
-    doc = checkout / "docs/install.md"
-    doc.parent.mkdir()
-    doc.write_text(content)
-    subprocess.run(["git", "add", "--", "docs/install.md"], cwd=checkout, check=True)
+def test_only_tracecat_version_fields_change(checkout: Path) -> None:
+    """Only real Tracecat version pins change; docs and other strings stay put.
 
-    result = update(checkout, "1.2.0-alpha.1.2")
+    Docs and README TF_VAR examples are not bumped, and a generic current
+    version such as 1.0.0 also appears in Terraform required_version,
+    third-party package pins, spec URLs, and prose examples. Untracked and
+    symlinked Terraform files are never rewritten.
+    """
+    seed_versions(checkout, "1.0.0", "1.0.0")
+    decoys = (
+        "export TF_VAR_tracecat_image_tag=1.0.0\n"
+        "export TF_VAR_tracecat_image_tag=1.1.0\n"
+        "Spec: https://www.conventionalcommits.org/en/v1.0.0/\n"
+        "Example: `1.0.0` and (`>1.0.0-beta.xx`)\n"
+        "Run `npx package@1.0.0`.\n"
+        "Blob: https://github.com/TracecatHQ/tracecat/blob/1.0.0/file\n"
+        "${TRACECAT__IMAGE_TAG:-1.0.0}\n"
+    )
+    # "{v}" marks a real pin: seeded with the current version, expected bumped.
+    files = {
+        ".github/ISSUE_TEMPLATE/bug_report.md": (
+            "- Tracecat version (e.g. `{v}`)\n- Browser version (e.g. `1.0.0`)\n"
+        ),
+        "deployments/fargate/variables.tf": (
+            'variable "tracecat_image_tag" {\n  default = "{v}"\n}\n'
+            'variable "other" {\n  default = "1.0.0"\n}\n'
+        ),
+        "deployments/fargate/modules/ecs/variables.tf": (
+            'variable "tracecat_image_tag" {\n  type    = string\n  default = "{v}"\n}\n'
+        ),
+        "deployments/fargate/modules/network/main.tf": (
+            'terraform {\n  required_version = ">= 1.0.0"\n}\n'
+        ),
+        "deployments/fargate/README.md": decoys,
+        "docs/self-hosting/aws-fargate.mdx": decoys,
+        "docs/tools/github.mdx": decoys,
+        "CONTRIBUTING.md": decoys,
+        "docker-compose.yml": decoys,
+    }
+    for name, template in files.items():
+        path = checkout / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(template.replace("{v}", "1.0.0"))
+    pin = 'variable "tracecat_image_tag" {\n  default = "1.0.0"\n}\n'
+    untracked = checkout / "deployments/fargate/modules/untracked/variables.tf"
+    untracked.parent.mkdir(parents=True)
+    untracked.write_text(pin)
+    target = checkout / "shared/image.tf"
+    target.parent.mkdir()
+    target.write_text(pin)
+    link = checkout / "deployments/fargate/modules/linked/variables.tf"
+    link.parent.mkdir(parents=True)
+    link.symlink_to("../../../../shared/image.tf")
+    tracked = [
+        *files,
+        "shared/image.tf",
+        "deployments/fargate/modules/linked/variables.tf",
+    ]
+    subprocess.run(["git", "add", "--", *tracked], cwd=checkout, check=True)
+    # Forced color would wrap discovered paths in ANSI escapes.
+    subprocess.run(["git", "config", "color.ui", "always"], cwd=checkout, check=True)
+
+    result = update(checkout, "1.4.0-alpha.4")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert doc.read_text() == content.replace(
-        "1.2.0-alpha.1.9", "1.2.0-alpha.1.2"
-    ).replace("1.2.0-alpha.1.1", "1.2.0-alpha.1.2")
+    for name, template in files.items():
+        expected = template.replace("{v}", "1.4.0-alpha.4")
+        assert (checkout / name).read_text() == expected, name
+    assert untracked.read_text() == pin
+    assert link.is_symlink()
+    assert target.read_text() == pin
 
 
 @pytest.mark.parametrize(

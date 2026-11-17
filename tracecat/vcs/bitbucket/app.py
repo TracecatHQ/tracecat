@@ -27,6 +27,10 @@ class BitbucketError(VcsProviderError):
     """Bitbucket operation error."""
 
 
+class BitbucketTransportError(BitbucketError):
+    """The Bitbucket host could not be reached or the request did not complete."""
+
+
 class BitbucketTokenSecretState(StrEnum):
     """State of the stored Bitbucket token org secret."""
 
@@ -174,7 +178,7 @@ class BitbucketTokenService(BaseOrgService):
                 return BitbucketTokenCredentialsStatus(exists=False)
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    @require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
     async def get_bitbucket_token_credentials(self) -> BitbucketTokenCredentials:
         """Retrieve Bitbucket credentials for workspace sync API calls."""
         (

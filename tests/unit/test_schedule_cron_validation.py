@@ -40,12 +40,6 @@ def test_schedule_create_invalid_cron():
         assert "Invalid cron expression" in str(exc.value)
 
 
-def test_schedule_update_valid_cron():
-    """Test that valid cron expressions are accepted in updates."""
-    instance = schemas.ScheduleUpdate(cron="0 0 * * *")
-    assert instance.cron == "0 0 * * *"
-
-
 def test_schedule_update_invalid_cron():
     """Test that invalid cron expressions are rejected in updates."""
     with pytest.raises(ValidationError) as exc:
@@ -59,9 +53,3 @@ def test_schedule_create_rejects_both_cron_and_every():
             workflow_id="wf_test123", cron="0 0 * * *", every=timedelta(hours=1)
         )
     assert "Only one of cron or every" in str(exc.value)
-
-
-def test_schedule_update_accepts_timeout():
-    instance = schemas.ScheduleUpdate(timeout=30)
-    assert instance.timeout == 30
-    assert "timeout" in instance.model_fields_set

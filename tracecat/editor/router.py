@@ -18,6 +18,7 @@ from tracecat.editor.schemas import (
 from tracecat.expressions.functions import FUNCTION_MAPPING
 from tracecat.expressions.parser.grammar import grammar
 from tracecat.identifiers.workflow import AnyWorkflowIDQuery
+from tracecat.logger import logger
 from tracecat.registry.fields import EditorComponent
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -281,12 +282,14 @@ async def validate_expression(
             tokens=[],
         )
 
-    except Exception as e:
-        # Handle any other parsing errors
+    except Exception:
+        logger.exception("Failed to validate expression")
         return ExpressionValidationResponse(
             is_valid=False,
             errors=[
-                ValidationError(message=f"Parser error: {str(e)}", line=1, column=1)
+                ValidationError(
+                    message="Unable to validate expression", line=1, column=1
+                )
             ],
             tokens=[],
         )

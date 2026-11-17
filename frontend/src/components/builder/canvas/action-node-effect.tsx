@@ -1,12 +1,5 @@
-import {
-  AlertTriangle,
-  ArrowRight,
-  Edit,
-  MessagesSquare,
-  Repeat,
-} from "lucide-react"
+import { AlertTriangle, ArrowRight, Edit, Repeat } from "lucide-react"
 import React from "react"
-import type { ActionRead } from "@/client"
 
 import { Label } from "@/components/ui/label"
 import {
@@ -17,7 +10,6 @@ import {
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
@@ -135,37 +127,5 @@ export function ForEachEffect({
         </div>
       </PopoverContent>
     </Popover>
-  )
-}
-
-export function InteractionEffect({
-  interaction,
-  onClick,
-}: {
-  interaction: ActionRead["interaction"]
-  onClick: () => void
-}) {
-  if (!interaction) {
-    return null
-  }
-
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="group" onClick={onClick}>
-            <div className="flex size-6 items-center justify-center rounded-lg bg-amber-400 shadow-sm hover:bg-amber-400/80 group-hover:cursor-pointer">
-              <MessagesSquare
-                className="size-3 stroke-muted"
-                strokeWidth={2.5}
-              />
-            </div>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent>
-          <span className="capitalize">{interaction.type}</span>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   )
 }

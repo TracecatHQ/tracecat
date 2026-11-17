@@ -6,13 +6,6 @@ locals {
   tracecat_migrations_image     = coalesce(var.tracecat_migrations_image, var.tracecat_image)
   tracecat_migrations_image_tag = coalesce(var.tracecat_migrations_image_tag, local.tracecat_image_tag)
 
-  # WAF regex pattern set names. Default to "${name_prefix}-..." so each stack
-  # gets uniquely-named pattern sets within a shared AWS account; explicit
-  # variable values override (e.g. legacy stacks that already own bare names).
-  waf_attachments_endpoint_pattern_name = coalesce(var.waf_attachments_endpoint_pattern_name, "${var.name_prefix}-attachments-endpoint-pattern")
-  waf_mcp_oauth_endpoints_pattern_name  = coalesce(var.waf_mcp_oauth_endpoints_pattern_name, "${var.name_prefix}-mcp-oauth-endpoints-pattern")
-  waf_mcp_public_endpoint_pattern_name  = coalesce(var.waf_mcp_public_endpoint_pattern_name, "${var.name_prefix}-mcp-public-endpoint-pattern")
-
   # Tracecat common URLs
   public_app_url   = "https://${var.domain_name}"
   public_api_url   = "https://${var.domain_name}/api"
@@ -48,6 +41,7 @@ locals {
   }
 
   tracecat_common_env = {
+    TRACECAT__BACKGROUND_QUEUE                        = var.background_queue
     LOG_LEVEL                                         = var.log_level
     TEMPORAL__CLUSTER_NAMESPACE                       = local.temporal_namespace
     TEMPORAL__CLUSTER_URL                             = local.temporal_cluster_url
@@ -123,12 +117,16 @@ locals {
         TRACECAT__EMAIL_FROM                       = var.email_from
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
-        SENTRY_DSN                                 = var.sentry_dsn
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
+        TRACECAT__SLACK_INGRESS_MODE               = var.slack_ingress_mode
+
+        # Break-glass recovery for a platform admin IP allowlist lockout.
+        TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = var.platform_admin_ip_allowlist_bypass
+        TRACECAT__PLATFORM_ADMIN_MFA_BYPASS          = var.platform_admin_mfa_bypass
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -149,7 +147,6 @@ locals {
         TRACECAT__PUBLIC_APP_URL          = local.public_app_url
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
         TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
-        SENTRY_DSN                        = var.sentry_dsn
         # Worker concurrency tuning (see tracecat/dsl/worker.py)
         TEMPORAL__THREADPOOL_MAX_WORKERS        = var.worker_threadpool_max_workers
         TEMPORAL__MAX_CONCURRENT_ACTIVITIES     = var.worker_max_concurrent_activities
@@ -158,6 +155,14 @@ locals {
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
+
+  background_worker_env = concat(
+    [for item in local.worker_env : item if item.name != "TRACECAT__SERVICE_NAME"],
+    [
+      { name = "TRACECAT__SERVICE_NAME", value = "background-worker" },
+      { name = "TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES", value = tostring(var.background_worker_max_concurrent_activities) }
+    ]
+  )
 
   agent_worker_env = [
     for k, v in merge(
@@ -177,7 +182,6 @@ locals {
         TRACECAT__EXECUTOR_QUEUE                  = var.executor_queue
         TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES = var.agent_worker_max_concurrent_activities
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
-        SENTRY_DSN                                = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -194,7 +198,6 @@ locals {
         TRACECAT__API_URL                             = local.internal_api_url
         TRACECAT__DB_ENDPOINT                         = local.core_db_hostname
         TRACECAT__SERVICE_NAME                        = "executor"
-        SENTRY_DSN                                    = var.sentry_dsn
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
@@ -224,7 +227,6 @@ locals {
         TRACECAT__API_URL                                  = local.internal_api_url
         TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
         TRACECAT__SERVICE_NAME                             = "agent-executor"
-        SENTRY_DSN                                         = var.sentry_dsn
         TRACECAT__EXECUTOR_BACKEND                         = "direct"
         TRACECAT__AGENT_QUEUE                              = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
@@ -253,6 +255,12 @@ locals {
     { name = k, value = tostring(v) } if v != null
   ]
 
+  # LiteLLM shutdown mirrors the k8s chart (grace = preStop + drain + 30 s), but
+  # Fargate caps a container's stopTimeout at 120 s and has no preStop hook, so
+  # the drain is 90 s here instead of k8s's 30 min.
+  litellm_stop_timeout_seconds  = 120
+  litellm_drain_timeout_seconds = local.litellm_stop_timeout_seconds - 30
+
   litellm_env = [
     for k, v in merge(
       local.tracecat_common_env,
@@ -263,6 +271,8 @@ locals {
         TRACECAT__SERVICE_NAME        = "litellm"
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
+        # Drain budget D: gateway drain logs flag requests still open after it.
+        GRACEFUL_SHUTDOWN_TIMEOUT = local.litellm_drain_timeout_seconds
       }
     ) :
     { name = k, value = tostring(v) } if v != null

@@ -22,6 +22,8 @@ import {
   type AgentCatalogListResponse,
   type AgentCatalogRead,
   type AuditWebhookTestResult,
+  adminBuildGetBuildInfo,
+  adminCheckIpAllowlist,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -37,6 +39,7 @@ import {
   adminGetOrganizationInvitationToken,
   adminGetOrgTier,
   adminGetRegistrySettings,
+  adminGetSecuritySettings,
   adminGetTier,
   adminListOrganizationDomains,
   adminListOrganizationInvitations,
@@ -56,7 +59,12 @@ import {
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
   adminResendOrganizationInvitation,
+  adminResetUserMfa,
   adminRevokeOrganizationInvitation,
+  adminSlackAppDeleteSlackApp,
+  adminSlackAppGetSlackApp,
+  adminSlackAppMarkSlackAppSetupSteps,
+  adminSlackAppSaveSlackApp,
   adminSyncOrgRepository,
   adminTestAuditWebhook,
   adminUpdateAuditSettings,
@@ -64,7 +72,10 @@ import {
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
+  adminUpdateSecuritySettings,
   adminUpdateTier,
+  type IPAllowlistCheckRequest,
+  type IPAllowlistCheckResult,
   OpenAPI,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
@@ -76,9 +87,15 @@ import {
   type OrgUpdate,
   type PlatformAuditSettingsRead,
   type PlatformAuditSettingsUpdate,
+  type PlatformBuildInfo,
   type PlatformRegistrySettingsUpdate,
+  type PlatformSecuritySettingsRead,
+  type PlatformSecuritySettingsUpdate,
   type RegistryArtifactsBackfillStartRequest,
   type RegistryArtifactsBackfillStartResponse,
+  type SlackPlatformAppRead,
+  type SlackPlatformAppSetupStepsUpdate,
+  type SlackPlatformAppUpdate,
   type TierCreate,
   type TierRead,
   type TierUpdate,
@@ -471,10 +488,22 @@ export function useAdminUsers() {
     },
   })
 
+  const { mutateAsync: resetUserMfa, isPending: resetMfaPending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminResetUserMfa({ userId })
+    },
+  })
+
   return {
     users,
     isLoading,
     error,
+    resetUserMfa,
+    resetMfaPending,
     createUser,
     createPending,
     promoteToSuperuser,
@@ -738,7 +767,10 @@ export function useAdminOrgRepositoryVersions(
 
 /* ── PLATFORM REGISTRY ─────────────────────────────────────────────────────── */
 
-export function useAdminRegistryStatus(options?: { enabled?: boolean }) {
+export function useAdminRegistryStatus(options?: {
+  enabled?: boolean
+  suppressErrorToast?: boolean
+}) {
   const {
     data: status,
     isLoading,
@@ -748,6 +780,7 @@ export function useAdminRegistryStatus(options?: { enabled?: boolean }) {
     queryKey: ["admin", "registry", "status"],
     queryFn: adminRegistryGetRegistryStatus,
     enabled: options?.enabled ?? true,
+    meta: { suppressErrorToast: options?.suppressErrorToast ?? false },
   })
 
   return {
@@ -892,6 +925,20 @@ export function useAdminRegistrySettings() {
   }
 }
 
+/** Loads the version and build details of the running deployment. */
+export function useAdminBuildInfo() {
+  const {
+    data: buildInfo,
+    isLoading: buildInfoIsLoading,
+    error: buildInfoError,
+  } = useQuery<PlatformBuildInfo, Error>({
+    queryKey: ["admin", "build-info"],
+    queryFn: adminBuildGetBuildInfo,
+  })
+
+  return { buildInfo, buildInfoIsLoading, buildInfoError }
+}
+
 export function useAdminAuditSettings() {
   const queryClient = useQueryClient()
 
@@ -953,6 +1000,167 @@ export function useAdminAuditSettings() {
     updateAuditSettingsError,
     testAuditWebhook,
     testAuditWebhookIsPending,
+  }
+}
+
+const ADMIN_SECURITY_SETTINGS_QUERY_KEY = ["admin", "security", "settings"]
+
+/**
+ * Read, update, and probe the platform admin IP allowlist.
+ */
+export function useAdminSecuritySettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: securitySettings,
+    isLoading: securitySettingsIsLoading,
+    error: securitySettingsError,
+  } = useQuery<PlatformSecuritySettingsRead, TracecatApiError>({
+    queryKey: ADMIN_SECURITY_SETTINGS_QUERY_KEY,
+    queryFn: adminGetSecuritySettings,
+  })
+
+  const {
+    mutateAsync: updateSecuritySettings,
+    isPending: updateSecuritySettingsIsPending,
+  } = useMutation<
+    PlatformSecuritySettingsRead,
+    TracecatApiError,
+    PlatformSecuritySettingsUpdate
+  >({
+    mutationFn: async (requestBody) =>
+      await adminUpdateSecuritySettings({ requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ADMIN_SECURITY_SETTINGS_QUERY_KEY,
+      })
+      toast({
+        title: "Updated IP allowlist",
+        description: "Platform admin IP allowlist saved successfully.",
+      })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to update IP allowlist",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: checkIpAllowlist,
+    isPending: checkIpAllowlistIsPending,
+  } = useMutation<
+    IPAllowlistCheckResult,
+    TracecatApiError,
+    IPAllowlistCheckRequest
+  >({
+    mutationFn: async (requestBody) =>
+      await adminCheckIpAllowlist({ requestBody }),
+  })
+
+  return {
+    securitySettings,
+    securitySettingsIsLoading,
+    securitySettingsError,
+    updateSecuritySettings,
+    updateSecuritySettingsIsPending,
+    checkIpAllowlist,
+    checkIpAllowlistIsPending,
+  }
+}
+
+const ADMIN_SLACK_APP_QUERY_KEY = ["admin", "slack-app"]
+
+/** Read, save, and remove the Tracecat Slack app every organization installs,
+ * and remember the Slack-only setup steps an admin marked done. */
+export function useAdminSlackApp() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: slackApp,
+    isLoading: slackAppIsLoading,
+    error: slackAppError,
+  } = useQuery<SlackPlatformAppRead, TracecatApiError>({
+    queryKey: ADMIN_SLACK_APP_QUERY_KEY,
+    queryFn: adminSlackAppGetSlackApp,
+    retry: false,
+  })
+
+  const {
+    mutateAsync: removeSlackApp,
+    isPending: removeSlackAppIsPending,
+    error: removeSlackAppError,
+    reset: resetRemoveSlackApp,
+  } = useMutation<void, TracecatApiError, void>({
+    mutationFn: async () => await adminSlackAppDeleteSlackApp(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ADMIN_SLACK_APP_QUERY_KEY })
+      toast({ title: "Slack app removed" })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to remove the Slack app",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const { mutateAsync: saveSlackApp, isPending: saveSlackAppIsPending } =
+    useMutation<SlackPlatformAppRead, TracecatApiError, SlackPlatformAppUpdate>(
+      {
+        mutationFn: async (requestBody) =>
+          await adminSlackAppSaveSlackApp({ requestBody }),
+        onSuccess: (saved) => {
+          queryClient.setQueryData(ADMIN_SLACK_APP_QUERY_KEY, saved)
+          resetRemoveSlackApp()
+          toast({ title: "Slack app saved" })
+        },
+        onError: (error) => {
+          toast({
+            title: "Failed to save the Slack app",
+            description: getApiErrorDetail(error) ?? "Please try again.",
+            variant: "destructive",
+          })
+        },
+      }
+    )
+
+  const {
+    mutateAsync: markSlackAppSetupSteps,
+    isPending: markSlackAppSetupStepsIsPending,
+  } = useMutation<
+    SlackPlatformAppRead,
+    TracecatApiError,
+    SlackPlatformAppSetupStepsUpdate
+  >({
+    mutationFn: async (requestBody) =>
+      await adminSlackAppMarkSlackAppSetupSteps({ requestBody }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(ADMIN_SLACK_APP_QUERY_KEY, saved)
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to update the setup step",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    slackApp,
+    slackAppIsLoading,
+    slackAppError,
+    saveSlackApp,
+    saveSlackAppIsPending,
+    markSlackAppSetupSteps,
+    markSlackAppSetupStepsIsPending,
+    removeSlackApp,
+    removeSlackAppIsPending,
+    removeSlackAppError,
   }
 }
 

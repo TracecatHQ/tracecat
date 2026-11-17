@@ -151,9 +151,39 @@ const CASE_TASK_PRIORITY_RANK: Record<CasePriority, number> = {
 }
 
 /**
+ * Compares two tasks by title: case-insensitive, locale-aware, and numeric,
+ * so "Task 2" precedes "Task 10". Equal titles fall back to creation time and
+ * then id, which keeps the order deterministic across refetches.
+ */
+export function compareCaseTasksByTitle(
+  a: CaseTaskRead,
+  b: CaseTaskRead
+): number {
+  const titleDelta = a.title.localeCompare(b.title, undefined, {
+    sensitivity: "base",
+    numeric: true,
+  })
+  if (titleDelta !== 0) {
+    return titleDelta
+  }
+  const createdDelta = Date.parse(a.created_at) - Date.parse(b.created_at)
+  if (createdDelta !== 0) {
+    return createdDelta
+  }
+  return a.id.localeCompare(b.id)
+}
+
+/** Orders tasks alphabetically by title for the Tasks panel. Non-mutating. */
+export function sortCaseTasksByTitle(
+  tasks: readonly CaseTaskRead[]
+): CaseTaskRead[] {
+  return [...tasks].sort(compareCaseTasksByTitle)
+}
+
+/**
  * Orders tasks for preview surfaces — the switcher's hover card today: open
- * work first, then by descending priority. Non-mutating, and stable within a
- * rank pair, so tasks that tie keep their server order.
+ * work first, then by descending priority. Non-mutating; tasks that tie on
+ * both ranks are ordered by title, matching the Tasks panel.
  */
 export function sortCaseTasksByUrgency(
   tasks: readonly CaseTaskRead[]
@@ -164,9 +194,12 @@ export function sortCaseTasksByUrgency(
     if (statusDelta !== 0) {
       return statusDelta
     }
-    return (
+    const priorityDelta =
       CASE_TASK_PRIORITY_RANK[a.priority] - CASE_TASK_PRIORITY_RANK[b.priority]
-    )
+    if (priorityDelta !== 0) {
+      return priorityDelta
+    }
+    return compareCaseTasksByTitle(a, b)
   })
 }
 

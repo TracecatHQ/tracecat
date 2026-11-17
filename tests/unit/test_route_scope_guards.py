@@ -25,6 +25,8 @@ from tracecat.cases.tags import router as case_tags_router
 from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.forms import internal_router as internal_forms_router
+from tracecat.forms import router as forms_router
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
 from tracecat.invitations import router as invitations_router
@@ -32,6 +34,7 @@ from tracecat.organization import router as organization_router
 from tracecat.registry.actions import router as registry_actions_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
+from tracecat.tables.folders import router as table_folder_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.store import router as workflow_store_router
@@ -226,6 +229,25 @@ async def test_agent_folder_scope_guards(
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
+        (table_folder_router.get_directory, "table:read"),
+        (table_folder_router.list_folders, "table:read"),
+        (table_folder_router.create_folder, "table:create"),
+        (table_folder_router.update_folder, "table:update"),
+        (table_folder_router.move_folder, "table:update"),
+        (table_folder_router.delete_folder, "table:delete"),
+        (tables_router.move_table, "table:update"),
+    ],
+)
+async def test_table_folder_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
         (skill_folder_router.get_directory, "agent:read"),
         (skill_router.list_skills, "agent:read"),
         (skill_router.move_skill, "agent:update"),
@@ -244,10 +266,20 @@ async def test_skill_scope_guards(endpoint: AsyncEndpoint, required_scope: str) 
     [
         agent_catalog_router.list_catalog,
         agent_catalog_router.get_catalog_entry,
+        agent_catalog_router.get_workspace_models,
+        agent_catalog_router.get_workspace_model_access,
     ],
 )
 async def test_agent_catalog_read_scope_guards(endpoint: AsyncEndpoint) -> None:
     await _assert_endpoint_requires_scope(endpoint, "agent:read")
+
+
+@pytest.mark.anyio
+async def test_workspace_model_access_update_requires_agent_update() -> None:
+    """Saving a workspace's model subset needs agent:update."""
+    await _assert_endpoint_requires_scope(
+        agent_catalog_router.update_workspace_model_access, "agent:update"
+    )
 
 
 @pytest.mark.anyio
@@ -275,6 +307,72 @@ async def test_agent_catalog_list_accepts_service_account_with_scope() -> None:
         organization_id=organization_id,
         service_account_id=uuid.uuid4(),
         scopes=frozenset({"agent:read"}),
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_registry_repository_sync_accepts_service_account_with_scope() -> None:
+    endpoint = cast(AsyncEndpoint, registry_repos_router.sync_registry_repository)
+    organization_id = uuid.uuid4()
+    denied_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:read"}),
+    )
+    token = ctx_role.set(denied_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:update"}),
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_list_org_members_accepts_service_account_with_scope() -> None:
+    endpoint = cast(AsyncEndpoint, organization_router.list_org_members)
+    organization_id = uuid.uuid4()
+    denied_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:rbac:read"}),
+    )
+    token = ctx_role.set(denied_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:member:read"}),
     )
     token = ctx_role.set(allowed_role)
     try:
@@ -499,7 +597,7 @@ async def test_invitations_scope_guards(
     [
         (
             workflow_store_router.publish_workflow,
-            ("workflow:update", "workspace_sync:sync"),
+            ("workflow:update", "workspace_sync:push"),
         ),
         (workflow_store_router.list_workflow_repositories, "workspace:update"),
     ],
@@ -516,27 +614,47 @@ async def test_workflow_store_scope_guards(
     [
         workflow_store_router.list_workflow_commits,
         workflow_store_router.list_workflow_branches,
-        workflow_store_router.pull_workflows,
     ],
 )
-async def test_workflow_sync_endpoints_accept_legacy_or_workspace_sync_scope(
+async def test_workflow_sync_read_endpoints_accept_push_or_pull_scope(
     endpoint: AsyncEndpoint,
 ) -> None:
     await _assert_endpoint_requires_any_scope(
         endpoint,
-        allowed_scopes=("workflow:sync", "workspace_sync:sync"),
+        allowed_scopes=("workspace_sync:pull", "workspace_sync:push"),
     )
 
 
 @pytest.mark.anyio
-async def test_publish_workflow_accepts_legacy_or_workspace_sync_scope() -> None:
+async def test_pull_workflows_requires_pull_scope() -> None:
+    await _assert_endpoint_requires_scope(
+        workflow_store_router.pull_workflows, "workspace_sync:pull"
+    )
+    endpoint = cast(AsyncEndpoint, workflow_store_router.pull_workflows)
+    token = ctx_role.set(
+        Role(
+            type="user",
+            service_id="tracecat-api",
+            scopes=frozenset({"workspace_sync:push"}),
+        )
+    )
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_requires_push_scope() -> None:
     endpoint = cast(AsyncEndpoint, workflow_store_router.publish_workflow)
 
     for denied_scopes in [
         frozenset(),
         frozenset({"workflow:update"}),
-        frozenset({"workflow:sync"}),
-        frozenset({"workspace_sync:sync"}),
+        frozenset({"workspace_sync:pull"}),
+        frozenset({"workspace_sync:push"}),
+        frozenset({"workflow:update", "workspace_sync:pull"}),
     ]:
         token = ctx_role.set(
             Role(
@@ -552,8 +670,7 @@ async def test_publish_workflow_accepts_legacy_or_workspace_sync_scope() -> None
             ctx_role.reset(token)
 
     for allowed_scopes in [
-        frozenset({"workflow:update", "workflow:sync"}),
-        frozenset({"workflow:update", "workspace_sync:sync"}),
+        frozenset({"workflow:update", "workspace_sync:push"}),
     ]:
         token = ctx_role.set(
             Role(
@@ -604,6 +721,7 @@ async def test_workflow_execution_stop_scope_guards(
         (case_rows_router.batch_link_case_rows, "case:update"),
         (case_rows_router.batch_unlink_case_rows, "case:update"),
         (case_rows_router.unlink_case_row, "case:update"),
+        (case_rows_router.list_linked_cases, "case:read"),
     ],
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
@@ -658,6 +776,39 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         endpoint,
         ("integration:create", "integration:read"),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scopes"),
+    [
+        (forms_router.list_forms, ("form:read",)),
+        (forms_router.create_form, ("form:create",)),
+        (forms_router.get_form, ("form:read",)),
+        (forms_router.update_form, ("form:update",)),
+        (forms_router.delete_form, ("form:delete",)),
+        (forms_router.validate_form, ("form:read",)),
+        (forms_router.render_form, ("form:read",)),
+        (forms_router.search_form_users, ("form:read",)),
+        (forms_router.submit_form, ("form:read", "form:submit")),
+        (forms_router.upload_form_file, ("form:read", "form:submit")),
+        (forms_router.download_form_file, ("form:read",)),
+        (forms_router.list_form_submissions, ("form:submission:read",)),
+        (forms_router.get_form_submission, ("form:read",)),
+        (forms_router.delete_form_submission, ("form:submission:delete",)),
+        (internal_forms_router.list_forms, ("form:read",)),
+        (internal_forms_router.get_form, ("form:read",)),
+        (internal_forms_router.upsert_form, ("form:create", "form:update")),
+        (internal_forms_router.list_submissions, ("form:submission:read",)),
+        (internal_forms_router.get_submission, ("form:submission:read",)),
+        (internal_forms_router.delete_submission, ("form:submission:delete",)),
+        (internal_forms_router.download_file, ("form:submission:read",)),
+    ],
+)
+async def test_form_scope_guards(
+    endpoint: AsyncEndpoint, required_scopes: tuple[str, ...]
+) -> None:
+    await _assert_endpoint_requires_all_scopes(endpoint, required_scopes)
 
 
 @pytest.mark.anyio

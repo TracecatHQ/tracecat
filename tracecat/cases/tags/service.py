@@ -2,7 +2,8 @@ import uuid
 from collections.abc import Sequence
 
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoResultFound
 
 from tracecat.cases.enums import CaseEventType
@@ -10,8 +11,10 @@ from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import CaseTagID
+from tracecat.managed_resources.guard import ensure_unmanaged, hold_for_customer_write
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class CaseTagsService(BaseWorkspaceService):
@@ -39,7 +42,10 @@ class CaseTagsService(BaseWorkspaceService):
         tag: CaseTag,
         event_type: CaseEventType,
     ) -> None:
-        from tracecat.cases.schemas import TagAddedEvent, TagRemovedEvent
+        from tracecat.cases.event_schemas import (
+            TagAddedEvent,
+            TagRemovedEvent,
+        )
         from tracecat.cases.service import CaseEventsService
 
         match event_type:
@@ -141,6 +147,7 @@ class CaseTagsService(BaseWorkspaceService):
         workspace_id = self.role.workspace_id
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
+        await hold_for_customer_write(self.session, workspace_id)
 
         ref = slugify(params.name)
 
@@ -163,8 +170,40 @@ class CaseTagsService(BaseWorkspaceService):
         await self.session.refresh(tag)
         return tag
 
+    async def _create_tag_if_missing(self, name: str) -> CaseTag:
+        await hold_for_customer_write(self.session, self.workspace_id)
+        params = TagCreate(name=name)
+        ref = slugify(params.name)
+        # Concurrent requests may create the same tag; reuse whichever won.
+        await self.session.execute(
+            pg_insert(CaseTag)
+            .values(
+                name=params.name,
+                ref=ref,
+                workspace_id=self.workspace_id,
+            )
+            .on_conflict_do_nothing()
+        )
+        # A synced tag can hold this name under a different ref.
+        result = await self.session.scalars(
+            select(CaseTag)
+            .where(
+                CaseTag.workspace_id == self.workspace_id,
+                or_(CaseTag.ref == ref, CaseTag.name == params.name),
+            )
+            .order_by((CaseTag.ref == ref).desc())
+            .limit(1)
+        )
+        return result.one()
+
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_TAG,
+            local_id=tag.id,
+        )
         original_ref = tag.ref
         if params.name and params.name != tag.name:
             new_ref = slugify(params.name)
@@ -227,6 +266,12 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def delete_tag(self, tag: CaseTag) -> None:
         """Delete a case tag definition."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.CASE_TAG,
+            local_id=tag.id,
+        )
         await self.session.delete(tag)
         await self.session.commit()
 
@@ -281,38 +326,80 @@ class CaseTagsService(BaseWorkspaceService):
             The tag that was added.
         """
         case = await self._get_case(case_id)
-
-        # Resolve tag identifier to ID
-        try:
-            tag = await self.get_tag_by_ref_or_id(tag_identifier)
-        except NoResultFound:
-            if not create_if_missing:
-                raise
-            # Create the tag
-            tag = await self.create_tag(TagCreate(name=tag_identifier))
-
-        # Check if already exists
-        stmt = select(CaseTagLink).where(
-            CaseTagLink.case_id == case_id,
-            CaseTagLink.tag_id == tag.id,
+        tag = await self.resolve_tag(
+            tag_identifier, create_if_missing=create_if_missing
         )
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        if existing:
-            return tag  # Already exists, return tag
-
-        # Create new
-        case_tag = CaseTagLink(case_id=case_id, tag_id=tag.id)
-        self.session.add(case_tag)
-
-        await self._create_tag_event(
-            case=case, tag=tag, event_type=CaseEventType.TAG_ADDED
-        )
+        if not await self.link_tag(case, tag):
+            return tag
 
         await self.session.commit()
         await self.session.refresh(tag)
         return tag
+
+    async def resolve_tag(
+        self, tag_identifier: str, *, create_if_missing: bool = False
+    ) -> CaseTag:
+        """Resolve a tag by ID, ref, or name without committing.
+
+        Raises:
+            NoResultFound: If the tag doesn't exist and ``create_if_missing`` is
+                false.
+        """
+        try:
+            return await self.get_tag_by_ref_or_id(tag_identifier)
+        except NoResultFound:
+            if not create_if_missing:
+                raise
+            return await self._create_tag_if_missing(tag_identifier)
+
+    async def resolve_tags(
+        self, tag_identifiers: Sequence[str], *, create_if_missing: bool = False
+    ) -> list[CaseTag]:
+        """Resolve and lock several tags without committing, in the order given.
+
+        Missing tags are created in ref order. A caller that holds its new tag
+        rows until a later commit then can't deadlock with another caller
+        creating the same tags in a different order.
+
+        Every tag is then locked ``FOR KEY SHARE``, the lock linking it to a case
+        takes anyway. Taking it before the caller writes anything else means a
+        workspace import that renames the tag and then alters case fields waits
+        for the caller instead of deadlocking with it.
+        """
+        resolved: dict[str, CaseTag] = {}
+        for identifier in sorted(set(tag_identifiers), key=lambda t: (slugify(t), t)):
+            resolved[identifier] = await self.resolve_tag(
+                identifier, create_if_missing=create_if_missing
+            )
+        if resolved:
+            await self.session.execute(
+                select(CaseTag.id)
+                .where(CaseTag.id.in_({tag.id for tag in resolved.values()}))
+                .order_by(CaseTag.id)
+                .with_for_update(read=True, key_share=True)
+            )
+        return [resolved[identifier] for identifier in tag_identifiers]
+
+    async def link_tag(self, case: Case, tag: CaseTag) -> bool:
+        """Link a tag to a case and record a ``TAG_ADDED`` event without committing.
+
+        Returns:
+            Whether the link was new. Concurrent adds of the same tag keep the
+            first link and its event.
+        """
+        linked = await self.session.scalar(
+            pg_insert(CaseTagLink)
+            .values(case_id=case.id, tag_id=tag.id)
+            .on_conflict_do_nothing()
+            .returning(CaseTagLink.tag_id)
+        )
+        if linked is None:
+            return False
+
+        await self._create_tag_event(
+            case=case, tag=tag, event_type=CaseEventType.TAG_ADDED
+        )
+        return True
 
     async def remove_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> None:
         """Remove a tag from a case by ID or ref."""

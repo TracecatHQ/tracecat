@@ -1,3 +1,4 @@
+import base64
 import io
 import zipfile
 
@@ -86,7 +87,7 @@ def test_declared_mime_normalization_allows_params(
     assert validation_result.content_type == "application/pdf"
 
 
-def test_mime_mismatch_raises_generic_message(
+def test_mime_mismatch_reports_declared_and_detected_types(
     validator_basic: FileSecurityValidator,
 ) -> None:
     # Content is PDF but declared is text/plain (both allowed in allowlist)
@@ -96,8 +97,30 @@ def test_mime_mismatch_raises_generic_message(
             filename="doc.pdf",
             declared_mime_type="text/plain",
         )
-    # Generic, user-facing message
-    assert str(exc.value) == "Unknown or unsupported file type"
+    assert str(exc.value) == (
+        "File content does not match declared MIME type text/plain "
+        "(detected: application/pdf)"
+    )
+    assert exc.value.mime_type == "text/plain"
+    assert exc.value.detected_types == ["application/pdf"]
+
+
+def test_base64_encoded_zip_reports_detected_type(
+    validator_basic: FileSecurityValidator,
+) -> None:
+    # A zip that was base64-encoded twice decodes to base64 text, not zip bytes
+    with pytest.raises(FileMimeTypeError) as exc:
+        validator_basic.validate_file(
+            content=base64.b64encode(zip_bytes()),
+            filename="archive.zip",
+            declared_mime_type="application/zip",
+        )
+    assert str(exc.value) == (
+        "File content does not match declared MIME type application/zip "
+        "(detected: text/plain)"
+    )
+    assert exc.value.mime_type == "application/zip"
+    assert exc.value.detected_types == ["text/plain"]
 
 
 def test_zip_upload_passes(validator_basic: FileSecurityValidator) -> None:

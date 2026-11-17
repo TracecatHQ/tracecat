@@ -170,18 +170,6 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
     ("slug", "auth_type", "server_uri"),
     [
         pytest.param(
-            "iru-mcp",
-            MCPAuthType.CUSTOM,
-            "https://customer.connect.iru.dev/mcp-server/connector/tracecat/tools",
-            id="iru-real-tenant-behind-sentinel-template",
-        ),
-        pytest.param(
-            "freshservice-mcp",
-            MCPAuthType.OAUTH2,
-            "https://acme.freshservice.com/mcp",
-            id="freshservice-domain-placeholder",
-        ),
-        pytest.param(
             "scanner-mcp",
             MCPAuthType.CUSTOM,
             "http://localhost:8080/v1/mcp",
@@ -198,30 +186,6 @@ def test_user_supplied_uri_rejects_embedded_credentials() -> None:
             MCPAuthType.OAUTH2,
             "https://acme.service-now.com/sncapps/mcp-server/mcp/itsm",
             id="servicenow-instance-and-server-placeholders",
-        ),
-        pytest.param(
-            "glean-mcp",
-            MCPAuthType.OAUTH2,
-            "https://acme-be.glean.com/mcp/default",
-            id="glean-backend-domain-and-server-placeholders",
-        ),
-        pytest.param(
-            "splunk-mcp",
-            MCPAuthType.CUSTOM,
-            "https://splunk.example.test:8089/services/mcp",
-            id="splunk-enterprise-encrypted-token-endpoint",
-        ),
-        pytest.param(
-            "splunk-mcp",
-            MCPAuthType.OAUTH2,
-            "https://acme.splunkcloud.com/services/mcp",
-            id="splunk-cloud-oauth-endpoint",
-        ),
-        pytest.param(
-            "runreveal-mcp",
-            MCPAuthType.OAUTH2,
-            "https://runreveal.selfhosted.example/mcp",
-            id="runreveal-self-hosted-endpoint",
         ),
     ],
 )

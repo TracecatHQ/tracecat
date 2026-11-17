@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from tracecat.settings.schemas import AuditSettingsRead, AuditSettingsUpdate
+from tracecat.settings.schemas import (
+    AuditSettingsRead,
+    AuditSettingsUpdate,
+    SecuritySettingsRead,
+    SecuritySettingsUpdate,
+)
 
 
 class PlatformRegistrySettingsRead(BaseModel):
@@ -29,3 +34,14 @@ class PlatformAuditSettingsRead(AuditSettingsRead):
 
 class PlatformAuditSettingsUpdate(AuditSettingsUpdate):
     """Update platform audit settings."""
+
+
+class PlatformSecuritySettingsRead(SecuritySettingsRead):
+    """Platform admin IP allowlist settings response."""
+
+
+class PlatformSecuritySettingsUpdate(SecuritySettingsUpdate):
+    """Update the platform admin IP allowlist.
+
+    Applies only to the platform admin API, not to organizations.
+    """

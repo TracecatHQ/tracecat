@@ -28,7 +28,7 @@ export function AddCaseDuration() {
         onClick={() => setDialogOpen(true)}
       >
         <Plus className="mr-1 h-3.5 w-3.5" />
-        Add duration
+        Create duration
       </Button>
       <AddCaseDurationDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>

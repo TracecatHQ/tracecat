@@ -43,17 +43,61 @@ def test_namespace_policy_preserves_blocked_tool_provenance() -> None:
         {},
     )
     assert policy.actions == ("core.cases.read",)
+    assert policy.skill_actions == ()
     assert [(source.tool_id, source.skill_id) for source in policy.blocked_tools] == [
         ("tools.example.read", None),
         ("tools.example.read", skill_id),
     ]
 
 
+def test_skill_actions_preserve_overlapping_grants_and_first_seen_order() -> None:
+    version_ids = [uuid.uuid4(), uuid.uuid4()]
+    versions = {}
+    for version_id, tools in zip(
+        version_ids,
+        [
+            ["tools.example.shared", "tools.example.second", "core.script.run_python"],
+            ["tools.example.second", "tools.example.shared", "tools.example.third"],
+        ],
+        strict=True,
+    ):
+        version = SkillVersion(id=version_id, skill_id=uuid.uuid4(), name="triage")
+        version.tools = [SkillVersionTool(tool_id=tool) for tool in tools]
+        version.mcp_tools = []
+        versions[version_id] = version
+    policy = resolve_tool_policy(
+        PresetToolInputs(
+            uuid.uuid4(),
+            ["tools.example.direct", "tools.example.shared"],
+            [],
+            [],
+            {},
+            version_ids,
+        ),
+        versions,
+        {},
+    )
+    assert policy.actions == (
+        "tools.example.direct",
+        "tools.example.shared",
+        "tools.example.second",
+        "tools.example.third",
+    )
+    assert policy.skill_actions == (
+        "tools.example.shared",
+        "tools.example.second",
+        "tools.example.third",
+    )
+    assert AgentPresetService._tool_policy_read(policy).skill_actions == list(
+        policy.skill_actions
+    )
+
+
 @pytest.mark.parametrize("direct", [False, True])
 def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
     integration_id, version_id = uuid.uuid4(), uuid.uuid4()
     integration = MCPIntegration(
-        id=integration_id, name="Synthetic", server_type="stdio"
+        id=integration_id, name="Synthetic", slug="synthetic", server_type="stdio"
     )
     version = SkillVersion(id=version_id, skill_id=uuid.uuid4(), name="triage")
     version.tools = []
@@ -77,6 +121,34 @@ def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
     assert policy.requires_internet_access
     assert len(policy.internet_sources) == 1
     assert policy.mcp_grants[0].tool_names is None
+    assert policy.mcp_slugs == ("synthetic",)
+
+
+def test_mcp_slugs_only_include_granted_available_integrations() -> None:
+    """Slug reporting is sorted, deduplicates grants, and tolerates missing IDs."""
+    alpha_id, zebra_id, unused_id, missing_id = (uuid.uuid4() for _ in range(4))
+    policy = resolve_tool_policy(
+        PresetToolInputs(
+            uuid.uuid4(),
+            [],
+            [],
+            [str(zebra_id), str(alpha_id), str(zebra_id), str(missing_id)],
+            {},
+            [],
+        ),
+        {},
+        {
+            integration_id: MCPIntegration(
+                id=integration_id, name=slug, slug=slug, server_type="stdio"
+            )
+            for integration_id, slug in (
+                (alpha_id, "alpha"),
+                (zebra_id, "zebra"),
+                (unused_id, "unused"),
+            )
+        },
+    )
+    assert policy.mcp_slugs == ("alpha", "zebra")
 
 
 @pytest.mark.parametrize(
@@ -237,6 +309,7 @@ async def test_preview_loads_direct_mcp_metadata_once(
     preview = await service.preview_tool_policy(
         AgentPresetToolPolicyPreview(mcp_integrations=[str(integration_id)])
     )
+    assert preview.skill_actions == []
     assert preview.internet_sources[0].tool_id == f"mcp.{integration_id}"
     load.assert_awaited_once()
 

@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Get CMDB device list
+  description: Get CMDB devices matching an organization and device IP or host name.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/581837/get-cmdb-device-list
+  namespace: tools.fortisiem
+  name: get_device_list
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    orgId:
+      type: int
+      description: Organization ID which device belongs to.
+    accessIp:
+      type: str | None
+      description: Device IP address. Must be an exact match. Either accessIp or name is required.
+      default: null
+    name:
+      type: str | None
+      description: Host name of the device. Partial match is allowed. Either accessIp or name is required.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/device/list
+        method: GET
+        params:
+          orgId: ${{ inputs.orgId }}
+          accessIp: ${{ inputs.accessIp }}
+          name: ${{ inputs.name }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

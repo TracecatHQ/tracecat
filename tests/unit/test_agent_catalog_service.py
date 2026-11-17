@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock
 
+import orjson
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.bedrock import (
+    BedrockDiscoveredModel,
+    BedrockSubscription,
+    BedrockSubscriptionStatus,
+)
 from tracecat.agent.catalog.schemas import (
-    AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, ModelReplacement
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import (
@@ -21,9 +30,12 @@ from tracecat.db.models import (
     AgentCustomProvider,
     AgentModelAccess,
     Organization,
-    Workspace,
+    OrganizationSetting,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -51,6 +63,72 @@ def _user_role(organization_id: uuid.UUID) -> Role:
         service_id="tracecat-api",
         scopes=frozenset({"*"}),
     )
+
+
+@contextmanager
+def _acting_as(organization_id: uuid.UUID) -> Iterator[None]:
+    token = ctx_role.set(_user_role(organization_id))
+    try:
+        yield
+    finally:
+        ctx_role.reset(token)
+
+
+def _catalog(
+    org_id: uuid.UUID | None,
+    model_provider: str = "anthropic",
+    model_name: str = "claude-opus-4-8",
+    *,
+    custom_provider_id: uuid.UUID | None = None,
+    metadata: dict[str, object] | None = None,
+) -> AgentCatalog:
+    return AgentCatalog(
+        organization_id=org_id,
+        custom_provider_id=custom_provider_id,
+        model_provider=model_provider,
+        model_name=model_name,
+        model_metadata=metadata or {},
+    )
+
+
+async def _other_org(session: AsyncSession) -> Organization:
+    other_org_id = uuid.uuid4()
+    other_org = Organization(
+        id=other_org_id,
+        name="Other Org",
+        slug=f"other-org-{other_org_id.hex[:8]}",
+        is_active=True,
+    )
+    session.add(other_org)
+    await session.flush()
+    return other_org
+
+
+async def _custom_provider(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    display_name: str = "Provider",
+    base_url: str = "https://api.example.com",
+) -> AgentCustomProvider:
+    provider = AgentCustomProvider(
+        organization_id=org_id,
+        display_name=display_name,
+        base_url=base_url,
+    )
+    session.add(provider)
+    await session.flush()
+    return provider
+
+
+async def _provider_model_names(
+    session: AsyncSession, custom_provider_id: uuid.UUID
+) -> set[str]:
+    result = await session.execute(
+        select(AgentCatalog.model_name).where(
+            AgentCatalog.custom_provider_id == custom_provider_id
+        )
+    )
+    return set(result.scalars().all())
 
 
 @pytest.mark.anyio
@@ -103,20 +181,8 @@ async def test_list_platform_catalog_excludes_org_rows(
     service = AgentCatalogService(session=session)
     session.add_all(
         [
-            AgentCatalog(
-                organization_id=None,
-                custom_provider_id=None,
-                model_provider="openai",
-                model_name="platform-model",
-                model_metadata={},
-            ),
-            AgentCatalog(
-                organization_id=svc_organization.id,
-                custom_provider_id=None,
-                model_provider="openai",
-                model_name="org-model",
-                model_metadata={},
-            ),
+            _catalog(None, "openai", "platform-model"),
+            _catalog(svc_organization.id, "openai", "org-model"),
         ]
     )
     await session.commit()
@@ -177,13 +243,7 @@ async def test_upsert_catalog_entry_with_custom_provider(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Custom Provider",
-        base_url="https://api.example.com",
-    )
-    session.add(provider)
-    await session.commit()
+    provider = await _custom_provider(session, svc_organization.id, "Custom Provider")
 
     result = await service.upsert_catalog_entry(
         org_id=svc_organization.id,
@@ -203,13 +263,7 @@ async def test_upsert_discovered_models_inserts_rows(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Provider",
-        base_url="https://api.example.com",
-    )
-    session.add(provider)
-    await session.commit()
+    provider = await _custom_provider(session, svc_organization.id)
 
     count = await service.upsert_discovered_models(
         org_id=svc_organization.id,
@@ -221,20 +275,10 @@ async def test_upsert_discovered_models_inserts_rows(
         ],
     )
 
-    rows = (
-        (
-            await session.execute(
-                select(AgentCatalog).where(
-                    AgentCatalog.custom_provider_id == provider.id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    model_names = await _provider_model_names(session, provider.id)
 
     assert count == 2
-    assert {row.model_name for row in rows} == {"model-a", "model-b"}
+    assert model_names == {"model-a", "model-b"}
 
 
 @pytest.mark.anyio
@@ -243,13 +287,7 @@ async def test_upsert_discovered_models_removes_stale_models(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Provider",
-        base_url="https://api.example.com",
-    )
-    session.add(provider)
-    await session.commit()
+    provider = await _custom_provider(session, svc_organization.id)
 
     await service.upsert_discovered_models(
         org_id=svc_organization.id,
@@ -272,20 +310,10 @@ async def test_upsert_discovered_models_removes_stale_models(
         ],
     )
 
-    rows = (
-        (
-            await session.execute(
-                select(AgentCatalog).where(
-                    AgentCatalog.custom_provider_id == provider.id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    model_names = await _provider_model_names(session, provider.id)
 
     assert count == 2
-    assert {row.model_name for row in rows} == {"model-b", "model-d"}
+    assert model_names == {"model-b", "model-d"}
 
 
 @pytest.mark.anyio
@@ -294,13 +322,7 @@ async def test_upsert_discovered_models_clears_catalog_when_empty(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Provider",
-        base_url="https://api.example.com",
-    )
-    session.add(provider)
-    await session.commit()
+    provider = await _custom_provider(session, svc_organization.id)
 
     await service.upsert_discovered_models(
         org_id=svc_organization.id,
@@ -316,20 +338,10 @@ async def test_upsert_discovered_models_clears_catalog_when_empty(
         models=[],
     )
 
-    rows = (
-        (
-            await session.execute(
-                select(AgentCatalog).where(
-                    AgentCatalog.custom_provider_id == provider.id
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    model_names = await _provider_model_names(session, provider.id)
 
     assert count == 0
-    assert rows == []
+    assert model_names == set()
 
 
 @pytest.mark.anyio
@@ -339,13 +351,7 @@ async def test_get_catalog_entry_returns_platform_row(
 ) -> None:
     """Platform rows (org_id NULL) are visible via the caller's org lookup."""
     service = AgentCatalogService(session=session)
-    platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-4o",
-        model_metadata={},
-    )
+    platform_row = _catalog(None, "openai", "gpt-4o")
     session.add(platform_row)
     await session.commit()
 
@@ -363,22 +369,8 @@ async def test_get_catalog_entry_rejects_other_org(
     svc_organization: Organization,
 ) -> None:
     """Rows owned by a different org surface as not found."""
-    other_org_id = uuid.uuid4()
-    other_org = Organization(
-        id=other_org_id,
-        name="Other Org",
-        slug=f"other-org-{other_org_id.hex[:8]}",
-        is_active=True,
-    )
-    session.add(other_org)
-    await session.commit()
-    other_row = AgentCatalog(
-        organization_id=other_org.id,
-        custom_provider_id=None,
-        model_provider="bedrock",
-        model_name="claude-cross-org",
-        model_metadata={},
-    )
+    other_org = await _other_org(session)
+    other_row = _catalog(other_org.id, "bedrock", "claude-cross-org")
     session.add(other_row)
     await session.commit()
 
@@ -396,8 +388,7 @@ async def test_create_catalog_entry_persists_metadata(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         row = await service.create_catalog_entry(
             org_id=svc_organization.id,
             model_provider="bedrock",
@@ -407,8 +398,6 @@ async def test_create_catalog_entry_persists_metadata(
                 "max_input_tokens": 200_000,
             },
         )
-    finally:
-        ctx_role.reset(token)
 
     assert row.organization_id == svc_organization.id
     assert row.custom_provider_id is None
@@ -424,8 +413,7 @@ async def test_create_catalog_entry_rejects_duplicate(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         await service.create_catalog_entry(
             org_id=svc_organization.id,
             model_provider="azure_openai",
@@ -439,8 +427,6 @@ async def test_create_catalog_entry_rejects_duplicate(
                 model_name="gpt-4o-deploy",
                 metadata={"deployment_name": "gpt-4o"},
             )
-    finally:
-        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
@@ -449,9 +435,7 @@ async def test_update_catalog_entry_replaces_metadata(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    role = _user_role(svc_organization.id)
-    token = ctx_role.set(role)
-    try:
+    with _acting_as(svc_organization.id):
         row = await service.create_catalog_entry(
             org_id=svc_organization.id,
             model_provider="vertex_ai",
@@ -464,24 +448,11 @@ async def test_update_catalog_entry_replaces_metadata(
             expected_provider="vertex_ai",
             metadata={"vertex_model": "gemini-3-pro", "max_input_tokens": 1_000_000},
         )
-    finally:
-        ctx_role.reset(token)
 
     assert updated.model_metadata == {
         "vertex_model": "gemini-3-pro",
         "max_input_tokens": 1_000_000,
     }
-
-
-def test_catalog_update_dump_excludes_unset_optional_metadata() -> None:
-    params = AzureOpenAICatalogUpdate(
-        model_provider="azure_openai",
-        deployment_name="gpt-4o-updated",
-    )
-
-    metadata = params.model_dump(exclude={"model_provider"}, exclude_unset=True)
-
-    assert metadata == {"deployment_name": "gpt-4o-updated"}
 
 
 @pytest.mark.anyio
@@ -490,8 +461,7 @@ async def test_update_catalog_entry_preserves_unspecified_metadata(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         row = await service.create_catalog_entry(
             org_id=svc_organization.id,
             model_provider="azure_openai",
@@ -508,8 +478,6 @@ async def test_update_catalog_entry_preserves_unspecified_metadata(
             expected_provider="azure_openai",
             metadata={"deployment_name": "gpt-4o-updated"},
         )
-    finally:
-        ctx_role.reset(token)
 
     assert updated.model_metadata == {
         "deployment_name": "gpt-4o-updated",
@@ -524,8 +492,7 @@ async def test_update_catalog_entry_rejects_provider_mismatch(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         row = await service.create_catalog_entry(
             org_id=svc_organization.id,
             model_provider="bedrock",
@@ -539,8 +506,6 @@ async def test_update_catalog_entry_rejects_provider_mismatch(
                 expected_provider="azure_openai",
                 metadata={"deployment_name": "nope"},
             )
-    finally:
-        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
@@ -549,18 +514,11 @@ async def test_update_catalog_entry_rejects_platform_row(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-platform",
-        model_metadata={},
-    )
+    platform_row = _catalog(None, "openai", "gpt-platform")
     session.add(platform_row)
     await session.commit()
 
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         with pytest.raises(TracecatNotFoundError):
             await service.update_catalog_entry(
                 platform_row,
@@ -568,8 +526,6 @@ async def test_update_catalog_entry_rejects_platform_row(
                 expected_provider="openai",
                 metadata={},
             )
-    finally:
-        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
@@ -578,8 +534,7 @@ async def test_delete_catalog_entry_removes_row(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         row = await service.create_catalog_entry(
             org_id=svc_organization.id,
             model_provider="azure_ai",
@@ -588,8 +543,6 @@ async def test_delete_catalog_entry_removes_row(
         )
         row_id = row.id
         await service.delete_catalog_entry(row, org_id=svc_organization.id)
-    finally:
-        ctx_role.reset(token)
 
     assert (
         await session.execute(select(AgentCatalog).where(AgentCatalog.id == row_id))
@@ -602,25 +555,16 @@ async def test_delete_catalog_entry_rejects_platform_row(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-platform-delete",
-        model_metadata={},
-    )
+    platform_row = _catalog(None, "openai", "gpt-platform-delete")
     session.add(platform_row)
     await session.commit()
 
-    token = ctx_role.set(_user_role(svc_organization.id))
-    try:
+    with _acting_as(svc_organization.id):
         with pytest.raises(TracecatNotFoundError):
             await service.delete_catalog_entry(
                 platform_row,
                 org_id=svc_organization.id,
             )
-    finally:
-        ctx_role.reset(token)
 
 
 # --- BedrockCatalogUpdate validator ---
@@ -632,16 +576,6 @@ def test_bedrock_update_use_converse_only_requires_no_ref() -> None:
     assert update.use_converse is True
     assert update.inference_profile_id is None
     assert update.model_id is None
-
-
-def test_bedrock_update_with_ref_and_use_converse_is_valid() -> None:
-    update = BedrockCatalogUpdate(
-        model_provider="bedrock",
-        inference_profile_id="us.anthropic.claude-3-haiku",
-        use_converse=True,
-    )
-    assert update.inference_profile_id == "us.anthropic.claude-3-haiku"
-    assert update.use_converse is True
 
 
 def test_bedrock_update_rejects_both_refs_set() -> None:
@@ -669,13 +603,7 @@ async def test_resolve_catalog_id_by_model_returns_org_row(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
+    row = _catalog(svc_organization.id)
     session.add(row)
     await session.flush()
     session.add(_enable(org_id=svc_organization.id, catalog_id=row.id))
@@ -696,20 +624,8 @@ async def test_resolve_catalog_id_by_model_prefers_org_over_platform(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
-    org_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
+    platform_row = _catalog(None)
+    org_row = _catalog(svc_organization.id)
     session.add_all([platform_row, org_row])
     await session.flush()
     # Both enabled at org level; the org-owned row wins.
@@ -736,13 +652,7 @@ async def test_resolve_catalog_id_by_model_falls_back_to_platform(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-4.1",
-        model_metadata={},
-    )
+    platform_row = _catalog(None, "openai", "gpt-4.1")
     session.add(platform_row)
     await session.flush()
     session.add(_enable(org_id=svc_organization.id, catalog_id=platform_row.id))
@@ -758,35 +668,13 @@ async def test_resolve_catalog_id_by_model_falls_back_to_platform(
 
 
 @pytest.mark.anyio
-async def test_resolve_catalog_id_by_model_no_match(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCatalogService(session=session)
-
-    resolved = await service.resolve_catalog_id_by_model(
-        org_id=svc_organization.id,
-        model_provider="anthropic",
-        model_name="does-not-exist",
-    )
-
-    assert resolved is None
-
-
-@pytest.mark.anyio
 async def test_resolve_catalog_id_by_model_skips_disabled_row(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
     """An org row that exists but is not enabled is not selected."""
     service = AgentCatalogService(session=session)
-    row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
+    row = _catalog(svc_organization.id)
     session.add(row)
     await session.commit()  # no AgentModelAccess row -> not enabled
 
@@ -811,20 +699,8 @@ async def test_resolve_catalog_id_by_model_prefers_enabled_platform_over_disable
     make get_catalog_credentials raise even though an enabled model exists.
     """
     service = AgentCatalogService(session=session)
-    org_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
-    platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
+    org_row = _catalog(svc_organization.id)
+    platform_row = _catalog(None)
     session.add_all([org_row, platform_row])
     await session.flush()
     # Only the platform row is enabled (org level); org row is NOT enabled.
@@ -842,31 +718,20 @@ async def test_resolve_catalog_id_by_model_prefers_enabled_platform_over_disable
 
 
 @pytest.mark.anyio
-async def test_resolve_catalog_id_by_model_workspace_override_replaces_org(
+async def test_resolve_catalog_id_by_model_workspace_subset_narrows_org(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace,
 ) -> None:
-    """A workspace override fully replaces the org-level enabled set."""
+    """A workspace subset narrows the org-level enabled set."""
     service = AgentCatalogService(session=session)
-    row_a = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
-    row_b = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-4.1",
-        model_metadata={},
-    )
+    row_a = _catalog(svc_organization.id)
+    row_b = _catalog(svc_organization.id, "openai", "gpt-4.1")
     session.add_all([row_a, row_b])
     await session.flush()
-    # Org level enables A; the workspace override enables only B.
+    # Org level enables both; the workspace subset keeps only B.
     session.add(_enable(org_id=svc_organization.id, catalog_id=row_a.id))
+    session.add(_enable(org_id=svc_organization.id, catalog_id=row_b.id))
     session.add(
         _enable(
             org_id=svc_organization.id,
@@ -912,19 +777,12 @@ async def test_resolve_catalog_id_by_model_multiple_rows_best_effort(
     service = AgentCatalogService(session=session)
     rows = []
     for name in ("Provider A", "Provider B"):
-        p = AgentCustomProvider(
-            organization_id=svc_organization.id,
-            display_name=name,
-            base_url="https://api.example.com",
-        )
-        session.add(p)
-        await session.flush()
-        row = AgentCatalog(
-            organization_id=svc_organization.id,
+        p = await _custom_provider(session, svc_organization.id, name)
+        row = _catalog(
+            svc_organization.id,
+            "custom-model-provider",
+            "shared-model",
             custom_provider_id=p.id,
-            model_provider="custom-model-provider",
-            model_name="shared-model",
-            model_metadata={},
         )
         session.add(row)
         rows.append(row)
@@ -967,37 +825,31 @@ async def test_catalog_candidates_by_models_preserves_duplicate_custom_providers
         ),
         ("Provider West", "https://west.models.example.com/v1"),
     ):
-        provider = AgentCustomProvider(
-            organization_id=svc_organization.id,
-            display_name=display_name,
-            base_url=base_url,
+        provider = await _custom_provider(
+            session, svc_organization.id, display_name, base_url
         )
-        session.add(provider)
-        await session.flush()
-        row = AgentCatalog(
-            organization_id=svc_organization.id,
+        row = _catalog(
+            svc_organization.id,
+            model_key.model_provider,
+            model_key.model_name,
             custom_provider_id=provider.id,
-            model_provider=model_key.model_provider,
-            model_name=model_key.model_name,
-            model_metadata={"display_name": "Shared model"},
+            metadata={"display_name": "Shared model"},
         )
         session.add(row)
         enabled_rows.append(row)
 
-    disabled_provider = AgentCustomProvider(
-        organization_id=svc_organization.id,
-        display_name="Disabled provider",
-        base_url="https://disabled.models.example.com",
+    disabled_provider = await _custom_provider(
+        session,
+        svc_organization.id,
+        "Disabled provider",
+        "https://disabled.models.example.com",
     )
-    session.add(disabled_provider)
-    await session.flush()
     session.add(
-        AgentCatalog(
-            organization_id=svc_organization.id,
+        _catalog(
+            svc_organization.id,
+            model_key.model_provider,
+            model_key.model_name,
             custom_provider_id=disabled_provider.id,
-            model_provider=model_key.model_provider,
-            model_name=model_key.model_name,
-            model_metadata={},
         )
     )
     await session.flush()
@@ -1024,82 +876,14 @@ async def test_catalog_candidates_by_models_preserves_duplicate_custom_providers
 
 
 @pytest.mark.anyio
-async def test_is_catalog_id_enabled_true_for_enabled_row(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    """An org row that is enabled at org level reports as enabled."""
-    service = AgentCatalogService(session=session)
-    row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
-    session.add(row)
-    await session.flush()
-    session.add(_enable(org_id=svc_organization.id, catalog_id=row.id))
-    await session.commit()
-
-    assert (
-        await service.is_catalog_id_enabled(
-            org_id=svc_organization.id,
-            catalog_id=row.id,
-        )
-        is True
-    )
-
-
-@pytest.mark.anyio
-async def test_is_catalog_id_enabled_false_for_disabled_row(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    """A visible row with no access row reports as not enabled."""
-    service = AgentCatalogService(session=session)
-    row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
-    session.add(row)
-    await session.commit()
-
-    assert (
-        await service.is_catalog_id_enabled(
-            org_id=svc_organization.id,
-            catalog_id=row.id,
-        )
-        is False
-    )
-
-
-@pytest.mark.anyio
 async def test_is_catalog_id_enabled_false_for_foreign_org_row(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
     """A row owned by another org is not visible, even if enabled there."""
     service = AgentCatalogService(session=session)
-    other_org_id = uuid.uuid4()
-    other_org = Organization(
-        id=other_org_id,
-        name="Other Org",
-        slug=f"other-org-{other_org_id.hex[:8]}",
-        is_active=True,
-    )
-    session.add(other_org)
-    await session.flush()
-    row = AgentCatalog(
-        organization_id=other_org.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
+    other_org = await _other_org(session)
+    row = _catalog(other_org.id)
     session.add(row)
     await session.flush()
     session.add(_enable(org_id=other_org.id, catalog_id=row.id))
@@ -1115,103 +899,18 @@ async def test_is_catalog_id_enabled_false_for_foreign_org_row(
 
 
 @pytest.mark.anyio
-async def test_is_catalog_id_enabled_respects_workspace_override(
-    session: AsyncSession,
-    svc_organization: Organization,
-    svc_workspace: Workspace,
-) -> None:
-    """A workspace override replaces the org-level set for the enabled check."""
-    service = AgentCatalogService(session=session)
-    org_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-opus-4-8",
-        model_metadata={},
-    )
-    ws_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-4.1",
-        model_metadata={},
-    )
-    session.add_all([org_row, ws_row])
-    await session.flush()
-    # Org level enables org_row; the workspace override enables only ws_row.
-    session.add(_enable(org_id=svc_organization.id, catalog_id=org_row.id))
-    session.add(
-        _enable(
-            org_id=svc_organization.id,
-            catalog_id=ws_row.id,
-            workspace_id=svc_workspace.id,
-        )
-    )
-    await session.commit()
-
-    # org_row is org-enabled but the workspace override hides it.
-    assert (
-        await service.is_catalog_id_enabled(
-            org_id=svc_organization.id,
-            catalog_id=org_row.id,
-            workspace_id=svc_workspace.id,
-        )
-        is False
-    )
-    # ws_row is enabled via the override.
-    assert (
-        await service.is_catalog_id_enabled(
-            org_id=svc_organization.id,
-            catalog_id=ws_row.id,
-            workspace_id=svc_workspace.id,
-        )
-        is True
-    )
-
-
-@pytest.mark.anyio
 async def test_enabled_catalog_models_returns_visible_enabled_subset(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    other_org_id = uuid.uuid4()
-    other_org = Organization(
-        id=other_org_id,
-        name="Other Batch Org",
-        slug=f"other-batch-org-{other_org_id.hex[:8]}",
-        is_active=True,
+    other_org = await _other_org(session)
+    enabled_org_row = _catalog(
+        svc_organization.id, "batch-provider", "enabled-org-model"
     )
-    session.add(other_org)
-    await session.flush()
-    enabled_org_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="enabled-org-model",
-        model_metadata={},
-    )
-    enabled_platform_row = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="enabled-platform-model",
-        model_metadata={},
-    )
-    disabled_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="disabled-model",
-        model_metadata={},
-    )
-    other_org_row = AgentCatalog(
-        organization_id=other_org.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="other-org-model",
-        model_metadata={},
-    )
+    enabled_platform_row = _catalog(None, "batch-provider", "enabled-platform-model")
+    disabled_row = _catalog(svc_organization.id, "batch-provider", "disabled-model")
+    other_org_row = _catalog(other_org.id, "batch-provider", "other-org-model")
     session.add_all(
         [
             enabled_org_row,
@@ -1258,20 +957,8 @@ async def test_enabled_catalog_models_returns_batch_model_identities(
     svc_organization: Organization,
 ) -> None:
     service = AgentCatalogService(session=session)
-    enabled_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="enabled-model",
-        model_metadata={},
-    )
-    disabled_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="disabled-model",
-        model_metadata={},
-    )
+    enabled_row = _catalog(svc_organization.id, "batch-provider", "enabled-model")
+    disabled_row = _catalog(svc_organization.id, "batch-provider", "disabled-model")
     session.add_all([enabled_row, disabled_row])
     await session.flush()
     session.add(
@@ -1292,52 +979,523 @@ async def test_enabled_catalog_models_returns_batch_model_identities(
     }
 
 
+def _bedrock_subscription(status: BedrockSubscriptionStatus) -> BedrockSubscription:
+    return {"status": status, "checked_at": "2026-01-01T00:00:00+00:00"}
+
+
+async def _bedrock_rows(
+    session: AsyncSession, org_id: uuid.UUID
+) -> dict[str, AgentCatalog]:
+    result = await session.execute(
+        select(AgentCatalog).where(
+            AgentCatalog.organization_id == org_id,
+            AgentCatalog.model_provider == "bedrock",
+        )
+    )
+    return {row.model_name: row for row in result.scalars().all()}
+
+
 @pytest.mark.anyio
-async def test_enabled_catalog_models_respects_workspace_override(
+async def test_sync_bedrock_models_merges_discovered_and_manual_rows(
     session: AsyncSession,
     svc_organization: Organization,
-    svc_workspace: Workspace,
 ) -> None:
-    service = AgentCatalogService(session=session)
-    org_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="org-level-model",
-        model_metadata={},
-    )
-    workspace_row = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=None,
-        model_provider="batch-provider",
-        model_name="workspace-level-model",
-        model_metadata={},
-    )
-    session.add_all([org_row, workspace_row])
-    await session.flush()
+    org_id = svc_organization.id
     session.add_all(
         [
-            _enable(org_id=svc_organization.id, catalog_id=org_row.id),
-            _enable(
-                org_id=svc_organization.id,
-                catalog_id=workspace_row.id,
-                workspace_id=svc_workspace.id,
+            AgentCatalog(
+                organization_id=org_id,
+                model_provider="bedrock",
+                model_name="manual-profile",
+                model_metadata={"inference_profile_id": "us.vendor.a-v1"},
+            ),
+            AgentCatalog(
+                organization_id=org_id,
+                model_provider="bedrock",
+                model_name="manual-unlisted",
+                model_metadata={"model_id": "vendor.private-v1"},
+            ),
+            AgentCatalog(
+                organization_id=org_id,
+                model_provider="bedrock",
+                model_name="vendor.removed-v1",
+                model_metadata={
+                    "discovery_source": "bedrock",
+                    "model_id": "vendor.removed-v1",
+                },
             ),
         ]
     )
     await session.commit()
-    catalog_ids = {org_row.id, workspace_row.id}
+    service = AgentCatalogService(session=session)
 
-    enabled_models = await service.enabled_catalog_models(
-        org_id=svc_organization.id,
-        workspace_id=svc_workspace.id,
-        catalog_ids=catalog_ids,
+    count = await service.sync_bedrock_models(
+        org_id=org_id,
+        models=[
+            BedrockDiscoveredModel(
+                model_name="us.vendor.a-v1",
+                display_name="Profile A",
+                foundation_model_id="vendor.a-v1",
+                inference_profile_id="us.vendor.a-v1",
+            ),
+            BedrockDiscoveredModel(
+                model_name="vendor.b-v1",
+                display_name="Model B",
+                foundation_model_id="vendor.b-v1",
+                model_id="vendor.b-v1",
+            ),
+        ],
+        subscriptions={
+            "vendor.a-v1": _bedrock_subscription("subscribed"),
+            "vendor.b-v1": _bedrock_subscription("not_subscribed"),
+            "vendor.private-v1": _bedrock_subscription("pending"),
+        },
     )
 
-    assert set(enabled_models) == {workspace_row.id}
-    for catalog_id in catalog_ids:
-        assert (catalog_id in enabled_models) is await service.is_catalog_id_enabled(
-            org_id=svc_organization.id,
-            workspace_id=svc_workspace.id,
-            catalog_id=catalog_id,
+    rows = await _bedrock_rows(session, org_id)
+    assert count == 2
+    assert set(rows) == {
+        "manual-profile",
+        "manual-unlisted",
+        "us.vendor.a-v1",
+        "vendor.b-v1",
+    }
+    manual_profile = rows["manual-profile"].model_metadata or {}
+    assert manual_profile["foundation_model_id"] == "vendor.a-v1"
+    assert manual_profile["bedrock_subscription"]["status"] == "subscribed"
+    assert "discovery_source" not in manual_profile
+    manual_unlisted = rows["manual-unlisted"].model_metadata or {}
+    assert manual_unlisted["bedrock_subscription"]["status"] == "pending"
+    discovered = rows["vendor.b-v1"].model_metadata or {}
+    assert discovered["discovery_source"] == "bedrock"
+    assert discovered["model_id"] == "vendor.b-v1"
+    assert discovered["display_name"] == "Model B"
+    assert discovered["bedrock_subscription"]["status"] == "not_subscribed"
+
+
+@pytest.mark.anyio
+async def test_set_bedrock_subscription_updates_rows_for_foundation_model(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    org_id = svc_organization.id
+    target = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="profile",
+        model_metadata={"inference_profile_id": "us.vendor.a-v1"},
+    )
+    sibling = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="vendor.a-v1",
+        model_metadata={"model_id": "vendor.a-v1"},
+    )
+    other = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="vendor.b-v1",
+        model_metadata={"model_id": "vendor.b-v1"},
+    )
+    session.add_all([target, sibling, other])
+    await session.commit()
+
+    await AgentCatalogService(session=session).set_bedrock_subscription(
+        org_id=org_id,
+        catalog_id=target.id,
+        foundation_model_id="vendor.a-v1",
+        subscription=_bedrock_subscription("pending"),
+    )
+
+    rows = await _bedrock_rows(session, org_id)
+    target_metadata = rows["profile"].model_metadata or {}
+    assert target_metadata["foundation_model_id"] == "vendor.a-v1"
+    assert target_metadata["bedrock_subscription"]["status"] == "pending"
+    sibling_metadata = rows["vendor.a-v1"].model_metadata or {}
+    assert sibling_metadata["bedrock_subscription"]["status"] == "pending"
+    assert "bedrock_subscription" not in (rows["vendor.b-v1"].model_metadata or {})
+
+
+@pytest.mark.anyio
+async def test_update_bedrock_catalog_entry_clears_stale_subscription_on_retarget(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    org_id = svc_organization.id
+    row = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="manual",
+        model_metadata={
+            "model_id": "vendor.a-v1",
+            "foundation_model_id": "vendor.a-v1",
+            "bedrock_subscription": _bedrock_subscription("subscribed"),
+        },
+    )
+    session.add(row)
+    await session.commit()
+    with _acting_as(org_id):
+        updated = await AgentCatalogService(session=session).update_catalog_entry(
+            row,
+            org_id=org_id,
+            expected_provider="bedrock",
+            metadata={"model_id": "vendor.b-v1"},
         )
+
+    assert updated.model_metadata == {"model_id": "vendor.b-v1"}
+
+
+def _retired(replacement: str | None) -> dict[str, object]:
+    lifecycle: dict[str, object] = {"retires_on": "2000-01-01"}
+    if replacement is not None:
+        lifecycle["replacement"] = replacement
+    return {"lifecycle": lifecycle}
+
+
+def _auto_migrate(
+    organization_id: uuid.UUID, *, enabled: bool = True
+) -> OrganizationSetting:
+    return OrganizationSetting(
+        organization_id=organization_id,
+        key="agent_auto_migrate_retired_models",
+        value=orjson.dumps(enabled),
+        value_type="json",
+        is_encrypted=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_moves_retired_model_to_enabled_replacement(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add_all([retired, replacement])
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    session.add(_auto_migrate(svc_organization.id))
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    resolved = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=retired.id,
+    )
+    legacy = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=None,
+    )
+
+    assert resolved == ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=replacement.id
+    )
+    # Configs without a catalog row keep resolving credentials by provider.
+    assert legacy == ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=None
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_leaves_current_and_deprecated_models(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    deprecated = _catalog(
+        None,
+        "anthropic",
+        "claude-sonnet-4-5",
+        metadata={
+            "lifecycle": {
+                "retires_on": "2999-01-01",
+                "replacement": "claude-sonnet-5-5",
+            }
+        },
+    )
+    session.add_all([deprecated, _catalog(None, "anthropic", "claude-sonnet-5-5")])
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    for model_name in ("claude-sonnet-4-5", "claude-sonnet-5-5", "not-in-catalog"):
+        assert (
+            await service.resolve_model_replacement(
+                role=_user_role(svc_organization.id),
+                model_provider="anthropic",
+                model_name=model_name,
+                catalog_id=None,
+            )
+            is None
+        )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_ignores_org_rows_lifecycle(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    org_row = _catalog(
+        svc_organization.id,
+        "openai",
+        "gpt-5.1-codex-max",
+        metadata=_retired(None),
+    )
+    session.add(org_row)
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    for catalog_id in (org_row.id, None):
+        assert (
+            await service.resolve_model_replacement(
+                role=_user_role(svc_organization.id),
+                model_provider="openai",
+                model_name="gpt-5.1-codex-max",
+                catalog_id=catalog_id,
+            )
+            is None
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("replacement", [None, "gpt-5.6-sol"])
+async def test_resolve_model_replacement_keeps_retired_model_without_usable_replacement(
+    session: AsyncSession,
+    svc_organization: Organization,
+    replacement: str | None,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired(replacement)
+    )
+    # The replacement exists but is not enabled for the organization.
+    session.add_all(
+        [
+            retired,
+            _catalog(None, "openai", "gpt-5.6-sol"),
+            _auto_migrate(svc_organization.id),
+        ]
+    )
+    await session.commit()
+
+    # Fails open: the run keeps the pinned model and the provider decides.
+    assert (
+        await AgentCatalogService(session=session).resolve_model_replacement(
+            role=_user_role(svc_organization.id),
+            model_provider="openai",
+            model_name="gpt-5.1-codex-max",
+            catalog_id=retired.id,
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stored", [None, False])
+async def test_resolve_model_replacement_requires_org_opt_in(
+    session: AsyncSession,
+    svc_organization: Organization,
+    stored: bool | None,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add_all([retired, replacement])
+    if stored is not None:
+        session.add(_auto_migrate(svc_organization.id, enabled=stored))
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    await session.commit()
+
+    assert (
+        await AgentCatalogService(session=session).resolve_model_replacement(
+            role=_user_role(svc_organization.id),
+            model_provider="openai",
+            model_name="gpt-5.1-codex-max",
+            catalog_id=retired.id,
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_uses_retired_list_when_no_row_exists(
+    session: AsyncSession,
+    svc_organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    retired_key = ModelKey("openai", "gpt-5.1-codex-max")
+    monkeypatch.setattr(
+        "tracecat.agent.catalog.service.get_retired_platform_models",
+        lambda: {
+            retired_key: ModelLifecycle(
+                retires_on=date(2000, 1, 1), replacement="gpt-5.6-sol"
+            )
+        },
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add(replacement)
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    session.add(_auto_migrate(svc_organization.id))
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    # A catalog_id synced or copied from a deployment that still has the row.
+    stale = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=uuid.uuid4(),
+    )
+    nulled = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=None,
+    )
+
+    assert stale == ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=replacement.id
+    )
+    assert nulled == ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=None
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_trusts_the_catalog_row_identity(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add_all([retired, replacement])
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    session.add(_auto_migrate(svc_organization.id))
+    await session.commit()
+
+    # Caller fields disagree with the row the catalog_id names.
+    resolved = await AgentCatalogService(session=session).resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="anthropic",
+        model_name="stale-name",
+        catalog_id=retired.id,
+    )
+
+    assert resolved == ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=replacement.id
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_prefers_bundled_retirement_for_kept_rows(
+    session: AsyncSession,
+    svc_organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A row kept for a reference still names its first, now retired, successor.
+    kept = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    successor = _catalog(None, "openai", "gpt-6-sol")
+    session.add_all([kept, successor])
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=successor.id))
+    session.add(_auto_migrate(svc_organization.id))
+    await session.commit()
+    monkeypatch.setattr(
+        "tracecat.agent.catalog.service.get_retired_platform_models",
+        lambda: {
+            ModelKey("openai", "gpt-5.1-codex-max"): ModelLifecycle(
+                retires_on=date(2000, 1, 1), replacement="gpt-6-sol"
+            )
+        },
+    )
+
+    resolved = await AgentCatalogService(session=session).resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=kept.id,
+    )
+
+    assert resolved == ModelReplacement(
+        model_provider="openai", model_name="gpt-6-sol", catalog_id=successor.id
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_warns_on_deprecated_model(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    deprecated = _catalog(
+        None,
+        "anthropic",
+        "claude-sonnet-4-5",
+        metadata={"lifecycle": {"retires_on": "2999-01-01"}},
+    )
+    session.add(deprecated)
+    await session.commit()
+    service = AgentCatalogService(session=session)
+    service.logger = MagicMock()
+
+    resolved = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="anthropic",
+        model_name="claude-sonnet-4-5",
+        catalog_id=deprecated.id,
+    )
+
+    assert resolved is None
+    service.logger.warning.assert_called_once()
+    assert service.logger.warning.call_args.args[0] == (
+        "Model claude-sonnet-4-5 is deprecated and retires on 2999-01-01"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("metadata", "auto_migrate", "reads_setting", "looks_up_replacement"),
+    [
+        (None, True, False, False),
+        ({"lifecycle": {"retires_on": "2999-01-01"}}, True, False, False),
+        (_retired("gpt-5.6-sol"), False, True, False),
+        (_retired("gpt-5.6-sol"), True, True, True),
+    ],
+)
+async def test_resolve_model_replacement_reads_only_what_the_status_needs(
+    session: AsyncSession,
+    svc_organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+    metadata: dict[str, object] | None,
+    auto_migrate: bool,
+    reads_setting: bool,
+    looks_up_replacement: bool,
+) -> None:
+    row = _catalog(None, "openai", "gpt-5.1-codex-max", metadata=metadata)
+    session.add(row)
+    await session.commit()
+    service = AgentCatalogService(session=session)
+    read_setting = AsyncMock(return_value=auto_migrate)
+    lookup = AsyncMock(return_value=None)
+    monkeypatch.setattr(service, "_auto_migrate_retired_models", read_setting)
+    monkeypatch.setattr(service, "resolve_catalog_id_by_model", lookup)
+
+    await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=row.id,
+    )
+
+    assert read_setting.called is reads_setting
+    assert lookup.called is looks_up_replacement

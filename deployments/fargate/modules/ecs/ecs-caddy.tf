@@ -130,8 +130,9 @@ resource "aws_ecs_service" "tracecat_caddy" {
     namespace = local.local_dns_namespace
 
     service {
-      port_name      = "caddy"
-      discovery_name = "caddy-service"
+      port_name             = "caddy"
+      discovery_name        = "caddy-service"
+      ingress_port_override = 15080
       timeout {
         per_request_timeout_seconds = 300
       }

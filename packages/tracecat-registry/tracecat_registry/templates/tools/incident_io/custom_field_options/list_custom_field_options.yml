@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: List custom field options
+  description: >-
+    Show custom field options for a custom field. Calls GET /v1/custom_field_options directly.
+    Requires API key scope: custom_fields.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/custom-field-options-v1/list
+  namespace: tools.incident_io
+  name: list_custom_field_options
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    page_size:
+      type: int | None
+      description: Integer number of records to return. Maximum 250.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        A custom field option's ID. This endpoint will return a list of custom field options
+        created after this option.
+      default: null
+    custom_field_id:
+      type: str | None
+      description: The custom field to list options for.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v1/custom_field_options
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+          custom_field_id: ${{ inputs.custom_field_id }}
+  returns: ${{ steps.request.result }}

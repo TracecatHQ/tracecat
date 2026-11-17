@@ -41,6 +41,9 @@ class PullOptions:
     mcp_integration_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
     """Explicit source-to-target MCP integration choices for unresolved references."""
 
+    secret_store_mappings: Mapping[str, UUID | None] = field(default_factory=dict)
+    """Explicit target stores for AWS-backed secrets; ``None`` leaves them unlinked."""
+
 
 @dataclass(frozen=True)
 class CommitInfo:
@@ -206,6 +209,41 @@ class McpIntegrationMappingRequirement:
     affected_workflows: list[McpIntegrationMappingAffectedWorkflow]
 
 
+@dataclass(frozen=True)
+class SecretStoreMappingCandidate:
+    """Authorized store the user can choose for an imported store name."""
+
+    store_id: UUID
+    name: str
+    region: str | None
+
+
+@dataclass(frozen=True)
+class SecretStoreMappingAffectedSecret:
+    """AWS-backed secret that reads from an unmatched store name."""
+
+    secret_name: str
+    environment: str
+    path: str
+
+
+type SecretStoreMappingRequirementReason = Literal["unresolved", "invalid_selection"]
+
+
+@dataclass(frozen=True)
+class SecretStoreMappingRequirement:
+    """Store name in the snapshot with no authorized match in this workspace.
+
+    Unresolved names don't block the pull: their secrets import without a store.
+    """
+
+    source_store: str
+    reason: SecretStoreMappingRequirementReason
+    message: str
+    candidates: list[SecretStoreMappingCandidate]
+    affected_secrets: list[SecretStoreMappingAffectedSecret]
+
+
 def serializable_validation_errors(
     errors: Sequence[Any],
 ) -> list[dict[str, Any]]:
@@ -279,6 +317,9 @@ class PullResourceDiff:
 
     Pull is currently upsert-only: local resources absent from the incoming Git
     snapshot are left untouched, so dry-run diffs do not report deletions.
+    Pull diffs report ``added`` only for files of a new resource. A file added
+    to or removed from an existing resource, such as a workflow script file,
+    is reported as ``modified``.
     """
 
     title: str | None
@@ -289,6 +330,21 @@ class PullResourceDiff:
 
     truncated: bool = False
     """Whether the diff was shortened for response size."""
+
+
+def first_diff_per_resource(
+    diffs: Sequence[PullResourceDiff],
+) -> dict[tuple[str, str], PullResourceDiff]:
+    """Return one diff per ``(resource_type, source_id)``, in order.
+
+    Diffs are per file, and a workflow with scripts or a skill has several
+    files. Every file of a resource in a pull diff has the same change type,
+    so its first diff speaks for the whole resource.
+    """
+    first: dict[tuple[str, str], PullResourceDiff] = {}
+    for diff in diffs:
+        first.setdefault((diff.resource_type, diff.source_id), diff)
+    return first
 
 
 @dataclass(frozen=True)
@@ -325,6 +381,11 @@ class PullResult:
     resources: list[SyncPreviewResource] | None = None
     """Optional displayable resources included in a pull preview."""
 
+    library_skill_installs: list[str] = field(default_factory=list)
+    skipped_managed: list[str] = field(default_factory=list)
+    """Repository paths skipped because they would change a managed resource."""
+    """Library slugs to install in a preview, or newly installed by a successful pull."""
+
     catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None
     """Target model choices required before this pull can be previewed or applied."""
 
@@ -332,3 +393,6 @@ class PullResult:
         list[McpIntegrationMappingRequirement] | None
     ) = None
     """MCP integration choices required before this pull can be previewed or applied."""
+
+    secret_store_mapping_requirements: list[SecretStoreMappingRequirement] | None = None
+    """Store names without an authorized match; their secrets import unlinked."""

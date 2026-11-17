@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Update host tags
+  description: >-
+    Add or remove Falcon Grouping Tags on one or more hosts. Requires the Hosts:
+    Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/hosts/#updatedevicetags
+  namespace: tools.crowdstrike
+  name: update_host_tags
+  expects:
+    action:
+      type: str
+      description: "Action to perform: `add` or `remove`."
+    device_ids:
+      type: list[str]
+      description: Host agent IDs (AIDs) to update.
+    tags:
+      type: list[str]
+      description: Falcon Grouping Tags, for example `FalconGroupingTags/quarantine`.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: update_host_tags
+      action: tools.falconpy.call_command
+      args:
+        operation_id: UpdateDeviceTags
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body:
+            action: ${{ inputs.action }}
+            device_ids: ${{ inputs.device_ids }}
+            tags: ${{ inputs.tags }}
+  returns: ${{ steps.update_host_tags.result }}

@@ -1,7 +1,12 @@
+import re
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -22,12 +27,17 @@ from tenacity import (
 from tracecat.auth.types import Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
+from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.observability.sentry import capture_auth_pool_exhaustion
+from tracecat.observability.sentry import (
+    capture_api_exception,
+    capture_auth_pool_exhaustion,
+)
+from tracecat.observability.types import AlertPriority
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -40,6 +50,68 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
     attr.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
     for attr in TemporalSearchAttr
 }
+
+_TRANSIENT_TEMPORAL_RPC_STATUSES = frozenset(
+    {
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.UNAVAILABLE,
+    }
+)
+
+
+def without_inputs(errors: Sequence[Any]) -> list[Any]:
+    """Request validation errors without the rejected input.
+
+    The input can be large or sensitive, such as an inline image, so it is
+    never logged.
+    """
+    return [
+        {key: value for key, value in error.items() if key != "input"}
+        if isinstance(error, Mapping)
+        else error
+        for error in errors
+    ]
+
+
+_SURROGATES = re.compile(r"[\ud800-\udfff]")
+
+
+def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
+    """Make validation errors safe for UTF-8 JSON."""
+    errors = _replace_surrogates(errors)
+    return _replace_surrogates(to_jsonable_python(errors, fallback=str))
+
+
+def _replace_surrogates(value: Any) -> Any:
+    # pydantic_core rejects surrogate keys; fallback=str can reintroduce them.
+    if isinstance(value, str):
+        return value if value.isascii() else _SURROGATES.sub("\ufffd", value)
+    if isinstance(value, (list, tuple)):
+        return [_replace_surrogates(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            (
+                _replace_surrogates(key) if isinstance(key, str) else key
+            ): _replace_surrogates(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+async def database_exception_handler(request: Request, exc: Exception) -> Response:
+    # Handled here, not in the catch-all, so rejected client data does not page.
+    if not is_data_error(exc):
+        raise exc
+    logger.warning(
+        "Database rejected request data",
+        error_type=type(exc).__name__,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": "Request contains a value that cannot be stored"},
+    )
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
@@ -101,6 +173,43 @@ def auth_pool_exhausted_exception_handler(
                 "message": (
                     "Authentication database capacity is temporarily unavailable. "
                     "Please retry."
+                ),
+            }
+        },
+    )
+
+
+async def temporal_rpc_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return a retryable 503 for transient Temporal faults.
+
+    A deadline is a slow call and goes to triage. Unreachable or rate-limited
+    Temporal is an outage and stays urgent. Other RPC failures re-raise to the
+    generic 500 handler.
+    """
+    if not (
+        isinstance(exc, RPCError) and exc.status in _TRANSIENT_TEMPORAL_RPC_STATUSES
+    ):
+        raise exc
+    if exc.status == RPCStatusCode.DEADLINE_EXCEEDED:
+        capture_api_exception(exc, priority=AlertPriority.LOW, level="warning")
+    else:
+        capture_api_exception(exc, priority=AlertPriority.URGENT, level="error")
+    # Log the route template: webhook paths carry a credential.
+    route = request.scope.get("route")
+    logger.warning(
+        "Temporal temporarily unavailable",
+        rpc_status=exc.status.name,
+        route=route.path if isinstance(route, APIRoute) else "unmatched",
+        method=request.method,
+        role=ctx_role.get(),
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": {
+                "code": "temporal_unavailable",
+                "message": (
+                    "The workflow service is temporarily unavailable. Please retry."
                 ),
             }
         },

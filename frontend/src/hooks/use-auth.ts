@@ -13,6 +13,7 @@ import {
 import { authConfig } from "@/config/auth"
 import { getCurrentUser, User } from "@/lib/auth"
 import { useQuery, useQueryClient } from "@/lib/query"
+import { getMfaStatus, isMfaPending } from "@/lib/webauthn"
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
 
@@ -26,9 +27,15 @@ export function useAuthActions() {
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })
+      // The new session reads as signed out until MFA is done, so send the
+      // user to the challenge, keeping the sign-in query (returnUrl).
+      const mfaStatus = await getMfaStatus().catch(() => null)
+      if (mfaStatus && isMfaPending(mfaStatus.state)) {
+        router.replace(`/mfa${window.location.search}`)
+      }
       return loginResponse
     },
-    [queryClient]
+    [queryClient, router]
   )
 
   const logout = useCallback(

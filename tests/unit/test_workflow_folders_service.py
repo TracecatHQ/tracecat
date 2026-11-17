@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, WorkflowFolder, Workspace
 from tracecat.exceptions import TracecatValidationError
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.workflow.management.folders.schemas import WorkflowFolderCreate
 from tracecat.workflow.management.folders.service import (
     WorkflowFolderErrorCode,
@@ -289,37 +289,19 @@ class TestWorkflowFolderService:
         # Parent should still exist
         assert await folder_service.get_folder(parent.id) is not None
 
-    async def test_delete_folder_recursive(
-        self, folder_service: WorkflowFolderService
-    ) -> None:
-        """Test deleting a folder tree recursively."""
-        # Create a folder hierarchy
-        parent = await folder_service.create_folder(name="parent", parent_path="/")
-        child = await folder_service.create_folder(name="child", parent_path="/parent/")
-        grandchild = await folder_service.create_folder(
-            name="grandchild", parent_path="/parent/child/"
-        )
-
-        # Store IDs for verification
-        parent_id, child_id, grandchild_id = parent.id, child.id, grandchild.id
-
-        # Delete parent recursively
-        await folder_service.delete_folder(parent_id, recursive=True)
-
-        # Verify all folders are deleted
-        assert await folder_service.get_folder(parent_id) is None
-        assert await folder_service.get_folder(child_id) is None
-        assert await folder_service.get_folder(grandchild_id) is None
-
     async def test_delete_folder_recursive_clears_workflows(
         self,
         folder_service: WorkflowFolderService,
         workflow_id: WorkflowID,
         session: AsyncSession,
     ) -> None:
-        """Test recursive folder delete moves contained workflows to root."""
+        """Test recursive folder delete removes the folder tree and moves
+        contained workflows to root."""
         parent = await folder_service.create_folder(name="parent", parent_path="/")
         child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        grandchild = await folder_service.create_folder(
+            name="grandchild", parent_path="/parent/child/"
+        )
         workflow = await folder_service.move_workflow(workflow_id, child)
         assert workflow.folder_id == child.id
 
@@ -333,6 +315,31 @@ class TestWorkflowFolderService:
         )
         assert workflow_folder_id is None
         assert remaining_child is None
+        assert await folder_service.get_folder(parent.id) is None
+        assert await folder_service.get_folder(grandchild.id) is None
+
+    async def test_delete_folder_recursive_deletes_workflows(
+        self,
+        folder_service: WorkflowFolderService,
+        workflow_id: WorkflowID,
+        session: AsyncSession,
+    ) -> None:
+        """Test recursive folder delete with delete_workflows removes the
+        folder tree and every contained workflow."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        await folder_service.move_workflow(workflow_id, child)
+
+        await folder_service.delete_folder(
+            parent.id, recursive=True, delete_workflows=True
+        )
+
+        remaining_workflow = await session.scalar(
+            select(Workflow.id).where(Workflow.id == workflow_id)
+        )
+        assert remaining_workflow is None
+        assert await folder_service.get_folder(parent.id) is None
+        assert await folder_service.get_folder(child.id) is None
 
     async def test_workflows_in_folder(
         self,
@@ -436,3 +443,17 @@ class TestWorkflowFolderService:
             if item.type == "folder"
         }
         assert workflow_counts == {"child-a": 1, "child-b": 0}
+
+
+@pytest.mark.anyio
+async def test_get_workflow_titles_returns_only_existing_workflows(
+    folder_service: WorkflowFolderService, workflow_id: WorkflowID
+) -> None:
+    missing = WorkflowUUID.new_uuid4()
+
+    titles = await folder_service.get_workflow_titles(
+        {WorkflowUUID.new(workflow_id), missing}
+    )
+
+    assert titles == {WorkflowUUID.new(workflow_id): "test-workflow"}
+    assert await folder_service.get_managed_workflow_ids(titles.keys()) == set()

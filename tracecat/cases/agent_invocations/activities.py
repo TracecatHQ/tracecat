@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from temporalio import activity
-from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
+from temporalio.exceptions import ApplicationError
 
-from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.backends.registry import find_agent_backend
+from tracecat.agent.backends.turns import build_child_agent_turn
+from tracecat.agent.error_policy import agent_provider_credentials_missing
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.cases.agent_invocations.completion import (
     CaseCommentAgentInvocationCompletionService,
@@ -28,7 +30,14 @@ from tracecat.cases.agent_invocations.service import (
 )
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
+from tracecat.temporal.errors import raise_application_error_from_classification
 
 _MAX_STORED_ERROR_LENGTH = 2_000
 _COMMENT_REPLY_ACTIONS = {
@@ -52,37 +61,44 @@ async def prepare_comment_agent_invocation_activity(
     async with CaseCommentAgentInvocationDispatcher.with_session(
         role=input.role
     ) as dispatcher:
-        prepared = await dispatcher.create_or_get_agent_session(input.invocation_id)
+        try:
+            prepared = await dispatcher.create_or_get_agent_session(input.invocation_id)
+        except TracecatConflictError as e:
+            # The invoking comment was deleted; retrying cannot help.
+            raise ApplicationError(
+                str(e), type=e.__class__.__name__, non_retryable=True
+            ) from e
         if prepared is None:
             return PrepareCommentAgentInvocationResult()
         session_service = AgentSessionService(
             dispatcher.session,
             input.role,
         )
-        prepared_turn = await session_service.prepare_new_turn(
-            prepared.session_id, prepared.prompt
-        )
+        try:
+            prepared_turn = await session_service.prepare_new_turn(
+                prepared.session_id, prepared.prompt
+            )
+        except EntitlementRequired as e:
+            # Retrying cannot help until the entitlement is restored.
+            raise ApplicationError(
+                str(e), e.detail, type=e.__class__.__name__, non_retryable=True
+            ) from e
+        except AgentProviderCredentialsNotFoundError as e:
+            # The organization must add credentials; retrying cannot help.
+            raise_application_error_from_classification(
+                agent_provider_credentials_missing(e)
+            )
         config = replace(
             prepared_turn.config,
             actions=_without_comment_reply_actions(prepared_turn.config.actions),
         )
-        workflow_args = AgentWorkflowArgs(
+        turn = await build_child_agent_turn(
+            prepared_turn,
             role=session_service.execution_role,
-            agent_args=RunAgentArgs(
-                user_prompt=prepared_turn.prompt,
-                session_id=prepared_turn.session_id,
-                active_stream_id=prepared_turn.active_stream_id,
-                curr_run_id=prepared_turn.run_id,
-                config=config,
-            ),
-            title=prepared_turn.title,
-            entity_type=prepared_turn.entity_type,
-            entity_id=prepared_turn.entity_id,
+            config=config,
             tools=_without_comment_reply_actions(prepared_turn.tools),
-            agent_preset_id=prepared_turn.agent_preset_id,
-            agent_preset_version_id=prepared_turn.agent_preset_version_id,
         )
-    return PrepareCommentAgentInvocationResult(workflow_args=workflow_args)
+    return PrepareCommentAgentInvocationResult(turn=turn)
 
 
 @activity.defn
@@ -110,13 +126,25 @@ async def complete_comment_agent_invocation_activity(
 ) -> CompleteCommentAgentInvocationResult:
     """Post the terminal agent output as an idempotent case-comment reply."""
     ctx_role.set(input.role)
+    output = input.output
+    if input.backend_id is not None:
+        # Read results of a backend that was disabled mid-turn too.
+        backend = find_agent_backend(input.backend_id)
+        if backend is None:
+            raise TracecatValidationError("Agent backend is unavailable")
+        result = backend.parse_turn_result(input.output)
+        if result.error is not None:
+            return CompleteCommentAgentInvocationResult(
+                handled=False, turn_error=result.error
+            )
+        output = result.output
     try:
         async with CaseCommentAgentInvocationCompletionService.with_session(
             role=input.role
         ) as service:
             reply = await service.create_reply_and_mark_succeeded(
                 input.session_id,
-                input.output,
+                output,
             )
     except Exception as exc:
         logger.warning(

@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -14,18 +14,25 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat_ee.agent.workflows.durable import _agent_activity_classification
 
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.preset.activities import (
+    AgentPresetRef,
+    ResolveAgentConfigActivityInput,
     ResolveAgentPresetConfigActivityInput,
-    ResolveAgentPresetVersionRefActivityInput,
     ResolveAgentsConfigActivityInput,
+    resolve_agent_config_activity,
     resolve_agent_preset_config_activity,
-    resolve_agent_preset_version_ref_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
 )
 from tracecat.agent.preset.resolver import (
+    AgentPresetResolutionService,
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
+    resolve_agents_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
@@ -35,6 +42,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -50,6 +58,15 @@ from tracecat.temporal.errors import (
     extract_error_classification,
     raise_wrapped_application_error,
 )
+
+
+def _role() -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
 
 
 class _AsyncContext:
@@ -97,41 +114,6 @@ def clean_redis_db() -> Iterator[None]:
 
 
 @pytest.mark.anyio
-async def test_resolve_agent_preset_version_ref_activity_returns_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    version = SimpleNamespace(id=uuid.uuid4(), preset_id=uuid.uuid4())
-    service = SimpleNamespace(
-        resolve_agent_preset_version=AsyncMock(return_value=version)
-    )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
-
-    monkeypatch.setattr(
-        "tracecat.agent.preset.activities.AgentPresetService.with_session",
-        lambda **_: _AsyncContext(service),
-    )
-
-    result = await resolve_agent_preset_version_ref_activity(
-        ResolveAgentPresetVersionRefActivityInput(
-            role=role,
-            preset_slug="triage-agent",
-            preset_version=3,
-        )
-    )
-
-    service.resolve_agent_preset_version.assert_awaited_once_with(
-        slug="triage-agent",
-    )
-    assert result.preset_id == version.preset_id
-    assert result.preset_version_id == version.id
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "error",
     [
@@ -148,12 +130,7 @@ async def test_resolve_agent_preset_config_classifies_user_input_errors(
     service = SimpleNamespace(
         with_preset_config=lambda **_: _FailingAsyncContext(error)
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentManagementService.with_session",
         lambda **_: _AsyncContext(service),
@@ -172,6 +149,70 @@ async def test_resolve_agent_preset_config_classifies_user_input_errors(
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_preset_config_classifies_missing_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing provider credentials are the org's to fix and never retried."""
+    message = (
+        "No credentials found for provider 'example'. "
+        "An organization admin can add them in organization settings under "
+        "Agent > Configuration."
+    )
+    error = AgentProviderCredentialsNotFoundError(message)
+    service = SimpleNamespace(
+        with_preset_config=lambda **_: _FailingAsyncContext(error)
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agent_preset_config_activity(
+            ResolveAgentPresetConfigActivityInput(
+                role=_role(),
+                preset_slug="example-preset",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.message == message
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.message == message
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_preset_config_keeps_whole_tool_tunnel_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The workflow may override actions before pruning tool tunnels, so the
+    root preset config arrives with the version's whole map."""
+    calls: list[dict[str, Any]] = []
+    config = AgentConfig(model_name="claude", model_provider="anthropic")
+
+    def with_preset_config(**kwargs: Any) -> _AsyncContext:
+        calls.append(kwargs)
+        return _AsyncContext(config)
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(
+            SimpleNamespace(with_preset_config=with_preset_config)
+        ),
+    )
+
+    await resolve_agent_preset_config_activity(
+        ResolveAgentPresetConfigActivityInput(role=_role(), preset_slug="triage")
+    )
+
+    assert [call["prune_tool_tunnels"] for call in calls] == [False]
 
 
 @pytest.mark.anyio
@@ -316,12 +357,7 @@ async def test_preparation_boundary_distinguishes_denials_from_platform_errors(
     subagents: bool,
     error: Exception,
 ) -> None:
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        organization_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-    )
+    role = _role()
     service_class = AgentPresetService if subagents else AgentManagementService
     monkeypatch.setattr(
         service_class, "with_session", lambda **_: _FailingAsyncContext(error)
@@ -400,12 +436,7 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
 
 @pytest.mark.anyio
 async def test_resolve_preset_subagent_allows_no_attached_children() -> None:
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
     service = AgentPresetService(cast(Any, SimpleNamespace()), role)
     preset_id = uuid.uuid4()
     preset_version_id = uuid.uuid4()
@@ -476,12 +507,7 @@ async def test_resolve_agents_config_follows_current_preset_head(
             )
         ),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
 
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
@@ -521,6 +547,90 @@ async def test_resolve_agents_config_follows_current_preset_head(
 
 
 @pytest.mark.anyio
+async def test_resolve_agent_config_activity_moves_inline_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    retired_catalog_id = uuid.uuid4()
+    replacement = ModelReplacement(
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        catalog_id=uuid.uuid4(),
+    )
+    resolve = AsyncMock(return_value=replacement)
+    monkeypatch.setattr(AgentCatalogService, "resolve_model_replacement", resolve)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(SimpleNamespace(session=None)),
+    )
+    inline = AgentConfigPayload(
+        model_name="claude-opus-4-1",
+        model_provider="anthropic",
+        catalog_id=retired_catalog_id,
+        instructions="keep me",
+        retries=3,
+    )
+
+    result = await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(role=role, source=inline)
+    )
+
+    resolve.assert_awaited_once_with(
+        role=role,
+        model_provider="anthropic",
+        model_name="claude-opus-4-1",
+        catalog_id=retired_catalog_id,
+    )
+    assert (result.model_name, result.catalog_id) == (
+        "claude-opus-4-8",
+        replacement.catalog_id,
+    )
+    assert result.instructions == "keep me"
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_config_activity_returns_resolved_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_config = AgentConfig(model_name="gpt-5.6-sol", model_provider="openai")
+    with_preset_config = Mock(return_value=_AsyncContext(preset_config))
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(
+            SimpleNamespace(with_preset_config=with_preset_config)
+        ),
+    )
+
+    result = await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(
+            role=_role(), source=AgentPresetRef(preset_slug="analyst")
+        )
+    )
+
+    # The workflow prunes tool tunnels after its own action overrides.
+    assert with_preset_config.call_args.kwargs["prune_tool_tunnels"] is False
+    assert result.model_name == "gpt-5.6-sol"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ({"preset_slug": "analyst"}, AgentPresetRef),
+        ({"model_name": "m", "model_provider": "p", "retries": 3}, AgentConfigPayload),
+    ],
+    ids=["preset", "inline"],
+)
+def test_resolve_agent_config_input_decodes_each_source(
+    source: dict[str, Any], expected: type
+) -> None:
+    decoded = ResolveAgentConfigActivityInput.model_validate(
+        {"role": _role(), "source": source}
+    )
+
+    assert type(decoded.source) is expected
+
+
+@pytest.mark.anyio
 async def test_resolve_agents_config_explicitly_disables_latest_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -547,12 +657,7 @@ async def test_resolve_agents_config_explicitly_disables_latest_resolution(
             )
         ),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
 
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
@@ -594,12 +699,7 @@ async def test_resolve_agents_config_classifies_missing_subagent_preset(
         ),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
         lambda **_: _AsyncContext(service),
@@ -625,10 +725,34 @@ async def test_resolve_agents_config_classifies_missing_subagent_preset(
     assert exc_info.value.non_retryable is True
 
 
+class _ApprovingBackend(DefaultBackend):
+    subagent_approvals = True
+
+
+@pytest.fixture
+def approving_backend_installed() -> Iterator[None]:
+    """Another enabled backend runs approval-gated subagents."""
+    registry.get_agent_backends.cache_clear()
+    try:
+        with patch.object(
+            registry,
+            "entry_points",
+            return_value=[
+                SimpleNamespace(name="external", load=lambda: _ApprovingBackend)
+            ],
+        ):
+            assert registry.subagent_approvals_available()
+            yield
+    finally:
+        registry.get_agent_backends.cache_clear()
+
+
 @pytest.mark.anyio
+@pytest.mark.usefixtures("approving_backend_installed")
 async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The built-in backend's resolution rejects them, whatever else is installed."""
     version = SimpleNamespace(
         id=uuid.uuid4(),
         preset_id=uuid.uuid4(),
@@ -643,12 +767,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         ),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
 
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
@@ -675,6 +794,48 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
 
 
 @pytest.mark.anyio
+async def test_resolve_agents_config_accepts_subagent_with_tool_approvals_on_request() -> (
+    None
+):
+    """A backend that holds a subagent's calls for the parent's decision opts in."""
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        version=1,
+        agents={},
+        tool_approvals={"core.http_request": True},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_preset_tool_policy=AsyncMock(),
+        get_preset=AsyncMock(return_value=None),
+        resolve_agent_preset_config=AsyncMock(
+            return_value=AgentConfig(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                tool_approvals=version.tool_approvals,
+            )
+        ),
+    )
+
+    result = await resolve_agents_config(
+        cast(AgentPresetResolutionService, service),
+        agents=AgentSubagentsConfig.model_validate(
+            {"subagents": [{"preset": "approval-child"}]}
+        ),
+        include_runtime_config=True,
+        supports_subagent_approvals=True,
+    )
+
+    (child,) = result.subagents
+    assert child.binding.preset_id == version.preset_id
+    assert child.binding.preset_version_id == version.id
+    assert child.config is not None
+    assert child.config.tool_approvals == version.tool_approvals
+    service.resolve_preset_tool_policy.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_platform(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -692,12 +853,7 @@ async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_pl
         ),
         use_latest_resource_versions=AsyncMock(return_value=False),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
         lambda **_: _AsyncContext(service),
@@ -727,12 +883,7 @@ async def test_resolve_agents_config_classifies_malformed_persisted_agents_as_pl
 async def test_resolve_agents_config_rejects_invalid_fallback_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
 
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentPresetService.with_session",
@@ -761,41 +912,6 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
 
 
 @pytest.mark.anyio
-async def test_resolve_custom_model_provider_config_activity_returns_base_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = SimpleNamespace(
-        get_workspace_provider_credentials=AsyncMock(
-            return_value={
-                "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://customer.example",
-                "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model",
-                "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
-            }
-        )
-    )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
-
-    monkeypatch.setattr(
-        "tracecat.agent.preset.activities.AgentManagementService.with_session",
-        lambda *_args, **_kwargs: _AsyncContext(service),
-    )
-
-    result = await resolve_custom_model_provider_config_activity(role)
-
-    service.get_workspace_provider_credentials.assert_awaited_once_with(
-        "custom-model-provider",
-    )
-    assert result.base_url == "https://customer.example"
-    assert result.model_name == "provider/custom-model"
-    assert result.passthrough is True
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "credentials",
     [None, {"CUSTOM_MODEL_PROVIDER_API_KEY": "opaque-secret"}],
@@ -807,12 +923,7 @@ async def test_resolve_custom_model_provider_config_classifies_invalid_config(
     service = SimpleNamespace(
         get_workspace_provider_credentials=AsyncMock(return_value=credentials)
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentManagementService.with_session",
         lambda *_args, **_kwargs: _AsyncContext(service),
@@ -849,12 +960,7 @@ async def test_resolve_custom_model_provider_config_classifies_revoked_catalog(
             side_effect=TracecatAuthorizationError("catalog access revoked")
         ),
     )
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-    )
+    role = _role()
     monkeypatch.setattr(
         "tracecat.agent.preset.activities.AgentManagementService.with_session",
         lambda *_args, **_kwargs: _AsyncContext(service),

@@ -35,6 +35,11 @@ interface ChatToolsPickerProps {
   /** Selects which chat surface-specific default capabilities are read-only. */
   surface?: ChatSurface
   /**
+   * Whether the organization has Forms (flag and entitlement). The form
+   * tools join the workspace chat defaults only then.
+   */
+  formsEnabled?: boolean
+  /**
    * Link to the workspace MCP servers page. When provided, the empty MCP
    * state becomes a CTA pointing there.
    */
@@ -151,10 +156,21 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
   },
 ]
 
-const DEFAULT_TOOL_VALUES = new Set(
-  DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
-)
-const EMPTY_DEFAULT_TOOL_VALUES = new Set<string>()
+/**
+ * Form authoring capability. Mirrors `WORKSPACE_CHAT_FORMS_TOOLS` in
+ * `tracecat/chat/tools.py`, which the backend appends to the workspace chat
+ * defaults only for an organization with the forms flag and entitlement. Kept
+ * out of {@link DEFAULT_CAPABILITY_GROUPS} for the same reason.
+ */
+const FORMS_CAPABILITY_GROUP: CapabilityGroup = {
+  id: "forms",
+  label: "Forms",
+  tools: [
+    "core.forms.list_forms",
+    "core.forms.get_form",
+    "core.forms.update_form",
+  ],
+}
 
 /** Humanize an action id (e.g. `core.table.list_tables` -> `List tables`). */
 function humanizeAction(action: string): string {
@@ -184,14 +200,24 @@ export function ChatToolsPicker({
   mcpEnabled = true,
   disabled = false,
   surface = "regular",
+  formsEnabled = false,
   mcpIntegrationsHref,
 }: ChatToolsPickerProps) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const isWorkspaceChat = surface === "workspace-chat"
-  const defaultToolValues = isWorkspaceChat
-    ? DEFAULT_TOOL_VALUES
-    : EMPTY_DEFAULT_TOOL_VALUES
+  const visibleCapabilityGroups = useMemo(() => {
+    if (!isWorkspaceChat) {
+      return []
+    }
+    return formsEnabled
+      ? [...DEFAULT_CAPABILITY_GROUPS, FORMS_CAPABILITY_GROUP]
+      : DEFAULT_CAPABILITY_GROUPS
+  }, [isWorkspaceChat, formsEnabled])
+  const defaultToolValues = useMemo(
+    () => new Set(visibleCapabilityGroups.flatMap((group) => group.tools)),
+    [visibleCapabilityGroups]
+  )
 
   const addedCount =
     selectedTools.length + (mcpEnabled ? selectedMcpIntegrations.length : 0)
@@ -223,10 +249,16 @@ export function ChatToolsPicker({
     })
   }
 
+  // Without Forms the backend rejects a turn that names a form tool, so they
+  // are not offered, and a selected one shows as no longer available.
   const toolOptions = useMemo<ToolOption[]>(
     () =>
       registryActions
-        .filter((action) => isAgentToolSelectable(action.action))
+        .filter(
+          (action) =>
+            isAgentToolSelectable(action.action) &&
+            (formsEnabled || !action.action.startsWith("core.forms."))
+        )
         .map((action) => ({
           value: action.action,
           label: action.default_title || action.action,
@@ -234,17 +266,12 @@ export function ChatToolsPicker({
           description: action.description,
         }))
         .sort((a, b) => a.value.localeCompare(b.value)),
-    [registryActions]
+    [registryActions, formsEnabled]
   )
 
   const optionByValue = useMemo(
     () => new Map(toolOptions.map((option) => [option.value, option])),
     [toolOptions]
-  )
-
-  const visibleCapabilityGroups = useMemo(
-    () => (isWorkspaceChat ? DEFAULT_CAPABILITY_GROUPS : []),
-    [isWorkspaceChat]
   )
 
   // Tools the user can add: everything except this surface's always-on defaults.

@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
-from tracecat.auth.credentials import SuperuserRole
+from tracecat.auth.credentials import SuperuserRole, SuperuserStepUpRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.db.errors import is_unique_violation
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -61,7 +62,7 @@ async def list_organizations(
     dependencies=[Depends(_require_multi_tenant)],
 )
 async def create_organization(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     params: OrgCreate,
 ) -> OrgRead:
@@ -89,7 +90,7 @@ async def get_organization(
 
 @router.patch("/{org_id}", response_model=OrgRead)
 async def update_organization(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrgUpdate,
@@ -112,7 +113,7 @@ async def update_organization(
     dependencies=[Depends(_require_multi_tenant)],
 )
 async def delete_organization(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     confirm: str | None = Query(
@@ -141,7 +142,7 @@ async def delete_organization(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_organization_invitation(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: AdminOrgInvitationCreate,
@@ -157,6 +158,8 @@ async def create_organization_invitation(
         ) from e
     except IntegrityError as e:
         # Race: a concurrent request already inserted a pending row for this email.
+        if not is_unique_violation(e, "ix_invitation_org_email_pending_unique"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
@@ -207,7 +210,7 @@ async def list_organization_invitations(
     response_model=AdminOrgInvitationTokenRead,
 )
 async def get_organization_invitation_token(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     invitation_id: uuid.UUID,
@@ -228,7 +231,7 @@ async def get_organization_invitation_token(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def revoke_organization_invitation(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     invitation_id: uuid.UUID,
@@ -256,7 +259,7 @@ async def revoke_organization_invitation(
     response_model=AdminOrgInvitationRead,
 )
 async def resend_organization_invitation(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     invitation_id: uuid.UUID,
@@ -307,7 +310,7 @@ async def list_organization_domains(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_organization_domain(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrgDomainCreate,
@@ -334,7 +337,7 @@ async def create_organization_domain(
 
 @router.patch("/{org_id}/domains/{domain_id}", response_model=OrgDomainRead)
 async def update_organization_domain(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     domain_id: uuid.UUID,
@@ -361,7 +364,7 @@ async def update_organization_domain(
 
 @router.delete("/{org_id}/domains/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization_domain(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     domain_id: uuid.UUID,
@@ -423,7 +426,7 @@ async def list_org_repository_versions(
     response_model=OrgRegistrySyncResponse,
 )
 async def sync_org_repository(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
@@ -443,7 +446,7 @@ async def sync_org_repository(
     response_model=OrgRegistryVersionPromoteResponse,
 )
 async def promote_org_repository_version(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,

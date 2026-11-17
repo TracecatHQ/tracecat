@@ -2,82 +2,15 @@
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.git.utils import GitUrl
 from tracecat.ssh import (
     SshEnv,
     add_host_to_known_hosts_sync,
     add_ssh_key_to_agent_sync,
-    get_git_ssh_command,
     temporary_ssh_agent,
 )
-
-
-class TestGetGitSshCommand:
-    """Test get_git_ssh_command function."""
-
-    @pytest.mark.anyio
-    async def test_get_git_ssh_command(self):
-        """Test get_git_ssh_command returns proper SSH command."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo")
-        mock_session = MagicMock(spec=AsyncSession)
-        role = Role(
-            type="service",
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-
-        mock_service = AsyncMock()
-        mock_secret = MagicMock()
-        mock_secret.get_secret_value.return_value = "ssh-private-key"
-        mock_service.get_ssh_key.return_value = mock_secret
-
-        expected_ssh_cmd = "ssh -i /path/to/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-
-        with (
-            patch("tracecat.ssh.SecretsService", return_value=mock_service),
-            patch("tracecat.ssh.prepare_ssh_key_file", return_value=expected_ssh_cmd),
-        ):
-            result = await get_git_ssh_command(git_url, session=mock_session, role=role)
-
-        assert result == expected_ssh_cmd
-        mock_service.get_ssh_key.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_get_git_ssh_command_with_context_role(self):
-        """Test get_git_ssh_command with context role."""
-        git_url = GitUrl(host="github.com", org="myorg", repo="myrepo")
-        mock_session = MagicMock(spec=AsyncSession)
-
-        mock_service = AsyncMock()
-        mock_secret = MagicMock()
-        mock_service.get_ssh_key.return_value = mock_secret
-
-        expected_ssh_cmd = "ssh -i /path/to/key -o IdentitiesOnly=yes"
-
-        # Mock the ctx_role module instead of ctx_role.get
-        mock_role = Role(
-            type="service",
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        with (
-            patch("tracecat.ssh.ctx_role") as mock_ctx_role,
-            patch("tracecat.ssh.SecretsService", return_value=mock_service),
-            patch("tracecat.ssh.prepare_ssh_key_file", return_value=expected_ssh_cmd),
-        ):
-            mock_ctx_role.get.return_value = mock_role
-
-            result = await get_git_ssh_command(git_url, session=mock_session, role=None)
-
-        assert result == expected_ssh_cmd
-        mock_ctx_role.get.assert_called_once()
 
 
 class TestAddHostToKnownHosts:

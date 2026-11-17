@@ -236,6 +236,7 @@ async def create_attachment(
                 "message": str(e),
                 "content_type": e.mime_type,
                 "allowed_types": e.allowed_types,
+                "detected_types": e.detected_types,
             },
         ) from e
     except FileSizeError as e:
@@ -386,7 +387,7 @@ async def download_attachment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e
 
 
@@ -451,5 +452,5 @@ async def delete_attachment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete attachment: {str(e)}",
+            detail="Failed to delete attachment",
         ) from e

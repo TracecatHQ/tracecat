@@ -17,6 +17,8 @@ from tracecat.inbox.service import InboxService
 from tracecat.inbox.types import InboxGroup
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -84,7 +86,11 @@ async def list_items(
 
     Supports sorting by created_at or updated_at.
     Default sort is by created_at descending.
+    Filtering by case requires the case add-ons entitlement.
     """
+    if case_id is not None:
+        await check_entitlement(session, role, Entitlement.CASE_ADDONS)
+
     provider = get_inbox_provider(session, role)
     if provider is None:
         return CursorPaginatedResponse(

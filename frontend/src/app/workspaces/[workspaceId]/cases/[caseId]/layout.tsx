@@ -4,9 +4,8 @@ import { useParams } from "next/navigation"
 import type React from "react"
 import { CaseChat } from "@/components/cases/case-chat"
 import { ControlsHeader } from "@/components/nav/controls-header"
-import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { SidebarInset } from "@/components/ui/sidebar"
 import { useAutoCollapseSidebar } from "@/hooks/use-auto-collapse-sidebar"
 import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
 
@@ -35,9 +34,8 @@ export default function CaseDetailLayout({
   }
 
   return (
-    <SidebarProvider>
+    <>
       <AutoCollapseSidebar />
-      <AppSidebar />
       {/* Case content inset */}
       <SidebarInset className="flex-1 min-w-0 mr-px">
         <div className="flex h-full flex-col">
@@ -52,6 +50,6 @@ export default function CaseDetailLayout({
           <CaseChat caseId={caseId} />
         </ResizableSidebar>
       )}
-    </SidebarProvider>
+    </>
   )
 }

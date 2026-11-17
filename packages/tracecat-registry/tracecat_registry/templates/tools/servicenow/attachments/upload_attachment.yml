@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Upload attachment
+  description: Attach a file to any record, such as an incident or case, with the Attachment API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_AttachmentAPI.html#attachment-POST-upload
+  namespace: tools.servicenow
+  name: upload_attachment
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    table_name:
+      type: str
+      description: Table of the record to attach the file to, e.g. incident.
+    table_sys_id:
+      type: str
+      description: sys_id of the record to attach the file to.
+    file_name:
+      type: str
+      description: Name of the file.
+    content_base64:
+      type: str
+      description: Base64-encoded file content.
+    content_type:
+      type: str
+      description: MIME type of the file.
+      default: application/octet-stream
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/attachment/upload
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      form_data:
+        table_name: ${{ inputs.table_name }}
+        table_sys_id: ${{ inputs.table_sys_id }}
+      files:
+        uploadFile:
+          filename: ${{ inputs.file_name }}
+          content_base64: ${{ inputs.content_base64 }}
+          content_type: ${{ inputs.content_type }}
+  returns: ${{ steps.request.result }}

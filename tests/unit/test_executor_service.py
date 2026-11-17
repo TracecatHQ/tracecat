@@ -1,22 +1,36 @@
+import asyncio
 import base64
+import json
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from tracecat_ee.tunnels import routing as tunnel_routing
+from tracecat_ee.tunnels.routing import TunnelTarget
 from tracecat_registry import (
     RegistryOAuthSecret,
     RegistrySecret,
     RegistrySecretType,
 )
 
+from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_secret_masks
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionRetryPolicy,
+    ActionStatement,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.exceptions import ExecutionError, TracecatCredentialsError
+from tracecat.executor import secret_preprocessors
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -30,9 +44,12 @@ from tracecat.expressions.policy import build_provenance
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import OAuthGrantType
+from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import MASK_VALUE
+from tracecat.secrets.masking import SecretMaskCollector
+from tracecat.secrets.types import ActionSecrets
 
 
 def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
@@ -118,63 +135,6 @@ async def test_get_action_secrets_passes_sets_to_auth_sandbox(mocker):
     assert call_kwargs["environment"] == "test_env"
 
 
-@pytest.mark.anyio
-async def test_get_action_secrets_skips_optional_oauth(mocker):
-    """Ensure optional OAuth integrations do not raise when missing."""
-
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="authorization_code",
-        ),
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="client_credentials",
-            optional=True,
-        ),
-    }
-
-    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
-    )
-
-    sandbox = mocker.AsyncMock()
-    sandbox.secrets = {}
-    sandbox.__aenter__.return_value = sandbox
-    sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
-
-    delegated_integration = mocker.MagicMock()
-    delegated_integration.provider_id = "azure_log_analytics"
-    delegated_integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-
-    service = mocker.AsyncMock()
-    service.list_integrations.return_value = [delegated_integration]
-    service.refresh_token_if_needed.return_value = delegated_integration
-    service.get_access_token.return_value = SecretStr("user-token")
-
-    @asynccontextmanager
-    async def service_cm():
-        yield service
-
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
-        return_value=service_cm(),
-    )
-
-    secrets = await secrets_manager.get_action_secrets(
-        secret_exprs=set(), action_secrets=action_secrets
-    )
-    assert (
-        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
-        == "user-token"
-    )
-    assert (
-        "AZURE_LOG_ANALYTICS_SERVICE_TOKEN" not in secrets["azure_log_analytics_oauth"]
-    )
-
-
 @pytest.mark.parametrize("secret_name", ["aws", "amazon_bedrock"])
 @pytest.mark.anyio
 async def test_get_action_secrets_injects_runtime_aws_external_id(
@@ -218,22 +178,28 @@ async def test_get_action_secrets_injects_runtime_aws_external_id(
     assert secrets["TRACECAT_AWS_EXTERNAL_ID"] == "tracecat-ws-deadbeef"
 
 
-@pytest.mark.anyio
-async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
-    """Ensure both delegated and service tokens are returned when available."""
+_AZURE_OAUTH_SECRETS: set[RegistrySecretType] = {
+    RegistryOAuthSecret(
+        provider_id="azure_log_analytics",
+        grant_type="authorization_code",
+    ),
+    RegistryOAuthSecret(
+        provider_id="azure_log_analytics",
+        grant_type="client_credentials",
+        optional=True,
+    ),
+}
+_OAUTH_TOKENS = {
+    OAuthGrantType.AUTHORIZATION_CODE: "user-token",
+    OAuthGrantType.CLIENT_CREDENTIALS: "service-token",
+}
+_OAUTH_EXPIRIES = {
+    OAuthGrantType.AUTHORIZATION_CODE: datetime(2030, 1, 1, 1, tzinfo=UTC),
+    OAuthGrantType.CLIENT_CREDENTIALS: datetime(2030, 1, 1, 0, 30, tzinfo=UTC),
+}
 
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="authorization_code",
-        ),
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="client_credentials",
-            optional=True,
-        ),
-    }
 
+def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]):
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch(
         "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
@@ -245,29 +211,20 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     sandbox.__aexit__.return_value = None
     mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
-    delegated_integration = mocker.MagicMock()
-    delegated_integration.provider_id = "azure_log_analytics"
-    delegated_integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-
-    service_integration = mocker.MagicMock()
-    service_integration.provider_id = "azure_log_analytics"
-    service_integration.grant_type = OAuthGrantType.CLIENT_CREDENTIALS
+    integrations = []
+    for grant_type in grant_types:
+        integration = mocker.MagicMock()
+        integration.provider_id = "azure_log_analytics"
+        integration.grant_type = grant_type
+        integration.expires_at = _OAUTH_EXPIRIES[grant_type]
+        integrations.append(integration)
 
     service = mocker.AsyncMock()
-    service.list_integrations.return_value = [
-        delegated_integration,
-        service_integration,
-    ]
+    service.list_integrations.return_value = integrations
     service.refresh_token_if_needed.side_effect = lambda integration: integration
-
-    def _get_access_token(integration):
-        if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
-            return SecretStr("user-token")
-        if integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
-            return SecretStr("service-token")
-        return None
-
-    service.get_access_token.side_effect = _get_access_token
+    service.get_access_token.side_effect = lambda integration: SecretStr(
+        _OAUTH_TOKENS[integration.grant_type]
+    )
 
     @asynccontextmanager
     async def service_cm():
@@ -277,72 +234,132 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         "tracecat.secrets.secrets_manager.IntegrationService.with_session",
         return_value=service_cm(),
     )
+    return service
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("grant_types", "expected"),
+    [
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE],
+            {"AZURE_LOG_ANALYTICS_USER_TOKEN": "user-token"},
+            id="skips_missing_optional_oauth",
+        ),
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS],
+            {
+                "AZURE_LOG_ANALYTICS_USER_TOKEN": "user-token",
+                "AZURE_LOG_ANALYTICS_SERVICE_TOKEN": "service-token",
+            },
+            id="merges_multiple_oauth_tokens",
+        ),
+    ],
+)
+async def test_get_action_secrets_resolves_oauth_tokens(
+    mocker, grant_types: list[OAuthGrantType], expected: dict[str, str]
+):
+    _patch_oauth_secret_env(mocker, grant_types)
 
     secrets = await secrets_manager.get_action_secrets(
-        secret_exprs=set(), action_secrets=action_secrets
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
     )
-    assert (
-        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
-        == "user-token"
+
+    assert secrets["azure_log_analytics_oauth"] == expected
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_reports_earliest_oauth_expiry(mocker):
+    """The earliest token expiry bounds how long a loop may reuse the tokens."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
     )
-    assert (
-        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_SERVICE_TOKEN"]
-        == "service-token"
+
+    resolved = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
     )
+
+    assert resolved.expires_at == _OAUTH_EXPIRIES[OAuthGrantType.CLIENT_CREDENTIALS]
+
+
+@pytest.mark.anyio
+async def test_resolve_action_secrets_log_record_serializes(mocker):
+    """The secrets log record survives Loguru's built-in JSON serialization."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        messages.append,
+        level="INFO",
+        serialize=True,
+        catch=False,
+        filter=lambda record: record["message"] == "Handling secrets",
+    )
+    try:
+        await secrets_manager.resolve_action_secrets(
+            secret_exprs={
+                "azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+            },
+            action_secrets=_AZURE_OAUTH_SECRETS,
+        )
+    finally:
+        logger.remove(sink_id)
+
+    [message] = messages
+    extra = json.loads(message)["record"]["extra"]
+    assert extra["oauth_provider_ids"] == [
+        "azure_log_analytics (authorization_code)",
+        "azure_log_analytics (client_credentials)",
+    ]
+    assert extra["args_oauth_token_names"] == {
+        "azure_log_analytics (client_credentials)": "AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+    }
+
+
+@pytest.mark.parametrize(
+    "failing_call",
+    [
+        pytest.param(lambda service: service.get_access_token, id="token"),
+        pytest.param(lambda service: service.list_integrations, id="integrations"),
+    ],
+)
+@pytest.mark.anyio
+async def test_resolve_action_secrets_marks_skipped_oauth_lookup_partial(
+    mocker, failing_call
+):
+    """A swallowed OAuth failure is reported so a loop does not share the gap."""
+    _patch_oauth_secret_env(mocker, [OAuthGrantType.AUTHORIZATION_CODE])
+    complete = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
+    )
+
+    service = _patch_oauth_secret_env(mocker, [OAuthGrantType.AUTHORIZATION_CODE])
+    failing_call(service).side_effect = ConnectionError("transient")
+    partial = await secrets_manager.resolve_action_secrets(
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
+    )
+
+    assert complete.partial is False
+    assert partial.partial is True
+    assert "azure_log_analytics_oauth" not in partial.values
 
 
 @pytest.mark.anyio
 async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     """Required OAuth integrations should surface a credentials error."""
-
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="authorization_code",
-        )
-    }
-
-    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
-    )
-
-    sandbox = mocker.AsyncMock()
-    sandbox.secrets = {}
-    sandbox.__aenter__.return_value = sandbox
-    sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
-
-    service = mocker.AsyncMock()
-    service.list_integrations.return_value = []
-
-    @asynccontextmanager
-    async def service_cm():
-        yield service
-
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
-        return_value=service_cm(),
-    )
+    _patch_oauth_secret_env(mocker, [])
 
     with pytest.raises(TracecatCredentialsError):
         await secrets_manager.get_action_secrets(
-            secret_exprs=set(), action_secrets=action_secrets
+            secret_exprs=set(),
+            action_secrets={
+                RegistryOAuthSecret(
+                    provider_id="azure_log_analytics",
+                    grant_type="authorization_code",
+                )
+            },
         )
-
-
-@pytest.mark.anyio
-async def test_extract_templated_secrets_detects_nested_complex_expressions():
-    from tracecat.expressions.eval import extract_templated_secrets
-
-    expr = '${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}'
-    secrets = extract_templated_secrets(expr)
-    assert sorted(secrets) == sorted(
-        [
-            "zendesk.ZENDESK_EMAIL",
-            "zendesk.ZENDESK_API_TOKEN",
-        ]
-    )
 
 
 @pytest.mark.anyio
@@ -354,6 +371,7 @@ async def test_invoke_once_offloads_root_secret_masking(mocker):
     )
     action_input = mocker.Mock()
     action_input.task.action = "core.transform.reshape"
+    action_input.task.retry_policy = ActionRetryPolicy()
     action_input.registry_lock = {}
     action_input.exec_context = {}
     action_result = {"value": "secret"}
@@ -396,7 +414,96 @@ async def test_invoke_once_offloads_root_secret_masking(mocker):
         executor_service.apply_masks_object,
         action_result,
         masks={"secret"},
+        mask_keys=True,
     )
+
+
+_RESULT_SECRET = "result-secret-value"
+_OTHER_RESULT_SECRET = "other-result-secret"
+
+
+async def _invoke_once_with_result(mocker, action_result: object) -> object:
+    """Run invoke_once with a stubbed step result and the real masking offload."""
+    role = Role(
+        type="service",
+        organization_id=UUID(int=1),
+        service_id="tracecat-executor",
+    )
+    action_input = mocker.Mock()
+    action_input.task.action = "core.transform.reshape"
+    action_input.task.retry_policy = ActionRetryPolicy()
+    action_input.registry_lock = {}
+    action_input.exec_context = {}
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=mocker.Mock(logical_time=mocker.sentinel.logical_time),
+        mask_values={_RESULT_SECRET, _OTHER_RESULT_SECRET},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(return_value=action_result),
+    )
+    return await executor_service.invoke_once(
+        backend=mocker.Mock(),
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+    )
+
+
+@pytest.mark.anyio
+async def test_invoke_once_masks_secret_result_keys(mocker):
+    """A secret used as a result mapping key is persisted as the mask value."""
+    result = await _invoke_once_with_result(mocker, {_RESULT_SECRET: "ok"})
+
+    assert result == {MASK_VALUE: "ok"}
+
+
+@pytest.mark.anyio
+async def test_invoke_once_masks_nested_secret_result_keys(mocker):
+    """Secret keys are masked inside mappings nested in lists and mappings."""
+    result = await _invoke_once_with_result(
+        mocker,
+        {
+            "items": [{f"prefix-{_RESULT_SECRET}": 1}],
+            "outer": {"inner": {_RESULT_SECRET: [_RESULT_SECRET]}},
+        },
+    )
+
+    assert result == {
+        "items": [{f"prefix-{MASK_VALUE}": 1}],
+        "outer": {"inner": {MASK_VALUE: [MASK_VALUE]}},
+    }
+
+
+@pytest.mark.anyio
+async def test_invoke_once_leaves_non_secret_result_keys_unchanged(mocker):
+    """Results without secrets keep their keys, values, and types."""
+    action_result = {"status": "ok", "count": 2, "rows": [{"id": "a", "n": None}]}
+
+    result = await _invoke_once_with_result(mocker, action_result)
+
+    assert result == action_result
+
+
+@pytest.mark.anyio
+async def test_invoke_once_collapses_colliding_masked_result_keys(mocker):
+    """Two secret keys mask to one key; the later entry's value wins."""
+    result = await _invoke_once_with_result(
+        mocker,
+        {_RESULT_SECRET: "first", _OTHER_RESULT_SECRET: "second"},
+    )
+
+    assert result == {MASK_VALUE: "second"}
 
 
 def _expression_policy_role(service_id: InternalServiceID) -> Role:
@@ -457,8 +564,8 @@ def _patch_expression_policy_resolution(
     )
     get_action_secrets = mocker.patch.object(
         executor_service.secrets_manager,
-        "get_action_secrets",
-        new=mocker.AsyncMock(return_value=fetched_secrets),
+        "resolve_action_secrets",
+        new=mocker.AsyncMock(return_value=ActionSecrets(values=fetched_secrets)),
     )
     get_workspace_variables = mocker.patch.object(
         executor_service,
@@ -1527,3 +1634,407 @@ async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
     assert err.__cause__ is None
     assert err.__context__ is None
     assert canary not in str(err)
+
+
+_LOOP_ROLE_ARN = "arn:aws:iam::123456789012:role/loop-role"
+
+
+def _patch_loop_resolution(
+    mocker,
+    *,
+    sts_expires_in: timedelta,
+    role_arn: bool,
+    oauth_expires_at: datetime | None = None,
+):
+    """Stub registry and secret IO; each STS call mints distinct credentials."""
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            return_value=ActionImplementation(
+                type="udf", action_name="core.transform.reshape"
+            )
+        ),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        new=mocker.AsyncMock(return_value=set()),
+    )
+    aws_secret = {"AWS_REGION": "us-east-1"}
+    if role_arn:
+        aws_secret["AWS_ROLE_ARN"] = _LOOP_ROLE_ARN
+    get_action_secrets = mocker.patch.object(
+        executor_service.secrets_manager,
+        "resolve_action_secrets",
+        new=mocker.AsyncMock(
+            return_value=ActionSecrets(
+                values={
+                    "amazon_s3": aws_secret,
+                    "TRACECAT_AWS_EXTERNAL_ID": "1" * 32,
+                },
+                expires_at=oauth_expires_at,
+            )
+        ),
+    )
+    mocker.patch.object(
+        executor_service,
+        "get_workspace_variables",
+        new=mocker.AsyncMock(return_value={}),
+    )
+    mocker.patch.object(
+        executor_service, "_mint_action_executor_token", return_value="token"
+    )
+
+    async def assume_role(**_: object) -> dict[str, object]:
+        n = assume_role_mock.await_count
+        return {
+            "AccessKeyId": f"ASIA_LOOP_KEY_{n}",
+            "SecretAccessKey": f"loop-secret-access-key-{n}",
+            "SessionToken": f"loop-session-token-{n}",
+            "Expiration": datetime.now(UTC) + sts_expires_in,
+        }
+
+    assume_role_mock = mocker.patch.object(
+        secret_preprocessors,
+        "_assume_role_via_irsa",
+        new=mocker.AsyncMock(side_effect=assume_role),
+    )
+    return get_action_secrets, assume_role_mock
+
+
+def _loop_item_input(item: int) -> RunActionInput:
+    action_input = _expression_policy_input(
+        "core.transform.reshape", {"value": "${{ var.x }}"}
+    )
+    return action_input.model_copy(
+        update={"exec_context": {**action_input.exec_context, "var": {"x": item}}}
+    )
+
+
+async def _prepare_loop_items(
+    loop: executor_service.LoopActionContext, n: int
+) -> list[tuple[executor_service.PreparedContext, SecretMaskCollector]]:
+    """Prepare each item under its own mask collector, as invoke_once does."""
+    prepared: list[tuple[executor_service.PreparedContext, SecretMaskCollector]] = []
+    for item in range(n):
+        masks = SecretMaskCollector()
+        token = ctx_secret_masks.set(masks)
+        try:
+            prepared.append((await loop.prepare(_loop_item_input(item)), masks))
+        finally:
+            ctx_secret_masks.reset(token)
+    return prepared
+
+
+@pytest.mark.parametrize(
+    ("sts_expires_in", "expected_resolutions"),
+    [
+        pytest.param(timedelta(hours=1), 1, id="sts-valid-for-loop"),
+        # Inside the expiry margin: every item re-assumes the role.
+        pytest.param(timedelta(minutes=4), 3, id="sts-near-expiry"),
+    ],
+)
+@pytest.mark.anyio
+async def test_loop_context_shares_credentials_until_sts_expiry_margin(
+    mocker, monkeypatch, sts_expires_in: timedelta, expected_resolutions: int
+) -> None:
+    """Items reuse one STS session unless it would expire within the margin.
+
+    Every item still evaluates its own arguments and masks every secret and
+    the STS credentials it runs with.
+    """
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", False)
+    get_action_secrets, assume_role = _patch_loop_resolution(
+        mocker, sts_expires_in=sts_expires_in, role_arn=True
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    prepared = await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == expected_resolutions
+    assert assume_role.await_count == expected_resolutions
+    session_tokens = set()
+    for item, (context, masks) in enumerate(prepared):
+        resolved = context.resolved_context
+        assert resolved.evaluated_args == {"value": item}
+        assert resolved.secret_projection is not None
+        session_token = resolved.secret_projection.env["AWS_SESSION_TOKEN"]
+        session_tokens.add(session_token)
+        assert context.mask_values is not None
+        assert {session_token, _LOOP_ROLE_ARN} <= context.mask_values
+        assert {session_token, _LOOP_ROLE_ARN} <= masks.values
+        assert session_token not in repr(loop)
+        assert _LOOP_ROLE_ARN not in repr(loop)
+    assert len(session_tokens) == expected_resolutions
+
+
+@pytest.mark.anyio
+async def test_loop_context_re_resolves_after_max_age(mocker, monkeypatch) -> None:
+    """A loop re-fetches secrets once its shared context reaches the max age."""
+    get_action_secrets, assume_role = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=False
+    )
+    monkeypatch.setattr(executor_service, "_LOOP_CONTEXT_MAX_AGE", timedelta(0))
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == 3
+    assert assume_role.await_count == 0
+
+
+class _Clock:
+    """Stands in for the executor's `datetime` so a test can advance time."""
+
+    fromisoformat = staticmethod(datetime.fromisoformat)
+
+    def __init__(self, current: datetime) -> None:
+        self.current = current
+
+    def now(self, tz: tzinfo | None = None) -> datetime:
+        return self.current
+
+
+@pytest.mark.anyio
+async def test_loop_context_refreshes_oauth_token_before_it_expires(
+    mocker, monkeypatch
+) -> None:
+    """Items stop reusing an OAuth token 5 minutes before it expires."""
+    start = datetime(2030, 1, 1, tzinfo=UTC)
+    clock = _Clock(start)
+    monkeypatch.setattr(executor_service, "datetime", clock)
+    monkeypatch.setattr(executor_service, "_LOOP_CONTEXT_MAX_AGE", timedelta(hours=1))
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker,
+        sts_expires_in=timedelta(hours=1),
+        role_arn=False,
+        oauth_expires_at=start + timedelta(minutes=6),
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await loop.prepare(_loop_item_input(0))
+    clock.current = start + timedelta(seconds=59)
+    await loop.prepare(_loop_item_input(1))
+    assert get_action_secrets.await_count == 1
+
+    clock.current = start + timedelta(minutes=1)
+    await loop.prepare(_loop_item_input(2))
+    assert get_action_secrets.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_loop_context_fetches_short_lived_oauth_token_per_item(
+    mocker,
+) -> None:
+    """A token already inside the expiry margin is never shared across items."""
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker,
+        sts_expires_in=timedelta(hours=1),
+        role_arn=False,
+        oauth_expires_at=datetime.now(UTC) + timedelta(seconds=30),
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == 3
+
+
+@pytest.mark.anyio
+async def test_loop_context_retries_partial_oauth_resolution(mocker) -> None:
+    """The next item retries a resolution that skipped a failed OAuth lookup."""
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=False
+    )
+    values = get_action_secrets.return_value.values
+    get_action_secrets.side_effect = [
+        ActionSecrets(values=values, partial=True),
+        ActionSecrets(values=values),
+    ]
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await _prepare_loop_items(loop, 3)
+
+    assert get_action_secrets.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_loop_context_mints_tunnel_token_per_item(mocker) -> None:
+    """Items share one tunnel lookup but each gets its own fresh proxy token."""
+    _patch_loop_resolution(mocker, sts_expires_in=timedelta(hours=1), role_arn=False)
+    target = TunnelTarget(
+        tunnel_id=uuid.uuid4(),
+        tunnel_name="loop-tunnel",
+        workspace_id=UUID(int=2),
+        gateway_ip="10.0.0.1",
+        gateway_port=8080,
+        gateway_key="loop-gateway-key",
+    )
+    resolve_target = mocker.patch.object(
+        executor_service,
+        "resolve_tunnel_target",
+        new=mocker.AsyncMock(return_value=target),
+    )
+    minted = mocker.patch.object(
+        tunnel_routing,
+        "mint_tunnel_token",
+        side_effect=lambda **_: f"token-{minted.call_count}",
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    proxy_urls = []
+    for item in range(3):
+        item_input = _loop_item_input(item)
+        item_input = item_input.model_copy(
+            update={"task": item_input.task.model_copy(update={"tunnel": "t"})}
+        )
+        prepared = await loop.prepare(item_input)
+        proxy_urls.append(prepared.resolved_context.tunnel_proxy_url)
+
+    assert resolve_target.await_count == 1
+    assert minted.call_count == 3
+    assert len(set(proxy_urls)) == 3
+    assert "loop-gateway-key" not in repr(loop)
+
+
+@pytest.mark.anyio
+async def test_loop_context_resolves_unshareable_contexts_in_parallel(
+    mocker,
+) -> None:
+    """After a partial resolution, items resolve concurrently, not one by one.
+
+    Items already queued on the lock when the first resolution comes back
+    partial also leave it and resolve in parallel.
+    """
+    get_action_secrets, _ = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=False
+    )
+    values = get_action_secrets.return_value.values
+    active = 0
+    max_active = 0
+
+    async def resolve(**_: object) -> ActionSecrets:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep(0.01)
+        finally:
+            active -= 1
+        return ActionSecrets(values=values, partial=True)
+
+    get_action_secrets.side_effect = resolve
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    await asyncio.gather(*(loop.prepare(_loop_item_input(i)) for i in range(4)))
+
+    assert get_action_secrets.await_count == 4
+    # The first item resolves alone under the lock; the queued three in parallel.
+    assert max_active == 3
+
+
+@pytest.mark.parametrize(
+    ("action_timeout", "expected_resolutions"),
+    [
+        pytest.param(300, 1, id="item-fits-in-session"),
+        # A 1-hour item could outlive a reused 1-hour session.
+        pytest.param(3600, 3, id="item-could-outlive-session"),
+    ],
+)
+@pytest.mark.anyio
+async def test_loop_context_reuses_sts_session_only_if_items_fit(
+    mocker, action_timeout: int, expected_resolutions: int
+) -> None:
+    """A reused STS session must outlast an item run to its timeout."""
+    _, assume_role = _patch_loop_resolution(
+        mocker, sts_expires_in=timedelta(hours=1), role_arn=True
+    )
+    loop = executor_service.LoopActionContext(
+        role=_expression_policy_role("tracecat-executor")
+    )
+
+    for item in range(3):
+        item_input = _loop_item_input(item)
+        task = item_input.task.model_copy(
+            update={"retry_policy": ActionRetryPolicy(timeout=action_timeout)}
+        )
+        await loop.prepare(item_input.model_copy(update={"task": task}))
+
+    assert assume_role.await_count == expected_resolutions
+
+
+@pytest.mark.anyio
+async def test_prepare_resolved_context_loads_all_variables_for_templates(mocker):
+    """Template steps read VARS the caller's args never show."""
+    action_name = "tools.test.lookup"
+    _, get_workspace_variables, _ = _patch_expression_policy_resolution(
+        mocker,
+        action_name=action_name,
+        action_secrets=set(),
+        fetched_secrets={},
+        workspace_variables={"api": {"base_url": "https://api.example.com"}},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            return_value=ActionImplementation(
+                type="template",
+                action_name=action_name,
+                template_definition={},
+            )
+        ),
+    )
+
+    prepared = await prepare_resolved_context(
+        input=_expression_policy_input(action_name, {"limit": 10}),
+        role=_expression_policy_role("tracecat-executor"),
+    )
+
+    assert get_workspace_variables.await_args.kwargs["variable_exprs"] is None
+    assert prepared.resolved_context.variables == {
+        "api": {"base_url": "https://api.example.com"}
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_workspace_variables_sends_no_statements_without_names(
+    svc_role: Role,
+):
+    """UDFs that reference no VARS no longer load every workspace variable."""
+    statements: list[str] = []
+
+    def record(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        assert (
+            await executor_service.get_workspace_variables(set(), role=svc_role) == {}
+        )
+        skipped = len(statements)
+        # Same session and SELECT the old empty-name path ran, minus the filter.
+        await executor_service.get_workspace_variables(None, role=svc_role)
+        fetched = len(statements) - skipped
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+
+    assert skipped == 0
+    # RLS set_config twice, then the variable SELECT.
+    assert fetched == 3

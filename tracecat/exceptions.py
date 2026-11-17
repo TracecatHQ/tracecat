@@ -128,6 +128,10 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class AgentProviderCredentialsNotFoundError(TracecatNotFoundError):
+    """Raised when an agent's model provider has no configured credentials."""
+
+
 class WorkflowAliasResolutionError(TracecatNotFoundError):
     """Raised when a configured workflow alias does not resolve."""
 
@@ -158,6 +162,19 @@ class BuiltinRegistryHasNoSelectionError(RegistryError):
 
 class RegistryLockInvalidDataError(RegistryError):
     """Raised when registry lock resolution finds deterministic invalid data."""
+
+
+class RegistryLockActionNotFoundError(RegistryLockInvalidDataError):
+    """Raised when an action name resolves to no registry origin."""
+
+    def __init__(self, action_name: str, origins: list[str]):
+        super().__init__(
+            f"Action '{action_name}' not found in any registry. "
+            f"Available registries: {origins}",
+            detail={"action_name": action_name, "origins": origins},
+        )
+        self.action_name = action_name
+        self.origins = origins
 
 
 class RegistryLockAmbiguousActionError(RegistryLockInvalidDataError):
@@ -335,6 +352,7 @@ class EntitlementRequired(TracecatException):
         self,
         entitlement: str,
         *,
+        message: str | None = None,
         unavailable_actions: list[str] | None = None,
         unavailable_origins: list[str] | None = None,
     ):
@@ -346,7 +364,7 @@ class EntitlementRequired(TracecatException):
             return "\n".join(lines)
 
         self.entitlement = entitlement
-        message = f"Feature '{entitlement}' requires an upgraded plan."
+        message = message or f"Feature '{entitlement}' requires an upgraded plan."
         detail: dict[str, object] = {"entitlement": entitlement}
 
         if unavailable_actions:

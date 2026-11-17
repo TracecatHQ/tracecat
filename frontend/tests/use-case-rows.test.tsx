@@ -4,19 +4,23 @@
 
 import { renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import type { CaseLinkedTableRead } from "@/client"
+import type { CaseLinkedTableRead, CaseTableRowRead } from "@/client"
 import {
   casesBatchLinkCaseRows,
   casesBatchUnlinkCaseRows,
+  casesInsertCaseRow,
   casesListCaseLinkedTables,
+  tablesUpdateRow,
 } from "@/client"
 import {
   CaseRowsLinkError,
   CaseRowsUnlinkError,
   caseRowsQueryKey,
   useCaseLinkedTables,
+  useInsertCaseRow,
   useLinkCaseRows,
   useUnlinkCaseRows,
+  useUpdateCaseRow,
 } from "@/hooks/use-case-rows"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -26,9 +30,15 @@ jest.mock("@/client", () => {
     ...actual,
     casesBatchLinkCaseRows: jest.fn(),
     casesBatchUnlinkCaseRows: jest.fn(),
+    casesInsertCaseRow: jest.fn(),
     casesListCaseLinkedTables: jest.fn(),
+    tablesUpdateRow: jest.fn(),
   }
 })
+
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: jest.fn(),
+}))
 
 const mockBatchLink = casesBatchLinkCaseRows as jest.MockedFunction<
   typeof casesBatchLinkCaseRows
@@ -38,6 +48,12 @@ const mockBatchUnlink = casesBatchUnlinkCaseRows as jest.MockedFunction<
 >
 const mockListLinkedTables = casesListCaseLinkedTables as jest.MockedFunction<
   typeof casesListCaseLinkedTables
+>
+const mockInsertCaseRow = casesInsertCaseRow as jest.MockedFunction<
+  typeof casesInsertCaseRow
+>
+const mockUpdateRow = tablesUpdateRow as jest.MockedFunction<
+  typeof tablesUpdateRow
 >
 const SCOPE = { caseId: "case-1", workspaceId: "ws-1" }
 const ROW_IDS = Array.from({ length: 450 }, (_, index) => `row-${index}`)
@@ -278,5 +294,113 @@ describe("useCaseLinkedTables", () => {
     expect(result.current.linkedTables).toEqual(summary)
     expect(result.current.linkedTablesError).toBeNull()
     expect(mockListLinkedTables).toHaveBeenCalledWith(SCOPE)
+  })
+})
+
+describe("useInsertCaseRow", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it("inserts and links in one request, then refreshes the case", async () => {
+    const link = { id: "link-1", row_id: "row-1" } as CaseTableRowRead
+    mockInsertCaseRow.mockResolvedValueOnce(link)
+    const { wrapper, invalidateSpy } = setup()
+
+    const { result } = renderHook(() => useInsertCaseRow(SCOPE), { wrapper })
+    const outcome = await result.current.insertCaseRow({
+      tableId: "table-1",
+      data: { name: "new" },
+    })
+
+    expect(outcome).toBe(link)
+    expect(mockInsertCaseRow).toHaveBeenCalledWith({
+      caseId: "case-1",
+      workspaceId: "ws-1",
+      requestBody: { table_id: "table-1", row: { data: { name: "new" } } },
+    })
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ["case-rows", "case-1"],
+      })
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["case-events", "case-1", "ws-1"],
+    })
+    // The row is new to the table as well, so its own lists go stale.
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["table-search", "ws-1", "table-1"],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["rows", "table-1"],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["rows", "paginated", "table-1", "ws-1"],
+    })
+  })
+
+  it("rejects without refreshing when the insert fails", async () => {
+    const failure = new Error("boom")
+    mockInsertCaseRow.mockRejectedValueOnce(failure)
+    const { wrapper, invalidateSpy } = setup()
+
+    const { result } = renderHook(() => useInsertCaseRow(SCOPE), { wrapper })
+
+    await expect(
+      result.current.insertCaseRow({ tableId: "table-1", data: {} })
+    ).rejects.toBe(failure)
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ["case-rows", "case-1"],
+    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ["rows", "table-1"],
+    })
+  })
+})
+
+describe("useUpdateCaseRow", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it("updates the table row and refreshes the case's rows", async () => {
+    mockUpdateRow.mockResolvedValueOnce(undefined as never)
+    const { wrapper, invalidateSpy } = setup()
+
+    const { result } = renderHook(() => useUpdateCaseRow(SCOPE), { wrapper })
+    await result.current.updateCaseRow({
+      tableId: "table-1",
+      rowId: "row-1",
+      data: { name: "edited" },
+    })
+
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      tableId: "table-1",
+      rowId: "row-1",
+      workspaceId: "ws-1",
+      requestBody: { data: { name: "edited" } },
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["case-rows", "case-1"],
+    })
+  })
+
+  it("still refreshes the case's rows when the update fails", async () => {
+    const failure = new Error("boom")
+    mockUpdateRow.mockRejectedValueOnce(failure)
+    const { wrapper, invalidateSpy } = setup()
+
+    const { result } = renderHook(() => useUpdateCaseRow(SCOPE), { wrapper })
+
+    await expect(
+      result.current.updateCaseRow({
+        tableId: "table-1",
+        rowId: "row-1",
+        data: { name: "edited" },
+      })
+    ).rejects.toBe(failure)
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["case-rows", "case-1"],
+    })
   })
 })

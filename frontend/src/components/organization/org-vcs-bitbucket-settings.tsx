@@ -7,6 +7,7 @@ import { BitbucketIcon } from "@/components/organization/vcs-icons"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -54,7 +55,7 @@ export function BitbucketSettings() {
         </Button>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent size="sm" className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Bitbucket connections</DialogTitle>
             <DialogDescription>
@@ -62,12 +63,14 @@ export function BitbucketSettings() {
               configure both.
             </DialogDescription>
           </DialogHeader>
-          {open && (
-            <div className="space-y-4">
-              <BitbucketTokenSetup />
-              <BitbucketDataCenterTokenSetup />
-            </div>
-          )}
+          <DialogBody>
+            {open && (
+              <div className="space-y-4">
+                <BitbucketTokenSetup />
+                <BitbucketDataCenterTokenSetup />
+              </div>
+            )}
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </>

@@ -51,6 +51,15 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.get_status",
 ]
 
+# Form authoring tools. Appended to the Workspace chat defaults only for an
+# organization with the forms flag and entitlement: an entitlement-denied tool
+# fails the whole turn, so these must never join the unconditional defaults.
+WORKSPACE_CHAT_FORMS_TOOLS = [
+    "core.forms.list_forms",
+    "core.forms.get_form",
+    "core.forms.update_form",
+]
+
 WORKSPACE_CHAT_DEFAULT_TOOLS = [
     *WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS,
     *WORKSPACE_CHAT_BASE_DEFAULT_TOOLS,

@@ -27,12 +27,19 @@ with workflow.unsafe.imports_passed_through():
     from tracecat import config
     from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
     from tracecat.agent.preset.activities import (
+        resolve_agent_config_activity,
         resolve_agent_preset_config_activity,
         resolve_agent_preset_version_ref_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.session.activities import get_session_activities
+    from tracecat.agent.workflow_turns.activities import (
+        prepare_workflow_agent_turn_activity,
+        read_workflow_agent_turn_activity,
+        select_workflow_agent_backend_activity,
+    )
+    from tracecat.agent.workflow_turns.workflows import WorkflowAgentTurnWorkflow
     from tracecat.agent.workflows.mcp_probe import (
         StdioMCPProbeWorkflow,
     )
@@ -44,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.cases.agent_invocations.workflows import (
         CaseCommentAgentInvocationWorkflow,
     )
+    from tracecat.db.engine import verify_rls_enforceable_login
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import (
         RuntimeErrorAttributionInterceptor,
@@ -95,6 +103,7 @@ def get_activities() -> list[Callable[..., object]]:
     agent_activities = AgentActivities()
     activities.extend(agent_activities.get_activities())
     activities.extend(ApprovalManager.get_activities())
+    activities.append(resolve_agent_config_activity)
     activities.append(resolve_agent_preset_config_activity)
     activities.append(resolve_agent_preset_version_ref_activity)
     activities.append(resolve_agents_config_activity)
@@ -104,6 +113,9 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(complete_comment_agent_invocation_activity)
     activities.append(fail_comment_agent_invocation_activity)
     activities.append(prepare_comment_agent_invocation_activity)
+    activities.append(prepare_workflow_agent_turn_activity)
+    activities.append(read_workflow_agent_turn_activity)
+    activities.append(select_workflow_agent_backend_activity)
     return activities
 
 
@@ -120,6 +132,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
 
     logger.info("Starting AgentWorker")
+    await verify_rls_enforceable_login()
 
     initialize_platform_tracing("tracecat-agent-worker")
 
@@ -146,6 +159,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             workflows: list[type] = [
                 DurableAgentWorkflow,
                 CaseCommentAgentInvocationWorkflow,
+                WorkflowAgentTurnWorkflow,
                 ExecuteRegistryToolWorkflow,
                 StdioMCPProbeWorkflow,
             ]

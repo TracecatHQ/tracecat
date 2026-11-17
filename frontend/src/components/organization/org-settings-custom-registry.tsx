@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { OrgRegistryRepositoryRemoveSection } from "@/components/organization/org-registry-repository-remove"
 import { OrgRegistrySshKeySection } from "@/components/organization/org-registry-ssh-key"
 import { CustomTagInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
@@ -195,6 +196,7 @@ export function OrgSettingsCustomRegistryForm() {
       >
         Save repository settings
       </Button>
+      <OrgRegistryRepositoryRemoveSection />
     </div>
   )
 }

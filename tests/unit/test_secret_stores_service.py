@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.providers.aws_secrets_manager import generate_store_external_id
@@ -13,6 +13,7 @@ from tracecat_ee.secrets.references.service import SecretReferencesService
 from tracecat_ee.secrets.stores.backends import parse_store_config
 from tracecat_ee.secrets.stores.service import SecretStoresService
 
+from tests.support.managed_resources import mark_managed
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -30,6 +31,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.pagination import PageParams
 from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
@@ -46,6 +48,7 @@ from tracecat.secrets.schemas import (
     SecretUpdate,
 )
 from tracecat.secrets.service import build_external_secret_reference
+from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -158,6 +161,69 @@ async def test_create_store_persists_external_id_across_updates(
     refreshed_config = parse_store_config(refreshed)
     assert refreshed_config.external_id == external_id
     assert refreshed_config.role_arn == "arn:aws:iam::123456789012:role/other"
+
+
+@pytest.mark.anyio
+async def test_store_without_role_arn_cannot_be_enabled_until_set(
+    stores: SecretStoresService,
+) -> None:
+    with pytest.raises(ValueError, match="Finish setting up"):
+        await stores.create_store(
+            SecretStoreCreate(
+                name="draft",
+                config=AwsSecretsManagerStoreCreate(region=REGION),
+            )
+        )
+
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="draft",
+            config=AwsSecretsManagerStoreCreate(region=REGION),
+            enabled=False,
+        )
+    )
+    store_id = store.id
+    draft_config = parse_store_config(store)
+    assert draft_config.role_arn is None
+    assert draft_config.external_id.startswith("tracecat-")
+
+    with pytest.raises(ValueError, match="Finish setting up"):
+        await stores.update_store(store, SecretStoreUpdate(enabled=True))
+    # The rejected update leaves the store unchanged in the session.
+    assert store.enabled is False
+
+    await stores.update_store(
+        store,
+        SecretStoreUpdate(
+            config=AwsSecretsManagerStoreUpdate(role_arn=ROLE_ARN), enabled=True
+        ),
+    )
+    refreshed = await stores.get_store(store_id)
+    assert refreshed.enabled is True
+    refreshed_config = parse_store_config(refreshed)
+    assert refreshed_config.role_arn == ROLE_ARN
+    assert refreshed_config.external_id == draft_config.external_id
+
+
+@pytest.mark.anyio
+async def test_store_with_unparseable_config_can_be_renamed_and_disabled(
+    stores: SecretStoresService,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="legacy",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    store.config = {**store.config, "region": "not a region"}
+    await stores.session.commit()
+
+    await stores.update_store(
+        store, SecretStoreUpdate(name="legacy-renamed", enabled=False)
+    )
+    refreshed = await stores.get_store(store.id)
+    assert refreshed.name == "legacy-renamed"
+    assert refreshed.enabled is False
 
 
 @pytest.mark.anyio
@@ -322,6 +388,47 @@ async def test_name_uniqueness_spans_local_and_aws_rows(
             reference_params(store.id, name="shared")
         )
     await secrets.session.rollback()
+
+
+@pytest.mark.anyio
+async def test_managed_aws_reference_compares_the_mapping_a_rollout_wrote(
+    stores: SecretStoresService,
+    secrets: SecretReferencesService,
+    svc_workspace: Workspace,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="prod",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    await stores.authorize_workspace(store, svc_workspace.id)
+    created = await secrets.create_aws_secret_reference(reference_params(store.id))
+    await mark_managed(
+        secrets.session,
+        secrets.role,
+        SyncResourceType.SECRET_METADATA,
+        created.id,
+    )
+    loaded_mapping = AwsSecretKeyMapping.model_validate(created.remote_key_mapping)
+    # A rollout commits a new mapping after this caller loaded the secret.
+    await secrets.session.execute(
+        update(Secret)
+        .where(Secret.id == created.id)
+        .values(
+            remote_key_mapping=AwsSecretKeyMapping(
+                mode=AwsSecretMappingMode.JSON,
+                fields=[AwsSecretJsonField(key="USER", field="username")],
+            ).model_dump(mode="json")
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await secrets.session.commit()
+
+    with pytest.raises(ManagedResourceLockedError):
+        await secrets.update_aws_secret_reference(
+            created, AwsSecretReferenceUpdate(key_mapping=loaded_mapping)
+        )
 
 
 @pytest.mark.anyio
@@ -517,6 +624,12 @@ async def test_reference_guards_with_enforced_rls_and_org_only_context(
         assert (await session.execute(select(func.count(Secret.id)))).scalar_one() == 0
         assert await org_stores.count_references([store.id, foreign_store.id]) == {
             store.id: 2
+        }
+        usage = await org_stores.workspace_usage([store.id, foreign_store.id])
+        assert usage.keys() == {store.id}
+        assert {(u.workspace_id, u.secret_count) for u in usage[store.id]} == {
+            (svc_workspace.id, 1),
+            (other_workspace.id, 1),
         }
         with pytest.raises(TracecatConflictError) as revoked:
             await org_stores.revoke_workspace(store, svc_workspace.id)

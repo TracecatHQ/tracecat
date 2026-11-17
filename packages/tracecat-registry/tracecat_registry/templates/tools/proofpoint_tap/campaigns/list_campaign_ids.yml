@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: "List campaign IDs"
+  description: "List IDs of campaigns active in a time window with GET /v2/campaign/ids. The interval must be between 30 seconds and 1 day."
+  display_group: Proofpoint TAP
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Campaign_API
+  namespace: tools.proofpoint_tap
+  name: list_campaign_ids
+  secrets:
+    - name: proofpoint_tap
+      keys: ["PROOFPOINT_TAP_SERVICE_PRINCIPAL", "PROOFPOINT_TAP_SERVICE_SECRET"]
+  expects:
+    interval:
+      type: str
+      description: "ISO 8601 time interval to query, e.g. 2020-05-01T12:00:00Z/2020-05-01T13:00:00Z. Must span between 30 seconds and 1 day."
+    size:
+      type: int | None
+      description: "Maximum number of campaign IDs per page. Defaults to 100; maximum 200."
+      default: null
+    page:
+      type: int | None
+      description: "Page of results to return, starting at 1. Defaults to 1."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_tap.base_url || "https://tap-api-v2.proofpoint.com" }}/v2/campaign/ids
+        method: GET
+        params:
+          interval: ${{ inputs.interval }}
+          size: ${{ inputs.size }}
+          page: ${{ inputs.page }}
+        auth:
+          username: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_PRINCIPAL }}
+          password: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_SECRET }}
+  returns: ${{ steps.request.result }}

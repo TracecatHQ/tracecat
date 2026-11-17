@@ -7,7 +7,7 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -135,14 +135,60 @@ class CaseRead(TypedDict):
     updated_at: datetime
 
 
+class CaseParentRead(TypedDict):
+    """Summary of a case's parent."""
+
+    id: UUID
+    short_id: str
+    summary: str
+
+
+class CaseBatchItemResult(TypedDict):
+    """Result of a batch operation for one case."""
+
+    case_id: UUID
+    success: bool
+    error: str | None
+
+
+class CaseBatchResponse(TypedDict):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
+class CaseDurationRead(TypedDict):
+    """Optional materialized case duration."""
+
+    id: UUID
+    case_id: UUID
+    definition_id: UUID
+    start_event_id: UUID | None
+    end_event_id: UUID | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    duration: str | None
+
+
+class CaseSearchMatchRead(TypedDict):
+    """Plain-text lexical match metadata beside the case's source fields."""
+
+    score: float | None
+    matched_columns: list[Literal["summary", "description", "id", "short_id"]]
+    excerpts: list[str]
+
+
 class CaseReadMinimal(TypedDict):
     """Minimal case information returned by search operations.
 
-    Contains core case fields without description, payload, or custom fields.
+    Contains core case fields plus independently requested detail projections.
     """
 
     id: UUID
     short_id: str
+    search_match: NotRequired[CaseSearchMatchRead | None]
     summary: str
     priority: str
     severity: str
@@ -155,12 +201,69 @@ class CaseReadMinimal(TypedDict):
     updated_at: datetime
     num_tasks_completed: int
     num_tasks_total: int
+    parent: NotRequired[CaseParentRead | None]
+    num_sub_cases: NotRequired[int]
+    durations: NotRequired[list[CaseDurationRead] | None]
+    field_values: NotRequired[dict[str, Any] | None]
+    payload: NotRequired[dict[str, Any] | None]
 
 
 class CaseListResponse(TypedDict):
     """Paginated case list response."""
 
     items: list[CaseReadMinimal]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+    total_estimate: int | None
+
+
+class CaseViewStaleRef(TypedDict):
+    """A deleted tag or dropdown option that a saved view still names."""
+
+    kind: Literal["tag", "dropdown"]
+    value: str
+
+
+class CaseViewEmptyRules(TypedDict):
+    """Rules of a view left with nothing to match after deletions."""
+
+    tags: bool
+    dropdown_refs: list[str]
+    filters: bool
+
+
+class CaseViewRead(TypedDict):
+    """A saved or built-in case view."""
+
+    id: str
+    kind: Literal["builtin", "custom"]
+    name: str
+    visibility: Literal["personal", "workspace"]
+    owner_id: UUID | None
+    query: dict[str, Any]
+    order_by: str | None
+    sort: Literal["asc", "desc"] | None
+    columns: list[str] | None
+    can_edit: bool
+    pinned: bool
+    pin_position: int | None
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
+class CaseViewDetail(CaseViewRead):
+    """One case view in the form it runs in, with what deletions changed."""
+
+    stale_refs: list[CaseViewStaleRef]
+    empty_rules: CaseViewEmptyRules
+
+
+class CaseViewListResponse(TypedDict):
+    """Paginated saved case view list."""
+
+    items: list[CaseViewRead]
     next_cursor: str | None
     prev_cursor: str | None
     has_more: bool
@@ -233,6 +336,15 @@ class CaseTaskRead(TypedDict):
     assignee: UserRead | None
     workflow_id: str | None
     default_trigger_values: dict[str, Any] | None
+
+
+class CaseTaskRunRead(TypedDict):
+    """A started workflow run for a case task."""
+
+    task_id: UUID
+    workflow_id: str
+    workflow_execution_id: str
+    message: str
 
 
 class CaseDurationMetric(TypedDict):

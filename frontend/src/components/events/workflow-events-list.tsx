@@ -4,6 +4,11 @@ import Link from "next/link"
 import type React from "react"
 import { Badge } from "@/components/ui/badge"
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -20,6 +25,8 @@ export type WorkflowEventsListRow = {
   count?: number
   subflowLink?: string
   trailing?: React.ReactNode
+  /** Items for the row's right-click menu. */
+  contextMenu?: React.ReactNode
   onSelect?: () => void
 }
 
@@ -42,85 +49,95 @@ export function WorkflowEventsList({
             ? String(row.meta)
             : null
         const isIterationMeta = metaText !== null && /^\d+$/.test(metaText)
-        return (
-          <div key={row.key}>
-            <div
-              role={isInteractive ? "button" : undefined}
-              tabIndex={isInteractive ? 0 : undefined}
-              className={cn(
-                "group flex h-11 items-center px-3 text-xs transition-all",
-                isInteractive && "cursor-pointer hover:bg-muted/50",
-                row.selected && "bg-muted-foreground/10"
-              )}
-              onClick={() => {
+        const content = (
+          <div
+            role={isInteractive ? "button" : undefined}
+            tabIndex={isInteractive ? 0 : undefined}
+            className={cn(
+              "group flex h-11 items-center px-3 text-xs transition-all",
+              isInteractive && "cursor-pointer hover:bg-muted/50",
+              row.selected && "bg-muted-foreground/10"
+            )}
+            onClick={() => {
+              row.onSelect?.()
+            }}
+            onKeyDown={(event) => {
+              if (
+                isInteractive &&
+                (event.key === "Enter" || event.key === " ")
+              ) {
+                event.preventDefault()
                 row.onSelect?.()
-              }}
-              onKeyDown={(event) => {
-                if (
-                  isInteractive &&
-                  (event.key === "Enter" || event.key === " ")
-                ) {
-                  event.preventDefault()
-                  row.onSelect?.()
-                }
-              }}
-            >
-              <div className="relative z-10 mr-3 flex size-5 items-center justify-center">
-                {row.icon}
+              }
+            }}
+          >
+            <div className="relative z-10 mr-3 flex size-5 items-center justify-center">
+              {row.icon}
+            </div>
+            <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2 text-xs">
+                <div className="truncate text-foreground/70">{row.label}</div>
+                {row.meta && (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "h-4 px-1.5 text-[10px] font-medium text-foreground/60",
+                      isIterationMeta &&
+                        "h-4 min-w-4 rounded-full border border-border bg-muted px-1 font-semibold tabular-nums text-[9px] text-muted-foreground"
+                    )}
+                  >
+                    {row.meta}
+                  </Badge>
+                )}
+                {(row.count ?? 0) > 1 && (
+                  <Badge
+                    variant="secondary"
+                    className="h-4 px-1.5 text-[10px] font-medium text-foreground/60"
+                  >
+                    {row.count}x
+                  </Badge>
+                )}
+                {row.subflowLink && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={row.subflowLink}
+                        className="inline-flex text-foreground/70 hover:text-foreground"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                        }}
+                        aria-label="View subflow run"
+                      >
+                        <Link2Icon className="size-4" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <span>View subflow run</span>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
-              <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2 text-xs">
-                  <div className="truncate text-foreground/70">{row.label}</div>
-                  {row.meta && (
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "h-4 px-1.5 text-[10px] font-medium text-foreground/60",
-                        isIterationMeta &&
-                          "h-4 min-w-4 rounded-full border border-border bg-muted px-1 font-semibold tabular-nums text-[9px] text-muted-foreground"
-                      )}
-                    >
-                      {row.meta}
-                    </Badge>
-                  )}
-                  {(row.count ?? 0) > 1 && (
-                    <Badge
-                      variant="secondary"
-                      className="h-4 px-1.5 text-[10px] font-medium text-foreground/60"
-                    >
-                      {row.count}x
-                    </Badge>
-                  )}
-                  {row.subflowLink && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Link
-                          href={row.subflowLink}
-                          className="inline-flex text-foreground/70 hover:text-foreground"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                          }}
-                          aria-label="View subflow run"
-                        >
-                          <Link2Icon className="size-4" />
-                        </Link>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <span>View subflow run</span>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+              <div className="flex items-center gap-2">
+                <div className="whitespace-nowrap text-foreground/70">
+                  {row.time}
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="whitespace-nowrap text-foreground/70">
-                    {row.time}
-                  </div>
-                  {row.trailing ?? (
-                    <DotsHorizontalIcon className="size-4 text-foreground/70" />
-                  )}
-                </div>
+                {row.trailing ?? (
+                  <DotsHorizontalIcon className="size-4 text-foreground/70" />
+                )}
               </div>
             </div>
+          </div>
+        )
+        return (
+          <div key={row.key}>
+            {row.contextMenu ? (
+              <ContextMenu>
+                <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
+                <ContextMenuContent>{row.contextMenu}</ContextMenuContent>
+              </ContextMenu>
+            ) : (
+              content
+            )}
           </div>
         )
       })}

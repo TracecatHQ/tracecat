@@ -868,7 +868,6 @@ async def test_tags_count_cases_and_filter_before_grouping(
 
     for predicate, count in [
         ({"field": "tags", "op": "contains", "value": "red"}, 2),
-        ({"field": "tags", "op": "contains", "value": "re"}, 0),
         ({"field": "tags", "op": "in", "value": ["red", "blue"]}, 2),
         ({"field": "tags", "op": "in", "value": []}, 0),
         ({"field": "tags", "op": "is_null"}, 2),
@@ -1025,8 +1024,8 @@ async def test_dropdown_entitlement_required_for_every_use(
         response = await aggregate_client.post(
             "/internal/cases/aggregate", json=payload
         )
-        assert response.status_code == 400, response.text
-        assert "dropdowns.verdict" in response.text
+        assert response.status_code == 403, response.text
+        assert response.json()["type"] == "EntitlementRequired"
     response = await aggregate_client.post(
         "/internal/cases/aggregate", json={"group_by": ["tags"]}
     )

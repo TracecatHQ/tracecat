@@ -1,5 +1,5 @@
 import type * as ai from "ai"
-import { transformMessages } from "@/lib/chat"
+import { markLiveDenials, transformMessages } from "@/lib/chat"
 
 describe("transformMessages", () => {
   it("keeps completed tool parts that already contain their input", () => {
@@ -86,6 +86,46 @@ describe("transformMessages", () => {
     expect(transformed).toEqual([messages[1]])
   })
 
+  it("joins approval requests streamed back to back into one batch", () => {
+    const approval = (n: number) => ({
+      tool_call_id: `toolu_0${n}`,
+      tool_name: "core.transform.reshape",
+      args: { value: { n } },
+    })
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Running all three." },
+          { type: "data-approval-request", data: [approval(1)] },
+          { type: "data-approval-request", data: [approval(2)] },
+        ],
+      },
+      {
+        id: "msg-2",
+        role: "assistant",
+        parts: [{ type: "data-approval-request", data: [approval(3)] }],
+      },
+    ] as ai.UIMessage[]
+
+    const transformed = transformMessages(messages)
+
+    expect(transformed).toEqual([
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Running all three." },
+          {
+            type: "data-approval-request",
+            data: [approval(1), approval(2), approval(3)],
+          },
+        ],
+      },
+    ])
+  })
+
   it("deduplicates replayed pending approval parts by tool call id", () => {
     const messages = [
       {
@@ -130,14 +170,9 @@ describe("transformMessages", () => {
 
     const transformed = transformMessages(messages)
 
+    // The card draws the waiting call, so its input part stays hidden.
     expect(transformed).toHaveLength(1)
     expect(transformed[0]?.parts).toEqual([
-      {
-        type: "tool-core__http_request",
-        toolCallId: "toolu_01http",
-        state: "input-available",
-        input: { url: "https://google.com" },
-      },
       {
         type: "data-approval-request",
         data: [
@@ -260,4 +295,87 @@ describe("transformMessages", () => {
       ])
     }
   )
+})
+
+describe("markLiveDenials", () => {
+  it("shows a call's edited arguments and tags denials this tab sent", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "edited",
+            state: "output-available",
+            input: { value: "original" },
+            output: "edited",
+          },
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "denied",
+            state: "output-error",
+            input: { value: 1 },
+            errorText: "denied",
+          },
+        ],
+      },
+    ] as ai.UIMessage[]
+
+    const [message] = markLiveDenials(messages, [
+      {
+        tool_call_id: "edited",
+        action: "override",
+        override_args: { value: "edited" },
+      },
+      { tool_call_id: "denied", action: "deny", reason: "No" },
+    ])
+
+    expect(message.parts[0]).toMatchObject({ input: { value: "edited" } })
+    expect(message.parts[1]).toMatchObject({
+      callProviderMetadata: {
+        tracecat: { approval: "rejected", reason: "No" },
+      },
+    })
+  })
+
+  it("shows a denied call as denied before its result streams in", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "approved",
+            state: "input-available",
+            input: { value: 1 },
+          },
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "denied",
+            state: "input-available",
+            input: { value: 2 },
+          },
+        ],
+      },
+    ] as ai.UIMessage[]
+
+    const [message] = markLiveDenials(messages, [
+      { tool_call_id: "approved", action: "approve" },
+      { tool_call_id: "denied", action: "deny", reason: "No" },
+    ])
+
+    expect(message.parts[0]).toMatchObject({ state: "input-available" })
+    expect(message.parts[1]).toMatchObject({
+      state: "output-error",
+      callProviderMetadata: {
+        tracecat: { approval: "rejected", reason: "No" },
+      },
+    })
+  })
 })

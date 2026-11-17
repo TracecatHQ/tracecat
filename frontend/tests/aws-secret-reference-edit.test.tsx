@@ -15,6 +15,17 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 let mockSecret: SecretRead
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/client", () => ({
   secretsSearchSecrets: jest.fn(),
   secretsListAuthorizedSecretStores: jest.fn(),
@@ -35,7 +46,10 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/components/catalog/catalog-header", () => ({
   CatalogHeader: () => null,
 }))
-jest.mock("@/components/icons", () => ({ SecretIcon: () => null }))
+jest.mock("@/components/icons", () => ({
+  AwsIcon: () => null,
+  SecretIcon: () => null,
+}))
 jest.mock("@/components/workspaces/create-credential-dialog", () => ({
   CreateCredentialDialog: () => null,
 }))
@@ -106,7 +120,9 @@ async function openEditor() {
   )
   expect(secretsSearchSecrets).not.toHaveBeenCalled()
   await user.click(screen.getByRole("button", { name: /example_api/ }))
-  expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: "Check access" })
+  ).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Edit" }))
   return user
 }

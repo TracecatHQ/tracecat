@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Set device extension attributes
+  description: >-
+    Set, update, or clear custom extension attributes on one or more devices, for example to
+    tag a compromised device so a smart device group applies a response policy. A non-empty
+    value sets or updates the attribute; an empty string or null value deletes it. Calls POST
+    /restful/organization/deviceExtensionAttributes.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/13172920-public-apis-how-to-edit-device-extension-attributes
+  namespace: tools.swif
+  name: set_device_extension_attributes
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    items:
+      type: list[dict[str, Any]]
+      description: >-
+        Devices and attributes to set. Each item has a deviceId and an attributes list of
+        objects with key and value, for example
+        [{"deviceId": "<device_id>", "attributes": [{"key": "risk", "value": "high"}]}].
+        Keys must match an extension attribute definition in Swif.
+    ids:
+      type: str | None
+      description: Swif device ID query parameter, as shown in Swif's request examples.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/deviceExtensionAttributes
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+        params:
+          ids: ${{ inputs.ids }}
+        payload:
+          items: ${{ inputs.items }}
+  returns: ${{ steps.request.result }}

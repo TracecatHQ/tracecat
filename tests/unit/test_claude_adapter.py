@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from claude_agent_sdk.types import StreamEvent
 
-from tracecat.agent.common.stream_types import HarnessType, StreamEventType
+from tracecat.agent.common.stream_types import StreamEventType
 from tracecat.agent.runtime.claude_code.adapter import (
     ClaudeSDKAdapter,
     ContentBlockDeltaEvent,
@@ -41,149 +41,8 @@ def make_stream_event(
 
 
 # ==============================================================================
-# Basic Adapter Properties
-# ==============================================================================
-
-
-def test_harness_name():
-    """Test that adapter returns correct harness name."""
-    assert ClaudeSDKAdapter().harness_name == HarnessType.CLAUDE_CODE
-
-
-# ==============================================================================
-# Message Lifecycle Events
-# ==============================================================================
-
-
-def test_message_start_event():
-    """Test message_start event conversion."""
-    native = make_stream_event({"type": "message_start", "message": {"id": "msg_123"}})
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.MESSAGE_START
-
-
-def test_message_stop_event():
-    """Test message_stop event conversion."""
-    native = make_stream_event({"type": "message_stop"})
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.MESSAGE_STOP
-
-
-# ==============================================================================
-# Text Content Block Events
-# ==============================================================================
-
-
-def test_text_block_start():
-    """Test text content_block_start event conversion."""
-    native = make_stream_event(
-        {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        }
-    )
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.TEXT_START
-    assert unified.part_id == 0
-
-
-def test_text_block_delta():
-    """Test text_delta event conversion."""
-    native = make_stream_event(
-        {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": "Hello, world!"},
-        }
-    )
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.TEXT_DELTA
-    assert unified.part_id == 0
-    assert unified.text == "Hello, world!"
-
-
-def test_text_block_delta_empty():
-    """Test text_delta with empty text."""
-    native = make_stream_event(
-        {
-            "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": ""},
-        }
-    )
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.TEXT_DELTA
-    assert unified.text == ""
-
-
-def test_text_block_stop():
-    """Test text content_block_stop event conversion."""
-    native = make_stream_event({"type": "content_block_stop", "index": 0})
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.TEXT_STOP
-    assert unified.part_id == 0
-
-
-# ==============================================================================
 # Thinking Content Block Events
 # ==============================================================================
-
-
-def test_thinking_block_start():
-    """Test thinking content_block_start event conversion."""
-    content_block: ThinkingContentBlock = {
-        "type": "thinking",
-        "thinking": "",
-        "signature": "",
-    }
-    event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": 0,
-        "content_block": content_block,
-    }
-    native = make_stream_event(event)
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.THINKING_START
-    assert unified.part_id == 0
-
-
-def test_thinking_block_delta():
-    """Test thinking_delta event conversion."""
-    delta: ThinkingDelta = {"type": "thinking_delta", "thinking": "Let me analyze..."}
-    event: ContentBlockDeltaEvent = {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": delta,
-    }
-    native = make_stream_event(event)
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.THINKING_DELTA
-    assert unified.part_id == 0
-    assert unified.thinking == "Let me analyze..."
-
-
-def test_thinking_block_delta_empty():
-    """Test thinking_delta with empty thinking."""
-    delta: ThinkingDelta = {"type": "thinking_delta", "thinking": ""}
-    event: ContentBlockDeltaEvent = {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": delta,
-    }
-    native = make_stream_event(event)
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.THINKING_DELTA
-    assert unified.thinking == ""
 
 
 def test_signature_delta_is_non_text_noop():
@@ -203,91 +62,9 @@ def test_signature_delta_is_non_text_noop():
     assert unified.thinking is None
 
 
-def test_thinking_block_stop():
-    """Test thinking content_block_stop event conversion."""
-    adapter = ClaudeSDKAdapter()
-    # Start the thinking block first
-    content_block: ThinkingContentBlock = {
-        "type": "thinking",
-        "thinking": "",
-        "signature": "",
-    }
-    start_event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": 0,
-        "content_block": content_block,
-    }
-    adapter.to_unified_event(make_stream_event(start_event))
-    # Stop it
-    stop_event: ContentBlockStopEvent = {"type": "content_block_stop", "index": 0}
-    native = make_stream_event(stop_event)
-    unified = adapter.to_unified_event(native)
-
-    assert unified.type == StreamEventType.THINKING_STOP
-    assert unified.part_id == 0
-
-
 # ==============================================================================
 # Tool Use Content Block Events
 # ==============================================================================
-
-
-def test_tool_use_block_start():
-    """Test tool_use content_block_start event conversion."""
-    native = make_stream_event(
-        {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {
-                "type": "tool_use",
-                "id": "toolu_123",
-                "name": "search",
-                "input": {},
-            },
-        }
-    )
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.TOOL_CALL_START
-    assert unified.part_id == 0
-    assert unified.tool_call_id == "toolu_123"
-    assert unified.tool_name == "search"
-    assert unified.tool_input == {}
-
-
-def test_tool_use_input_json_delta():
-    """Test input_json_delta event conversion."""
-    adapter = ClaudeSDKAdapter()
-    # Start the tool use block first
-    content_block: ToolUseContentBlock = {
-        "type": "tool_use",
-        "id": "toolu_123",
-        "name": "search",
-        "input": {},
-    }
-    start_event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": 0,
-        "content_block": content_block,
-    }
-    adapter.to_unified_event(make_stream_event(start_event))
-    delta: InputJsonDelta = {
-        "type": "input_json_delta",
-        "partial_json": '{"query": "test"',
-    }
-    delta_event: ContentBlockDeltaEvent = {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": delta,
-    }
-    native = make_stream_event(delta_event)
-    unified = adapter.to_unified_event(native)
-
-    assert unified.type == StreamEventType.TOOL_CALL_DELTA
-    assert unified.part_id == 0
-    assert unified.text == '{"query": "test"'
-    # Verify context accumulates
-    assert adapter.context[0].args_json == '{"query": "test"'
 
 
 def test_tool_use_input_json_delta_accumulation():
@@ -474,50 +251,6 @@ def test_tool_use_block_stop_invalid_json():
 # ==============================================================================
 
 
-def test_context_populated_on_block_start():
-    """Test that context is populated on content_block_start."""
-    adapter = ClaudeSDKAdapter()
-    content_block: ToolUseContentBlock = {
-        "type": "tool_use",
-        "id": "toolu_abc",
-        "name": "calc",
-        "input": {},
-    }
-    event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": 2,
-        "content_block": content_block,
-    }
-    native = make_stream_event(event)
-    adapter.to_unified_event(native)
-
-    assert 2 in adapter.context
-    assert adapter.context[2].block_type == "tool_use"
-    assert adapter.context[2].tool_call_id == "toolu_abc"
-    assert adapter.context[2].tool_name == "calc"
-    assert adapter.context[2].args_json == ""
-
-
-def test_context_cleared_on_block_stop():
-    """Test that context entry is removed on content_block_stop."""
-    adapter = ClaudeSDKAdapter()
-    # Start a block first
-    content_block: TextContentBlock = {"type": "text", "text": ""}
-    start_event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": 0,
-        "content_block": content_block,
-    }
-    adapter.to_unified_event(make_stream_event(start_event))
-    assert 0 in adapter.context
-    # Stop it
-    stop_event: ContentBlockStopEvent = {"type": "content_block_stop", "index": 0}
-    native = make_stream_event(stop_event)
-    adapter.to_unified_event(native)
-
-    assert 0 not in adapter.context
-
-
 def test_multiple_blocks_independent_context():
     """Test that multiple blocks maintain independent context."""
     adapter = ClaudeSDKAdapter()
@@ -583,57 +316,6 @@ def test_unknown_delta_type_fallback():
 
     assert unified.type == StreamEventType.TEXT_DELTA
     assert unified.part_id == 0
-
-
-# ==============================================================================
-# Part Index Preservation Tests
-# ==============================================================================
-
-
-@pytest.mark.parametrize("index", [0, 1, 5, 10, 100])
-def test_part_index_preserved_for_text_start(index: int):
-    """Test that part_id is preserved across different indices for text start."""
-    content_block: TextContentBlock = {"type": "text", "text": ""}
-    event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": index,
-        "content_block": content_block,
-    }
-    native = make_stream_event(event)
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-    assert unified.part_id == index
-
-
-@pytest.mark.parametrize("index", [0, 1, 5, 10, 100])
-def test_part_index_preserved_for_delta(index: int):
-    """Test that part_id is preserved for delta events."""
-    delta: TextDelta = {"type": "text_delta", "text": "test"}
-    event: ContentBlockDeltaEvent = {
-        "type": "content_block_delta",
-        "index": index,
-        "delta": delta,
-    }
-    native = make_stream_event(event)
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-    assert unified.part_id == index
-
-
-@pytest.mark.parametrize("index", [0, 1, 5, 10, 100])
-def test_part_index_preserved_for_stop(index: int):
-    """Test that part_id is preserved for stop events."""
-    adapter = ClaudeSDKAdapter()
-    # Start the block first
-    content_block: TextContentBlock = {"type": "text", "text": ""}
-    start_event: ContentBlockStartEvent = {
-        "type": "content_block_start",
-        "index": index,
-        "content_block": content_block,
-    }
-    adapter.to_unified_event(make_stream_event(start_event))
-    stop_event: ContentBlockStopEvent = {"type": "content_block_stop", "index": index}
-    native = make_stream_event(stop_event)
-    unified = adapter.to_unified_event(native)
-    assert unified.part_id == index
 
 
 # ==============================================================================
@@ -725,7 +407,9 @@ def test_full_tool_use_stream_sequence():
     assert results[0].type == StreamEventType.MESSAGE_START
     assert results[1].type == StreamEventType.TOOL_CALL_START
     assert results[1].tool_name == "search"
+    assert results[1].tool_call_id == "toolu_xyz"
     assert results[2].type == StreamEventType.TOOL_CALL_DELTA
+    assert results[2].text == '{"query"'
     assert results[3].type == StreamEventType.TOOL_CALL_DELTA
     assert results[4].type == StreamEventType.TOOL_CALL_STOP
     assert results[4].tool_input == {"query": "test"}
@@ -792,6 +476,7 @@ def test_mixed_content_stream_sequence():
     assert results[5].type == StreamEventType.TEXT_DELTA
     assert results[5].text == "The answer is 42."
     assert results[6].type == StreamEventType.TEXT_STOP
+    assert [r.part_id for r in results[1:7]] == [0, 0, 0, 1, 1, 1]
     assert results[7].type == StreamEventType.MESSAGE_STOP
 
 

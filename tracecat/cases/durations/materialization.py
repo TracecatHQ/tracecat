@@ -12,7 +12,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
     try_pg_advisory_xact_lock,
@@ -44,7 +44,9 @@ async def sync_case_duration(
         str(workspace_id),
         str(case_id),
     )
-    async with get_async_session_bypass_rls_context_manager() as session:
+    async with get_async_session_tenant_context_manager(
+        workspace_id=workspace_id
+    ) as session:
         role = await _get_service_role(session, workspace_id)
         if role is None:
             return True

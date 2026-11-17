@@ -9,6 +9,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import {
   type AgentPresetReadMinimal,
   type CaseCommentAgentInvocationRead,
@@ -420,6 +421,7 @@ function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
       name: "Triage agent",
       slug: "triage-agent",
       description: "Triages new cases",
+      use_in_chat: true,
       model_provider: "openai",
       model_name: "gpt-4o",
       created_at: "2024-01-01T00:00:00Z",
@@ -431,6 +433,7 @@ function createAgentPresetFixtures(): AgentPresetReadMinimal[] {
       name: "Malware agent",
       slug: "malware-agent",
       description: null,
+      use_in_chat: true,
       model_provider: "openai",
       model_name: "gpt-4o",
       created_at: "2024-01-01T00:00:00Z",
@@ -653,6 +656,7 @@ describe("CommentSection", () => {
   })
 
   it("shows inline reply composer only for active top-level comments and hides controls on tombstones", () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "case:delete")
     renderCommentSection()
 
     expect(screen.getByPlaceholderText("Leave a reply...")).toBeInTheDocument()
@@ -695,6 +699,7 @@ describe("CommentSection", () => {
       userIsLoading: false,
       userError: null,
     } as ReturnType<typeof useAuth>)
+    grantScopes(["case:read", "case:update"])
 
     renderCommentSection()
 
@@ -703,6 +708,45 @@ describe("CommentSection", () => {
     ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "More options" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("lets case:delete holders delete but not edit other users' comments", async () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "someone-else" },
+      userIsLoading: false,
+      userError: null,
+    } as ReturnType<typeof useAuth>)
+    grantScopes(["case:read", "case:update", "case:delete"])
+
+    renderCommentSection()
+
+    const menus = screen.getAllByRole("button", { name: "More options" })
+    expect(menus).toHaveLength(2)
+    await userEvent.setup().click(menus[0]!)
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Delete" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Edit" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides delete for authors without case:delete", async () => {
+    grantScopes(["case:read", "case:update"])
+
+    renderCommentSection()
+
+    const menus = screen.getAllByRole("button", { name: "More options" })
+    expect(menus).toHaveLength(1)
+    await userEvent.setup().click(menus[0]!)
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Edit" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Delete" })
     ).not.toBeInTheDocument()
   })
 
@@ -1440,6 +1484,7 @@ describe("CommentSection", () => {
   })
 
   it("renders the complete agent lifecycle and reply attribution contract", () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "case:delete")
     const timestamp = "2024-01-03T00:00:00Z"
     const sourceComment: CaseCommentRead = {
       id: "agent-source",
@@ -1639,6 +1684,23 @@ describe("CommentSection", () => {
   describe("agent mention autocomplete", () => {
     beforeEach(() => {
       mockEntitlements(["case_addons", "agent_addons"])
+    })
+
+    it("only offers agents explicitly enabled for chat", () => {
+      mockAgentPresets(
+        createAgentPresetFixtures().map((preset, index) => ({
+          ...preset,
+          use_in_chat: index === 0,
+        }))
+      )
+      renderCommentSection()
+      typeInto(getRootComposer(), "@")
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.queryByText("Malware agent")).not.toBeInTheDocument()
+      expect(mockUseAgentPresets).toHaveBeenCalledWith(
+        "workspace-1",
+        expect.objectContaining({ enabled: true, useInChat: true })
+      )
     })
 
     function getCaretMarker(textarea: HTMLElement) {

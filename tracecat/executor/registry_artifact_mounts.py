@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from opentelemetry import metrics
+
+from tracecat import config
 from tracecat.logger import logger
 from tracecat.sandbox.utils import communicate_process_group
 
@@ -24,7 +27,15 @@ include native extension modules loaded from the mounted artifact.
 LOOP_DEVICE_SYNC_HELPER = "/usr/local/bin/tracecat-loop-device-sync"
 """Fixed-purpose helper that mirrors kernel-confirmed loop nodes into ``/dev``."""
 
-SQUASHFS_MOUNT_MAX_ATTEMPTS = 3
+_METER = metrics.get_meter("tracecat.executor.registry_cache")
+_MOUNT_RETRIES = _METER.create_counter(
+    "registry_cache.mount.retries",
+    description="SquashFS mount attempts retried after a loop-device failure.",
+)
+_MOUNT_RETRIES_EXHAUSTED = _METER.create_counter(
+    "registry_cache.mount.retries_exhausted",
+    description="SquashFS mounts that failed every attempt and fall back to extraction.",
+)
 SQUASHFS_MOUNT_RETRY_MIN_SECONDS = 0.05
 SQUASHFS_MOUNT_RETRY_MAX_SECONDS = 0.2
 
@@ -191,7 +202,8 @@ async def mount_squashfs(image_path: Path, target_dir: Path) -> None:
         SquashfsMountUnavailableError: The mount command could not be started.
         SquashfsMountCommandError: The mount command failed after recovery.
     """
-    for attempt in range(1, SQUASHFS_MOUNT_MAX_ATTEMPTS + 1):
+    max_attempts = config.TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS
+    for attempt in range(1, max_attempts + 1):
         if is_mount(target_dir):
             return
 
@@ -219,7 +231,8 @@ async def mount_squashfs(image_path: Path, target_dir: Path) -> None:
 
         output = (stderr or stdout).decode(errors="replace").strip()
         mount_error = SquashfsMountCommandError(output or "mount command failed")
-        if attempt == SQUASHFS_MOUNT_MAX_ATTEMPTS:
+        if attempt == max_attempts:
+            _MOUNT_RETRIES_EXHAUSTED.add(1)
             raise mount_error
 
         try:
@@ -228,7 +241,7 @@ async def mount_squashfs(image_path: Path, target_dir: Path) -> None:
             logger.warning(
                 "Failed to synchronize loop device nodes after mount failure",
                 mount_attempt=attempt,
-                mount_attempts=SQUASHFS_MOUNT_MAX_ATTEMPTS,
+                mount_attempts=max_attempts,
                 mount_error=str(mount_error),
                 error=str(sync_error),
             )
@@ -241,13 +254,14 @@ async def mount_squashfs(image_path: Path, target_dir: Path) -> None:
         logger.warning(
             "Retrying SquashFS mount after synchronizing loop device nodes",
             mount_attempt=attempt,
-            mount_attempts=SQUASHFS_MOUNT_MAX_ATTEMPTS,
+            mount_attempts=max_attempts,
             mount_error=str(mount_error),
             kernel_loop_devices=sync_result.kernel_devices,
             created_loop_nodes=sync_result.created_nodes,
             existing_loop_nodes=sync_result.existing_nodes,
             retry_delay_ms=f"{retry_delay * 1000:.1f}",
         )
+        _MOUNT_RETRIES.add(1)
         await asyncio.sleep(retry_delay)
 
     raise AssertionError("SquashFS mount retry loop exhausted unexpectedly")

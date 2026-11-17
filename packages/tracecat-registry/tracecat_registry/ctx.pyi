@@ -311,6 +311,9 @@ class _CasesAsync:
         order_by: str | Unset = ...,
         sort: Literal["asc", "desc"] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def search_cases(
         self,
@@ -318,7 +321,15 @@ class _CasesAsync:
         limit: int = ...,
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
+        view_id: str | Unset = ...,
         search_term: str | Unset = ...,
+        search_mode: Literal["full_text", "literal"] | Unset = ...,
+        search_columns: list[Literal["summary", "description"]] | Unset = ...,
+        short_id: str | Unset = ...,
+        case_id: str | Unset = ...,
+        filters: dict[str, Any] | Unset = ...,
+        hierarchy: Literal["all", "top_level"] | Unset = ...,
+        parent_id: str | Unset = ...,
         status: list[CaseStatus] | Unset = ...,
         priority: list[CasePriority] | Unset = ...,
         severity: list[CaseSeverity] | Unset = ...,
@@ -331,8 +342,22 @@ class _CasesAsync:
         end_time: datetime | str | Unset = ...,
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
+        created_by: list[str] | Unset = ...,
+        created_within: dict[str, Any] | Unset = ...,
+        updated_within: dict[str, Any] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
+        include_durations: bool | Unset = ...,
+        include_count: bool | Unset = ...,
+        field_ids: list[str] | Unset = ...,
     ) -> types.CaseListResponse: ...
+    async def list_views(
+        self, *, limit: int = ..., cursor: str | Unset = ...
+    ) -> types.CaseViewListResponse: ...
+    async def list_builtin_views(self) -> list[types.CaseViewRead]: ...
+    async def get_view(self, view_id: str) -> types.CaseViewDetail: ...
     async def list_comments(
         self,
         case_id: str,
@@ -394,6 +419,10 @@ class _CasesAsync:
         *,
         tag_id: str,
     ) -> None: ...
+    async def delete_case_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     async def list_attachments(
         self,
         case_id: str,
@@ -422,12 +451,12 @@ class _CasesAsync:
     ) -> str: ...
     async def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData: ...
     async def delete_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> None: ...
     async def list_events(
@@ -460,7 +489,14 @@ class _CasesAsync:
         fields: dict[str, Any] | None | Unset = ...,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = ...,
         create_missing_tags: bool = ...,
+        parent_case_id: str | Unset = ...,
     ) -> types.Case: ...
+    async def batch_set_parent(
+        self, *, case_ids: list[str], parent_case_id: str
+    ) -> types.CaseBatchResponse: ...
+    async def batch_clear_parent(
+        self, *, case_ids: list[str]
+    ) -> types.CaseBatchResponse: ...
     async def update_case_simple(
         self,
         case_id: str,
@@ -500,12 +536,12 @@ class _CasesAsync:
     ) -> types.Case: ...
     async def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead: ...
     async def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = ...,
@@ -546,6 +582,13 @@ class _CasesAsync:
         workflow_id: str | None | Unset = ...,
         default_trigger_values: dict[str, Any] | None | Unset = ...,
     ) -> types.CaseTaskRead: ...
+    async def run_task(
+        self,
+        case_id: str,
+        task_id: str,
+        *,
+        inputs: dict[str, Any] | None | Unset = ...,
+    ) -> types.CaseTaskRunRead: ...
     async def delete_task(
         self,
         task_id: str,
@@ -558,6 +601,18 @@ class _CasesAsync:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
     ) -> dict[str, Any]: ...
+    async def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | Unset = ...,
+        reverse: bool | Unset = ...,
+        order_by: str | Unset = ...,
+        sort: Literal["asc", "desc"] | Unset = ...,
+        exclude_case_id: str | Unset = ...,
+    ) -> types.CaseListResponse: ...
     async def link_case_row(
         self,
         case_id: str,
@@ -632,6 +687,9 @@ class _Cases:
         order_by: str | Unset = ...,
         sort: Literal["asc", "desc"] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def search_cases(
         self,
@@ -639,7 +697,15 @@ class _Cases:
         limit: int = ...,
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
+        view_id: str | Unset = ...,
         search_term: str | Unset = ...,
+        search_mode: Literal["full_text", "literal"] | Unset = ...,
+        search_columns: list[Literal["summary", "description"]] | Unset = ...,
+        short_id: str | Unset = ...,
+        case_id: str | Unset = ...,
+        filters: dict[str, Any] | Unset = ...,
+        hierarchy: Literal["all", "top_level"] | Unset = ...,
+        parent_id: str | Unset = ...,
         status: list[CaseStatus] | Unset = ...,
         priority: list[CasePriority] | Unset = ...,
         severity: list[CaseSeverity] | Unset = ...,
@@ -652,8 +718,22 @@ class _Cases:
         end_time: datetime | str | Unset = ...,
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
+        created_by: list[str] | Unset = ...,
+        created_within: dict[str, Any] | Unset = ...,
+        updated_within: dict[str, Any] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
+        include_durations: bool | Unset = ...,
+        include_count: bool | Unset = ...,
+        field_ids: list[str] | Unset = ...,
     ) -> types.CaseListResponse: ...
+    def list_views(
+        self, *, limit: int = ..., cursor: str | Unset = ...
+    ) -> types.CaseViewListResponse: ...
+    def list_builtin_views(self) -> list[types.CaseViewRead]: ...
+    def get_view(self, view_id: str) -> types.CaseViewDetail: ...
     def list_comments(
         self,
         case_id: str,
@@ -715,6 +795,10 @@ class _Cases:
         *,
         tag_id: str,
     ) -> None: ...
+    def delete_case_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     def list_attachments(
         self,
         case_id: str,
@@ -743,12 +827,12 @@ class _Cases:
     ) -> str: ...
     def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData: ...
     def delete_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> None: ...
     def list_events(
@@ -781,7 +865,12 @@ class _Cases:
         fields: dict[str, Any] | None | Unset = ...,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = ...,
         create_missing_tags: bool = ...,
+        parent_case_id: str | Unset = ...,
     ) -> types.Case: ...
+    def batch_set_parent(
+        self, *, case_ids: list[str], parent_case_id: str
+    ) -> types.CaseBatchResponse: ...
+    def batch_clear_parent(self, *, case_ids: list[str]) -> types.CaseBatchResponse: ...
     def update_case_simple(
         self,
         case_id: str,
@@ -821,12 +910,12 @@ class _Cases:
     ) -> types.Case: ...
     def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead: ...
     def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = ...,
@@ -879,6 +968,18 @@ class _Cases:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
     ) -> dict[str, Any]: ...
+    def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | Unset = ...,
+        reverse: bool | Unset = ...,
+        order_by: str | Unset = ...,
+        sort: Literal["asc", "desc"] | Unset = ...,
+        exclude_case_id: str | Unset = ...,
+    ) -> types.CaseListResponse: ...
     def link_case_row(
         self,
         case_id: str,
@@ -916,6 +1017,58 @@ class _Deduplicate:
         digests: list[str],
         expire_seconds: int,
     ) -> list[bool]: ...
+
+class _FormsAsync:
+    async def list_forms(
+        self, *, limit: int = ..., cursor: str | None = ...
+    ) -> dict[str, Any]: ...
+    async def get_form(self, form_id: str) -> dict[str, Any]: ...
+    async def update_form(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> dict[str, Any]: ...
+    async def list_submissions(
+        self,
+        form_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        submitted_after: datetime | None = ...,
+        submitted_before: datetime | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_submission(self, submission_id: str) -> dict[str, Any]: ...
+    async def delete_submission(self, submission_id: str) -> None: ...
+    async def download_file(self, file_id: str) -> dict[str, Any]: ...
+
+class _Forms:
+    @property
+    def aio(self) -> _FormsAsync: ...
+    def list_forms(
+        self, *, limit: int = ..., cursor: str | None = ...
+    ) -> dict[str, Any]: ...
+    def get_form(self, form_id: str) -> dict[str, Any]: ...
+    def update_form(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> dict[str, Any]: ...
+    def list_submissions(
+        self,
+        form_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        submitted_after: datetime | None = ...,
+        submitted_before: datetime | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_submission(self, submission_id: str) -> dict[str, Any]: ...
+    def delete_submission(self, submission_id: str) -> None: ...
+    def download_file(self, file_id: str) -> dict[str, Any]: ...
 
 class _TablesAsync:
     async def search(
@@ -1208,6 +1361,10 @@ class _Variables:
     ) -> dict[str, Any]: ...
 
 class _WorkflowsAsync:
+    async def delete_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     async def execute(
         self,
         *,
@@ -1300,6 +1457,10 @@ class _WorkflowsAsync:
 class _Workflows:
     @property
     def aio(self) -> _WorkflowsAsync: ...
+    def delete_tag(
+        self,
+        tag_id: str,
+    ) -> None: ...
     def execute(
         self,
         *,
@@ -1392,6 +1553,7 @@ class _Workflows:
 agents: _Agents
 cases: _Cases
 deduplicate: _Deduplicate
+forms: _Forms
 tables: _Tables
 variables: _Variables
 workflows: _Workflows

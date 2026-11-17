@@ -122,3 +122,36 @@ export function validateGitSshUrl(
       "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)",
   })
 }
+
+/**
+ * Why a short branch name fails `git check-ref-format --branch`, or null when
+ * it is valid. Empty input is not an error, only incomplete.
+ */
+export function getGitBranchNameError(name: string): string | null {
+  if (name === "") {
+    return null
+  }
+  if (/[\s~^:?*[\\\x00-\x1f\x7f]/.test(name)) {
+    return "Branch names can't contain spaces or ~ ^ : ? * [ \\"
+  }
+  if (name.startsWith("refs/")) {
+    return "Leave out refs/ and type just the branch name."
+  }
+  if (name.includes("..") || name.includes("@{") || name === "@") {
+    return "Branch names can't contain .. or @{ or be @ alone."
+  }
+  if (name.startsWith("-")) {
+    return "Branch names can't start with -."
+  }
+  if (name.startsWith("/") || name.endsWith("/") || name.includes("//")) {
+    return "Branch names can't start or end with / or contain //."
+  }
+  const parts = name.split("/")
+  if (
+    name.endsWith(".") ||
+    parts.some((part) => part.startsWith(".") || part.endsWith(".lock"))
+  ) {
+    return "No part of a branch name can start with . or end with .lock or a final ."
+  }
+  return null
+}

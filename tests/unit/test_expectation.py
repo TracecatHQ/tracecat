@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import Any
 
@@ -7,60 +6,53 @@ import pytest
 from pydantic import ValidationError
 
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
-from tracecat.logger import logger
 from tracecat.workflow.management.utils import build_trigger_inputs_schema
+
+_SCHEMA: dict[str, dict[str, Any]] = {
+    "start_time": {
+        "type": "datetime",
+        "description": "The start time",
+    },
+    "end_time": {
+        "type": "datetime",
+        "description": "The end time",
+    },
+    "nullable": {
+        "type": "int | None",
+        "description": "An nullable integer",
+    },
+    "optional_with_default": {
+        "type": "int",
+        "default": 1,
+        "description": "An optional integer with a default value",
+    },
+    "list_of_strings": {
+        "type": "list[str]",
+        "description": "A list of strings",
+    },
+    "dict_of_int_to_float": {
+        "type": "dict[int, float]",
+        "description": "A dictionary mapping integers to floats",
+    },
+    "union_type": {
+        "type": "int | str",
+        "description": "Either an integer or a string",
+    },
+}
 
 
 def test_validate_schema():
-    schema = {
-        "start_time": {
-            "type": "datetime",
-            "description": "The start time",
-        },
-        "end_time": {
-            "type": "datetime",
-            "description": "The end time",
-        },
-        "nullable": {
-            "type": "int | None",
-            "description": "An nullable integer",
-        },
-        "optional_with_default": {
-            "type": "int",
-            "default": 1,
-            "description": "An optional integer with a default value",
-        },
-        "list_of_strings": {
-            "type": "list[str]",
-            "description": "A list of strings",
-        },
-        "dict_of_int_to_float": {
-            "type": "dict[int, float]",
-            "description": "A dictionary mapping integers to floats",
-        },
-        "union_type": {
-            "type": "int | str",
-            "description": "Either an integer or a string",
-        },
-    }
-    # Parse this a a list[ExpectedField]
-    mapped = {k: ExpectedField(**v) for k, v in schema.items()}
-
+    mapped = {k: ExpectedField(**v) for k, v in _SCHEMA.items()}
     DynamicModel = create_expectation_model(mapped)
 
-    # Test the model
-    valid_data = {
-        "start_time": "2023-05-17T10:00:00",
-        "end_time": "2023-05-17T11:00:00",
-        "nullable": 42,
-        "list_of_strings": ["a", "b", "c"],
-        "dict_of_int_to_float": {1: 1.0, 2: 2.0},
-        "union_type": "test",
-    }
-    model_instance: Any = DynamicModel(**valid_data)
-
-    logger.info(model_instance.model_dump_json(indent=2))
-    logger.info(json.dumps(model_instance.model_json_schema(), indent=2))
+    model_instance: Any = DynamicModel(
+        start_time="2023-05-17T10:00:00",
+        end_time="2023-05-17T11:00:00",
+        nullable=42,
+        list_of_strings=["a", "b", "c"],
+        dict_of_int_to_float={1: 1.0, 2: 2.0},
+        union_type="test",
+    )
 
     assert isinstance(model_instance.start_time, datetime)
     assert isinstance(model_instance.end_time, datetime)
@@ -71,90 +63,23 @@ def test_validate_schema():
     assert model_instance.union_type == "test"
 
 
-# Test with optional field omitted
 def test_dynamic_model_with_optional_field_omitted():
-    schema = {
-        "start_time": {
-            "type": "datetime",
-            "description": "The start time",
-        },
-        "end_time": {
-            "type": "datetime",
-            "description": "The end time",
-        },
-        "nullable": {
-            "type": "int | None",
-            "description": "An nullable integer",
-        },
-        "optional_with_default": {
-            "type": "int",
-            "default": 1,  # Defining a default value makes the field optional
-            "description": "An optional integer with a default value",
-        },
-        "list_of_strings": {
-            "type": "list[str]",
-            "description": "A list of strings",
-        },
-        "dict_of_int_to_float": {
-            "type": "dict[int, float]",
-            "description": "A dictionary mapping integers to floats",
-        },
-        "union_type": {
-            "type": "int | str",
-            "description": "Either an integer or a string",
-        },
-    }
+    DynamicModel = create_expectation_model(_SCHEMA)
 
-    DynamicModel = create_expectation_model(schema)
-
-    valid_data_no_optional = {
-        "start_time": "2023-05-17T10:00:00",
-        "end_time": "2023-05-17T11:00:00",
-        "list_of_strings": [],
-        "dict_of_int_to_float": {},
-        "nullable": None,
-        "union_type": 123,
-    }
-    model_instance_no_optional: Any = DynamicModel(**valid_data_no_optional)
+    model_instance_no_optional: Any = DynamicModel(
+        start_time="2023-05-17T10:00:00",
+        end_time="2023-05-17T11:00:00",
+        list_of_strings=[],
+        dict_of_int_to_float={},
+        nullable=None,
+        union_type=123,
+    )
     assert model_instance_no_optional.nullable is None
     assert model_instance_no_optional.optional_with_default == 1
 
 
-# Test with invalid data
 def test_dynamic_model_with_invalid_data():
-    schema = {
-        "start_time": {
-            "type": "datetime",
-            "description": "The start time",
-        },
-        "end_time": {
-            "type": "datetime",
-            "description": "The end time",
-        },
-        "nullable": {
-            "type": "int | None",
-            "description": "A nullable integer",
-        },
-        "optional_with_default": {
-            "type": "int",
-            "default": 1,
-            "description": "An optional integer with a default value",
-        },
-        "list_of_strings": {
-            "type": "list[str]",
-            "description": "A list of strings",
-        },
-        "dict_of_int_to_float": {
-            "type": "dict[int, float]",
-            "description": "A dictionary mapping integers to floats",
-        },
-        "union_type": {
-            "type": "int | str",
-            "description": "Either an integer or a string",
-        },
-    }
-
-    DynamicModel = create_expectation_model(schema)
+    DynamicModel = create_expectation_model(_SCHEMA)
     with pytest.raises(ValidationError):
         DynamicModel(
             start_time="invalid_datetime",

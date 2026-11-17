@@ -482,4 +482,36 @@ describe("ChatToolsPicker", () => {
     expect(screen.getByText("Cases")).toBeInTheDocument()
     expect(screen.getByText("Agent presets")).toBeInTheDocument()
   })
+
+  it.each([
+    ["workspace-chat", true, true, false],
+    ["workspace-chat", false, false, false],
+    ["regular", true, false, true],
+    ["regular", false, false, false],
+  ] as const)(
+    "on %s with Forms %p, form tools are always on: %p, addable: %p",
+    (surface, formsEnabled, alwaysOn, addable) => {
+      render(
+        <ChatToolsPicker
+          registryActions={[
+            registryAction("core.forms.update_form", {
+              display_group: "Forms actions",
+            }),
+          ]}
+          selectedTools={[]}
+          onToolsChange={jest.fn()}
+          mcpIntegrations={[]}
+          selectedMcpIntegrations={[]}
+          onMcpChange={jest.fn()}
+          surface={surface}
+          formsEnabled={formsEnabled}
+        />
+      )
+
+      expect(Boolean(screen.queryByText("Forms"))).toBe(alwaysOn)
+      // A tool that is already on is not offered as an extra, and without
+      // Forms the backend rejects a turn that names one.
+      expect(Boolean(screen.queryByText("Forms actions"))).toBe(addable)
+    }
+  )
 })

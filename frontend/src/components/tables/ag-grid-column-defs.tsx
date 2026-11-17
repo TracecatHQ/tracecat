@@ -6,6 +6,8 @@ import type {
   ValueFormatterParams,
 } from "ag-grid-community"
 import type { TableColumnRead } from "@/client"
+import { AgGridCellEditor } from "@/components/tables/ag-grid-cell-editor"
+import { AgGridCellRenderer } from "@/components/tables/ag-grid-cell-renderer"
 import { CellDisplay } from "@/components/tables/cell-display"
 
 /** SQL types rendered as free text. */
@@ -41,6 +43,13 @@ export const NUMERIC_TYPES = new Set([
 export const DATE_TYPES = new Set(["DATE", "TIMESTAMPTZ", "TIME", "TIMETZ"])
 /** SQL types rendered as booleans. */
 export const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
+/** Column types the rows API accepts as a `searchColumn`. */
+export const SEARCHABLE_TYPES = new Set([
+  "TEXT",
+  "SELECT",
+  "JSONB",
+  "MULTI_SELECT",
+])
 
 /** Strip any precision suffix and upper-case a raw SQL type name. */
 export function normalizeSqlType(rawType?: string) {
@@ -52,6 +61,11 @@ export function normalizeSqlType(rawType?: string) {
 /** Whether a column holds a JSON payload, which is never inline-editable. */
 export function isJsonColumn(column: TableColumnRead): boolean {
   return JSON_TYPES.has(normalizeSqlType(column.type))
+}
+
+/** Whether the rows API can run a text search over a column. */
+export function isSearchableColumn(column: TableColumnRead): boolean {
+  return SEARCHABLE_TYPES.has(normalizeSqlType(column.type))
 }
 
 /**
@@ -105,7 +119,12 @@ export function ReadOnlyCellRenderer({
   )
 }
 
-/** Base column def shared by the editable and read-only grids. */
+/**
+ * Base column def shared by the editable and read-only grids. The grid's own
+ * sorting is off everywhere: every grid shows one cursor page, so a client-side
+ * sort could only reorder that page. Sorting is done by the API instead, driven
+ * from the header components.
+ */
 export function buildBaseColumnDef(
   column: TableColumnRead,
   savedWidths: Record<string, number>
@@ -114,7 +133,7 @@ export function buildBaseColumnDef(
   return {
     field: column.name,
     headerName: column.name,
-    sortable: true,
+    sortable: false,
     resizable: true,
     width: savedWidths[column.name] ?? getColumnWidthPx(column.type),
     minWidth: 100,
@@ -122,11 +141,78 @@ export function buildBaseColumnDef(
   }
 }
 
+/** Options for {@link buildEditableColumnDef}. */
+export interface EditableColumnDefOptions {
+  /**
+   * Whether a row's cells may be edited; omitted means every row may. Rows
+   * that may not keep the renderer's read-only text and JSON views.
+   */
+  canEditRow?: (row: unknown) => boolean
+  /**
+   * For grids that size columns to their content: keep the renderer's hover
+   * buttons in the layout so they are part of what gets measured.
+   */
+  reserveButtonSpace?: boolean
+}
+
+/** Narrowest a content-sized column may get. */
+export const CONTENT_SIZED_MIN_WIDTH_PX = 80
 /**
- * Column defs for a display-only grid: CellDisplay renderers, no editors, and
- * no header sorting. The read-only grid is always fed one cursor page, so a
- * client-side sort could only reorder the visible page and would silently
- * revert on the next one; rows keep the API's order instead.
+ * Widest a content-sized column may get on its content alone. Long text and
+ * JSON stop here and are read in the cell panel instead.
+ */
+export const CONTENT_SIZED_MAX_WIDTH_PX = 320
+/**
+ * Rewrites a column def for a grid that sizes columns to their content. A
+ * width the user dragged stays authoritative; every other column drops its
+ * per-type default, so re-rendering the defs never undoes a measured width.
+ * Unmeasured columns start at the floor, which is also where the grid's fit
+ * pass resets them before growing each to its measured width.
+ */
+export function toContentSizedColumnDef<T extends ColDef>(
+  def: T,
+  savedWidth: number | undefined
+): T {
+  return {
+    ...def,
+    width: savedWidth,
+    initialWidth: savedWidth ?? CONTENT_SIZED_MIN_WIDTH_PX,
+    minWidth: CONTENT_SIZED_MIN_WIDTH_PX,
+  }
+}
+
+/**
+ * Column def for a grid hosted under a `TablePanelProvider`: inline editors on
+ * scalar columns, and the renderer's panel buttons for long text and JSON.
+ */
+export function buildEditableColumnDef(
+  column: TableColumnRead,
+  savedWidths: Record<string, number>,
+  { canEditRow, reserveButtonSpace }: EditableColumnDefOptions = {}
+): ColDef {
+  return {
+    ...buildBaseColumnDef(column, savedWidths),
+    cellRenderer: AgGridCellRenderer,
+    cellRendererParams: {
+      tableColumn: column,
+      canEditRow,
+      reserveButtonSpace,
+    },
+    // JSON columns are edited only via the side panel
+    ...(isJsonColumn(column)
+      ? { editable: false }
+      : {
+          cellEditor: AgGridCellEditor,
+          cellEditorParams: { tableColumn: column },
+          suppressKeyboardEvent: suppressEditorKeys,
+          editable: canEditRow ? (params) => canEditRow(params.data) : true,
+        }),
+  }
+}
+
+/**
+ * Column defs for a display-only grid: CellDisplay renderers and no editors.
+ * Rows keep the API's order.
  */
 export function buildReadOnlyColumnDefs(
   columns: readonly TableColumnRead[],
@@ -140,7 +226,6 @@ export function buildReadOnlyColumnDefs(
         tableColumn: column,
       },
       editable: false,
-      sortable: false,
     }
   })
 }

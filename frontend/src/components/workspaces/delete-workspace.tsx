@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -34,7 +35,7 @@ export function ConfirmDelete({ workspaceName, onDelete }: ConfirmDeleteProps) {
       <DialogTrigger asChild>
         <Button variant="destructive">Delete workspace</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>
             Are you sure you want to delete this workspace?
@@ -44,16 +45,16 @@ export function ConfirmDelete({ workspaceName, onDelete }: ConfirmDeleteProps) {
             &quot; to confirm.
           </DialogDescription>
         </DialogHeader>
-        <Input
-          value={confirmText}
-          onChange={(e) => setConfirmText(e.target.value)}
-          placeholder={`Type "${workspaceName}" to confirm`}
-        />
+        <DialogBody>
+          <Input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={`Type "${workspaceName}" to confirm`}
+          />
+        </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setIsOpen(false)}>
-            Cancel
-          </Button>
           <Button
+            size="sm"
             variant="destructive"
             onClick={handleDelete}
             disabled={confirmText !== workspaceName}

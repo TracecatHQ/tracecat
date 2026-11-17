@@ -8,19 +8,25 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
+from tracecat.agent.folders.schemas import (
+    AgentFolderDirectoryItem,
+    AgentPresetDirectoryItem,
+)
 from tracecat.agent.folders.service import (
     AgentFolderErrorCode,
     AgentFolderService,
 )
+from tracecat.agent.preset.schemas import AgentPresetToolSummary
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentFolder, AgentPreset
+from tracecat.db.models import AgentFolder, AgentPreset, MCPIntegration
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.integrations.enums import MCPAuthType
+from tracecat.integrations.service import IntegrationService
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tiers.enums import Entitlement
 
@@ -518,3 +524,56 @@ async def test_rename_folder_rejects_blank_name(
 
     with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
         await folder_service.rename_folder(folder.id, "  ")
+
+
+@pytest.mark.anyio
+async def test_directory_presets_include_tool_summaries_in_one_batch(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Directory summaries share one integration load across all preset rows."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    integration = MCPIntegration(
+        workspace_id=folder_service.workspace_id,
+        name="Synthetic",
+        slug="synthetic",
+        server_type="stdio",
+        auth_type=MCPAuthType.NONE,
+        stdio_command="synthetic",
+    )
+    folder_service.session.add(integration)
+    await folder_service.session.flush()
+    folder_service.session.add_all(
+        [
+            AgentPreset(
+                workspace_id=folder_service.workspace_id,
+                name=f"Summary {index}",
+                slug=f"summary-{index}",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                actions=["tools.synthetic.read", "core.http_request"],
+                namespaces=["tools.synthetic"],
+                mcp_integrations=[str(integration.id)],
+            )
+            for index in range(3)
+        ]
+    )
+    await folder_service.session.commit()
+    original_load = IntegrationService.list_mcp_integrations
+    integration_loads = 0
+
+    async def counted_load(service: IntegrationService) -> list[MCPIntegration]:
+        nonlocal integration_loads
+        integration_loads += 1
+        return list(await original_load(service))
+
+    monkeypatch.setattr(IntegrationService, "list_mcp_integrations", counted_load)
+    items = await folder_service.get_directory_items("/")
+
+    assert len(items) == 3
+    for item in items:
+        assert isinstance(item, AgentPresetDirectoryItem)
+        assert item.tool_summary == AgentPresetToolSummary(
+            tool_count=1, namespaces=["tools.synthetic"], mcp_slugs=["synthetic"]
+        )
+    assert integration_loads == 1

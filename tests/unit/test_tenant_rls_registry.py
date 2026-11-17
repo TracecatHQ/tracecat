@@ -12,6 +12,7 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Base
 from tracecat.db.tenant_rls import (
     ALL_TENANT_RLS_TABLES,
+    GLOBAL_TABLES,
     ORG_OPTIONAL_WORKSPACE_POLICY_TABLES,
     ORG_POLICY_TABLES,
     SPECIAL_ORG_POLICY_TABLES,
@@ -87,6 +88,24 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
         "Tenant RLS registry contains tables that are not mapped in SQLAlchemy: "
         f"{sorted(stale_registry_entries)}"
     )
+
+
+def test_every_mapped_table_has_tenant_rls_or_a_global_reason() -> None:
+    uncovered = _mapped_table_names() - ALL_TENANT_RLS_TABLES - set(GLOBAL_TABLES)
+
+    assert not uncovered, (
+        "Every public table needs a tenant RLS policy (tracecat/db/tenant_rls.py) "
+        f"or a GLOBAL_TABLES entry with its reason: {sorted(uncovered)}"
+    )
+
+
+def test_global_tables_are_not_also_tenant_scoped() -> None:
+    assert not ALL_TENANT_RLS_TABLES & set(GLOBAL_TABLES)
+    assert all(reason.strip() for reason in GLOBAL_TABLES.values())
+
+
+def test_invitation_group_is_registered_for_org_rls() -> None:
+    assert "invitation_group" in ORG_POLICY_TABLES
 
 
 def test_agent_tag_link_is_registered_for_tenant_rls() -> None:

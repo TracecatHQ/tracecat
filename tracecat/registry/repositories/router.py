@@ -9,16 +9,19 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import (
     EntitlementRequired,
     RegistryActionValidationError,
     RegistryError,
     RegistryNotFound,
+    ScopeDeniedError,
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
@@ -40,7 +43,10 @@ from tracecat.registry.repositories.schemas import (
     RegistryVersionPromoteResponse,
     RegistryVersionRead,
 )
-from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.repositories.service import (
+    RegistryReposService,
+    ensure_registry_ssh_origin_allowed,
+)
 from tracecat.registry.versions.schemas import VersionDiff
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.settings.service import get_setting
@@ -75,11 +81,7 @@ async def _get_configured_custom_registry_origin(role: Role) -> str | None:
 @require_scope("org:registry:update")
 async def sync_registry_repository(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgActorRole,
     session: AsyncDBSession,
     repository_id: uuid.UUID,
     sync_params: RegistryRepositorySync | None = None,
@@ -138,7 +140,7 @@ async def sync_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (EntitlementRequired, HTTPException):
+    except (EntitlementRequired, HTTPException, ScopeDeniedError):
         raise
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
@@ -183,11 +185,7 @@ async def list_repository_versions(
 @require_scope("org:registry:read")
 async def list_registry_repositories(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[RegistryRepositoryReadMinimal]:
     """List org-scoped registry repositories.
@@ -243,11 +241,7 @@ async def list_registry_repositories(
 @require_scope("org:registry:read")
 async def get_registry_repository(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgActorRole,
     session: AsyncDBSession,
     repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:
@@ -319,6 +313,7 @@ async def list_repository_commits(
         allowed_domains = allowed_domains_setting or {"github.com"}
 
         git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
+        await ensure_registry_ssh_origin_allowed(role, repo.origin)
 
         # Get SSH context for git operations
         async with (
@@ -349,7 +344,7 @@ async def list_repository_commits(
 
             return commits
 
-    except HTTPException:
+    except (HTTPException, ScopeDeniedError):
         raise
     except ValueError as e:
         logger.error("Invalid git URL", origin=repo.origin, error=str(e))
@@ -408,11 +403,11 @@ async def create_registry_repository(
     try:
         created_repository = await service.create_repository(params)
     except IntegrityError as e:
-        msg = str(e)
-        logger.error("Error creating registry repository", exc=e)
+        if not is_unique_violation(e, "uq_registry_repository_organization_id_origin"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
+            detail="Registry repository already exists",
         ) from e
     except TracecatValidationError as e:
         logger.error("Error creating registry repository", exc=e)
@@ -471,7 +466,15 @@ async def update_registry_repository(
 
     await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
-    updated_repository = await repos_service.update_repository(repository, params)
+    try:
+        updated_repository = await repos_service.update_repository(repository, params)
+    except IntegrityError as e:
+        if not is_unique_violation(e, "uq_registry_repository_organization_id_origin"):
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registry repository already exists",
+        ) from e
     actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=updated_repository.id,

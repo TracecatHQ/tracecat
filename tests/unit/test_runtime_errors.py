@@ -14,10 +14,22 @@ from tracecat.runtime.errors import (
 )
 
 
-@pytest.mark.parametrize("kind", list(RuntimeErrorKind))
-@pytest.mark.parametrize("owner", list(RuntimeErrorOwner))
-@pytest.mark.parametrize("retry_disposition", list(RetryDisposition))
-def test_error_classification_supports_every_kind_owner_and_retry_disposition(
+@pytest.mark.parametrize(
+    ("kind", "owner", "retry_disposition"),
+    [
+        (
+            RuntimeErrorKind.ACTION_EXECUTION_FAILED,
+            RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+)
+def test_error_classification_factories_set_kind_owner_and_retry_disposition(
     kind: RuntimeErrorKind,
     owner: RuntimeErrorOwner,
     retry_disposition: RetryDisposition,

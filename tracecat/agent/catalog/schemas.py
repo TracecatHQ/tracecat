@@ -3,7 +3,16 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
+from tracecat.agent.catalog.types import ModelLifecycle, ModelLifecycleStatus
+
+
+class ModelLifecycleRead(ModelLifecycle):
+    """Provider deprecation of a platform model, as of the request."""
+
+    status: ModelLifecycleStatus
 
 
 class AgentCatalogRead(BaseModel):
@@ -18,12 +27,54 @@ class AgentCatalogRead(BaseModel):
     model_name: str
     model_metadata: dict[str, Any] | None
 
+    @computed_field
+    @property
+    def lifecycle(self) -> ModelLifecycleRead | None:
+        """Deprecation of a platform model; ``None`` while it is current."""
+        if self.organization_id is not None:
+            return None
+        if (lifecycle := read_model_lifecycle(self.model_metadata)) is None:
+            return None
+        return ModelLifecycleRead(
+            **lifecycle.model_dump(), status=lifecycle.status_on()
+        )
+
 
 class AgentCatalogListResponse(BaseModel):
     """List catalog entries with pagination."""
 
     items: list[AgentCatalogRead]
     next_cursor: str | None = None
+
+
+class WorkspaceAgentModelCandidate(AgentCatalogRead):
+    """Catalog entry a workspace can pick, labelled with its custom provider."""
+
+    custom_provider_name: str | None = None
+
+
+class WorkspaceAgentModelRead(WorkspaceAgentModelCandidate):
+    """Catalog entry a workspace can use, with its provider's runtime URL."""
+
+    custom_provider_base_url: str | None = None
+
+
+class WorkspaceAgentModelListResponse(BaseModel):
+    """Models a workspace can use, and its default model."""
+
+    items: list[WorkspaceAgentModelRead]
+    default_catalog_id: UUID | None = Field(
+        default=None,
+        description="The organization's default model, if it is enabled for this workspace.",
+    )
+    has_org_default: bool = Field(
+        default=False,
+        description="Whether the organization has a default model, enabled here or not.",
+    )
+    workspace_subset_disabled: bool = Field(
+        default=False,
+        description="True when the workspace has a model subset and the organization has disabled every model in it.",
+    )
 
 
 class CloudCatalogModelBase(BaseModel):

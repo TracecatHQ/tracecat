@@ -1,19 +1,62 @@
 "use client"
 
 import type React from "react"
+import { useState } from "react"
 import type { WorkflowReadMinimal } from "@/client"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
+import { AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { useWorkflowManager } from "@/lib/hooks"
+
+export function DeleteWorkflowConfirmDialog({
+  open,
+  onOpenChange,
+  workflowId,
+  workflowTitle,
+  onDeleted,
+  children,
+}: React.PropsWithChildren<{
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  workflowId: string | null
+  workflowTitle?: string | null
+  onDeleted?: () => void
+}>) {
+  const { deleteWorkflow, deleteWorkflowIsPending } = useWorkflowManager(
+    undefined,
+    { listEnabled: false }
+  )
+  const id = workflowId ?? ""
+
+  return (
+    <ConfirmDestructiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete workflow"
+      description={
+        <>
+          Permanently delete{" "}
+          {workflowTitle ? (
+            <span className="font-medium text-foreground">{workflowTitle}</span>
+          ) : (
+            "this workflow"
+          )}
+          ? This also deletes its schedules. This cannot be undone.
+        </>
+      }
+      identifier={{ label: "Workflow ID", value: id }}
+      confirmPhrase={id}
+      isPending={deleteWorkflowIsPending}
+      onConfirm={async () => {
+        if (!workflowId) return
+        await deleteWorkflow(workflowId)
+        onOpenChange(false)
+        onDeleted?.()
+      }}
+    >
+      {children}
+    </ConfirmDestructiveDialog>
+  )
+}
 
 export function DeleteWorkflowAlertDialog({
   selectedWorkflow,
@@ -21,44 +64,23 @@ export function DeleteWorkflowAlertDialog({
   children,
 }: React.PropsWithChildren<{
   selectedWorkflow: WorkflowReadMinimal | null
-  setSelectedWorkflow: (selectedSecret: WorkflowReadMinimal | null) => void
+  setSelectedWorkflow: (selectedWorkflow: WorkflowReadMinimal | null) => void
 }>) {
-  const { deleteWorkflow } = useWorkflowManager(undefined, {
-    listEnabled: false,
-  })
+  const [open, setOpen] = useState(false)
   return (
-    <AlertDialog
+    <DeleteWorkflowConfirmDialog
+      open={open && selectedWorkflow !== null}
       onOpenChange={(isOpen) => {
+        setOpen(isOpen)
         if (!isOpen) {
           setSelectedWorkflow(null)
         }
       }}
+      workflowId={selectedWorkflow?.id ?? null}
+      workflowTitle={selectedWorkflow?.title}
     >
       {children}
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete workflow</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete this workflow? This action cannot be
-            undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={async () => {
-              if (selectedWorkflow) {
-                await deleteWorkflow(selectedWorkflow.id)
-              }
-              setSelectedWorkflow(null)
-            }}
-          >
-            Confirm
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    </DeleteWorkflowConfirmDialog>
   )
 }
 

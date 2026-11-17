@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
@@ -25,6 +32,14 @@ class InvitationCreate(BaseModel):
 
     email: EmailStr
     grants: list[InvitationGrant] = Field(min_length=1)
+    group_ids: list[UUID] = Field(default_factory=list)
+
+    @field_validator("group_ids")
+    @classmethod
+    def _reject_duplicate_group_ids(cls, group_ids: list[UUID]) -> list[UUID]:
+        if len(set(group_ids)) != len(group_ids):
+            raise ValueError("Each group may appear at most once")
+        return group_ids
 
     @model_validator(mode="after")
     def _reject_duplicate_scopes(self) -> InvitationCreate:
@@ -52,6 +67,7 @@ class InvitationRead(BaseModel):
     accepted_at: datetime | None
     created_by_platform_admin: bool
     grants: list[InvitationGrant]
+    group_ids: list[UUID] = Field(default_factory=list)
     # Non-blocking advisory set on create when the org is SCIM-provisioned.
     warning: str | None = None
 

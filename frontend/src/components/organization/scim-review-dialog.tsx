@@ -10,6 +10,7 @@ import type {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -343,7 +344,7 @@ export function ScimReviewDialog({
         if (!next && !pending) onClose()
       }}
     >
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent size="lg" className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {activation
@@ -360,144 +361,144 @@ export function ScimReviewDialog({
             Access from other roles and groups is unchanged.
           </p>
         </DialogHeader>
+        <DialogBody>
+          <div className="space-y-6">
+            {loseCount > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-xs font-semibold text-rose-700 dark:text-rose-400">
+                  Lose access · {loseCount}
+                </h3>
+                {losses.map((loss) => (
+                  <CollapsedRow
+                    key={loss.section}
+                    open={open.has(loss.section)}
+                    onToggle={() => toggle(loss.section, [loss.people])}
+                    leading={
+                      <span className="flex shrink-0">
+                        {loss.lines.slice(0, 4).map((line) => (
+                          <Avatar key={line.key} email={line.email} stacked />
+                        ))}
+                      </span>
+                    }
+                    label={loss.label}
+                    hint={loss.hint}
+                    trailing={open.has(loss.section) ? "Hide" : "Show all"}
+                  >
+                    <PeopleList
+                      lines={loss.lines}
+                      expanded
+                      loading={loadingAll}
+                    />
+                  </CollapsedRow>
+                ))}
+              </section>
+            )}
 
-        <div className="space-y-6">
-          {loseCount > 0 && (
-            <section className="space-y-2">
-              <h3 className="text-xs font-semibold text-rose-700 dark:text-rose-400">
-                Lose access · {loseCount}
-              </h3>
-              {losses.map((loss) => (
+            {joining.count > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-xs font-semibold">
+                  Join the organization · {joining.count}
+                </h3>
                 <CollapsedRow
-                  key={loss.section}
-                  open={open.has(loss.section)}
-                  onToggle={() => toggle(loss.section, [loss.people])}
+                  open={open.has("join")}
+                  onToggle={() => toggle("join", [joining])}
                   leading={
                     <span className="flex shrink-0">
-                      {loss.lines.slice(0, 4).map((line) => (
-                        <Avatar key={line.key} email={line.email} stacked />
+                      {joining.items.slice(0, 4).map((person) => (
+                        <Avatar
+                          key={person.user_id}
+                          email={person.email}
+                          stacked
+                        />
                       ))}
                     </span>
                   }
-                  label={loss.label}
-                  hint={loss.hint}
-                  trailing={open.has(loss.section) ? "Hide" : "Show all"}
+                  label={`${plural(joining.count, "person", "people")} from your directory`}
+                  trailing={open.has("join") ? "Hide" : "Show all"}
                 >
                   <PeopleList
-                    lines={loss.lines}
+                    lines={joining.items.map((person) => ({
+                      key: person.user_id,
+                      email: person.email,
+                    }))}
                     expanded
                     loading={loadingAll}
                   />
                 </CollapsedRow>
-              ))}
-            </section>
-          )}
+              </section>
+            )}
 
-          {joining.count > 0 && (
-            <section className="space-y-2">
-              <h3 className="text-xs font-semibold">
-                Join the organization · {joining.count}
-              </h3>
+            {review.groups.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-xs font-semibold">Group access</h3>
+                <div className="divide-y rounded-md border">
+                  {review.groups.map((group) => {
+                    const note = groupNote(group, activation)
+                    return (
+                      <div key={group.group_id} className="px-3 py-2.5">
+                        <div className="flex items-baseline gap-3">
+                          <span className="min-w-0 flex-1 text-sm">
+                            <span className="font-medium">
+                              {group.group_name}
+                            </span>
+                            {note ? (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                {note}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {groupCounts(group)}
+                          </span>
+                        </div>
+                        {group.takes_over ? (
+                          <TakeoverNote group={group} />
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            {moves.map((move) => (
               <CollapsedRow
-                open={open.has("join")}
-                onToggle={() => toggle("join", [joining])}
-                leading={
-                  <span className="flex shrink-0">
-                    {joining.items.slice(0, 4).map((person) => (
-                      <Avatar
-                        key={person.user_id}
-                        email={person.email}
-                        stacked
-                      />
-                    ))}
-                  </span>
-                }
-                label={`${plural(joining.count, "person", "people")} from your directory`}
-                trailing={open.has("join") ? "Hide" : "Show all"}
+                key={move.section}
+                open={open.has(move.section)}
+                onToggle={() => toggle(move.section, [move.people])}
+                label={move.label}
+                trailing="No access change"
               >
                 <PeopleList
-                  lines={joining.items.map((person) => ({
+                  lines={move.people.items.map((person) => ({
                     key: person.user_id,
                     email: person.email,
+                    note: (person.groups ?? []).join(", "),
                   }))}
                   expanded
                   loading={loadingAll}
                 />
               </CollapsedRow>
-            </section>
-          )}
+            ))}
 
-          {review.groups.length > 0 && (
-            <section className="space-y-2">
-              <h3 className="text-xs font-semibold">Group access</h3>
-              <div className="divide-y rounded-md border">
-                {review.groups.map((group) => {
-                  const note = groupNote(group, activation)
-                  return (
-                    <div key={group.group_id} className="px-3 py-2.5">
-                      <div className="flex items-baseline gap-3">
-                        <span className="min-w-0 flex-1 text-sm">
-                          <span className="font-medium">
-                            {group.group_name}
-                          </span>
-                          {note ? (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              {note}
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {groupCounts(group)}
-                        </span>
-                      </div>
-                      {group.takes_over ? <TakeoverNote group={group} /> : null}
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
-          )}
+            {nothingChanges && (
+              <p className="text-sm text-muted-foreground">
+                No one&apos;s access changes.
+              </p>
+            )}
+          </div>
 
-          {moves.map((move) => (
-            <CollapsedRow
-              key={move.section}
-              open={open.has(move.section)}
-              onToggle={() => toggle(move.section, [move.people])}
-              label={move.label}
-              trailing="No access change"
-            >
-              <PeopleList
-                lines={move.people.items.map((person) => ({
-                  key: person.user_id,
-                  email: person.email,
-                  note: (person.groups ?? []).join(", "),
-                }))}
-                expanded
-                loading={loadingAll}
-              />
-            </CollapsedRow>
-          ))}
-
-          {nothingChanges && (
-            <p className="text-sm text-muted-foreground">
-              No one&apos;s access changes.
+          {missingLabels && (
+            <p role="alert" className="text-sm text-destructive">
+              Affected user details could not be loaded. Close this review and
+              try again before confirming.
             </p>
           )}
-        </div>
-
-        {missingLabels && (
-          <p role="alert" className="text-sm text-destructive">
-            Affected user details could not be loaded. Close this review and try
-            again before confirming.
-          </p>
-        )}
-
+        </DialogBody>
         <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onClose}>
-            Cancel
-          </Button>
           <Button
+            size="sm"
             disabled={pending || loadingAll || missingLabels}
             onClick={() => {
               void onConfirm().catch(() => {})

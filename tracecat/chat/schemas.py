@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import UUID4, BaseModel, Discriminator, Field, ValidationError
+from pydantic import UUID4, BaseModel, ConfigDict, Discriminator, Field, ValidationError
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -15,7 +15,7 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import ClaudeSDKMessageTA, ToolApproved, ToolDenied
+from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
@@ -54,6 +54,19 @@ class BasicChatRequest(BaseModel):
     )
 
 
+class ChatPageContext(BaseModel):
+    """The page a docked chat is open on.
+
+    ``kind`` is a closed set and ``id`` is a UUID, so nothing the client sends
+    here can carry free text into the prompt.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["form"] = Field(..., description="What the page shows.")
+    id: uuid.UUID = Field(..., description="ID of the object the page shows.")
+
+
 class VercelChatRequest(BaseModel):
     """Vercel AI SDK format request with structured UI messages."""
 
@@ -69,6 +82,10 @@ class VercelChatRequest(BaseModel):
         default=None,
         description="Optional base URL for the model provider",
         max_length=500,
+    )
+    page_context: ChatPageContext | None = Field(
+        default=None,
+        description="The page the chat is docked on. Only Workspace chat uses it.",
     )
 
 
@@ -116,7 +133,6 @@ class ChatCreate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Tools available to the agent for this chat",
-        max_length=50,
     )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
@@ -186,7 +202,7 @@ class ChatUpdate(BaseModel):
     """Request model for updating chat properties."""
 
     tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent", max_length=50
+        default=None, description="Tools available to the agent"
     )
     title: str | None = Field(
         default=None, description="Chat title", min_length=1, max_length=200
@@ -249,6 +265,10 @@ class ChatMessage(BaseModel):
         default=None,
         description="Turn-cancelled marker data (for kind=CANCELLED)",
     )
+    created_at: datetime | None = Field(
+        default=None,
+        description="When the agent runtime recorded the message",
+    )
 
     @classmethod
     def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage | None:
@@ -296,17 +316,6 @@ class ApprovalDecision(BaseModel):
         default=None,
         description="Optional metadata captured with the decision (e.g. external actor identity).",
     )
-
-    def to_deferred_result(self) -> bool | ToolApproved | ToolDenied:
-        match self.action:
-            case "approve":
-                return True
-            case "override":
-                return ToolApproved(override_args=self.override_args or {})
-            case "deny":
-                return ToolDenied(message=self.reason or "The tool call was denied.")
-        # Fallback shouldn't be hit due to Literal typing
-        return False
 
 
 class ContinueRunRequest(BaseModel):

@@ -31,8 +31,7 @@ class GitLabApiError(GitLabError):
     """GitLab REST API operation error with structured status code."""
 
     def __init__(self, message: str, *, status_code: int, detail: Any | None = None):
-        super().__init__(message, detail=detail)
-        self.status_code = status_code
+        super().__init__(message, status_code=status_code, detail=detail)
 
 
 class GitLabTokenSecretState(StrEnum):
@@ -85,7 +84,6 @@ class GitLabTokenService(BaseOrgService):
                 "Stored GitLab token credentials are corrupted; allowing reconfiguration",
                 secret_id=str(secret.id),
                 error_type=type(e).__name__,
-                error=str(e),
             )
             return GitLabTokenSecretState.CORRUPTED, secret, None
 
@@ -190,7 +188,7 @@ class GitLabTokenService(BaseOrgService):
                 }
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    @require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
     async def get_gitlab_token_credentials(self) -> GitLabTokenCredentials:
         """Retrieve GitLab credentials for workspace sync API calls."""
         secret_state, _secret, credentials = await self._get_gitlab_token_secret_state()

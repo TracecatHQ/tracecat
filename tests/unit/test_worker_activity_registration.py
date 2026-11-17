@@ -19,13 +19,17 @@ from tracecat.agent.executor_worker import (
 )
 from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
 from tracecat.agent.preset.activities import (
+    resolve_agent_config_activity,
     resolve_agent_preset_config_activity,
     resolve_agent_preset_version_ref_activity,
 )
 from tracecat.agent.worker import get_activities as get_agent_worker_activities
+from tracecat.cases.triggers import dispatcher as case_trigger_dispatcher
+from tracecat.cases.triggers.dispatcher import CaseTriggerDispatcher
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.search import indexing_schedule
+from tracecat.search.indexing_workflow import SearchIndexDispatcher
 
 
 @pytest.fixture(autouse=True)
@@ -56,11 +60,72 @@ def _activity_names(activities: Sequence[object]) -> set[str]:
 def test_dsl_worker_registers_preset_version_resolution_activity() -> None:
     names = _activity_names(get_dsl_worker_activities())
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
-    assert {"discover_search_collections", "index_search_collection"} <= names
+    # Semantic-search indexing runs on the background worker instead.
+    assert not {"discover_search_collections", "index_search_collection"} & names
+
+
+@pytest.mark.anyio
+async def test_background_worker_runs_search_and_case_triggers_on_background_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.background import worker
+
+    shutdown_event = asyncio.Event()
+    started: set[str] = set()
+
+    def _started(name: str) -> None:
+        started.add(name)
+        if started == {"search", "case_triggers"}:
+            shutdown_event.set()
+
+    schedule = AsyncMock(side_effect=lambda *_: _started("search"))
+    monkeypatch.setattr(indexing_schedule, "ensure_search_schedule", schedule)
+    dispatcher = AsyncMock(side_effect=lambda *_: _started("case_triggers"))
+    monkeypatch.setattr(
+        case_trigger_dispatcher, "ensure_case_trigger_dispatcher", dispatcher
+    )
+    captured: dict[str, object] = {}
+
+    class _FakeWorker:
+        def __init__(self, client: object, **kwargs: object) -> None:
+            del client
+            captured.update(kwargs)
+
+        async def __aenter__(self) -> _FakeWorker:
+            return self
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+            del exc_type, exc, tb
+
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(worker.config, "TRACECAT__BACKGROUND_QUEUE", "test-bg-queue")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
+
+    await asyncio.wait_for(worker.main(shutdown_event=shutdown_event), 2)
+
+    schedule.assert_awaited_once()
+    assert schedule.await_args is not None
+    assert schedule.await_args.args[1] == "test-bg-queue"
+    assert captured["task_queue"] == "test-bg-queue"
+    dispatcher.assert_awaited_once()
+    assert dispatcher.await_args is not None
+    assert dispatcher.await_args.args[1] == "test-bg-queue"
+    workflows = cast(Sequence[type], captured["workflows"])
+    assert SearchIndexDispatcher in workflows
+    assert CaseTriggerDispatcher in workflows
+    assert {
+        "discover_search_collections",
+        "index_search_collection",
+        "wait_for_case_trigger_outbox",
+        "dispatch_case_trigger_outbox_batch",
+    } <= _activity_names(cast(Sequence[object], captured["activities"]))
 
 
 def test_agent_worker_registers_preset_resolution_activities() -> None:
     names = _activity_names(get_agent_worker_activities())
+    assert _activity_name(resolve_agent_config_activity) in names
     assert _activity_name(resolve_agent_preset_config_activity) in names
     assert _activity_name(resolve_agent_preset_version_ref_activity) in names
     assert _activity_name(persist_stdio_mcp_connection_activity) in names
@@ -240,8 +305,6 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
     from tracecat.dsl import worker
 
     shutdown_event = asyncio.Event()
-    schedule = AsyncMock(side_effect=lambda *_: shutdown_event.set())
-    monkeypatch.setattr(indexing_schedule, "ensure_search_schedule", schedule)
     captured: dict[str, object] = {}
 
     class _FakeWorker:
@@ -277,6 +340,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
+            shutdown_event.set()
             return self
 
         async def __aexit__(
@@ -300,9 +364,6 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
 
     await asyncio.wait_for(worker.main(shutdown_event=shutdown_event), 2)
 
-    schedule.assert_awaited_once()
-    assert schedule.await_args is not None
-    assert schedule.await_args.args[1] == "test-dsl-queue"
     assert captured == {
         "task_queue": "test-dsl-queue",
         "threadpool_max_workers": 100,
@@ -354,44 +415,35 @@ async def test_agent_worker_registers_runtime_error_attribution_interceptor(
 
 
 @pytest.mark.anyio
-async def test_dsl_worker_rejects_single_workflow_task_slot(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("env_var", "value", "message"),
+    [
+        (
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS",
+            "1",
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2",
+        ),
+        (
+            "TEMPORAL__MAX_CONCURRENT_ACTIVITIES",
+            "0",
+            "TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1",
+        ),
+    ],
+    ids=["single_workflow_task_slot", "zero_activity_slots"],
+)
+async def test_dsl_worker_rejects_invalid_slot_counts(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, value: str, message: str
 ) -> None:
     from tracecat.dsl import worker
 
     temporal_worker = Mock()
     monkeypatch.delenv("SENTRY_DSN", raising=False)
-    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "1")
+    monkeypatch.setenv(env_var, value)
     monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", temporal_worker)
 
-    with pytest.raises(
-        ValueError,
-        match="TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2",
-    ):
-        await worker.main(shutdown_event=asyncio.Event())
-
-    temporal_worker.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_dsl_worker_rejects_zero_activity_slots(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tracecat.dsl import worker
-
-    temporal_worker = Mock()
-    monkeypatch.delenv("SENTRY_DSN", raising=False)
-    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "0")
-    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
-    monkeypatch.setattr(worker, "get_activities", lambda: [])
-    monkeypatch.setattr(worker, "Worker", temporal_worker)
-
-    with pytest.raises(
-        ValueError,
-        match="TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1",
-    ):
+    with pytest.raises(ValueError, match=message):
         await worker.main(shutdown_event=asyncio.Event())
 
     temporal_worker.assert_not_called()
@@ -404,10 +456,14 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     from tracecat.agent import executor_worker
 
     stop_mcp_server = AsyncMock()
+    start_broker = AsyncMock()
     stop_broker = AsyncMock()
+    start_otel_pool = Mock()
+    stop_otel_pool = AsyncMock()
 
-    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", start_broker)
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_otel_delivery_pool", start_otel_pool)
     monkeypatch.setattr(
         executor_worker,
         "get_temporal_client",
@@ -415,35 +471,15 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", stop_mcp_server)
     monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
+    monkeypatch.setattr(executor_worker, "stop_otel_delivery_pool", stop_otel_pool)
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
     stop_mcp_server.assert_awaited_once()
-    stop_broker.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_agent_executor_worker_runs_runtime_service_hooks_on_startup_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tracecat.agent import executor_worker
-
-    start_broker = AsyncMock()
-    stop_broker = AsyncMock()
-    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", start_broker)
-    monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
-    monkeypatch.setattr(
-        executor_worker,
-        "get_temporal_client",
-        AsyncMock(side_effect=RuntimeError("boom")),
-    )
-    monkeypatch.setattr(executor_worker, "stop_mcp_server", AsyncMock())
-    monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
-    with pytest.raises(RuntimeError, match="boom"):
-        await executor_worker.main()
-
     start_broker.assert_awaited_once()
     stop_broker.assert_awaited_once()
+    start_otel_pool.assert_called_once()
+    stop_otel_pool.assert_awaited_once()
 
 
 @pytest.mark.anyio

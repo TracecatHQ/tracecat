@@ -157,7 +157,10 @@ class TestBuiltinSkillsPayloadThreading:
 def _executor_with_builtin_skills(names: list[str] | None) -> Any:
     """Build a minimal stand-in exposing only what _stage_builtin_skills needs."""
     fake = SimpleNamespace(
-        input=SimpleNamespace(config=SimpleNamespace(builtin_skills=names))
+        input=SimpleNamespace(
+            config=SimpleNamespace(builtin_skills=names, library_skills=None),
+            subagents=[],
+        )
     )
     # Bind the unbound coroutine method to the fake instance.
     fake.stage = SandboxedAgentExecutor._stage_builtin_skills.__get__(fake)

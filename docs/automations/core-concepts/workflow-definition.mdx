@@ -147,10 +147,6 @@ Per-action override for the secrets environment.
 Redacts this action's result in workflow execution views and execution API responses. Tracecat keeps object and array structure but replaces each individual value, so JSONPath references remain visible. Downstream actions still receive the original result.
 </ResponseField>
 
-<ResponseField name="interaction" type="object">
-Marks an action as interactive. `interaction` cannot be combined with `for_each`.
-</ResponseField>
-
 Example action:
 
 ```yaml
@@ -304,7 +300,6 @@ These are the main workflow rules:
 - All action refs must be unique.
 - Every dependency in `depends_on` must reference a real action.
 - Cycles in the action graph are invalid.
-- `interaction` cannot be combined with `for_each`.
 - Outer scopes cannot reference actions inside a nested scatter or loop scope.
 - Inner scopes can reference actions in parent scopes.
 - `core.transform.gather` must close the scatter scope it depends on.

@@ -4,12 +4,14 @@ import asyncio
 import contextlib
 from collections.abc import Iterator
 from dataclasses import replace
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from claude_agent_sdk.types import UserMessage
+from pydantic import TypeAdapter, ValidationError
 from temporalio import workflow
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import (
@@ -21,7 +23,6 @@ from temporalio.client import (
 from temporalio.converter import PayloadCodec
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceClient
-from tracecat_ee.agent.approvals.service import ApprovalService
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat.agent.backends import registry
@@ -35,10 +36,22 @@ from tracecat.agent.backends.schemas import (
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     AgentControlUncertain,
+    SessionDeleteContext,
     SessionDispatchUncertain,
     SessionForkContext,
     SessionTurnContext,
     SessionWorkflowContext,
+    TurnResult,
+    WithdrawResult,
+)
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.control.schemas import (
+    AgentCancelControl,
+    AgentControlReceipt,
+    AgentControlRequest,
+    AgentControlStatus,
+    AgentSteerControl,
+    AgentWithdrawControl,
 )
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -47,6 +60,7 @@ from tracecat.agent.session.activities import (
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
@@ -58,6 +72,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.temporal.codec import TemporalPayloadCodecError
+from tracecat.tiers.enums import Entitlement
 
 
 @pytest.fixture(autouse=True)
@@ -65,6 +80,46 @@ def clean_backend_registry() -> Iterator[None]:
     registry.get_agent_backends.cache_clear()
     yield
     registry.get_agent_backends.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def entitled_to_non_default_backends() -> Iterator[None]:
+    # The entitlement gate has its own tests in test_agent_backend_entitlement.
+    with patch(
+        "tracecat.agent.backends.access.is_org_entitled",
+        AsyncMock(return_value=True),
+    ):
+        yield
+
+
+class FeedEvents(list[tuple[SessionFeedEventType, UUID, UUID | None]]):
+    """Published events, plus the (workspace_id, session_id) feed each went to."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.destinations: list[tuple[UUID, UUID]] = []
+
+
+@pytest.fixture(autouse=True)
+def feed_events(monkeypatch: pytest.MonkeyPatch) -> FeedEvents:
+    """Record session feed publishes instead of writing to Redis."""
+    events = FeedEvents()
+
+    async def publish(**kwargs: object) -> None:
+        event_type = kwargs["type"]
+        run_id = kwargs["run_id"]
+        stream_id = kwargs.get("stream_id")
+        assert isinstance(event_type, SessionFeedEventType)
+        assert isinstance(run_id, UUID)
+        assert stream_id is None or isinstance(stream_id, UUID)
+        workspace_id, session_id = kwargs["workspace_id"], kwargs["session_id"]
+        assert isinstance(workspace_id, UUID) and isinstance(session_id, UUID)
+        events.append((event_type, run_id, stream_id))
+        events.destinations.append((workspace_id, session_id))
+
+    monkeypatch.setattr("tracecat.agent.backends.base.publish_session_event", publish)
+    monkeypatch.setattr("tracecat.agent.session.service.publish_session_event", publish)
+    return events
 
 
 def entry(name: str, factory: object) -> SimpleNamespace:
@@ -122,6 +177,24 @@ def test_disabled_plugins_cannot_be_selected():
         registry.get_agent_backend("external")
 
 
+def test_subagent_approvals_need_an_enabled_backend_that_runs_them():
+    class ApprovingBackend(DefaultBackend):
+        subagent_approvals = True
+
+    # The built-in backend never runs approval-gated subagents.
+    assert DefaultBackend.subagent_approvals is False
+    with patch.object(registry, "entry_points", return_value=[]):
+        assert not registry.subagent_approvals_available()
+    registry.get_agent_backends.cache_clear()
+    provider = ApprovingBackend()
+    with patch.object(
+        registry, "entry_points", return_value=[entry("external", lambda: provider)]
+    ):
+        assert registry.subagent_approvals_available()
+        with patch.object(provider, "is_enabled", return_value=False):
+            assert not registry.subagent_approvals_available()
+
+
 @pytest.mark.parametrize(
     "missing",
     ["name", "task_queue", "default_harness", "supported_harnesses", "workflow"],
@@ -169,6 +242,14 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         ("supported_harnesses", "claude_code"),
         ("supported_harnesses", ["claude_code"]),
         ("supported_harnesses", frozenset({"claude_code", 123})),
+        ("subagent_approvals", "yes"),
+        ("subagent_approvals", 1),
+        ("steering", "yes"),
+        ("steering", 1),
+        ("withdrawing", "yes"),
+        ("withdrawing", 1),
+        ("caller_owned_turns", "yes"),
+        ("caller_owned_turns", 1),
         ("workflow", None),
         ("workflow", object()),
     ],
@@ -185,6 +266,59 @@ def test_discovery_rejects_malformed_required_attributes(field: str, value: obje
         pytest.raises((TypeError, ValueError), match=f"external: {field}"),
     ):
         registry.get_agent_backends()
+
+
+def test_caller_owned_turns_require_a_turn_result_parser():
+    class NoParserBackend(DefaultBackend):
+        pass
+
+    # Reset to the base method, as an installed backend that sets only the flag.
+    NoParserBackend.parse_turn_result = AgentBackend.parse_turn_result
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", NoParserBackend)]
+        ),
+        pytest.raises(TypeError, match="external: caller_owned_turns requires"),
+    ):
+        registry.get_agent_backends()
+
+
+def test_backends_do_not_parse_turn_results_unless_they_opt_in():
+    class OptedOutBackend(DefaultBackend):
+        caller_owned_turns = False
+
+    OptedOutBackend.parse_turn_result = AgentBackend.parse_turn_result
+    with patch.object(
+        registry, "entry_points", return_value=[entry("external", OptedOutBackend)]
+    ):
+        provider = registry.get_agent_backends()["external"]
+    assert provider.caller_owned_turns is False
+    with pytest.raises(NotImplementedError):
+        provider.parse_turn_result({})
+
+
+def test_builtin_backend_reads_the_output_of_a_decoded_turn_result():
+    session_id = uuid4()
+    decoded = {
+        "output": {"verdict": "benign"},
+        "duration": 1.5,
+        "session_id": str(session_id),
+    }
+    provider = DefaultBackend()
+    assert provider.caller_owned_turns is True
+    assert provider.parse_turn_result(decoded) == TurnResult(
+        output={"verdict": "benign"}
+    )
+    with pytest.raises(ValidationError):
+        provider.parse_turn_result({"output": "missing duration and session"})
+
+
+def test_builtin_backend_reports_a_cancelled_turn_as_an_error():
+    # A cancelled built-in turn returns normally with output=None.
+    decoded = {"output": None, "duration": 0.2, "session_id": str(uuid4())}
+    result = DefaultBackend().parse_turn_result(decoded)
+    assert result.output is None
+    assert result.error == "Agent turn ended without output"
 
 
 @pytest.mark.parametrize("method", ["run", "set_approvals", "request_cancel"])
@@ -353,7 +487,7 @@ def temporal_client() -> tuple[Client, AsyncMock]:
 
 
 @pytest.mark.anyio
-async def test_builtin_dispatch_preserves_workflow_contract():
+async def test_builtin_dispatch_preserves_workflow_contract(feed_events: FeedEvents):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client, rpc = temporal_client()
@@ -382,7 +516,13 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert request.workflow_id == f"agent/{ctx.run_id}"
     assert request.workflow_type.name == "DurableAgentWorkflow"
     assert rpc.await_args.kwargs["retry"] is False
+    # Recovery waits out this deadline before tombstoning a missing turn.
+    assert rpc.await_args.kwargs["timeout"] == timedelta(seconds=30)
     ctx.db.rollback.assert_not_awaited()
+    assert feed_events == [
+        (SessionFeedEventType.RUN_STARTED, ctx.run_id, ctx.stream_id)
+    ]
+    assert feed_events.destinations == [(ctx.session.workspace_id, ctx.session.id)]
 
 
 @pytest.mark.anyio
@@ -419,12 +559,18 @@ async def test_argument_builder_receives_isolated_data_without_database_access(
             assert snapshot.role is not ctx.role
             return await super().build_workflow_args(snapshot)
 
-    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
+    ):
         if rejected:
             with pytest.raises(RuntimeError, match="was rejected"):
                 await SnapshotBackend().start_turn(ctx)
         else:
             await SnapshotBackend().start_turn(ctx)
+    assert claim.await_count == int(rejected)
 
     assert ctx.config.model_settings == {"temperature": 0.2}
     assert ctx.session.tools == ["core.cases.get_case"]
@@ -469,7 +615,7 @@ async def test_dispatch_rejects_missing_or_owned_session_before_preparation(miss
         WorkflowExecutionStatus.RUNNING,
         WorkflowExecutionStatus.CONTINUED_AS_NEW,
         None,
-        RPCError("not found", RPCStatusCode.NOT_FOUND, b""),
+        # NOT_FOUND recovery is covered in tests/backends.
         RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""),
         TimeoutError("lookup timed out"),
     ],
@@ -525,6 +671,102 @@ async def test_recovery_rechecks_ownership_after_releasing_the_lock():
     assert ctx.db.scalar.await_count == 3
     assert newer_session.curr_run_id != ctx.run_id
     rpc.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_default_backend_releases_terminal_turn_and_dispatches(
+    feed_events: FeedEvents,
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    old_run_id = uuid4()
+    ctx.session.curr_run_id = old_run_id
+    ctx.session.active_stream_id = uuid4()
+    released = AgentSession(
+        id=ctx.session.id,
+        workspace_id=ctx.session.workspace_id,
+        title=ctx.session.title,
+        entity_type=ctx.session.entity_type,
+        entity_id=ctx.session.entity_id,
+        backend_id=ctx.session.backend_id,
+        harness_type=ctx.session.harness_type,
+    )
+    # Lock, release UPDATE ... RETURNING, then the re-locked released row.
+    ctx.db.scalar.side_effect = [ctx.session, ctx.session.id, released]
+    backend = DefaultBackend()
+    client, rpc = temporal_client()
+    handle = Mock(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+        )
+    )
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "handle", return_value=handle),
+        patch.object(
+            backend,
+            "retains_terminal_ownership",
+            wraps=backend.retains_terminal_ownership,
+        ) as retains,
+    ):
+        await backend.start_turn(ctx)
+    retains.assert_awaited_once_with(ctx, old_run_id)
+    assert ctx.db.commit.await_count == 2
+    assert released.curr_run_id == ctx.run_id
+    rpc.assert_awaited_once()
+    assert feed_events == [
+        (SessionFeedEventType.RUN_FINISHED, old_run_id, None),
+        (SessionFeedEventType.RUN_STARTED, ctx.run_id, ctx.stream_id),
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "consulted"),
+    [
+        (WorkflowExecutionStatus.COMPLETED, True),
+        (WorkflowExecutionStatus.CANCELED, True),
+        (WorkflowExecutionStatus.FAILED, True),
+        (WorkflowExecutionStatus.TERMINATED, True),
+        (WorkflowExecutionStatus.TIMED_OUT, True),
+        (WorkflowExecutionStatus.RUNNING, False),
+    ],
+)
+async def test_backend_can_retain_ownership_of_terminal_turn(
+    status, consulted, feed_events: FeedEvents
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    old_run_id, old_stream_id = uuid4(), uuid4()
+    ctx.session.curr_run_id = old_run_id
+    ctx.session.active_stream_id = old_stream_id
+    checked: list[tuple[AgentSession, UUID]] = []
+
+    class RetainingBackend(DefaultBackend):
+        async def retains_terminal_ownership(
+            self, context: SessionTurnContext, run_id: UUID
+        ) -> bool:
+            checked.append((context.session, run_id))
+            return True
+
+    backend = RetainingBackend()
+    client, rpc = temporal_client()
+    handle = Mock(describe=AsyncMock(return_value=SimpleNamespace(status=status)))
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(backend, "handle", return_value=handle),
+        patch.object(backend, "build_workflow_args") as prepare,
+        pytest.raises(TracecatConflictError),
+    ):
+        await backend.start_turn(ctx)
+    assert checked == ([(ctx.session, old_run_id)] if consulted else [])
+    prepare.assert_not_called()
+    assert ctx.session.curr_run_id == old_run_id
+    assert ctx.session.active_stream_id == old_stream_id
+    ctx.db.scalar.assert_awaited_once()
+    ctx.db.commit.assert_not_awaited()
+    rpc.assert_not_awaited()
+    assert feed_events == []
 
 
 @pytest.mark.anyio
@@ -637,6 +879,9 @@ async def test_lifecycle_and_cancel_use_selected_backend():
     service = AgentSessionService(ctx.db, ctx.role)
     provider = Mock(spec=DefaultBackend)
     provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.get_turn_lifecycle_for_control = AsyncMock(
+        return_value=TurnLifecycle.RUNNING
+    )
     provider.cancel = AsyncMock()
     with (
         patch.object(service, "get_session", return_value=ctx.session),
@@ -652,16 +897,261 @@ async def test_lifecycle_and_cancel_use_selected_backend():
         assert result.lifecycle == TurnLifecycle.RUNNING
         await service.request_cancel(ctx.session.id)
     provider.get_turn_lifecycle.assert_awaited_with(ctx.run_id)
+    provider.get_turn_lifecycle_for_control.assert_awaited_with(ctx.run_id)
     provider.cancel.assert_awaited_once_with(ctx.run_id)
 
 
+def _control_provider(
+    *,
+    steering: bool = True,
+    withdrawing: bool = True,
+    lifecycle: TurnLifecycle = TurnLifecycle.RUNNING,
+) -> Mock:
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = steering
+    provider.withdrawing = withdrawing
+    provider.get_turn_lifecycle = AsyncMock(return_value=lifecycle)
+    provider.get_turn_lifecycle_for_control = AsyncMock(return_value=lifecycle)
+    provider.steer = AsyncMock(return_value=True)
+    provider.withdraw = AsyncMock(return_value=WithdrawResult())
+    provider.cancel = AsyncMock()
+    return provider
+
+
+@contextlib.contextmanager
+def _patched_control(
+    service: AgentSessionService, ctx: SessionTurnContext, provider: Mock
+) -> Iterator[None]:
+    """Route the service to `provider`."""
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", AsyncMock(return_value=None)),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+    ):
+        yield
+
+
 @pytest.mark.anyio
-async def test_caller_owned_dispatch_remains_builtin_only():
+@pytest.mark.parametrize("accepted", [True, False])
+async def test_steer_control_delegates_to_the_backend(accepted: bool):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = _control_provider()
+    provider.steer = AsyncMock(return_value=accepted)
+    request = AgentSteerControl(
+        type="steer", id=uuid4(), text="Focus on the newest alert"
+    )
+    with (
+        _patched_control(service, ctx, provider),
+        patch.object(
+            service, "require_entitlement", AsyncMock(return_value=None)
+        ) as require_entitlement,
+    ):
+        receipt = await service.control(ctx.session.id, request)
+    # A workspace chat steers only with the Workspace Chat entitlement.
+    require_entitlement.assert_awaited_once_with(Entitlement.WORKSPACE_CHAT)
+    # Session-scoped idempotency belongs to the backend; no steer-to-run binding.
+    provider.steer.assert_awaited_once_with(ctx.run_id, request.id, request.text)
+    assert receipt == AgentControlReceipt(
+        id=request.id,
+        type="steer",
+        run_id=ctx.run_id,
+        status="accepted" if accepted else "rejected",
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("target_ids", [None, [uuid4(), uuid4()]])
+@pytest.mark.parametrize(
+    "withdrawn,too_late,status",
+    [
+        ((UUID(int=1), UUID(int=2)), (), "withdrawn"),
+        ((UUID(int=1),), (UUID(int=3),), "withdrawn"),
+        ((), (UUID(int=3),), "too_late"),
+        # Nothing pending: a successful no-op.
+        ((), (), "withdrawn"),
+    ],
+)
+async def test_withdraw_control_reports_withdrawn_and_too_late(
+    target_ids: list[UUID] | None,
+    withdrawn: tuple[UUID, ...],
+    too_late: tuple[UUID, ...],
+    status: AgentControlStatus,
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = _control_provider()
+    provider.withdraw = AsyncMock(
+        return_value=WithdrawResult(withdrawn=withdrawn, too_late=too_late)
+    )
+    request = AgentWithdrawControl(type="withdraw", id=uuid4(), target_ids=target_ids)
+    with _patched_control(service, ctx, provider):
+        receipt = await service.control(ctx.session.id, request)
+    provider.withdraw.assert_awaited_once_with(ctx.run_id, request.id, target_ids)
+    assert receipt == AgentControlReceipt(
+        id=request.id,
+        type="withdraw",
+        run_id=ctx.run_id,
+        status=status,
+        withdrawn=list(withdrawn),
+        too_late=list(too_late),
+    )
+
+
+@pytest.mark.anyio
+async def test_cancel_control_uses_the_cancel_route_method():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = _control_provider()
+    request = AgentCancelControl(type="cancel", id=uuid4())
+    with (
+        _patched_control(service, ctx, provider),
+        patch.object(
+            service, "request_cancel", wraps=service.request_cancel
+        ) as request_cancel,
+    ):
+        receipt = await service.control(ctx.session.id, request)
+    request_cancel.assert_awaited_once_with(ctx.session.id)
+    provider.cancel.assert_awaited_once_with(ctx.run_id)
+    assert receipt == AgentControlReceipt(
+        id=request.id, type="cancel", run_id=ctx.run_id, status="accepted"
+    )
+
+
+def _control_request(control: str) -> AgentSteerControl | AgentWithdrawControl:
+    if control == "steer":
+        return AgentSteerControl(type="steer", id=uuid4(), text="Stop")
+    return AgentWithdrawControl(type="withdraw", id=uuid4())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("control", ["steer", "withdraw"])
+@pytest.mark.parametrize(
+    "supported,lifecycle",
+    [(False, TurnLifecycle.RUNNING), (True, TurnLifecycle.COMPLETED)],
+)
+async def test_controls_need_the_capability_and_a_running_turn(
+    control: str, supported: bool, lifecycle: TurnLifecycle
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = _control_provider(
+        steering=supported, withdrawing=supported, lifecycle=lifecycle
+    )
+    with (
+        _patched_control(service, ctx, provider),
+        pytest.raises(TracecatConflictError),
+    ):
+        await service.control(ctx.session.id, _control_request(control))
+    provider.steer.assert_not_awaited()
+    provider.withdraw.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("control", ["steer", "withdraw", "cancel"])
+async def test_controlling_an_unavailable_backend_is_a_conflict(control: str):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    # Installed, so the turn still reads as running, but disabled for new calls.
+    provider = _control_provider()
+    request = (
+        AgentCancelControl(type="cancel", id=uuid4())
+        if control == "cancel"
+        else _control_request(control)
+    )
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend",
+            side_effect=TracecatValidationError("Agent backend is unavailable"),
+        ),
+        pytest.raises(TracecatConflictError, match="unavailable"),
+    ):
+        await service.control(ctx.session.id, request)
+    provider.cancel.assert_not_awaited()
+
+
+def test_a_steer_needs_text():
+    steer = AgentSteerControl(type="steer", id=uuid4(), text=" Stop ")
+    assert steer.text == "Stop"
+    with pytest.raises(ValidationError):
+        AgentSteerControl(type="steer", id=uuid4(), text=" \n ")
+
+
+def test_control_requests_are_tagged_by_type():
+    adapter = TypeAdapter[AgentControlRequest](AgentControlRequest)
+    request_id = uuid4()
+    withdraw = adapter.validate_python({"type": "withdraw", "id": str(request_id)})
+    # No targets means every pending steer and queued message.
+    assert withdraw == AgentWithdrawControl(
+        type="withdraw", id=request_id, target_ids=None
+    )
+    assert isinstance(
+        adapter.validate_python({"type": "cancel", "id": str(request_id)}),
+        AgentCancelControl,
+    )
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"type": "pause", "id": str(request_id)})
+
+
+@pytest.mark.parametrize(
+    "flag,method", [("steering", "steer"), ("withdrawing", "withdraw")]
+)
+def test_discovery_rejects_a_control_flag_without_its_method(flag: str, method: str):
+    backend = type("Uncontrollable", (DefaultBackend,), {flag: True})
+
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", backend)]
+        ),
+        pytest.raises(TypeError, match=f"external: {flag} requires a {method}"),
+    ):
+        registry.get_agent_backends()
+
+
+@pytest.mark.anyio
+async def test_backends_do_not_steer_or_withdraw_by_default():
+    assert DefaultBackend.steering is False
+    assert DefaultBackend.withdrawing is False
+    with pytest.raises(AgentControlRejected):
+        await DefaultBackend().steer(uuid4(), uuid4(), "Stop")
+    with pytest.raises(AgentControlRejected):
+        await DefaultBackend().withdraw(uuid4(), uuid4(), None)
+
+
+@pytest.mark.anyio
+async def test_caller_owned_dispatch_needs_a_backend_that_returns_results():
+    class NoCallerTurnsBackend(DefaultBackend):
+        caller_owned_turns = False
+
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     service = AgentSessionService(ctx.db, ctx.role)
     with (
         patch.object(service, "validate_turn_request", return_value=ctx.session),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend",
+            return_value=NoCallerTurnsBackend(),
+        ),
     ):
         with pytest.raises(TracecatValidationError, match="caller-owned"):
             await service.prepare_new_turn(ctx.session.id, "Hello")
@@ -714,6 +1204,162 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
             with pytest.raises(ValueError, match="Unable to prepare fork"):
                 await service.fork_session(ctx.session.id)
             ctx.db.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "cleaned",
+        "cleanup_fails",
+        "cleanup_hangs",
+        "cleanup_cancels",
+        "preparation_fails",
+    ],
+)
+async def test_delete_lets_the_backend_prepare_and_clean_up(outcome: str):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    db = ctx.db
+    service = AgentSessionService(db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+
+    async def hang() -> None:
+        await asyncio.Event().wait()
+
+    cleanup = AsyncMock(
+        side_effect={
+            "cleanup_fails": RuntimeError("unreachable"),
+            "cleanup_hangs": hang,
+            "cleanup_cancels": asyncio.CancelledError(),
+        }.get(outcome)
+    )
+
+    async def prepare_delete(context: SessionDeleteContext) -> AsyncMock:
+        assert (context.db, context.session, context.role) == (
+            db,
+            ctx.session,
+            ctx.role,
+        )
+        db.delete.assert_not_awaited()
+        if outcome == "preparation_fails":
+            raise TracecatConflictError("Session is busy")
+        return cleanup
+
+    async def committed() -> None:
+        db.delete.assert_awaited_once_with(ctx.session)
+        cleanup.assert_not_awaited()
+
+    provider.prepare_delete = AsyncMock(side_effect=prepare_delete)
+    db.commit.side_effect = committed
+    with (
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ) as find,
+        patch("tracecat.agent.session.service.SESSION_CLEANUP_TIMEOUT_SECONDS", 0.01),
+        patch("tracecat.agent.session.service.logger") as logger,
+    ):
+        if outcome == "preparation_fails":
+            with pytest.raises(TracecatConflictError):
+                await service.delete_session(ctx.session)
+            db.delete.assert_not_awaited()
+            db.commit.assert_not_awaited()
+            cleanup.assert_not_awaited()
+        else:
+            # A failed, hung or cancelled cleanup is logged; the delete has committed.
+            await service.delete_session(ctx.session)
+            cleanup.assert_awaited_once_with()
+        warned = [
+            call.kwargs.get("error_type")
+            for call in logger.warning.call_args_list
+            if call.args == ("Agent session cleanup failed",)
+        ]
+        assert (
+            warned
+            == {
+                "cleaned": [],
+                "cleanup_fails": ["RuntimeError"],
+                "cleanup_hangs": ["TimeoutError"],
+                "cleanup_cancels": ["CancelledError"],
+                "preparation_fails": [],
+            }[outcome]
+        )
+    find.assert_called_once_with(ctx.session.backend_id)
+
+
+@pytest.mark.anyio
+async def test_a_cancelled_delete_still_finishes_its_cleanup():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    started, release = asyncio.Event(), asyncio.Event()
+    finished: list[bool] = []
+
+    async def cleanup() -> None:
+        started.set()
+        await release.wait()
+        finished.append(True)
+
+    provider = Mock(spec=DefaultBackend)
+    provider.prepare_delete = AsyncMock(return_value=cleanup)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend", return_value=provider
+    ):
+        deleting = asyncio.ensure_future(service.delete_session(ctx.session))
+        await started.wait()
+        deleting.cancel()
+        await asyncio.sleep(0)
+        assert not deleting.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await deleting
+    assert finished == [True]
+    ctx.db.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_a_delete_cancelled_during_its_commit_still_cleans_up():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    committing, release = asyncio.Event(), asyncio.Event()
+
+    async def commit() -> None:
+        committing.set()
+        await release.wait()
+
+    ctx.db.commit.side_effect = commit
+    cleanup = AsyncMock()
+    provider = Mock(spec=DefaultBackend)
+    provider.prepare_delete = AsyncMock(return_value=cleanup)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend", return_value=provider
+    ):
+        deleting = asyncio.ensure_future(service.delete_session(ctx.session))
+        await committing.wait()
+        deleting.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await deleting
+    cleanup.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("installed", [True, False])
+async def test_delete_needs_no_cleanup_from_the_builtin_or_a_missing_backend(
+    installed: bool,
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    with patch(
+        "tracecat.agent.session.service.find_agent_backend",
+        return_value=DefaultBackend() if installed else None,
+    ):
+        await service.delete_session(ctx.session)
+    ctx.db.delete.assert_awaited_once_with(ctx.session)
+    ctx.db.commit.assert_awaited_once()
 
 
 def test_backend_contract_requires_fork_preparation():
@@ -854,16 +1500,22 @@ async def test_real_client_encoding_failure_releases_reservation_before_rpc():
         RPCStatusCode.UNAUTHENTICATED,
     ],
 )
-async def test_rpc_rejection_releases_reservation_without_raw_exception_context(status):
+async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
+    status, feed_events: FeedEvents
+):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client, rpc = temporal_client()
     rpc.side_effect = RPCError("private SDK details", status, b"")
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
         pytest.raises(RuntimeError, match="was rejected") as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
     assert not isinstance(caught.value, SessionDispatchUncertain)
     assert caught.value.__context__ is None
     assert caught.value.__cause__ is None
@@ -873,10 +1525,14 @@ async def test_rpc_rejection_releases_reservation_without_raw_exception_context(
     rpc.assert_awaited_once()
     assert rpc.await_args is not None
     assert rpc.await_args.kwargs["retry"] is False
+    assert feed_events == [(SessionFeedEventType.RUN_FINISHED, ctx.run_id, None)]
+    assert feed_events.destinations == [(ctx.session.workspace_id, ctx.session.id)]
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("failure", ["execute", "commit", "ownership_changed"])
+@pytest.mark.parametrize(
+    "failure", ["claim_refused", "claim", "execute", "commit", "ownership_changed"]
+)
 async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
@@ -888,13 +1544,20 @@ async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
         ctx.db.scalar.side_effect = [ctx.session, RuntimeError("private DB details")]
     elif failure == "commit":
         ctx.db.commit.side_effect = [None, RuntimeError("private DB details")]
-    else:
+    elif failure == "ownership_changed":
         ctx.db.scalar.side_effect = [ctx.session, None]
+    claim = AsyncMock(return_value=failure != "claim_refused")
+    if failure == "claim":
+        claim.side_effect = RuntimeError("private claim details")
     with (
         patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        patch.object(DefaultBackend, "_claim_unstarted_turn", claim),
         pytest.raises(SessionDispatchUncertain) as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
+    # A refused or failed claim never releases the reservation.
+    assert ctx.db.scalar.await_count == (1 if "claim" in failure else 2)
     assert caught.value.__context__ is None
     assert caught.value.__cause__ is None
     assert "private" not in str(caught.value)
@@ -904,7 +1567,9 @@ async def test_rejection_cleanup_failure_preserves_uncertainty(failure):
 @pytest.mark.parametrize(
     "failure", [None, "rollback", "execute", "commit", "ownership"]
 )
-async def test_commit_failure_reconciles_with_a_fresh_session(failure):
+async def test_commit_failure_reconciles_with_a_fresh_session(
+    failure, feed_events: FeedEvents
+):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     client, rpc = temporal_client()
@@ -932,9 +1597,13 @@ async def test_commit_failure_reconciles_with_a_fresh_session(failure):
             "tracecat.agent.backends.base.get_async_session_context_manager",
             cleanup_session,
         ),
+        patch.object(
+            DefaultBackend, "_claim_unstarted_turn", AsyncMock(return_value=True)
+        ) as claim,
         pytest.raises(RuntimeError) as caught,
     ):
         await DefaultBackend().start_turn(ctx)
+    claim.assert_awaited_once_with(ctx.run_id, client)
     assert isinstance(caught.value, SessionDispatchUncertain) == (
         failure in {"execute", "commit", "ownership"}
     )
@@ -946,6 +1615,10 @@ async def test_commit_failure_reconciles_with_a_fresh_session(failure):
         ctx.db.invalidate.assert_awaited_once()
     else:
         ctx.db.invalidate.assert_not_awaited()
+    released = failure in {None, "rollback"}
+    assert feed_events == (
+        [(SessionFeedEventType.RUN_FINISHED, ctx.run_id, None)] if released else []
+    )
 
 
 @pytest.mark.anyio
@@ -1144,17 +1817,6 @@ async def test_durable_activity_rejects_existing_session_with_different_identity
 
 
 @pytest.mark.anyio
-async def test_legacy_approval_view_does_not_target_another_backend():
-    ctx = context()
-    assert isinstance(ctx.db, AsyncMock)
-    ctx.db.scalar.return_value = "ee"
-    approvals = ApprovalService(ctx.db, ctx.role)
-    with patch.object(approvals, "handle", new_callable=AsyncMock) as handle:
-        assert await approvals.get_session(ctx.session.id) is None
-        handle.assert_not_awaited()
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "status,expected",
     [
@@ -1188,6 +1850,56 @@ async def test_backend_missing_execution_keeps_reconnect_terminal():
         assert (
             await DefaultBackend().get_turn_lifecycle(uuid4()) == TurnLifecycle.FAILED
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "code",
+    [
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+    ],
+)
+async def test_control_lookup_outage_is_uncertain_not_finished(code):
+    handle = Mock(describe=AsyncMock(side_effect=RPCError("down", code, b"")))
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    with (
+        patch("tracecat.agent.backends.base.get_temporal_client", return_value=client),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await DefaultBackend().get_turn_lifecycle_for_control(uuid4())
+
+
+@pytest.mark.anyio
+async def test_control_lookup_missing_execution_is_finished():
+    handle = Mock(
+        describe=AsyncMock(side_effect=RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+    )
+    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
+    with patch("tracecat.agent.backends.base.get_temporal_client", return_value=client):
+        lifecycle = await DefaultBackend().get_turn_lifecycle_for_control(uuid4())
+    assert lifecycle == TurnLifecycle.FAILED
+
+
+@pytest.mark.anyio
+async def test_stop_during_temporal_outage_is_uncertain():
+    ctx = context()
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = _control_provider()
+    provider.get_turn_lifecycle_for_control = AsyncMock(
+        side_effect=AgentControlUncertain("Temporal is unavailable")
+    )
+    with (
+        patch.object(service, "_controlled_session", return_value=ctx.session),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await service.stop_run(ctx.session.id, run_id=ctx.run_id)
+    provider.cancel.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1253,48 +1965,6 @@ async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("operation", ["approvals", "cancel", "lifecycle"])
-async def test_backend_resolves_one_client_and_handle_per_operation(operation):
-    run_id = uuid4()
-    handle = Mock(
-        execute_update=AsyncMock(return_value=True),
-        describe=AsyncMock(
-            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
-        ),
-    )
-    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
-    backend = DefaultBackend()
-    with (
-        patch(
-            "tracecat.agent.backends.base.get_temporal_client", return_value=client
-        ) as connect,
-        patch("tracecat.agent.backends.base.signal_turn_cancel"),
-    ):
-        match operation:
-            case "approvals":
-                await backend.submit_approvals(
-                    run_id,
-                    WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4()),
-                )
-            case "cancel":
-                await backend.cancel(run_id)
-            case "lifecycle":
-                with patch.object(
-                    backend,
-                    "_run_control",
-                    side_effect=AssertionError("read used control path"),
-                ):
-                    assert (
-                        await backend.get_turn_lifecycle(run_id)
-                        == TurnLifecycle.RUNNING
-                    )
-    connect.assert_awaited_once()
-    client.get_workflow_handle_for.assert_called_once_with(
-        DurableAgentWorkflow.run, f"agent/{run_id}"
-    )
-
-
-@pytest.mark.anyio
 async def test_handle_construction_failure_is_definitive_before_submission():
     client = Mock(
         get_workflow_handle_for=Mock(side_effect=ValueError("invalid workflow"))
@@ -1308,13 +1978,39 @@ async def test_handle_construction_failure_is_definitive_before_submission():
 
 
 @pytest.mark.anyio
-async def test_backend_handle_reuses_supplied_client():
-    run_id = uuid4()
-    handle = Mock()
-    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
-    with patch("tracecat.agent.backends.base.get_temporal_client") as connect:
-        assert await DefaultBackend().handle(run_id, client=client) is handle
-    connect.assert_not_called()
-    client.get_workflow_handle_for.assert_called_once_with(
-        DurableAgentWorkflow.run, f"agent/{run_id}"
+async def test_default_backend_caps_sessions_at_agent_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+        21600,
     )
+    workspace_id = uuid4()
+    args = await DefaultBackend().build_workflow_args(
+        SessionWorkflowContext(
+            session_id=uuid4(),
+            backend_id="default",
+            harness_type=None,
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=workspace_id,
+            tools=None,
+            agent_preset_id=None,
+            agent_preset_version_id=None,
+            role=Role(
+                type="user",
+                workspace_id=workspace_id,
+                organization_id=uuid4(),
+                user_id=uuid4(),
+                service_id="tracecat-api",
+            ),
+            config=AgentConfig(
+                model_name="claude-sonnet-4-5", model_provider="anthropic"
+            ),
+            prompt="hello",
+            run_id=uuid4(),
+            stream_id=uuid4(),
+        )
+    )
+
+    assert args.agent_args.timeout_seconds == AGENT_TIMEOUT_SECONDS_DEFAULT

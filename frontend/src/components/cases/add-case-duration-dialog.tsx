@@ -93,7 +93,7 @@ export function AddCaseDurationDialog({
     <CaseDurationDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Add duration"
+      title="Create duration"
       description="Define a duration metric using matching case events."
       submitLabel={isPending ? "Creating..." : "Create duration"}
       isSubmitting={isPending}
