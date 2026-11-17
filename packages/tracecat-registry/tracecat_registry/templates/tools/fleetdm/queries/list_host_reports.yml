@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: List host reports
+  description: List the saved reports for a host, including when results were last fetched.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#list-hosts-reports
+  namespace: tools.fleetdm
+  name: list_host_reports
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str | None
+      description: Fleet server base URL. Uses VARS.fleetdm.base_url when omitted.
+      default: null
+    id:
+      type: int
+      description: The host's ID.
+    query:
+      type: str | None
+      description: Search query keywords. Searchable fields include `name`.
+      default: null
+    exclude_no_results:
+      type: bool | None
+      description: If `true`, exclude reports that don't save results. Default is `false`.
+      default: null
+    page:
+      type: int | None
+      description: Page number of the results to fetch.
+      default: null
+    per_page:
+      type: int | None
+      description: Results per page.
+      default: null
+    order_key:
+      type: str | None
+      description: What to order results by. Valid options are `"name"` and `"last_fetched"`. Default is `"name"`.
+      default: null
+    order_direction:
+      type: str | None
+      description: '**Requires `order_key`**. The direction of the order given the order key. Options include `"asc"` and `"desc"`. Default is `"asc"`.'
+      default: null
+  steps:
+    - ref: list_host_reports
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fleetdm.base_url }}/api/v1/fleet/hosts/${{ inputs.id }}/reports
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params:
+          query: ${{ inputs.query }}
+          exclude_no_results: ${{ inputs.exclude_no_results }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          order_key: ${{ inputs.order_key }}
+          order_direction: ${{ inputs.order_direction }}
+  returns: ${{ steps.list_host_reports.result }}

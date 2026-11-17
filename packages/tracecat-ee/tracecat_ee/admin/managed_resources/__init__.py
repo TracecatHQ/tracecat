@@ -1,0 +1,1 @@
+"""Admin managed resources module."""

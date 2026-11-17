@@ -352,6 +352,7 @@ class EntitlementRequired(TracecatException):
         self,
         entitlement: str,
         *,
+        message: str | None = None,
         unavailable_actions: list[str] | None = None,
         unavailable_origins: list[str] | None = None,
     ):
@@ -363,7 +364,7 @@ class EntitlementRequired(TracecatException):
             return "\n".join(lines)
 
         self.entitlement = entitlement
-        message = f"Feature '{entitlement}' requires an upgraded plan."
+        message = message or f"Feature '{entitlement}' requires an upgraded plan."
         detail: dict[str, object] = {"entitlement": entitlement}
 
         if unavailable_actions:

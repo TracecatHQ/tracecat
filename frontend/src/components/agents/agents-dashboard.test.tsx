@@ -7,7 +7,17 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { type AgentPresetReadMinimal, agentFoldersGetFolder } from "@/client"
+import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { AgentsDashboard } from "@/components/agents/agents-dashboard"
+import {
+  api,
+  apiError,
+  channelPage,
+  platformSlackBot,
+  routePage,
+  serveBots,
+  slackBot,
+} from "@/components/agents/external-channels/channel-bot-fixtures"
 import { OpenAIIcon } from "@/components/icons"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -28,6 +38,21 @@ const mockReplace = jest.fn()
 const mockUseWorkflowReferences = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
 
+// Presets are unmanaged unless a test marks one as managed by Tracecat.
+const mockManagedPresetIds = { current: new Set<string>() }
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: (resourceType: string, id?: string | null) =>
+      resourceType === "agent_preset" &&
+      Boolean(id) &&
+      mockManagedPresetIds.current.has(id ?? ""),
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
   CodeBlockCopyButton: () => null,
@@ -36,6 +61,12 @@ jest.mock("@/components/ai-elements/code-block", () => ({
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentFoldersGetFolder: jest.fn(),
+  agentChannelBotsListBots: jest.fn(),
+  agentChannelBotsListPlatformApps: jest.fn(),
+  agentChannelBotsListBotRoutes: jest.fn(),
+  agentChannelBotsListBotChannels: jest.fn(),
+  agentChannelBotsListBotRoutableChannels: jest.fn(),
+  agentPresetsListAgentPresets: jest.fn(),
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -145,6 +176,7 @@ describe("AgentsDashboard entitlement split", () => {
     mockHasEntitlement.mockReset()
     mockHasEntitlement.mockReturnValue(false)
     mockSearchParams.current = new URLSearchParams()
+    mockManagedPresetIds.current = new Set()
     mockUseAgentPresets.mockReset()
     mockUseAgentPresets.mockReturnValue({
       presets: [PRESET],
@@ -172,6 +204,8 @@ describe("AgentsDashboard entitlement split", () => {
     mockReplace.mockClear()
     mockUseWorkflowReferences.mockReset()
     mockUseWorkflowReferences.mockReturnValue({ workflowReferences: [] })
+    jest.clearAllMocks()
+    serveBots([])
   })
 
   describe.each(["list", "folders"] as const)("%s row details", (view) => {
@@ -561,6 +595,19 @@ describe("AgentsDashboard entitlement split", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("hides update and delete actions for a managed preset", async () => {
+    mockManagedPresetIds.current = new Set([PRESET.id])
+    renderDashboard()
+    fireEvent.contextMenu(screen.getByText(PRESET.name))
+    await screen.findByRole("menuitem", { name: "Make default" })
+    expect(
+      screen.queryByRole("menuitemcheckbox", { name: "Use in chat" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Delete" })
+    ).not.toBeInTheDocument()
+  })
+
   it("reflects chat visibility in the folder view", async () => {
     mockHasEntitlement.mockReturnValue(true)
     mockSearchParams.current = new URLSearchParams("view=folders")
@@ -904,5 +951,227 @@ describe("AgentsDashboard entitlement split", () => {
         expect(screen.getByText("Enrich agent")).toBeInTheDocument()
       }
     )
+  })
+  describe("Slack placements", () => {
+    const AGENTS = [
+      { ...PRESET, id: "triage", name: "Triage agent" },
+      { ...PRESET, id: "enrich", name: "Enrich agent" },
+      { ...PRESET, id: "phish", name: "Phishing agent" },
+      { ...PRESET, id: "plain", name: "Plain agent" },
+    ]
+    const ROUTES = [
+      { channel: "C1", agent: "enrich" },
+      { channel: "C2", agent: "enrich" },
+      { channel: "C5", agent: "enrich" },
+      { channel: "C9", agent: "phish" },
+    ].map(({ channel, agent }) => ({
+      bot_id: "platform-1",
+      provider_channel_id: channel,
+      agent_preset_id: agent,
+      created_at: PRESET.created_at,
+      updated_at: PRESET.updated_at,
+    }))
+
+    const channel = (id: string, name: string, isPrivate = false) => ({
+      id,
+      name,
+      is_private: isPrivate,
+      is_member: true,
+    })
+    // The platform install is in every routed channel but C9, and in C3 and C4.
+    const INSTALL_CHANNELS = [
+      channel("C1", "soc-alerts"),
+      channel("C2", "secops", true),
+      channel("C5", "triage-x"),
+      channel("C4", "random"),
+      channel("C3", "general"),
+    ]
+
+    // The install's default is triage; phish also has its own Slack app.
+    function serveSlack({
+      preview = true,
+      install = platformSlackBot({ agent_preset_id: "triage" }),
+      channelsOf = (botId: string): Promise<unknown> =>
+        Promise.resolve(
+          channelPage(
+            botId === "platform-1"
+              ? INSTALL_CHANNELS
+              : [channel("C7", "phish-reports")]
+          )
+        ),
+    } = {}) {
+      mockHasEntitlement.mockImplementation(
+        (key) => preview && key === "agent_channels_preview"
+      )
+      serveBots([
+        install,
+        slackBot({ id: "own-1", agent_preset_id: "phish" }),
+        slackBot({ id: "own-2", agent_preset_id: "plain", status: "paused" }),
+      ])
+      api.listPlatformApps.mockResolvedValue([{ provider: "slack" }])
+      // Two route pages; C9 arrives only on the second.
+      api.listRoutes.mockImplementation(
+        ({ cursor }) =>
+          new CancelablePromise((resolve) =>
+            resolve(
+              cursor === "page-2"
+                ? routePage(ROUTES.slice(3))
+                : routePage(ROUTES.slice(0, 3), "page-2")
+            )
+          )
+      )
+      api.listChannels.mockImplementation(
+        ({ botId }) =>
+          new CancelablePromise((resolve, reject) =>
+            channelsOf(botId).then(resolve as (v: unknown) => void, reject)
+          )
+      )
+    }
+
+    function renderCatalog(params = "") {
+      mockSearchParams.current = new URLSearchParams(params)
+      mockUseAgentPresets.mockReturnValue({
+        presets: AGENTS,
+        presetsIsLoading: false,
+        presetsError: null,
+      })
+      return renderDashboard()
+    }
+
+    function row(name: string) {
+      const button = screen.getByText(name).closest("button")
+      if (!button) throw new Error(`No row for ${name}`)
+      return within(button)
+    }
+
+    it("shows the channels each agent's bot is in", async () => {
+      serveSlack()
+      renderCatalog()
+      expect(
+        await row("Phishing agent").findByText("#phish-reports")
+      ).toBeInTheDocument()
+
+      // The install's channels without a route.
+      const triage = row("Triage agent")
+      expect(triage.getByText("#general")).toBeInTheDocument()
+      expect(triage.getByText("#random")).toBeInTheDocument()
+      expect(triage.queryByText("All other channels")).not.toBeInTheDocument()
+      expect(triage.getAllByLabelText("Slack")).toHaveLength(2)
+
+      const enrich = row("Enrich agent")
+      expect(enrich.getByText("secops")).toBeInTheDocument()
+      expect(enrich.getByLabelText("Private channel")).toBeInTheDocument()
+      expect(enrich.getByText("#soc-alerts")).toBeInTheDocument()
+      expect(enrich.queryByText("#triage-x")).not.toBeInTheDocument()
+      // Every badge carries the Slack icon; the overflow does not.
+      expect(enrich.getAllByLabelText("Slack")).toHaveLength(2)
+      await userEvent.hover(enrich.getByText("+1"))
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("#triage-x")
+
+      // Its own app's channels; a routed channel the install is not in has no
+      // name, so it shows no badge.
+      const phish = row("Phishing agent")
+      expect(phish.getByText("#phish-reports")).toBeInTheDocument()
+      expect(phish.queryByText("All channels")).not.toBeInTheDocument()
+      expect(phish.queryByText("C9")).not.toBeInTheDocument()
+      // Every route page is read at the API's cap.
+      expect(api.listRoutes.mock.calls.map(([call]) => call)).toEqual([
+        expect.objectContaining({
+          botId: "platform-1",
+          limit: 200,
+          cursor: null,
+        }),
+        expect.objectContaining({
+          botId: "platform-1",
+          limit: 200,
+          cursor: "page-2",
+        }),
+      ])
+      expect(api.listChannels.mock.calls.map(([call]) => call)).toEqual(
+        expect.arrayContaining([
+          { workspaceId: "workspace-1", botId: "platform-1", limit: 100 },
+          { workspaceId: "workspace-1", botId: "own-1", limit: 100 },
+        ])
+      )
+      expect(api.listChannels).toHaveBeenCalledTimes(2)
+      // Never every channel of the Slack workspace.
+      expect(api.listRoutableChannels).not.toHaveBeenCalled()
+
+      // A paused bot of its own does not answer.
+      expect(
+        row("Plain agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
+    })
+
+    it("falls back to answering everywhere when a bot's channels cannot be listed", async () => {
+      serveSlack({
+        channelsOf: (botId) =>
+          Promise.reject(
+            apiError(botId === "platform-1" ? 400 : 404, { detail: "no" })
+          ),
+      })
+      renderCatalog("view=list")
+      expect(
+        await row("Triage agent").findByText("All other channels")
+      ).toBeInTheDocument()
+      expect(
+        row("Phishing agent").getByText("All channels")
+      ).toBeInTheDocument()
+    })
+
+    it("asks for a reinstall when a custom app cannot list its channels", async () => {
+      serveSlack({
+        channelsOf: (botId) =>
+          botId === "own-1"
+            ? Promise.reject(apiError(424, { detail: "reinstall" }))
+            : Promise.resolve(channelPage(INSTALL_CHANNELS)),
+      })
+      renderCatalog()
+      const badge = await row("Phishing agent").findByText("All channels")
+      await userEvent.hover(badge)
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "Reinstall to show channels"
+      )
+    })
+
+    it.each([
+      ["the preview", { preview: false }, ""],
+      ["agent:read", {}, "agent:read"],
+    ])("fetches and shows nothing without %s", (_, slack, missingScope) => {
+      serveSlack(slack)
+      mockUseScopeCheck.mockImplementation((scope) => scope !== missingScope)
+      renderCatalog()
+      expect(screen.getByText("Triage agent")).toBeInTheDocument()
+      expect(screen.getByText("Plain agent")).toBeInTheDocument()
+      expect(screen.queryByTestId("slack-badges")).not.toBeInTheDocument()
+      expect(api.listBots).not.toHaveBeenCalled()
+      expect(api.listPlatformApps).not.toHaveBeenCalled()
+      expect(api.listRoutes).not.toHaveBeenCalled()
+      expect(api.listChannels).not.toHaveBeenCalled()
+    })
+
+    it("shows only a custom app's channels for a disconnected install", async () => {
+      serveSlack({
+        install: platformSlackBot({
+          agent_preset_id: "triage",
+          status: "disconnected",
+        }),
+      })
+      renderCatalog()
+      expect(
+        await row("Phishing agent").findByText("#phish-reports")
+      ).toBeInTheDocument()
+      expect(
+        row("Triage agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
+      expect(
+        row("Enrich agent").queryByTestId("slack-badges")
+      ).not.toBeInTheDocument()
+      expect(api.listRoutes).not.toHaveBeenCalled()
+      expect(api.listChannels).toHaveBeenCalledTimes(1)
+      expect(api.listChannels).toHaveBeenCalledWith(
+        expect.objectContaining({ botId: "own-1" })
+      )
+    })
   })
 })

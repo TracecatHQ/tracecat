@@ -20,7 +20,7 @@ Every organization has six preset roles. Tracecat rejects scope changes to a pre
 | `workspace-editor` | Workspace | Everything `workspace-viewer` can, plus create and update those resources, run workflows, agents, and any action, terminate workflow runs, and run workflow sync and workspace sync. | 42 |
 | `workspace-admin` | Workspace | Everything `workspace-editor` can, plus delete those resources and form submissions, update or delete the workspace, remove members, and manage workspace service accounts. | 64 |
 | `organization-admin` | Organization | Everything `workspace-admin` can in every workspace, plus create workspaces, manage organization settings, members and invitations, roles, groups, and assignments, SCIM, organization service accounts, the custom registry, and organization secrets, and read billing. | 93 |
-| `organization-owner` | Organization | Everything `organization-admin` can, plus `org:delete`, `org:billing:update`, and `org:owner:assign`. | 96 |
+| `organization-owner` | Organization | Everything `organization-admin` can, plus `org:delete`, `org:billing:update`, `org:owner:assign`, and `org:scim:token`. | 97 |
 
 The Scopes column counts the current definition. Startup seeding sets every preset role to that definition: it adds missing scopes and removes the rest.
 

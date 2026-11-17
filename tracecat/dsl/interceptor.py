@@ -17,6 +17,10 @@ from temporalio.worker import (
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import get_trigger_type
+    from tracecat.dsl.error_policy import (
+        is_worker_shutdown_error,
+        worker_shutdown_classification,
+    )
     from tracecat.logger import logger
     from tracecat.observability.sentry import (
         WorkflowFailureEventContext,
@@ -52,6 +56,19 @@ def _unclassified_retry_disposition(error: BaseException) -> RetryDisposition:
         if isinstance(current, TemporalTimeoutError):
             return RetryDisposition.RETRYABLE
     return RetryDisposition.NON_RETRYABLE
+
+
+def _fallback_classification(error: BaseException) -> RuntimeErrorClassification:
+    """Name failures a boundary left unclassified when the chain still shows them."""
+    for current in iter_error_chain(error, include_implicit_context=False):
+        if is_worker_shutdown_error(current):
+            return worker_shutdown_classification(current)
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
+        message="Tracecat encountered an unclassified runtime failure",
+        retry_disposition=_unclassified_retry_disposition(error),
+        cause=error,
+    )
 
 
 def _report_terminal_failure(
@@ -125,12 +142,7 @@ class _RuntimeErrorAttributionWorkflowInterceptor(WorkflowInboundInterceptor):
                 self._report_failure(error, classification)
                 raise
 
-            classification = RuntimeErrorClassification.platform(
-                kind=RuntimeErrorKind.RUNTIME_UNCLASSIFIED,
-                message="Tracecat encountered an unclassified runtime failure",
-                retry_disposition=_unclassified_retry_disposition(error),
-                cause=error,
-            )
+            classification = _fallback_classification(error)
             self._stamp_owner(classification)
             self._report_failure(error, classification)
             raise application_error_from_classification(classification) from None

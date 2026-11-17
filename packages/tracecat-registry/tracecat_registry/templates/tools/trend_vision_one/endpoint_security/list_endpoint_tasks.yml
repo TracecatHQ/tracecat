@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: List endpoint security tasks
+  description: >-
+    Get task list. Displays the tasks of your endpoints in a paginated list. Calls GET
+    /v3.0/endpointSecurity/tasks.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Endpoint-Security/paths/~1v3.0~1endpointSecurity~1tasks/get
+  namespace: tools.trend_vision_one
+  name: list_endpoint_tasks
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    tmv1_filter:
+      type: str | None
+      description: >-
+        The filter for retrieving a subset of the task list. Supported fields: id,
+        agentGuid, status, action. Sent as the TMV1-Filter header.
+      default: null
+    startDateTime:
+      type: str | None
+      description: >-
+        The start of the data retrieval range, in ISO 8601 format.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        The end of the data retrieval range, in ISO 8601 format.
+      default: null
+    dateTimeTarget:
+      type: str | None
+      description: >-
+        The filter of the results. Allowed values: createdDateTime, lastActionDateTime.
+        Provider default: createdDateTime.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        The number of records displayed on a page. Allowed values: 10, 50, 100, 200, 1000.
+        Provider default: 100.
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        The field by which the results are sorted. Provider default: createdDateTime desc.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/endpointSecurity/tasks
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+          TMV1-Filter: ${{ inputs.tmv1_filter }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          dateTimeTarget: ${{ inputs.dateTimeTarget }}
+          top: ${{ inputs.top }}
+          orderBy: ${{ inputs.orderBy }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

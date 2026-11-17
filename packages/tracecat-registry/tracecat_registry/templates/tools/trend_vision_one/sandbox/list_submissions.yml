@@ -1,0 +1,87 @@
+type: action
+definition:
+  title: List sandbox submissions
+  description: >-
+    List submissions. Displays all submitted objects in a paginated list. Calls GET
+    /v3.0/sandbox/tasks.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Sandbox-Analysis/paths/~1v3.0~1sandbox~1tasks/get
+  namespace: tools.trend_vision_one
+  name: list_submissions
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    startDateTime:
+      type: str | None
+      description: >-
+        Timestamp in ISO 8601 format that indicates the start of the data retrieval time
+        range. If no value is specified, 'startDateTime' defaults to 180 days before the
+        time the request is made.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        Timestamp in ISO 8601 format that indicates the end of the data retrieval time
+        range. If no value is specified, 'endDateTime' defaults to the time the request is
+        made.
+      default: null
+    dateTimeTarget:
+      type: str | None
+      description: >-
+        Parameter that indicates which field is used to sort the submission list. Allowed
+        values: createdDateTime, lastActionDateTime. Provider default: createdDateTime.
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        Parameter that allows you to sort the retrieved elements in ascending or descending
+        order. If no order is specified, the elements are shown in ascending order. Provider
+        default: createdDateTime desc.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        Filter for retrieving a subset of the submissions list. Supported fields: status,
+        action, sha1, sha256, md5, id.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        Number of records displayed on a page. Allowed values: 50, 100, 200. Provider
+        default: 50.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/sandbox/tasks
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          dateTimeTarget: ${{ inputs.dateTimeTarget }}
+          orderBy: ${{ inputs.orderBy }}
+          filter: ${{ inputs.filter }}
+          top: ${{ inputs.top }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

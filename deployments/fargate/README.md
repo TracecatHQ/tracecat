@@ -6,6 +6,7 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 
 - `api`
 - `worker`
+- `background-worker` (durable platform tasks, including Git sync)
 - `executor`
 - `agent-executor`
 - `ui`
@@ -31,6 +32,12 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 > If you need highest isolation for untrusted code execution, deploy Tracecat on Kubernetes with the Helm chart, where `nsjail` is enabled by default.
 
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
+
+### Executor AWS role assumption
+
+Workflows reach AWS through the `AWS_ROLE_ARN` key in a protected `aws` or `amazon_s3` secret, and external secret stores register a role ARN; the executor assumes those roles with its task role, `<iam_name_prefix>ExecutorTaskRole`, passing an `ExternalId` (the workspace's for protected secrets, the store's own for external stores). That role may assume a role in any account, so `executor_deny_same_account_assume_role` (default `true`) adds an explicit Deny for roles in this deployment's own account. Without it, any workspace user could assume any role in this account whose trust policy names the account root or the executor task role and doesn't require a different `ExternalId`.
+
+Set `executor_deny_same_account_assume_role = false` only for a single-account self-hosted install whose AWS integration roles live in this account. That reopens the hole: every workspace user can then assume any role in this account whose trust policy names the account root or the executor task role and doesn't require a different `ExternalId`, so keep other roles in that account from trusting either. The setting doesn't change cross-account assumption; the target role's trust policy, including its `ExternalId` condition, still decides it.
 
 ## Default sizing
 
@@ -91,7 +98,8 @@ does not need either extension.
 
 - API task startup includes an internal migrations init container.
 - API container starts only if migrations succeed (`dependsOn: SUCCESS`).
-- `worker`, `executor`, and `agent-executor` are ordered after API in Terraform, so service updates do not proceed past API if migrations fail.
+- Terraform waits for healthy API tasks (`wait_for_steady_state = true`) before updating dependent services. A migration failure prevents the API rollout from becoming healthy; the wait fails instead of starting the new worker revision.
+- `worker`, `background-worker`, `executor`, and `agent-executor` are ordered after API in Terraform, so service updates do not proceed past API if migrations fail.
 
 By default, the migrations init container uses the same backend image repository
 and tag as the application. Set these optional variables to decouple it:
@@ -114,3 +122,104 @@ the current Alembic database revision while rolling back the app images.
 - `s3_workflow_bucket_name`
 - `s3_agent_bucket_name`
 - `nat_gateway_eips` (outbound allowlisting IPs; public identifiers, not secrets)
+
+
+## Durable background tasks
+
+The `background-worker` service runs `tracecat.background.worker` on a dedicated,
+generic Temporal queue. `background_queue` defaults to `shared-background-queue`
+and is passed to both the API and worker. Temporal creates the queue on demand;
+no server provisioning is required. Default sizing is one task, 1024 CPU units,
+2048 MiB, and ten concurrent activities. Use `background_worker_desired_count`,
+`background_worker_cpu`, `background_worker_memory`, and
+`background_worker_max_concurrent_activities` to tune it independently.
+Semantic-search indexing runs on this worker and holds up to six activities
+across the deployment. The case trigger dispatcher also runs here and holds up
+to two. If you set `background_worker_max_concurrent_activities` to eight or
+less, raise it to at least ten so Git sync keeps capacity.
+
+The background worker is required: case triggers start their workflows from it.
+While `api_desired_count` is positive, `background_worker_desired_count` must be
+too. Case changes made while the worker is down start their workflows once it
+returns.
+
+Deploy an app image containing the worker together with the additive
+`workspace_sync_operation` migration. The worker shares the existing API task
+role, database, and workflow artifact bucket, and uses the worker-specific
+`worker_secrets` set. API-only authentication, OAuth, SAML, and SMTP secrets are
+not passed to the worker. Preserve artifacts for at
+least the 24-hour preview confirmation window. API acceptance is durable even
+while the worker is unavailable; operations remain queued until it returns.
+Roll back application images without removing the operation table or artifacts.
+
+
+### Upgrading the Git sync lifecycle
+
+Keep `background_worker_desired_count` at one or more. Apply the additive database
+migration before starting the updated application services. Terraform waits for
+the API deployment to become healthy before updating the background worker. The
+API cannot become healthy until its migration container succeeds.
+
+This configuration requires Terraform 1.2 or newer for its startup precondition.
+When `background_worker_desired_count` is positive, `api_desired_count` must also
+be positive so at least one API task can run migrations. Set both counts to zero
+to pause the API and background sync. A standalone worker with a separately managed migration
+step is not supported by this configuration.
+
+New sync requests can remain queued briefly while the worker updates. Verify
+that the updated worker is polling the configured queue before declaring the
+rollout healthy.
+
+The updated worker registers both the old phase workflow and the new lifecycle
+workflow. This lets an already-running old import finish. A preview prepared by
+the old application must be created again before you confirm it in the new UI.
+The new API accepts an operation only after Temporal records it. Temporal then
+keeps its preparation, confirmation, retry, and expiration in one workflow.
+The database keeps history and write receipts, not a queue that starts workflows.
+
+Keep the operation table and stored preview artifacts when rolling back. Let
+running lifecycle workflows finish on a worker that understands them before
+removing that worker version. After an import commits, the worker retries pending
+schedule and background updates automatically; it does not import those resources again.
+
+### ALB traffic logging
+
+ALB access and TLS connection logs are disabled by default. Enable them explicitly
+with `enable_alb_logging = true` and set `alb_log_bucket_name` to a bucket in the
+load balancer's AWS region. Supplying a bucket alone leaves logging disabled.
+The bucket must exist, use SSE-S3 encryption, and grant
+`logdelivery.elasticloadbalancing.amazonaws.com` permission to write under the
+source account's object prefixes before logging is enabled.
+
+Request records use `alb/access/`; TLS connection records use `alb/connection/`.
+Set `enable_alb_logging = false` to disable both streams on the next apply.
+ALB logs can contain sensitive URLs and client metadata. Delivery is best effort
+and is separate from CloudTrail management API auditing. Target health-check
+logging is a separate diagnostic feature.
+
+### WAF ownership (legacy)
+
+Manage AWS WAF rules, ALB associations, event logging, and monitoring through a
+separate CloudFormation stack or your own security tooling. Use the `alb_arn`
+output to associate a `REGIONAL` web ACL in the ALB's AWS account and region.
+With Terraform 1.7+, the bundled `waf-handoff.tf`
+forgets legacy WAF state entries while preserving the live protection.
+Keep that migration file in the shared module for users upgrading from older releases.
+See the [Fargate WAF cleanup guide](https://github.com/TracecatHQ/tracecat/pull/4145)
+for migration, manual setup, and troubleshooting.
+
+## Workload IAM permissions boundary
+
+Set `iam_role_permissions_boundary` to the managed-policy ARN maintained by your
+platform administrator to apply one ceiling to every task and execution role,
+including optional services. For example:
+
+```hcl
+iam_role_permissions_boundary = "arn:aws:iam::123456789012:policy/WorkloadBoundary"
+```
+
+The default is `null` for installations without a boundary. Setting the input
+updates existing roles in place and preserves their names and ARNs. Review the
+full plan and reject any deletion or replacement before applying. Manage the boundary policy separately from this workload stack.
+Add service permissions to workload identity policies within that ceiling; keep
+the boundary ARN stable when extending its approved scopes.

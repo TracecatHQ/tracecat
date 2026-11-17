@@ -36,6 +36,7 @@ from tracecat.config import DBEncryptionAlgorithm
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelBot,
     AgentChannelToken,
     AgentCustomProvider,
     MCPIntegration,
@@ -77,6 +78,7 @@ ENCRYPTED_COLUMNS: Final[tuple[EncryptedColumn, ...]] = (
     EncryptedColumn(OAuthIntegration.encrypted_client_secret),
     EncryptedColumn(AgentCustomProvider.encrypted_config),
     EncryptedColumn(AgentCatalog.encrypted_config),
+    EncryptedColumn(AgentChannelBot.encrypted_credentials),
     EncryptedColumn(WorkspaceTunnel.encrypted_client_secret),
     EncryptedColumn(WorkspaceTunnel.encrypted_gateway_key),
     EncryptedColumn(

@@ -128,6 +128,22 @@ def _apply_rls_context_sync(connection: Connection, context: _RLSContext) -> Non
     connection.execute(_RLS_CONTEXT_SQL, _build_rls_context_params(context))
 
 
+def enable_migration_rls_bypass(connection: Connection) -> None:
+    """Turn on the RLS bypass for the rest of a migration connection's session.
+
+    Dynamic workspace tables FORCE row level security, so their owner is
+    filtered by the policy too. Alembic never goes through the request session
+    hooks, so without this a migration that reads those tables sees no rows.
+    The setting is session-level (`is_local=false`) so it holds across every
+    migration transaction. Only call it on direct, unpooled connections: a
+    session-level setting would leak to other clients through a transaction
+    pooler.
+    """
+    connection.execute(
+        text(f"SELECT set_config('{RLS_VAR_BYPASS}', '{RLS_BYPASS_ON}', false)")
+    )
+
+
 async def _apply_rls_context_async(
     session: AsyncSession,
     context: _RLSContext,

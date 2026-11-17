@@ -24,6 +24,16 @@ import type {
   SecretStoreMappingRequirement,
   VcsProvider,
 } from "@/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -67,6 +77,7 @@ import {
   getWorkspaceSyncResourceAbbr,
   getWorkspaceSyncResourceLabel,
 } from "@/components/workspace-sync/resource-metadata"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkflowSync } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -99,7 +110,8 @@ export function GitSyncPullTab({
   isActive,
   onPulled,
 }: GitSyncPullTabProps) {
-  const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
+  const { pullWorkflows, pullWorkflowsIsPending, previewOperation } =
+    useWorkflowSync(workspaceId)
 
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
     null
@@ -169,14 +181,22 @@ export function GitSyncPullTab({
     pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey &&
     pullPreviewOptions?.storeMappingsKey === storeMappingsKey
   const canApplyPull =
-    pullPreviewMatchesSelection && pullPreview?.success === true
+    pullPreviewMatchesSelection &&
+    pullPreview?.success === true &&
+    previewOperation?.status === "ready"
   const isPreviewing = pullWorkflowsIsPending && pullAction === "preview"
   const isApplying = pullWorkflowsIsPending && pullAction === "apply"
-  const showPreview = Boolean(pullPreview && pullPreviewMatchesSource)
+  const showPreview = Boolean(
+    pullPreview &&
+      pullPreviewMatchesSource &&
+      previewOperation?.status !== "expired"
+  )
   const changeCount = showPreview
-    ? countChangedResources(pullPreview?.resource_diffs ?? [])
+    ? (previewOperation?.diff_count ??
+      countChangedResources(pullPreview?.resource_diffs ?? []))
     : 0
   const shortSha = effectivePullSha?.substring(0, 7)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const resetPullPreview = useCallback(() => {
     setPullPreview(null)
@@ -289,6 +309,7 @@ export function GitSyncPullTab({
         storeMappingsKey: JSON.stringify(storeSelections),
       })
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Pull preview failed",
         description: getApiErrorDetail(error) ?? "Request failed",
@@ -359,6 +380,7 @@ export function GitSyncPullTab({
         variant: result.success ? undefined : "destructive",
       })
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Pull failed",
         description: getApiErrorDetail(error) ?? "Request failed",
@@ -382,6 +404,8 @@ export function GitSyncPullTab({
         {pullPreview && showPreview && !isPreviewing ? (
           <PullPreview
             workspaceId={workspaceId}
+            operationId={previewOperation?.id}
+            diffCount={previewOperation?.diff_count}
             result={pullPreview}
             summary={getPullPreviewSummary(
               pullPreview.resource_diffs ?? [],
@@ -449,7 +473,7 @@ export function GitSyncPullTab({
         <Button
           type="button"
           size="sm"
-          onClick={() => void handleApplyPull()}
+          onClick={() => setConfirmOpen(true)}
           disabled={pullWorkflowsIsPending || !canApplyPull}
           className="shrink-0 gap-1.5"
         >
@@ -458,9 +482,34 @@ export function GitSyncPullTab({
           ) : (
             <ArrowDownIcon className="size-4" />
           )}
-          {getPullButtonLabel({ isApplying, changeCount, workspaceName })}
+          {getPullButtonLabel({ isApplying, workspaceName })}
         </Button>
       </GitSyncActionBar>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {getPullConfirmation({
+                changeCount,
+                shortSha,
+                baseBranch,
+                workspaceName,
+                syncSchedules,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pullWorkflowsIsPending || !canApplyPull}
+              onClick={() => void handleApplyPull()}
+            >
+              {getPullButtonLabel({ isApplying: false, workspaceName })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -533,20 +582,35 @@ function getPullPreviewSummary(
 
 function getPullButtonLabel({
   isApplying,
-  changeCount,
   workspaceName,
 }: {
   isApplying: boolean
-  changeCount: number
   workspaceName: string
 }): string {
-  if (isApplying) {
-    return "Pulling..."
-  }
-  if (changeCount > 0) {
-    return `Pull ${changeCount} into ${workspaceName}`
-  }
-  return `Pull into ${workspaceName}`
+  // Keep the label stable; the preview above already shows what changes.
+  return isApplying ? "Pulling..." : `Pull into ${workspaceName}`
+}
+
+function getPullConfirmation({
+  changeCount,
+  shortSha,
+  baseBranch,
+  workspaceName,
+  syncSchedules,
+}: {
+  changeCount: number
+  shortSha: string | undefined
+  baseBranch: string | undefined
+  workspaceName: string
+  syncSchedules: boolean
+}): string {
+  const changes = `${changeCount} ${changeCount === 1 ? "change" : "changes"}`
+  const commit = shortSha ?? "the selected commit"
+  const source = baseBranch ? `${commit} on ${baseBranch}` : commit
+  const schedules = syncSchedules
+    ? "Workflow schedules are replaced with the ones in Git."
+    : "Workflow schedules are kept."
+  return `This applies ${changes} from ${source} to ${workspaceName}. ${schedules}`
 }
 
 /**
@@ -556,6 +620,8 @@ function getPullButtonLabel({
 function PullPreview({
   workspaceId,
   workspaceName,
+  operationId,
+  diffCount,
   result,
   catalogMappingRequirements,
   catalogMappings,
@@ -570,6 +636,8 @@ function PullPreview({
 }: {
   workspaceId: string
   workspaceName: string
+  operationId?: string
+  diffCount?: number
   result: PullResult
   catalogMappingRequirements: CatalogMappingRequirement[]
   catalogMappings: Record<string, string>
@@ -704,12 +772,18 @@ function PullPreview({
           </span>
         </div>
       )}
-      {/* A failed preview compared nothing, so "Already matches" would mislead. */}
-      {(result.success || resourceDiffs.length > 0) && (
+      {/* Validation may fail after comparison; keep computed changes visible. */}
+      {(result.success || resourceDiffs.length > 0 || (diffCount ?? 0) > 0) && (
         <GitSyncChangeList
           workspaceId={workspaceId}
+          operationId={operationId}
+          diffCount={diffCount}
           direction="pull"
-          summary={summary}
+          summary={
+            operationId && resourceDiffs.length === 0
+              ? `${diffCount ?? 0} change(s)`
+              : summary
+          }
           resources={resources}
           diffs={resourceDiffs}
           fileCount={result.files?.length ?? resourceDiffs.length}

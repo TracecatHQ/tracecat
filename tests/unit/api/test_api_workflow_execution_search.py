@@ -33,10 +33,12 @@ async def test_search_workflow_executions_accepts_limit_500(
     mock_service = AsyncMock()
     mock_service.list_executions_paginated = AsyncMock(return_value=_empty_page())
 
-    with patch.object(
-        executions_router.WorkflowExecutionsService,
-        "connect",
-        AsyncMock(return_value=mock_service),
+    with (
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_service),
+        ),
     ):
         response = client.get("/workflow-executions/search", params={"limit": 500})
 
@@ -54,6 +56,10 @@ async def test_search_workflow_executions_accepts_limit_500(
     assert await_args.kwargs["exclude_workflow_types"] == set(
         WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES
     )
+    # Workflow agent actions' turns are not workflow runs.
+    assert {"WorkflowAgentTurnWorkflow", "DurableAgentWorkflow"} <= await_args.kwargs[
+        "exclude_workflow_types"
+    ]
 
 
 @pytest.mark.anyio
@@ -85,6 +91,10 @@ async def test_list_workflow_executions_excludes_agent_workflow_types(
     assert await_args.kwargs["exclude_workflow_types"] == set(
         WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES
     )
+    # Workflow agent actions' turns are not workflow runs.
+    assert {"WorkflowAgentTurnWorkflow", "DurableAgentWorkflow"} <= await_args.kwargs[
+        "exclude_workflow_types"
+    ]
 
 
 @pytest.mark.anyio

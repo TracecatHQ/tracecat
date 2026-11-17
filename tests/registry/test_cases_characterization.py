@@ -616,6 +616,23 @@ class TestCreateCase:
         tag_refs = [t["ref"] for t in full_case["tags"]]
         assert tag_name in tag_refs
 
+    async def test_create_case_with_unknown_tag_creates_no_case(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """An unknown tag fails the create and leaves no case behind."""
+        summary = f"Unknown tag case {uuid.uuid4().hex[:8]}"
+
+        with pytest.raises(SDKValidationError) as exc:
+            await create_case(
+                summary=summary,
+                description="Test case with an unknown tag.",
+                tags=[f"missing-tag-{uuid.uuid4().hex[:8]}"],
+            )
+
+        assert exc.value.status_code == 400
+        summaries = [case["summary"] for case in _case_items(await list_cases())]
+        assert summary not in summaries
+
 
 # =============================================================================
 # get_case characterization tests

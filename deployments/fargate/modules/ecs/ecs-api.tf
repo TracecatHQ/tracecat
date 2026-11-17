@@ -74,6 +74,8 @@ resource "aws_ecs_service" "tracecat_api" {
   task_definition      = aws_ecs_task_definition.api_task_definition.arn
   desired_count        = var.api_desired_count
   force_new_deployment = var.force_new_deployment
+  # Dependent services must wait for migration success and healthy API tasks.
+  wait_for_steady_state = true
 
   network_configuration {
     subnets = var.private_subnet_ids

@@ -118,7 +118,7 @@ To make every service trust your CA — including custom LLM providers and Pytho
     Include the full chain: root and any intermediate CAs.
   </Step>
   <Step title="Create a Compose override">
-    Create `docker-compose.override.yml` next to your `docker-compose.yml`:
+    Create `docker-compose.override.yml` next to your `docker-compose.yml`, replacing `<version>` with the image tag in your `docker-compose.yml`:
 
     ```yaml
     x-custom-ca: &custom-ca
@@ -134,7 +134,7 @@ To make every service trust your CA — including custom LLM providers and Pytho
 
     services:
       cert-init:
-        image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0}
+        image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-<version>}
         restart: "no"
         user: root
         volumes:
@@ -163,6 +163,7 @@ To make every service trust your CA — including custom LLM providers and Pytho
     ```
 
     The `cert-init` service copies the default certifi bundle into a shared volume and appends your CA certificates.
+    When you update Tracecat, set `<version>` in the override to the new image tag.
     Docker Compose merges the override with each service's existing configuration.
     Apply the same `*custom-ca` block to any other service that makes outbound HTTPS calls.
   </Step>

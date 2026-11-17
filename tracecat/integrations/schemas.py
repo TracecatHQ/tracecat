@@ -842,6 +842,13 @@ class MCPToolSummary(BaseModel):
     """Whether this tool requires HITL approval before execution."""
     status: MCPToolStatus = "available"
     """Whether the tool was present in the latest successful discovery."""
+    input_schema: dict[str, Any] | None = None
+    """JSON Schema for the tool's arguments, as the server advertised it.
+
+    Recorded for stdio servers, whose tools are listed from this saved copy
+    instead of rediscovered per turn. ``None`` for HTTP servers and for stdio
+    tools verified before the schema was recorded.
+    """
 
     @classmethod
     def validate_stored(

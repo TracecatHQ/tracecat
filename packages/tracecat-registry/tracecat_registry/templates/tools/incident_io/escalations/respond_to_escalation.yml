@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Respond to escalation
+  description: >-
+    Respond to an escalation. Calls POST /v2/escalations/{escalation_id}/actions/respond directly.
+    Requires API key scope: escalations.respond.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/escalations-v2/respond
+  namespace: tools.incident_io
+  name: respond_to_escalation
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    escalation_id:
+      type: str
+      description: The ID of the escalation
+    response:
+      type: str
+      description: >-
+        Whether to acknowledge, decline or snooze the escalation. Allowed values: `ack`, `nack`,
+        `snooze`.
+    snooze_details:
+      type: dict[str, Any] | None
+      description: '`snooze_details` object. Fields: reason, snooze_until.'
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/escalations/${{ FN.url_encode(inputs.escalation_id) }}/actions/respond
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          response: ${{ inputs.response }}
+          snooze_details: ${{ inputs.snooze_details }}
+  returns: ${{ steps.request.result }}

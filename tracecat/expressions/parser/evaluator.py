@@ -169,19 +169,19 @@ class ExprEvaluator(Transformer[Token, Any]):
 
     @v_args(inline=True)
     def actions(self, jsonpath: str):
-        logger.trace("Visiting actions:", args=jsonpath)
+        logger.trace("Visiting actions:", length=len(jsonpath))
         expr = ExprContext.ACTIONS + jsonpath
         return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def secrets(self, path: str):
-        logger.trace("Visiting secrets:", path=path)
+        logger.trace("Visiting secrets:", length=len(path))
         expr = ExprContext.SECRETS + path
         return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def vars(self, path: str):
-        logger.trace("Visiting vars:", path=path)
+        logger.trace("Visiting vars:", length=len(path))
         trimmed = path.lstrip(".")
         parts = trimmed.split(".") if trimmed else []
         key_segments = parts[1:] if len(parts) > 1 else []
@@ -197,36 +197,36 @@ class ExprEvaluator(Transformer[Token, Any]):
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
-        logger.trace("Visiting env:", args=jsonpath)
+        logger.trace("Visiting env:", length=len(jsonpath))
         expr = ExprContext.ENV + jsonpath
         return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def local_vars(self, jsonpath: str):
-        logger.trace("Visiting local_vars:", args=jsonpath)
+        logger.trace("Visiting local_vars:", length=len(jsonpath))
         expr = ExprContext.LOCAL_VARS + jsonpath
         return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def local_vars_assignment(self, jsonpath: str):
-        logger.trace("Visiting local_vars_assignment:", args=jsonpath)
+        logger.trace("Visiting local_vars_assignment:", length=len(jsonpath))
         return jsonpath
 
     @v_args(inline=True)
     def trigger(self, jsonpath: str | None):
-        logger.trace("Visiting trigger:", args=jsonpath)
+        logger.trace("Visiting trigger:", length=len(jsonpath or ""))
         expr = ExprContext.TRIGGER + (jsonpath or "")
         return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):
-        logger.trace("Visiting template_action_inputs:", args=jsonpath)
+        logger.trace("Visiting template_action_inputs:", length=len(jsonpath))
         expr = ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath
         return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def template_action_steps(self, jsonpath: str):
-        logger.trace("Visiting template_action_steps:", args=jsonpath)
+        logger.trace("Visiting template_action_steps:", length=len(jsonpath))
         expr = ExprContext.TEMPLATE_ACTION_STEPS + jsonpath
         return self._eval_jsonpath(expr)
 
@@ -377,63 +377,64 @@ class ExprEvaluator(Transformer[Token, Any]):
         return +value
 
     def PARTIAL_JSONPATH_EXPR(self, token: Token):
-        logger.trace("Visiting PARTIAL_JSONPATH_EXPR:", value=token.value)
+        logger.trace("Visiting PARTIAL_JSONPATH_EXPR:", length=len(token.value))
         return token.value
 
     """Terminals"""
 
     def JSONPATH(self, token: Token):
-        logger.trace("Visiting jsonpath:", value=token.value)
+        logger.trace("Visiting jsonpath:", length=len(token.value))
         return token
 
     def JSONPATH_INDEX(self, token: Token):
-        logger.trace("Visiting jsonpath_index:", value=token.value)
+        logger.trace("Visiting jsonpath_index:", length=len(token.value))
         return token.value
 
     def CNAME(self, token: Token):
-        logger.trace("Visiting CNAME:", token=token, value=token.value)
+        logger.trace("Visiting CNAME:", length=len(token.value))
         return token.value
 
     def OPERATOR(self, token: Token):
-        logger.trace("Visiting OPERATOR:", value=token.value)
+        logger.trace("Visiting OPERATOR:", length=len(token.value))
         return token.value
 
     def STRING_LITERAL(self, token: Token):
-        logger.trace("Visiting STRING_LITERAL:", value=token.value)
+        # String literals can be credentials typed into a template.
+        logger.trace("Visiting STRING_LITERAL:", length=len(token.value) - 2)
         return token.value[1:-1]
 
     def NUMERIC_LITERAL(self, token: Token):
-        logger.trace("Visiting NUMERIC_LITERAL:", value=token.value)
+        logger.trace("Visiting NUMERIC_LITERAL:", length=len(token.value))
         if token.value.isdigit():
             return int(token.value)
         return float(token.value)
 
     def TYPE_SPECIFIER(self, token: Token):
-        logger.trace("Visiting TYPE_SPECIFIER:", value=token.value)
+        logger.trace("Visiting TYPE_SPECIFIER:", length=len(token.value))
         return token.value
 
     def BOOL_LITERAL(self, token: Token):
-        logger.trace("Visiting BOOL_LITERAL:", value=token.value)
+        logger.trace("Visiting BOOL_LITERAL:", length=len(token.value))
         return functions.cast(token.value, "bool")
 
     def NONE_LITERAL(self, token: Token):
-        logger.trace("Visiting NONE_LITERAL:", value=token.value)
+        logger.trace("Visiting NONE_LITERAL:", length=len(token.value))
         return None
 
     def FN_NAME_WITH_TRANSFORM(self, token: Token):
-        logger.trace("Visiting FN_NAME_WITH_TRANSFORM:", value=token.value)
+        logger.trace("Visiting FN_NAME_WITH_TRANSFORM:", length=len(token.value))
         return token.value
 
     def ATTRIBUTE_PATH(self, token: Token):
-        logger.trace("Visiting ATTRIBUTE_PATH:", value=token.value)
+        logger.trace("Visiting ATTRIBUTE_PATH:", length=len(token.value))
         return token.value
 
     def ATTRIBUTE_ACCESS(self, token: Token):
-        logger.trace("Visiting ATTRIBUTE_ACCESS:", value=token.value)
+        logger.trace("Visiting ATTRIBUTE_ACCESS:", length=len(token.value))
         return token.value
 
     def BRACKET_ACCESS(self, token: Token):
-        logger.trace("Visiting BRACKET_ACCESS:", value=token.value)
+        logger.trace("Visiting BRACKET_ACCESS:", length=len(token.value))
         return token.value
 
     def _apply_index(self, value: Any, index: Any) -> Any:

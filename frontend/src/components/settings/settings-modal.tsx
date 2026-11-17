@@ -3,6 +3,7 @@
 import {
   Cpu,
   FileIcon,
+  LayersIcon,
   LogOut,
   Palette,
   Settings2,
@@ -251,6 +252,13 @@ function SettingsModalContent() {
                         icon={WorkflowIcon}
                         label="Workflows"
                         section="workspace-runtime"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={LayersIcon}
+                        label="Cases"
+                        section="workspace-cases"
                         activeSection={displayedSection}
                         onSelect={setActiveSection}
                       />

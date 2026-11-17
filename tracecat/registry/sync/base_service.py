@@ -695,9 +695,7 @@ class BaseRegistrySyncService[
             # The worker fetches the value again and the key is not serialized.
             secrets_service = SecretsService(self.session, role=role)
             try:
-                await secrets_service.get_org_secret_by_name(
-                    REGISTRY_GIT_SSH_KEY_SECRET_NAME
-                )
+                await secrets_service.get_registry_ssh_key_secret()
             except TracecatNotFoundError as exc:
                 raise self._sync_error_cls()(
                     "Git repository sync requires a "

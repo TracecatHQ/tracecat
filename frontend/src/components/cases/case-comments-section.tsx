@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   CaseCommentAgentAttribution,
   CaseCommentAgentInvocationList,
@@ -402,7 +403,11 @@ function CommentRow({
     workspaceId,
     execution?.id ?? comment.workflow?.wf_exec_id ?? null
   )
-  const canManage = !comment.is_deleted && currentUserId === comment.user?.id
+  const canDeleteAnyComment = useScopeCheck("case:delete") === true
+  const isAuthor = currentUserId === comment.user?.id
+  const canEdit = !comment.is_deleted && isAuthor && !isWorkflowComment
+  const canDelete = !comment.is_deleted && canDeleteAnyComment
+  const canManage = canEdit || canDelete
   // Only a bare `/Workflow` command saves with an empty body; the workflow
   // header stands alone in that case. The API rejects blank content otherwise.
   const hasBody = comment.content.trim() !== ""
@@ -496,7 +501,8 @@ function CommentRow({
                   caseId={caseId}
                   workspaceId={workspaceId}
                   comment={comment}
-                  allowEdit={!isWorkflowComment}
+                  allowEdit={canEdit}
+                  allowDelete={canDelete}
                   onEdit={onEdit}
                 />
               ) : null}
@@ -881,12 +887,14 @@ function CommentActionsWithEditing({
   workspaceId,
   comment,
   allowEdit,
+  allowDelete,
   onEdit,
 }: {
   caseId: string
   workspaceId: string
   comment: CaseCommentRead
   allowEdit: boolean
+  allowDelete: boolean
   onEdit: () => void
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -901,7 +909,7 @@ function CommentActionsWithEditing({
       await deleteComment()
       toast({
         title: "Comment deleted",
-        description: "Your comment has been deleted successfully.",
+        description: "The comment has been deleted.",
       })
     } catch (error) {
       console.error("Error deleting comment:", error)
@@ -931,13 +939,15 @@ function CommentActionsWithEditing({
               Edit
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem
-            className="flex cursor-pointer items-center gap-2 text-xs text-destructive focus:text-destructive"
-            onClick={() => setShowDeleteConfirm(true)}
-          >
-            <Trash2Icon className="size-3" />
-            Delete
-          </DropdownMenuItem>
+          {allowDelete ? (
+            <DropdownMenuItem
+              className="flex cursor-pointer items-center gap-2 text-xs text-destructive focus:text-destructive"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              <Trash2Icon className="size-3" />
+              Delete
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 

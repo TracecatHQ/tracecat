@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from enum import StrEnum
 from typing import Literal
 
@@ -23,6 +23,12 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_none_managed,
+    ensure_unmanaged,
+    managed_local_ids,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 from tracecat.workflow.management.folders.schemas import (
@@ -35,6 +41,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowTriggerSummary,
 )
 from tracecat.workflow.management.types import build_workflow_trigger_summary
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowFolderErrorCode(StrEnum):
@@ -243,6 +250,38 @@ class WorkflowFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("workflow:read")
+    async def get_workflow_titles(
+        self, workflow_ids: Collection[WorkflowUUID]
+    ) -> dict[WorkflowUUID, str]:
+        """Return titles of the given workflows that exist in this workspace."""
+        if not workflow_ids:
+            return {}
+        result = await self.session.execute(
+            select(Workflow.id, Workflow.title).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id.in_(workflow_ids),
+            )
+        )
+        return {
+            WorkflowUUID.new(workflow_id): title
+            for workflow_id, title in result.tuples().all()
+        }
+
+    @require_scope("workflow:read")
+    async def get_managed_workflow_ids(
+        self, workflow_ids: Collection[WorkflowUUID]
+    ) -> set[uuid.UUID]:
+        """Return which of the given workflows are locked by workspace sync."""
+        if bypass_active():
+            return set()
+        return await managed_local_ids(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_ids=workflow_ids,
+        )
+
     @require_scope("workflow:update")
     async def move_workflow(
         self, workflow_id: WorkflowID, folder: WorkflowFolder | None = None
@@ -256,6 +295,12 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The updated workflow
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=WorkflowUUID.new(workflow_id),
+        )
         # Update the workflow
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
@@ -445,8 +490,38 @@ class WorkflowFolderService(BaseWorkspaceService):
                 WorkflowFolder.workspace_id == self.workspace_id,
                 WorkflowFolder.path.startswith(folder.path, autoescape=True),
             )
+            # Moving or deleting the subtree's workflows edits each one, so
+            # a managed workflow anywhere in it blocks the delete.
+            await ensure_none_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.WORKFLOW,
+                local_ids=list(
+                    await self.session.scalars(
+                        select(Workflow.id).where(
+                            Workflow.workspace_id == self.workspace_id,
+                            Workflow.folder_id.in_(folder_ids),
+                        )
+                    )
+                ),
+            )
             if delete_workflows:
                 await self._delete_workflows_in_folders(folder_ids)
+                # Those deletes commit, which releases the ownership lock the
+                # check above took. Check again so it is held through the move.
+                await ensure_none_managed(
+                    self.session,
+                    workspace_id=self.workspace_id,
+                    resource_type=SyncResourceType.WORKFLOW,
+                    local_ids=list(
+                        await self.session.scalars(
+                            select(Workflow.id).where(
+                                Workflow.workspace_id == self.workspace_id,
+                                Workflow.folder_id.in_(folder_ids),
+                            )
+                        )
+                    ),
+                )
             await self.session.execute(
                 sa.update(Workflow)
                 .where(
@@ -795,21 +870,29 @@ class WorkflowFolderService(BaseWorkspaceService):
         # For root path, get workflows with no folder_id
         if path == "/":
             # Get root-level folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                func.length(WorkflowFolder.path)
-                - func.length(func.replace(WorkflowFolder.path, "/", ""))
-                == 2,  # folders with exactly two slashes
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    func.length(WorkflowFolder.path)
+                    - func.length(func.replace(WorkflowFolder.path, "/", ""))
+                    == 2,  # folders with exactly two slashes
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()
         else:
             # Get direct child folders
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path.startswith(path, autoescape=True),
-                WorkflowFolder.path != path,
-                ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+            folder_statement = (
+                select(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    WorkflowFolder.path.startswith(path, autoescape=True),
+                    WorkflowFolder.path != path,
+                    ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
+                )
+                .order_by(WorkflowFolder.path)
             )
             folder_result = await self.session.execute(folder_statement)
             folders = folder_result.scalars().all()

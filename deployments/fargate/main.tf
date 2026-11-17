@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.0.0"
+  required_version = ">= 1.7.0"
 }
 
 locals {
@@ -24,17 +24,18 @@ module "network" {
 module "ecs" {
   source = "./modules/ecs"
 
+  iam_role_permissions_boundary = var.iam_role_permissions_boundary
+  enable_alb_logging            = var.enable_alb_logging
+  alb_log_bucket_name           = var.alb_log_bucket_name
+
   # AWS provider
-  aws_region                            = var.aws_region
-  name_prefix                           = var.name_prefix
-  iam_name_prefix                       = var.iam_name_prefix
-  core_db_identifier                    = var.core_db_identifier
-  temporal_db_identifier                = var.temporal_db_identifier
-  temporal_db_parameter_group_name      = var.temporal_db_parameter_group_name
-  redis_default_user_id                 = var.redis_default_user_id
-  waf_attachments_endpoint_pattern_name = var.waf_attachments_endpoint_pattern_name
-  waf_mcp_oauth_endpoints_pattern_name  = var.waf_mcp_oauth_endpoints_pattern_name
-  waf_mcp_public_endpoint_pattern_name  = var.waf_mcp_public_endpoint_pattern_name
+  aws_region                       = var.aws_region
+  name_prefix                      = var.name_prefix
+  iam_name_prefix                  = var.iam_name_prefix
+  core_db_identifier               = var.core_db_identifier
+  temporal_db_identifier           = var.temporal_db_identifier
+  temporal_db_parameter_group_name = var.temporal_db_parameter_group_name
+  redis_default_user_id            = var.redis_default_user_id
 
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
@@ -78,6 +79,7 @@ module "ecs" {
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant
+  slack_ingress_mode                            = var.slack_ingress_mode
   context_compression_enabled                   = var.context_compression_enabled
   context_compression_threshold_kb              = var.context_compression_threshold_kb
   temporal_payload_encryption_enabled           = var.temporal_payload_encryption_enabled
@@ -150,37 +152,43 @@ module "ecs" {
   temporal_api_key_arn = var.temporal_api_key_arn
 
   # Compute / memory
-  api_cpu                                  = var.api_cpu
-  api_memory                               = var.api_memory
-  api_desired_count                        = var.api_desired_count
-  worker_cpu                               = var.worker_cpu
-  worker_memory                            = var.worker_memory
-  worker_desired_count                     = var.worker_desired_count
-  worker_threadpool_max_workers            = var.worker_threadpool_max_workers
-  worker_max_concurrent_activities         = var.worker_max_concurrent_activities
-  worker_max_concurrent_workflow_tasks     = var.worker_max_concurrent_workflow_tasks
-  agent_worker_cpu                         = var.agent_worker_cpu
-  agent_worker_memory                      = var.agent_worker_memory
-  agent_worker_desired_count               = var.agent_worker_desired_count
-  agent_worker_max_concurrent_activities   = var.agent_worker_max_concurrent_activities
-  agent_queue                              = var.agent_queue
-  executor_cpu                             = var.executor_cpu
-  executor_memory                          = var.executor_memory
-  executor_desired_count                   = var.executor_desired_count
-  executor_client_timeout                  = var.executor_client_timeout
-  agent_sandbox_timeout                    = var.agent_sandbox_timeout
-  executor_queue                           = var.executor_queue
-  executor_registry_cache_max_entries      = var.executor_registry_cache_max_entries
-  executor_registry_cache_max_bytes        = var.executor_registry_cache_max_bytes
-  executor_max_concurrent_activities       = var.executor_max_concurrent_activities
-  executor_threadpool_max_workers          = var.executor_threadpool_max_workers
-  executor_for_each_max_concurrency        = var.executor_for_each_max_concurrency
-  agent_executor_cpu                       = var.agent_executor_cpu
-  agent_executor_memory                    = var.agent_executor_memory
-  agent_executor_desired_count             = var.agent_executor_desired_count
-  agent_executor_queue                     = var.agent_executor_queue
-  agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
+  api_cpu                                     = var.api_cpu
+  api_memory                                  = var.api_memory
+  api_desired_count                           = var.api_desired_count
+  background_queue                            = var.background_queue
+  background_worker_cpu                       = var.background_worker_cpu
+  background_worker_memory                    = var.background_worker_memory
+  background_worker_desired_count             = var.background_worker_desired_count
+  background_worker_max_concurrent_activities = var.background_worker_max_concurrent_activities
+  worker_cpu                                  = var.worker_cpu
+  worker_memory                               = var.worker_memory
+  worker_desired_count                        = var.worker_desired_count
+  worker_threadpool_max_workers               = var.worker_threadpool_max_workers
+  worker_max_concurrent_activities            = var.worker_max_concurrent_activities
+  worker_max_concurrent_workflow_tasks        = var.worker_max_concurrent_workflow_tasks
+  agent_worker_cpu                            = var.agent_worker_cpu
+  agent_worker_memory                         = var.agent_worker_memory
+  agent_worker_desired_count                  = var.agent_worker_desired_count
+  agent_worker_max_concurrent_activities      = var.agent_worker_max_concurrent_activities
+  agent_queue                                 = var.agent_queue
+  executor_cpu                                = var.executor_cpu
+  executor_memory                             = var.executor_memory
+  executor_desired_count                      = var.executor_desired_count
+  executor_client_timeout                     = var.executor_client_timeout
+  agent_sandbox_timeout                       = var.agent_sandbox_timeout
+  executor_queue                              = var.executor_queue
+  executor_deny_same_account_assume_role      = var.executor_deny_same_account_assume_role
+  executor_registry_cache_max_entries         = var.executor_registry_cache_max_entries
+  executor_registry_cache_max_bytes           = var.executor_registry_cache_max_bytes
+  executor_max_concurrent_activities          = var.executor_max_concurrent_activities
+  executor_threadpool_max_workers             = var.executor_threadpool_max_workers
+  executor_for_each_max_concurrency           = var.executor_for_each_max_concurrency
+  agent_executor_cpu                          = var.agent_executor_cpu
+  agent_executor_memory                       = var.agent_executor_memory
+  agent_executor_desired_count                = var.agent_executor_desired_count
+  agent_executor_queue                        = var.agent_executor_queue
+  agent_executor_max_concurrent_activities    = var.agent_executor_max_concurrent_activities
+  llm_proxy_read_timeout                      = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
   llm_gateway_healthcheck_interval_seconds        = var.llm_gateway_healthcheck_interval_seconds

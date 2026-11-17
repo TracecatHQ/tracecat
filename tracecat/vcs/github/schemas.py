@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, SecretBytes, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretBytes, SecretStr
 
 
 class GitHubRepository(BaseModel):
@@ -66,6 +66,8 @@ class GitHubAppConfig(BaseModel):
 
 class GitHubAppCredentials(BaseModel):
     """GitHub App credentials for organization-level storage."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     app_id: str = Field(..., description="GitHub App ID")
     private_key: SecretStr = Field(

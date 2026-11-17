@@ -16,6 +16,10 @@ jest.mock("@/lib/hooks", () => ({
   useWorkspaceVariables: () => ({ updateVariableById: mockUpdateVariableById }),
 }))
 
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({ isManaged: () => false, isLoading: false }),
+}))
+
 const variable = {
   id: "var-1",
   name: "api_config",

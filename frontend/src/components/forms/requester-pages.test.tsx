@@ -27,9 +27,6 @@ let workspaceScopes: string[] = ["form:read", "form:submit"]
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
   useSearchParams: () => searchParams,
-  notFound: () => {
-    throw new Error("NEXT_NOT_FOUND")
-  },
 }))
 jest.mock("@/client", () => ({
   formsListIntakeForms: jest.fn(),
@@ -122,16 +119,11 @@ describe("RequesterShell", () => {
     expect(screen.queryByText("Form content")).not.toBeInTheDocument()
   })
 
-  it("is a 404 with the flag off and a locked page without the entitlement", () => {
-    access = "hidden"
-    jest.spyOn(console, "error").mockImplementation(() => {})
-    expect(renderShell).toThrow("NEXT_NOT_FOUND")
-
+  it("is a locked page without the entitlement", () => {
     access = "locked"
     renderShell()
     expect(screen.getByText("Forms aren't available")).toBeInTheDocument()
     expect(screen.queryByText("Form content")).not.toBeInTheDocument()
-    jest.restoreAllMocks()
   })
 })
 

@@ -4,7 +4,7 @@
 
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { ReactElement } from "react"
+import { type ReactElement, useState } from "react"
 import type {
   GitBranchInfo,
   GitCommitInfo,
@@ -27,6 +27,9 @@ import {
 } from "@/hooks/use-workspace-sync"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 
+jest.mock("@/components/workspace-sync/sync-operation-status", () => ({
+  SyncOperationStatus: () => <div data-testid="sync-operation-status" />,
+}))
 const mockExportWorkspace = jest.fn()
 const mockPullWorkflows = jest.fn()
 const mockRefetchExportPreview = jest.fn()
@@ -53,8 +56,14 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
 }))
 
 const mockInvalidateQueries = jest.fn()
+let mockImportRevision = 0
+beforeEach(() => {
+  mockImportRevision = 0
+})
 
 jest.mock("@/lib/query", () => ({
+  useQuery: () => ({ data: mockImportRevision }),
+  useInfiniteQuery: () => ({ data: undefined }),
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }))
 
@@ -140,13 +149,42 @@ function setup({
     pullWorkflows: mockPullWorkflows,
     pullWorkflowsIsPending: false,
     pullWorkflowsError: null,
+    previewOperation: {
+      id: "pull-operation",
+      direction: "pull",
+      status: "ready",
+      stage: "awaiting_confirmation",
+      created_at: "2026-10-22T00:00:00Z",
+      expires_at: "2100-01-01T00:00:00Z",
+      inputs: {
+        id: "pull-operation",
+        direction: "pull",
+        pull: { commit_sha: LATEST_SHA },
+      },
+    },
   } as ReturnType<typeof useWorkflowSync>)
-  jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
-    preview,
-    previewIsLoading: false,
-    previewError: null,
-    refetchPreview: mockRefetchExportPreview,
-  } as ReturnType<typeof useWorkspaceSyncExportPreview>)
+  jest
+    .mocked(useWorkspaceSyncExportPreview)
+    .mockImplementation(function usePreview(_id, options) {
+      const key = JSON.stringify([
+        options.push,
+        options.compareRef,
+        options.provider,
+      ])
+      const [preparedKey, setPreparedKey] = useState<string>()
+      return {
+        preview: preparedKey === key ? preview : undefined,
+        previewOperationId: preparedKey === key ? "push-operation" : undefined,
+        previewDiffCount: preview?.resource_diffs?.length ?? 0,
+        previewIsLoading: false,
+        previewError: null,
+        refetchPreview: () => {
+          Promise.resolve(mockRefetchExportPreview()).then((result) => {
+            if (!result?.error) setPreparedKey(key)
+          })
+        },
+      }
+    })
   return {
     id: "workspace-1",
     name: "Workspace 1",
@@ -158,6 +196,17 @@ function setup({
       effective_allowed_attachment_mime_types: [],
     },
   }
+}
+
+async function confirmAction(user: {
+  click: (element: Element) => Promise<void>
+}) {
+  const dialog = await screen.findByRole("alertdialog")
+  const action = within(dialog)
+    .getAllByRole("button")
+    .find((button) => button.textContent !== "Cancel")
+  if (!action) throw new Error("Confirmation dialog has no action")
+  await user.click(action)
 }
 
 function renderWithTooltips(ui: ReactElement) {
@@ -311,7 +360,7 @@ describe("GitSyncView connected", () => {
     const bar = screen.getByRole("group", { name: "Push actions" })
     expect(bar).toHaveClass("sticky", "bottom-0", "border-t", "bg-background")
     expect(
-      within(bar).getByRole("button", { name: "Push 2 and open PR" })
+      within(bar).getByRole("button", { name: "Push and open PR" })
     ).toBeEnabled()
   })
 
@@ -333,17 +382,19 @@ describe("GitSyncView connected", () => {
       <GitSyncView workspace={setup()} canSync canManageConnection />
     )
 
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Push and open PR" })
+      ).toBeEnabled()
+    )
     await user.click(screen.getByRole("button", { name: "Push and open PR" }))
+    await confirmAction(user)
 
     await waitFor(() =>
-      expect(mockExportWorkspace).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: "Export workspace config",
-          branch: expect.stringMatching(/^sync\/workspace-/),
-          create_pr: true,
-          include_schedules: false,
-        })
-      )
+      expect(mockExportWorkspace).toHaveBeenCalledWith({
+        operationId: "push-operation",
+      })
     )
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(
@@ -390,9 +441,18 @@ describe("GitSyncView connected", () => {
       expect.objectContaining({ compareRef: "main" })
     )
 
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Push and open PR" })
+      ).toBeEnabled()
+    )
     await user.click(screen.getByRole("button", { name: "Push and open PR" }))
+    await confirmAction(user)
     await waitFor(() => expect(mockExportWorkspace).toHaveBeenCalled())
-    const { branch } = mockExportWorkspace.mock.calls[0][0]
+    const branch = jest
+      .mocked(useWorkspaceSyncExportPreview)
+      .mock.calls.at(-1)?.[1].push?.branch
 
     await waitFor(() =>
       expect(useWorkspaceSyncExportPreview).toHaveBeenLastCalledWith(
@@ -452,7 +512,13 @@ describe("GitSyncView connected", () => {
     )
     expect(
       screen.getByRole("button", { name: "Push and open PR" })
-    ).toBeEnabled()
+    ).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Push and open PR" })
+      ).toBeEnabled()
+    )
   })
 
   it("explains an invalid branch name before creating it", async () => {
@@ -667,13 +733,20 @@ describe("GitSyncView connected", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     const bar = screen.getByRole("group", { name: "Push actions" })
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await waitFor(() =>
+      expect(
+        within(bar).getByRole("button", { name: "Push to release" })
+      ).toBeEnabled()
+    )
     await user.click(
       within(bar).getByRole("button", { name: "Push to release" })
     )
+    await confirmAction(user)
     await waitFor(() =>
-      expect(mockExportWorkspace).toHaveBeenCalledWith(
-        expect.objectContaining({ branch: "release", create_pr: false })
-      )
+      expect(mockExportWorkspace).toHaveBeenCalledWith({
+        operationId: "push-operation",
+      })
     )
   })
 
@@ -861,7 +934,7 @@ describe("GitSyncView connected", () => {
       await screen.findByText("Matches checked for shared-model.")
     ).toBeInTheDocument()
     const pullButton = await within(bar).findByRole("button", {
-      name: "Pull 1 into Workspace 1",
+      name: "Pull into Workspace 1",
     })
     expect(pullButton).toBeEnabled()
     expect(screen.getByText("Included in this pull")).toBeInTheDocument()
@@ -870,6 +943,7 @@ describe("GitSyncView connected", () => {
     ).toBeInTheDocument()
 
     await user.click(pullButton)
+    await confirmAction(user)
     await waitFor(() =>
       expect(mockPullWorkflows).toHaveBeenNthCalledWith(3, {
         commit_sha: LATEST_SHA,
@@ -963,7 +1037,7 @@ describe("GitSyncView connected", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     const pullButton = within(bar).getByRole("button", {
-      name: "Pull 1 into Workspace 1",
+      name: "Pull into Workspace 1",
     })
     expect(pullButton).toBeEnabled()
 
@@ -1002,8 +1076,9 @@ describe("GitSyncView connected", () => {
     ).toBeInTheDocument()
 
     await user.click(
-      within(bar).getByRole("button", { name: "Pull 1 into Workspace 1" })
+      within(bar).getByRole("button", { name: "Pull into Workspace 1" })
     )
+    await confirmAction(user)
     await waitFor(() =>
       expect(mockPullWorkflows).toHaveBeenNthCalledWith(
         3,
@@ -1113,9 +1188,10 @@ describe("GitSyncView connected", () => {
     const bar = screen.getByRole("group", { name: "Pull actions" })
     await user.click(
       await within(bar).findByRole("button", {
-        name: "Pull 1 into Workspace 1",
+        name: "Pull into Workspace 1",
       })
     )
+    await confirmAction(user)
     await waitFor(() => expect(mockPullWorkflows).toHaveBeenCalledTimes(2))
 
     await user.click(screen.getByRole("tab", { name: "Push" }))
@@ -1178,4 +1254,23 @@ describe("GitSyncView connected", () => {
       )
     )
   })
+})
+
+it("clears an open push preview when an observed pull imports data", async () => {
+  const user = userEvent.setup()
+  const workspace = setup({ preview: PUSH_PREVIEW })
+  const view = renderWithTooltips(
+    <GitSyncView workspace={workspace} canSync canManageConnection />
+  )
+  await user.click(screen.getByRole("button", { name: "Preview" }))
+  expect(await screen.findByText("Included in this push")).toBeInTheDocument()
+  mockImportRevision = 1
+  view.rerender(
+    <TooltipProvider>
+      <GitSyncView workspace={workspace} canSync canManageConnection />
+    </TooltipProvider>
+  )
+  await waitFor(() =>
+    expect(screen.queryByText("Included in this push")).not.toBeInTheDocument()
+  )
 })

@@ -117,6 +117,36 @@ The updated comment content.
     content: "Initial triage started. Waiting on endpoint data."
 ```
 
+## `core.cases.delete_comment`
+
+Delete a case comment.
+
+### Inputs
+
+<ParamField path="case_id" type="string" required>
+
+The ID or short ID (e.g. CASE-0042) of the case containing the comment.
+
+</ParamField>
+
+<ParamField path="comment_id" type="string" required>
+
+The ID of the comment to delete.
+
+</ParamField>
+
+### Examples
+
+**Delete a comment**
+
+```yaml
+- ref: delete_comment
+  action: core.cases.delete_comment
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    comment_id: ${{ TRIGGER.comment_id }}
+```
+
 ## `core.cases.list_comments`
 
 List all comments for a case.

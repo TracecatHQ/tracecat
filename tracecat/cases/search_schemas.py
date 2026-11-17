@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from tracecat_ee.cases.views.types import BuiltinCaseViewId
 
 from tracecat.cases.constants import (
     MAX_PAYLOAD_FIELDS,
@@ -29,6 +31,8 @@ from tracecat.query.lexical import (
 )
 from tracecat.query.lexical_types import SearchMode
 from tracecat.query.resolver import FieldKind
+
+MAX_RELATIVE_WINDOW_AMOUNT = 1000
 
 type CaseSearchOrder = Literal[
     "relevance",
@@ -68,8 +72,68 @@ class CaseFilterMetadata(BaseModel):
     max_values: int = Field(default=MAX_FILTER_VALUES)
 
 
-class CaseQuery(BaseModel):
-    """Matching criteria shared by case search and filtered status counts.
+class RelativeTimeUnit(StrEnum):
+    """Calendar units a relative time window can count back in."""
+
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class RelativeTimeWindow(BaseModel):
+    """A time range that ends now, such as "the last 30 days".
+
+    The database resolves the start each time a query runs, so a saved view
+    keeps meaning "the last 30 days" instead of a fixed date. Months use
+    calendar arithmetic: one month before 31 March is 28 or 29 February.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    amount: int = Field(ge=1, le=MAX_RELATIVE_WINDOW_AMOUNT)
+    unit: RelativeTimeUnit
+
+
+def check_relevance_order(
+    search_mode: SearchMode | None, order_by: str | None, sort: str | None
+) -> None:
+    """Reject an order that relevance ranking cannot produce.
+
+    Full-text search sorts by relevance unless an explicit column is given.
+    Relevance needs a full-text term and always sorts descending. Searches and
+    saved views both use this rule.
+
+    Raises:
+        ValueError: The order does not fit the search.
+    """
+    relevance = order_by == "relevance" or (
+        order_by is None and search_mode == SearchMode.FULL_TEXT
+    )
+    if relevance and search_mode != SearchMode.FULL_TEXT:
+        raise ValueError("Relevance ordering requires full_text search")
+    if relevance and sort == "asc":
+        raise ValueError("Relevance ordering must be descending")
+
+
+type CaseQueryErrorCode = Literal["current_user_required"]
+
+
+class CaseQueryErrorDetail(BaseModel):
+    """A case query error with a machine-readable code."""
+
+    code: CaseQueryErrorCode
+    message: str
+
+
+class CaseQueryErrorResponse(BaseModel):
+    """A rejected case query: a plain message, or a typed error."""
+
+    detail: str | CaseQueryErrorDetail
+
+
+class CaseCriteria(BaseModel):
+    """Matching criteria shared by case search, status counts, and saved views.
 
     Explicit text, identity, and hierarchy constraints are combined with
     ``filters`` using AND. Workspace and entitlement checks belong to the
@@ -105,15 +169,36 @@ class CaseQuery(BaseModel):
     status: list[CaseStatus] | None = Field(default=None)
     priority: list[CasePriority] | None = Field(default=None)
     severity: list[CaseSeverity] | None = Field(default=None)
-    assignee_id: list[UUID | Literal["unassigned", "__UNASSIGNED__"]] | None = Field(
-        default=None
+    assignee_id: list[UUID | Literal["unassigned", "__UNASSIGNED__", "me"]] | None = (
+        Field(
+            default=None,
+            description='User IDs, "unassigned", or "me" for the requesting user.',
+        )
+    )
+    created_by: list[UUID | Literal["me"]] | None = Field(
+        default=None,
+        max_length=MAX_FILTER_VALUES,
+        description=(
+            'Users who created the case, or "me" for the requesting user. '
+            "A case a workflow or agent created on a user's behalf counts as "
+            "that user's. Scheduled, webhook, and other runs with no user "
+            "record no creator, so their cases never match."
+        ),
     )
     tags: list[str] | None = Field(default=None, max_length=1000)
     dropdown: list[str] | None = Field(default=None, max_length=50)
     start_time: datetime | None = Field(default=None)
     end_time: datetime | None = Field(default=None)
+    created_within: RelativeTimeWindow | None = Field(
+        default=None,
+        description="Created within this window, ending at the time the query runs.",
+    )
     updated_after: datetime | None = Field(default=None)
     updated_before: datetime | None = Field(default=None)
+    updated_within: RelativeTimeWindow | None = Field(
+        default=None,
+        description="Updated within this window, ending at the time the query runs.",
+    )
 
     @field_validator("search_term", "short_id")
     @classmethod
@@ -128,6 +213,18 @@ class CaseQuery(BaseModel):
         """Reject the incompatible parent and top-level search constraints."""
         if self.parent_id is not None and self.hierarchy == "top_level":
             raise ValueError("parent_id cannot be combined with hierarchy=top_level")
+        if self.created_within is not None and (
+            self.start_time is not None or self.end_time is not None
+        ):
+            raise ValueError(
+                "created_within cannot be combined with start_time or end_time"
+            )
+        if self.updated_within is not None and (
+            self.updated_after is not None or self.updated_before is not None
+        ):
+            raise ValueError(
+                "updated_within cannot be combined with updated_after or updated_before"
+            )
         if self.search_mode is not None:
             if self.search_term is None:
                 raise ValueError("search_mode requires search_term")
@@ -144,6 +241,23 @@ class CaseQuery(BaseModel):
         elif self.search_columns is not None:
             raise ValueError("search_columns requires an explicit search_mode")
         return self
+
+
+class CaseQuery(CaseCriteria):
+    """Case criteria as a request runs them: on their own or through a view."""
+
+    view_id: UUID | BuiltinCaseViewId | None = Field(
+        default=None,
+        description=(
+            "Run a saved case view. The view supplies the matching criteria; "
+            "the request may add a `filters` tree, which is ANDed with the view's, "
+            "and other matching fields are rejected. Pagination, result options, "
+            "and order_by/sort still apply; order_by overrides the view's order."
+        ),
+    )
+    match_none: bool = Field(
+        default=False, description="The ordinary filter population matches no cases."
+    )
 
 
 class CaseSearchRequest(CaseQuery, CursorPaginationParams):
@@ -169,18 +283,14 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
         default=False,
         description="Place complete case references before filtered text matches within the authorized workspace.",
     )
-    match_none: bool = Field(
-        default=False, description="The ordinary filter population matches no cases."
-    )
 
     @model_validator(mode="after")
     def validate_relevance(self) -> Self:
-        """Relevance is a descending full-text order; explicit columns keep theirs."""
-        relevance = self.order_by == "relevance" or (
-            self.order_by is None and self.search_mode == SearchMode.FULL_TEXT
-        )
-        if relevance and self.search_mode != SearchMode.FULL_TEXT:
-            raise ValueError("Relevance ordering requires full_text search")
-        if relevance and self.sort == "asc":
-            raise ValueError("Relevance ordering must be descending")
+        """Relevance is a descending full-text order; explicit columns keep theirs.
+
+        A request naming a view is checked after the view is resolved, since
+        the view supplies the search mode.
+        """
+        if self.view_id is None:
+            check_relevance_order(self.search_mode, self.order_by, self.sort)
         return self

@@ -1,0 +1,77 @@
+type: action
+definition:
+  title: List response tasks
+  description: >-
+    Get response tasks. Displays a list of response tasks in a paginated list. Calls GET
+    /v3.0/response/tasks.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Common/paths/~1v3.0~1response~1tasks/get
+  namespace: tools.trend_vision_one
+  name: list_response_tasks
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    startDateTime:
+      type: str | None
+      description: >-
+        Timestamp in ISO 8601 format that indicates the start of the data retrieval range.
+        You can retrieve data for response tasks that were created no later than 180 days
+        ago.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        Timestamp in ISO 8601 format that indicates the end of the data retrieval range.
+      default: null
+    dateTimeTarget:
+      type: str | None
+      description: >-
+        Parameter that allows you to filter the results. Allowed values: createdDateTime,
+        lastActionDateTime. Provider default: createdDateTime.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        Filter for retrieving a subset of the response task list. Supported fields: id,
+        status, action, account.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        Number of records displayed on a page. If no value is specified, 'top' defaults to
+        50. Allowed values: 50, 100, 200. Provider default: 50.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/response/tasks
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          dateTimeTarget: ${{ inputs.dateTimeTarget }}
+          filter: ${{ inputs.filter }}
+          top: ${{ inputs.top }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

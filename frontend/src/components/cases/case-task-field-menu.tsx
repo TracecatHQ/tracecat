@@ -46,7 +46,7 @@ export interface CaseTaskFieldMenuProps {
  *
  * Distinct from {@link CaseTaskFieldPicker} on purpose: assignee and workflow
  * are open-ended lists where search earns the extra chrome, these are not.
- * Panel-level `1`–`6` shortcuts stay inert while the menu is open — its content
+ * Panel-level `1`–`7` shortcuts stay inert while the menu is open — its content
  * is portaled into a Radix popper wrapper, which `use-digit-shortcuts.ts`
  * treats as a blocking layer.
  */

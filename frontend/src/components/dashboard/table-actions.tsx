@@ -31,6 +31,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { exportWorkflow, handleExportError } from "@/lib/export"
 import { useFolders, useOrgAppSettings, useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -56,6 +57,9 @@ export function WorkflowActions({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
+  // Managed workflows cannot be renamed, moved, retagged or deleted.
+  const { isManaged } = useManagedResources()
+  const isLocked = isManaged("workflow", item.id)
 
   const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager(undefined, {
     listEnabled: false,
@@ -112,6 +116,7 @@ export function WorkflowActions({
       )}
       <ContextMenuItem
         className="text-xs"
+        disabled={isLocked}
         onClick={(e) => {
           e.stopPropagation() // Prevent row click
           setSelectedWorkflow(item)
@@ -124,6 +129,7 @@ export function WorkflowActions({
       {showMoveToFolder && (
         <ContextMenuItem
           className="text-xs"
+          disabled={isLocked}
           onClick={(e) => {
             e.stopPropagation() // Prevent row click
             setSelectedWorkflow(item)
@@ -138,6 +144,7 @@ export function WorkflowActions({
         <ContextMenuSub>
           <ContextMenuSubTrigger
             className="text-xs"
+            disabled={isLocked}
             onClick={(e) => e.stopPropagation()}
           >
             <TagsIcon className="mr-2 size-3.5" />
@@ -264,9 +271,10 @@ export function WorkflowActions({
         Duplicate workflow
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <DeleteWorkflowAlertDialogTrigger asChild>
+      <DeleteWorkflowAlertDialogTrigger asChild disabled={isLocked}>
         <ContextMenuItem
           className="text-xs text-rose-500 focus:text-rose-600"
+          disabled={isLocked}
           onClick={(e) => {
             e.stopPropagation() // Prevent row click
             setSelectedWorkflow(item)

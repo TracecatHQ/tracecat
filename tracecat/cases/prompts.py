@@ -1,9 +1,13 @@
+import json
 import textwrap
 
 import yaml
 from pydantic import BaseModel
 
 from tracecat.db.models import Case
+
+MAX_CASE_PROMPT_DATA_CHARS = 200_000
+"""Upper bound on case data embedded in the case copilot instructions."""
 
 
 class CaseCopilotPrompts(BaseModel):
@@ -15,7 +19,7 @@ class CaseCopilotPrompts(BaseModel):
     def instructions(self) -> str:
         """Build the instructions for the case copilot."""
         updated_at = self.case.updated_at.isoformat()
-        case_data = yaml.dump(self.case.to_dict(), indent=2)
+        case_data = self._case_data()
         return textwrap.dedent(f"""
             You are a helpful case management assistant that helps analysts in security and IT operations resolve cases / tickets efficiently and accurately. You will be given a case with a summary, description, and payload inside the <Case> tag.
 
@@ -30,6 +34,30 @@ class CaseCopilotPrompts(BaseModel):
             {case_data}
             </Case>
         """)
+
+    def _case_data(self) -> str:
+        """Serialize the case, truncating the payload to fit the prompt budget."""
+        case_dict = self.case.to_dict()
+        case_data = yaml.dump(case_dict, indent=2)
+        if len(case_data) <= MAX_CASE_PROMPT_DATA_CHARS:
+            return case_data
+
+        payload = case_dict.pop("payload", None)
+        case_data = yaml.dump(case_dict, indent=2)
+        payload_text = json.dumps(payload, default=str)
+        budget = max(MAX_CASE_PROMPT_DATA_CHARS - len(case_data), 0)
+        if len(payload_text) <= budget:
+            return f"{case_data}<Payload>\n{payload_text}\n</Payload>\n"
+        return (
+            f"{case_data}"
+            f'<PayloadPreview truncated="true" total_chars="{len(payload_text)}"'
+            f' shown_chars="{budget}">\n'
+            f"{payload_text[:budget]}\n"
+            "</PayloadPreview>\n"
+            "The case payload is too large to include in full. Call"
+            " core.cases.get_case with the case UUID to read the full payload"
+            " when the preview is not enough.\n"
+        )
 
     @property
     def user_prompt(self) -> str:

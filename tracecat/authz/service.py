@@ -12,9 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.membership import (
-    drop_workspace_membership_mirror,
     lock_role_changes,
-    mirror_workspace_membership,
 )
 from tracecat.authz.scopes import (
     ORG_MEMBER_FLOOR_SCOPES,
@@ -422,10 +420,6 @@ class MembershipService(BaseService):
         if (await self.session.execute(org_member_stmt)).scalar_one_or_none() is None:
             raise TracecatNotFoundError("User not found in organization")
 
-        # Legacy workspace table is still written for app versions that read it.
-        await mirror_workspace_membership(
-            self.session, user_id=params.user_id, workspace_id=workspace_id
-        )
         self.session.add(
             UserRoleAssignment(
                 organization_id=organization_id,
@@ -491,9 +485,6 @@ class MembershipService(BaseService):
                 "Change their organization-wide role in organization settings."
             )
 
-        await drop_workspace_membership_mirror(
-            self.session, user_id=user_id, workspace_ids=[workspace_id]
-        )
         await self.session.execute(
             delete(UserRoleAssignment).where(
                 UserRoleAssignment.workspace_id == workspace_id,

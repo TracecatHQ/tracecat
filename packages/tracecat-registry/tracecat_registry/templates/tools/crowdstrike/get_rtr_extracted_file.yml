@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Get RTR extracted file
+  description: >-
+    Download a file retrieved with the RTR `get` command. Returns `{"content_base64":
+    ...}` containing the 7-Zip archive CrowdStrike returns. Files larger than the
+    Tracecat file size limit are rejected. Requires the Real time response: Write API
+    scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/real-time-response/#rtr-getextractedfilecontents
+  namespace: tools.crowdstrike
+  name: get_rtr_extracted_file
+  expects:
+    session_id:
+      type: str
+      description: RTR session ID the file was retrieved in.
+    sha256:
+      type: str
+      description: SHA256 of the retrieved file.
+    filename:
+      type: str | None
+      description: Name for the archive and the file inside it.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_rtr_extracted_file
+      action: tools.falconpy.call_command
+      args:
+        operation_id: RTR_GetExtractedFileContents
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          session_id: ${{ inputs.session_id }}
+          sha256: ${{ inputs.sha256 }}
+          filename: ${{ inputs.filename }}
+          stream: true
+  returns: ${{ steps.get_rtr_extracted_file.result }}

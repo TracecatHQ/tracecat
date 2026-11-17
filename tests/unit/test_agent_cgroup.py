@@ -1,5 +1,6 @@
 """The worker must reject missing delegation before accepting activities."""
 
+import errno
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock, call
@@ -262,3 +263,52 @@ def test_agent_bootstrap_rejects_unusable_shared_subtree(
         call.validate(agent_cgroup.CGROUP_PATH_ENV),
         call.validate(CGROUP_PATH_ENV),
     ]
+
+
+def fake_cgroupfs(
+    root: Path, monkeypatch: pytest.MonkeyPatch, *, late_pids: list[str]
+) -> list[str]:
+    """Emulate cgroupfs: moves leave the root, and late PIDs make enabling EBUSY."""
+    (root / "cgroup.procs").write_text("123")
+    write_text = Path.write_text
+    moved: list[str] = []
+
+    def write(path: Path, data: str) -> int:
+        procs = root / "cgroup.procs"
+        if path == root / "worker" / "cgroup.procs":
+            moved.append(data)
+            procs.write_bytes(
+                " ".join(p for p in procs.read_text().split() if p != data).encode()
+            )
+        elif path == root / "cgroup.subtree_control":
+            if procs.read_text().split():
+                raise OSError(errno.EBUSY, "Device or resource busy")
+            if late_pids:
+                # A probe exec lands in the root right after it was emptied.
+                procs.write_bytes(late_pids.pop(0).encode())
+                raise OSError(errno.EBUSY, "Device or resource busy")
+        return write_text(path, data)
+
+    monkeypatch.setattr(Path, "write_text", write)
+    return moved
+
+
+def test_enable_memory_retries_when_a_process_joins_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    moved = fake_cgroupfs(tmp_path, monkeypatch, late_pids=["456"])
+    cgroup.enable_memory_controller(tmp_path)
+    assert moved == ["123", "456"]
+    assert (tmp_path / "cgroup.subtree_control").read_text() == "+memory"
+
+
+def test_enable_memory_gives_up_after_bounded_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    late_pids = [str(pid) for pid in range(1000, 1000 + cgroup.ENABLE_MEMORY_ATTEMPTS)]
+    moved = fake_cgroupfs(tmp_path, monkeypatch, late_pids=late_pids)
+    with pytest.raises(OSError) as exc_info:
+        cgroup.enable_memory_controller(tmp_path)
+    assert exc_info.value.errno == errno.EBUSY
+    assert len(moved) == cgroup.ENABLE_MEMORY_ATTEMPTS
+    assert not (tmp_path / "cgroup.subtree_control").exists()

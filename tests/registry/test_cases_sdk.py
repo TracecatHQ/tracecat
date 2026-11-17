@@ -161,6 +161,31 @@ async def test_update_case_simple_serializes_and_keeps_null_option(
 
 
 @pytest.mark.anyio
+async def test_batch_set_parent_uses_gateway_path(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    await cases_client.batch_set_parent(
+        case_ids=["CASE-0002"], parent_case_id="CASE-0001"
+    )
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/batch-set-parent",
+        json={"case_ids": ["CASE-0002"], "parent_case_id": "CASE-0001"},
+    )
+
+
+@pytest.mark.anyio
+async def test_batch_clear_parent_uses_gateway_path(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    await cases_client.batch_clear_parent(case_ids=["CASE-0002"])
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/batch-clear-parent", json={"case_ids": ["CASE-0002"]}
+    )
+
+
+@pytest.mark.anyio
 async def test_list_case_rows_uses_client_internal_prefix_once(
     cases_client: CasesClient, mock_tracecat_client: MagicMock
 ) -> None:
@@ -466,3 +491,97 @@ def test_case_search_sdk_stub_signatures_match_client() -> None:
             )
         assert declaration.returns is not None
         assert ast.unparse(declaration.returns) == source_signature.return_annotation
+
+
+@pytest.mark.anyio
+async def test_run_task_posts_inputs(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    case_id = str(uuid4())
+    task_id = str(uuid4())
+    mock_tracecat_client.post.return_value = {"workflow_execution_id": "exec"}
+
+    result = await cases_client.run_task(case_id, task_id, inputs={"host": "h1"})
+
+    assert result == {"workflow_execution_id": "exec"}
+    mock_tracecat_client.post.assert_awaited_once_with(
+        f"/cases/{case_id}/tasks/{task_id}/run", json={"inputs": {"host": "h1"}}
+    )
+
+
+@pytest.mark.anyio
+async def test_run_task_omits_unset_inputs(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    await cases_client.run_task("CASE-0001", "task")
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/cases/CASE-0001/tasks/task/run", json={}
+    )
+
+
+@pytest.mark.anyio
+async def test_delete_case_tag_uses_internal_case_tags_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-tags.sock")
+    await client.cases.delete_case_tag("needs-triage")
+
+    assert len(requests) == 1
+    assert requests[0].method == "DELETE"
+    assert requests[0].url.path.endswith("/internal/case-tags/needs-triage")
+
+
+@pytest.mark.anyio
+async def test_case_view_helpers_use_exact_gateway_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """View reads hit the internal case-view routes, and search forwards view_id."""
+    view_id = str(uuid4())
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/internal/cases/search":
+            assert orjson.loads(request.content) == {
+                "limit": 5,
+                "view_id": view_id,
+                "filters": {"field": "status", "op": "eq", "value": "new"},
+            }
+            return httpx.Response(200, json={"items": [], "has_more": False})
+        if request.url.path == "/internal/case-views/builtins":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/internal/case-views":
+            assert request.url.params["limit"] == "10"
+            return httpx.Response(200, json={"items": [], "has_more": False})
+        return httpx.Response(200, json={"id": view_id})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-views.sock")
+    await client.cases.list_views(limit=10)
+    await client.cases.list_builtin_views()
+    await client.cases.get_view(view_id)
+    await client.cases.search_cases(
+        limit=5,
+        view_id=view_id,
+        filters={"field": "status", "op": "eq", "value": "new"},
+    )
+    assert [(request.method, request.url.path) for request in requests] == [
+        ("GET", "/internal/case-views"),
+        ("GET", "/internal/case-views/builtins"),
+        ("GET", f"/internal/case-views/{view_id}"),
+        ("POST", "/internal/cases/search"),
+    ]

@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Search intel indicators
+  description: >-
+    Search Falcon Intelligence intelligence indicators by FQL filter or free text.
+    Requires the Indicators (Falcon Intelligence): Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/intel/#queryintelindicatorentities
+  namespace: tools.crowdstrike
+  name: search_intel_indicators
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter, for example `indicator:'example.com'`.
+      default: null
+    q:
+      type: str | None
+      description: Free-text search across all fields.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of intelligence indicators to return. Maximum 10000.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start retrieving records from.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `created_date|desc`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: search_intel_indicators
+      action: tools.falconpy.call_command
+      args:
+        operation_id: QueryIntelIndicatorEntities
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          q: ${{ inputs.q }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.search_intel_indicators.result }}

@@ -216,6 +216,9 @@ async def update_agent_preset(
     "/{preset_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Agent preset is the default agent of an installed channel app"
+        },
         status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
     },
 )
@@ -239,6 +242,8 @@ async def delete_agent_preset(
         # The preset can be soft-deleted between the lookup above and the
         # service's row lock; surface that race as a 404, not a 500.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise _validation_error(e) from e
 
 
 @router.get(

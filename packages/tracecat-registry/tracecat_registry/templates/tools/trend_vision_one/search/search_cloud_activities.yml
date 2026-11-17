@@ -1,0 +1,88 @@
+type: action
+definition:
+  title: Search cloud activities
+  description: >-
+    Get cloud activity data. Displays search results from the Cloud Activity Data source in a
+    paginated list. Calls GET /v3.0/search/cloudActivities.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Search/paths/~1v3.0~1search~1cloudActivities/get
+  namespace: tools.trend_vision_one
+  name: search_cloud_activities
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    tmv1_query:
+      type: str
+      description: >-
+        The statement that retrieves a subset of the collected cloud activity data from
+        Trend Cloud One - AWS CloudTrail. Supported fields: eventID, eventName, eventSource,
+        requestParameters, resources, responseElements, sourceIPAddress, userAgent,
+        userIdentity, vpcEndpointId, uuid, productCode, tags. Sent as the TMV1-Query header.
+    startDateTime:
+      type: str | None
+      description: >-
+        The start of the data retrieval range in ISO 8601 format. Default: startDateTime
+        defaults to 24 hours before the request is made.
+      default: null
+    endDateTime:
+      type: str | None
+      description: >-
+        Timestamp in ISO 8601 format that indicates the end of the data retrieval time
+        range. If no value is specified, 'endDateTime' defaults to the time the request is
+        made.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        The number of records displayed on a page in default mode. Allowed values: 50, 100,
+        500, 1000, 5000. Provider default: 500.
+      default: null
+    mode:
+      type: str | None
+      description: >-
+        The type of data returned by the query results ("default" displays all data returned
+        by the query, "countOnly" displays the number of records returned, and "performance"
+        limits the returned records to 500.). Allowed values: default, countOnly,
+        performance. Provider default: default.
+      default: null
+    select:
+      type: str | None
+      description: >-
+        The list of Trend Cloud One - AWS CloudTrail fields to include in the search
+        results. Note: If no fields are specified, the query returns all supported fields.
+      default: null
+    skipToken:
+      type: str | None
+      description: >-
+        Pagination token from the skipToken query parameter of the nextLink returned by the
+        previous page. Reuse the same filters when requesting the next page.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/search/cloudActivities
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+          TMV1-Query: ${{ inputs.tmv1_query }}
+        params:
+          startDateTime: ${{ inputs.startDateTime }}
+          endDateTime: ${{ inputs.endDateTime }}
+          top: ${{ inputs.top }}
+          mode: ${{ inputs.mode }}
+          select: ${{ inputs.select }}
+          skipToken: ${{ inputs.skipToken }}
+  returns: ${{ steps.request.result }}

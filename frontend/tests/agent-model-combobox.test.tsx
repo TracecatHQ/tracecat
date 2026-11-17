@@ -27,6 +27,7 @@ const options: EnabledModelOption[] = [
     metadata: "openai",
     sourceName: "OpenAI",
     sourceType: "platform",
+    lifecycle: null,
   },
   {
     catalogId: "catalog-two",
@@ -39,6 +40,7 @@ const options: EnabledModelOption[] = [
     metadata: "anthropic",
     sourceName: "Synthetic source",
     sourceType: "custom",
+    lifecycle: null,
     baseUrl: "https://example.com/v1",
   },
 ]
@@ -84,6 +86,52 @@ it("searches and emits the selected model option", async () => {
   await user.type(screen.getByPlaceholderText("Search models..."), "Synthetic")
   await user.click(screen.getByRole("option", { name: /Model two/ }))
   expect(onChange).toHaveBeenCalledWith(options[1])
+})
+
+it("shows deprecation notes and keeps retired models selectable", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  const lifecycleOptions: EnabledModelOption[] = [
+    {
+      ...options[0],
+      lifecycle: {
+        status: "deprecated",
+        deprecated_on: "2026-09-30",
+        retires_on: "2026-11-30",
+        replacement: "model-two",
+      },
+    },
+    {
+      ...options[1],
+      modelProvider: "openai",
+      lifecycle: {
+        status: "retired",
+        retires_on: "2026-07-23",
+        replacement: "model-one",
+      },
+    },
+  ]
+  render(
+    <AgentModelCombobox
+      options={lifecycleOptions}
+      value={{ catalogId: "catalog-one" }}
+      onChange={onChange}
+    />
+  )
+  const trigger = screen.getByRole("combobox")
+  expect(trigger).toHaveTextContent("Model one")
+  expect(
+    screen.getByTitle("Deprecated · retires Nov 30, 2026")
+  ).toHaveTextContent("Deprecated")
+  await user.click(trigger)
+  expect(screen.getByRole("option", { name: /Model one/ })).toHaveTextContent(
+    "Deprecated · retires Nov 30, 2026"
+  )
+  const retired = screen.getByRole("option", { name: /Model two/ })
+  expect(retired).toHaveTextContent("Retired")
+  expect(retired).not.toHaveTextContent("model-one")
+  await user.click(retired)
+  expect(onChange).toHaveBeenCalledWith(lifecycleOptions[1])
 })
 
 it("forwards form control props and the ref to the trigger", () => {

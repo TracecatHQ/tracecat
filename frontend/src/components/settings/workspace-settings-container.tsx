@@ -4,6 +4,7 @@ import { ArrowUpRight, Loader2 } from "lucide-react"
 import { workspacesGetWorkspace } from "@/client"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import type { SettingsSection } from "@/components/settings/settings-modal-context"
+import { WorkspaceCaseSettings } from "@/components/settings/workspace-case-settings"
 import { WorkspaceFilesSettings } from "@/components/settings/workspace-files-settings"
 import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings"
 import { WorkspaceModelSettings } from "@/components/settings/workspace-model-settings"
@@ -52,35 +53,47 @@ export function WorkspaceSettingsContainer({
       return <WorkspaceGeneralSettings workspace={workspace} />
     case "workspace-runtime":
       return <WorkspaceRuntimeSettings workspace={workspace} />
+    case "workspace-cases":
+      return hasEntitlement("case_addons") ? (
+        <WorkspaceCaseSettings workspace={workspace} />
+      ) : (
+        <UpgradeRequired description="Sub-case settings are unavailable on your current plan." />
+      )
     case "workspace-models":
       return hasEntitlement("agent_addons") ? (
         <WorkspaceModelSettings workspace={workspace} />
       ) : (
-        <div className="flex flex-1 items-center justify-center py-12">
-          <EntitlementRequiredEmptyState
-            title="Upgrade required"
-            description="Workspace AI model subset controls are unavailable on your current plan."
-          >
-            <Button
-              variant="link"
-              asChild
-              className="text-muted-foreground"
-              size="sm"
-            >
-              <a
-                href="https://tracecat.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Learn more <ArrowUpRight className="size-4" />
-              </a>
-            </Button>
-          </EntitlementRequiredEmptyState>
-        </div>
+        <UpgradeRequired description="Workspace AI model subset controls are unavailable on your current plan." />
       )
     case "workspace-files":
       return <WorkspaceFilesSettings workspace={workspace} />
     default:
       return null
   }
+}
+
+function UpgradeRequired({ description }: { description: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center py-12">
+      <EntitlementRequiredEmptyState
+        title="Upgrade required"
+        description={description}
+      >
+        <Button
+          variant="link"
+          asChild
+          className="text-muted-foreground"
+          size="sm"
+        >
+          <a
+            href="https://tracecat.com"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Learn more <ArrowUpRight className="size-4" />
+          </a>
+        </Button>
+      </EntitlementRequiredEmptyState>
+    </div>
+  )
 }

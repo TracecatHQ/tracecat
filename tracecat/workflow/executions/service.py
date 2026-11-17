@@ -114,6 +114,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionStatusLiteral,
 )
 from tracecat.workflow.executions.types import StartOutcome
+from tracecat.workspaces.schemas import WorkspaceSettings
 from tracecat.workspaces.service import WorkspaceService
 
 # A tombstone claims the ID of a run whose start answer was lost. No worker
@@ -260,6 +261,9 @@ class WorkflowExecutionsService:
         self.role = role or ctx_role.get()
         self._client = client
         self.logger = logger.bind(service="workflow_executions")
+        # Loaded on first dispatch; batched dispatches (NDJSON webhooks) reuse it.
+        self._workspace_settings: WorkspaceSettings | None = None
+        self._workspace_settings_loaded = False
 
     @staticmethod
     def format_failure_cause(cause: BaseException | None) -> str:
@@ -305,6 +309,18 @@ class WorkflowExecutionsService:
     ) -> WorkflowHandle[DSLWorkflow, StoredObject]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
 
+    async def _get_workspace_settings(self) -> WorkspaceSettings | None:
+        """Load the role's workspace settings once per service instance."""
+        if self._workspace_settings_loaded:
+            return self._workspace_settings
+        if self.role is not None and (ws_id := self.role.workspace_id) is not None:
+            async with WorkspaceService.with_session(role=self.role) as ws_svc:
+                workspace = await ws_svc.get_workspace(ws_id)
+                if workspace and isinstance(workspace.settings, dict):
+                    self._workspace_settings = workspace.settings
+        self._workspace_settings_loaded = True
+        return self._workspace_settings
+
     async def _resolve_execution_timeout(
         self, seconds: float | int | None
     ) -> datetime.timedelta | None:
@@ -322,19 +338,12 @@ class WorkflowExecutionsService:
         Returns:
             timedelta if timeout should be applied, None for unlimited
         """
-        if self.role is not None and (ws_id := self.role.workspace_id) is not None:
-            async with WorkspaceService.with_session(role=self.role) as ws_svc:
-                workspace = await ws_svc.get_workspace(ws_id)
-                if workspace and isinstance(workspace.settings, dict):
-                    if bool(
-                        workspace.settings.get("workflow_unlimited_timeout_enabled")
-                    ):
-                        return None
-                    ws_default = workspace.settings.get(
-                        "workflow_default_timeout_seconds"
-                    )
-                    if isinstance(ws_default, int) and ws_default > 0:
-                        return datetime.timedelta(seconds=ws_default)
+        if (settings := await self._get_workspace_settings()) is not None:
+            if bool(settings.get("workflow_unlimited_timeout_enabled")):
+                return None
+            ws_default = settings.get("workflow_default_timeout_seconds")
+            if isinstance(ws_default, int) and ws_default > 0:
+                return datetime.timedelta(seconds=ws_default)
 
         if seconds and seconds > 0:
             return datetime.timedelta(seconds=float(seconds))
@@ -1593,6 +1602,9 @@ class WorkflowExecutionsService:
         tombstone settles it: if the tombstone starts, the lost start can never
         run; if the ID is taken, the run started. The tombstone needs no worker
         and is terminated at once. Agent turns settle lost starts the same way.
+
+        Settling the same ID again is safe: an ID held by an earlier tombstone
+        still reports ``"not_started"``.
         """
         try:
             tombstone = await self._client.start_workflow(
@@ -1604,7 +1616,7 @@ class WorkflowExecutionsService:
                 rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT,
             )
         except WorkflowAlreadyStartedError:
-            return "started"
+            return await self._settled_outcome_of_taken_id(wf_exec_id)
         except Exception as e:
             self.logger.warning(
                 "Failed to settle a lost workflow start",
@@ -1625,6 +1637,24 @@ class WorkflowExecutionsService:
                 error_type=type(e).__name__,
             )
         return "not_started"
+
+    async def _settled_outcome_of_taken_id(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> StartOutcome:
+        try:
+            description = await self._client.get_workflow_handle(wf_exec_id).describe(
+                rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT
+            )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to describe a settled workflow start",
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+            )
+            return "unknown"
+        if description.workflow_type == _START_TOMBSTONE_WORKFLOW:
+            return "not_started"
+        return "started"
 
     def create_draft_workflow_execution_nowait(
         self,

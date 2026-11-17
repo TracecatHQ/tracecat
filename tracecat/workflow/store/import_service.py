@@ -16,6 +16,7 @@ from tracecat.exceptions import (
     RegistryError,
     RegistryLockActionNotFoundError,
     TracecatAuthorizationError,
+    TracecatValidationError,
 )
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.service import FormsService
@@ -24,6 +25,8 @@ from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
+from tracecat.validation.schemas import ValidationDetailListTA
+from tracecat.workflow.actions.schemas import validate_control_flows
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     is_case_trigger_configured,
@@ -228,29 +231,25 @@ class WorkflowImportService(BaseWorkspaceService):
                 )
                 return diagnostics
 
+            validate_control_flows(dsl_input.actions)
+
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
 
-        except ValidationError as e:
+        except (ValidationError, TracecatValidationError) as e:
+            validation_errors = (
+                e.errors()
+                if isinstance(e, ValidationError)
+                else ValidationDetailListTA.dump_python(e.detail or [], mode="json")
+            )
             diagnostics.append(
                 PullDiagnostic(
                     workflow_path=workflow_path,
                     workflow_title=getattr(remote_workflow.definition, "title", None),
                     error_type="validation",
                     message=f"Validation error: {str(e)}",
-                    details={"validation_errors": e.errors()},
-                )
-            )
-        except Exception:
-            logger.exception("Workflow import validation failed")
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=workflow_path,
-                    workflow_title=getattr(remote_workflow.definition, "title", None),
-                    error_type="validation",
-                    message="Unexpected workflow validation error",
-                    details={},
+                    details={"validation_errors": validation_errors},
                 )
             )
 
@@ -359,7 +358,18 @@ class WorkflowImportService(BaseWorkspaceService):
                         if isinstance(action.args, dict)
                         else None
                     )
-                    if not alias:
+                    if alias is None or alias == "":
+                        continue
+                    if not isinstance(alias, str):
+                        diagnostics.append(
+                            PullDiagnostic(
+                                workflow_path=workflow_path,
+                                workflow_title=remote_workflow.definition.title,
+                                error_type="validation",
+                                message="Child workflow alias must be a string",
+                                details={"action_ref": action.ref},
+                            )
+                        )
                         continue
 
                     if await _is_alias_valid(alias):
@@ -382,8 +392,7 @@ class WorkflowImportService(BaseWorkspaceService):
                             },
                         )
                     )
-                except Exception:
-                    logger.exception("Child workflow alias validation failed")
+                except ValidationError:
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=workflow_path,
@@ -417,7 +426,9 @@ class WorkflowImportService(BaseWorkspaceService):
         )
 
         wf_id = WorkflowUUID.new(remote_workflow.id)
-        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
+        # Locked reads normalize legacy resources without committing, so the
+        # caller can atomically persist the import and its durable receipt.
+        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id, for_update=True):
             await self._update_existing_workflow(
                 existing_workflow,
                 remote_workflow,

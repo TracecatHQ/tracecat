@@ -17,12 +17,14 @@ import { GitSyncConnectionPanel } from "@/components/workspace-sync/git-sync-con
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { GitSyncPushTab } from "@/components/workspace-sync/git-sync-push"
 import { GitSyncRepoStatus } from "@/components/workspace-sync/git-sync-repo-status"
+import { SyncOperationStatus } from "@/components/workspace-sync/sync-operation-status"
+import { WORKSPACE_SYNC_PACKAGE_QUERY_KEY } from "@/components/workspace-sync/use-workspace-package"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
 } from "@/hooks/use-workspace-sync"
 import { getRepoDisplayName } from "@/lib/git"
-import { useQueryClient } from "@/lib/query"
+import { useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 type SyncDirection = "push" | "pull"
@@ -32,6 +34,7 @@ const SYNC_QUERY_KEYS = [
   "repository_commits",
   "workspace-sync-export-preview",
   "workspace-sync-pull-preview",
+  WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
 ]
 
 interface GitSyncViewProps {
@@ -54,6 +57,7 @@ export function GitSyncView({
     return (
       <div className="flex h-full flex-col">
         <GitSyncHeader workspaceName={workspace.name} />
+        {canSync && <SyncOperationStatus workspaceId={workspace.id} />}
         {canManageConnection ? (
           <GitSyncConnectionPanel workspace={workspace} canSync={canSync} />
         ) : (
@@ -87,7 +91,13 @@ function GitSyncConnectedView({
   const queryClient = useQueryClient()
   const [direction, setDirection] = useState<SyncDirection>("push")
   const [showConnection, setShowConnection] = useState(false)
-  const [pullCount, setPullCount] = useState(0)
+  const [localPullRevision, setLocalPullRevision] = useState(0)
+  const { data: previewRevision } = useQuery({
+    queryKey: ["workspace-sync-preview-revision", workspaceId],
+    queryFn: () => 0,
+    initialData: 0,
+    enabled: false,
+  })
 
   const { branches, branchesIsLoading, branchesError } = useRepositoryBranches(
     workspaceId,
@@ -162,6 +172,7 @@ function GitSyncConnectedView({
           </div>
         )}
       </GitSyncHeader>
+      <SyncOperationStatus workspaceId={workspaceId} />
       {showConnection && (
         <GitSyncConnectionPanel
           workspace={workspace}
@@ -192,7 +203,7 @@ function GitSyncConnectedView({
             baseBranch={baseBranch}
             branchesIsLoading={branchesIsLoading}
             branchesError={branchesError}
-            pullCount={pullCount}
+            syncRevision={localPullRevision + previewRevision}
           />
         </TabsContent>
         <TabsContent
@@ -211,7 +222,13 @@ function GitSyncConnectedView({
             commitsIsLoading={commitsIsLoading}
             commitsError={commitsError}
             isActive={direction === "pull" && !showConnection}
-            onPulled={() => setPullCount((count) => count + 1)}
+            onPulled={() => {
+              setLocalPullRevision((count) => count + 1)
+              // A pull can add or remove resources the package picker lists.
+              void queryClient.invalidateQueries({
+                queryKey: [WORKSPACE_SYNC_PACKAGE_QUERY_KEY, workspaceId],
+              })
+            }}
           />
         </TabsContent>
       </div>

@@ -21,16 +21,26 @@ from tracecat.agent.bedrock import (
     BedrockSubscription,
     resolve_foundation_model_id,
 )
+from tracecat.agent.catalog.bundled import get_retired_platform_models
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, ModelReplacement
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
-from tracecat.db.models import AgentCatalog, AgentCustomProvider
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.db.models import AgentCatalog, AgentCustomProvider, OrganizationSetting
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
+from tracecat.settings.service import _deserialize_setting_value
 from tracecat.sync import CatalogMappingCandidate
+
+AUTO_MIGRATE_RETIRED_MODELS_SETTING_KEY = "agent_auto_migrate_retired_models"
 
 
 class _CatalogRowValues(TypedDict):
@@ -365,6 +375,154 @@ class AgentCatalogService(BaseService):
         if row_id is None:
             return None
         return row_id
+
+    async def resolve_model_replacement(
+        self,
+        *,
+        role: Role,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> ModelReplacement | None:
+        """Return where a retired platform model's runs move, or ``None``.
+
+        Deprecated models only log a warning. Retired models move only for orgs
+        that opt in to auto-migration; otherwise, or without an enabled
+        replacement, runs keep the pinned model and the provider decides.
+        Reads the lifecycle from the platform row selected by ``catalog_id``,
+        or by provider and name for legacy configs. Where no row exists, as on
+        installs after retirement, the bundled ``retired`` list applies. The
+        replacement must be enabled for the workspace, so a swap never widens
+        model access.
+        """
+        if role.organization_id is None:
+            raise TracecatAuthorizationError("Role has no organization_id")
+        found = await self._platform_lifecycle(
+            model_provider=model_provider,
+            model_name=model_name,
+            catalog_id=catalog_id,
+        )
+        if found is None:
+            return None
+        model, lifecycle = found
+        match lifecycle.status_on():
+            case "deprecated":
+                self.logger.warning(
+                    f"Model {model.model_name} is deprecated and retires on "
+                    f"{lifecycle.retires_on.isoformat()}",
+                    model_provider=model.model_provider,
+                    model_name=model.model_name,
+                    retires_on=lifecycle.retires_on.isoformat(),
+                    replacement=lifecycle.replacement,
+                )
+                return None
+            case "retired":
+                if await self._auto_migrate_retired_models(role.organization_id):
+                    replacement = await self._replace_model(
+                        model,
+                        lifecycle,
+                        organization_id=role.organization_id,
+                        workspace_id=role.workspace_id,
+                        keep_catalog_id=catalog_id is not None,
+                    )
+                    if replacement is not None:
+                        return replacement
+                self.logger.warning(
+                    f"Model {model.model_name} is retired, running it unmigrated",
+                    model_provider=model.model_provider,
+                    model_name=model.model_name,
+                    replacement=lifecycle.replacement,
+                )
+                return None
+
+    async def _replace_model(
+        self,
+        model: ModelKey,
+        lifecycle: ModelLifecycle,
+        *,
+        organization_id: UUID,
+        workspace_id: UUID | None,
+        keep_catalog_id: bool,
+    ) -> ModelReplacement | None:
+        """Return the enabled replacement for a retired model, if there is one."""
+        target = lifecycle.replacement_key(model.model_provider)
+        if target is None:
+            return None
+        replacement_id = await self.resolve_catalog_id_by_model(
+            org_id=organization_id,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            workspace_id=workspace_id,
+        )
+        if replacement_id is None:
+            return None
+        self.logger.warning(
+            f"Model {model.model_name} is retired, running migrated model "
+            f"{target.model_name}",
+            retired_model_provider=model.model_provider,
+            retired_model_name=model.model_name,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+        )
+        return ModelReplacement(
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            # Legacy configs keep resolving credentials by provider.
+            catalog_id=replacement_id if keep_catalog_id else None,
+            reason="retired",
+        )
+
+    async def _auto_migrate_retired_models(self, organization_id: UUID) -> bool:
+        setting = await self.session.scalar(
+            select(OrganizationSetting).where(
+                OrganizationSetting.organization_id == organization_id,
+                OrganizationSetting.key == AUTO_MIGRATE_RETIRED_MODELS_SETTING_KEY,
+            )
+        )
+        return setting is not None and _deserialize_setting_value(setting) is True
+
+    async def _platform_lifecycle(
+        self,
+        *,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> tuple[ModelKey, ModelLifecycle] | None:
+        """Return the platform model's identity and lifecycle, if it has one."""
+        row_filter = (
+            AgentCatalog.id == catalog_id
+            if catalog_id is not None
+            else and_(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+            )
+        )
+        row = (
+            await self.session.execute(
+                select(
+                    AgentCatalog.organization_id,
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                    AgentCatalog.model_metadata,
+                ).where(row_filter)
+            )
+        ).one_or_none()
+        if row is None:
+            key = ModelKey(model_provider, model_name)
+            lifecycle = get_retired_platform_models().get(key)
+            return (key, lifecycle) if lifecycle is not None else None
+        if row.organization_id is not None:
+            # Org-owned rows have no provider lifecycle.
+            return None
+        # The row, not the caller's fields, names the model.
+        key = ModelKey(row.model_provider, row.model_name)
+        # The bundle wins: a retired row is no longer refreshed, so its
+        # stored lifecycle can name a replacement that has since retired.
+        lifecycle = get_retired_platform_models().get(key) or read_model_lifecycle(
+            row.model_metadata
+        )
+        return (key, lifecycle) if lifecycle is not None else None
 
     async def list_catalog(
         self,

@@ -67,6 +67,15 @@ _USER_AGENT = "TracecatAuditTest/1.0"
 _WEBHOOK_URL = "https://audit.example.test/events"
 
 
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
+
+
 @dataclass(frozen=True)
 class AuditCase:
     name: str

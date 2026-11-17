@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from temporalio import activity
 
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import Workspace
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.runtime.errors import (
@@ -34,7 +34,9 @@ async def get_workspace_organization_id_activity(
 ) -> OrganizationID:
     """Resolve organization_id for a workspace."""
     with activity_error_boundary(_workspace_resolution_unavailable):
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_tenant_context_manager(
+            workspace_id=workspace_id
+        ) as session:
             stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
             result = await session.execute(stmt)
             org_id = result.scalar_one_or_none()

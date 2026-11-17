@@ -38,6 +38,7 @@ import {
   SERVER_TYPES,
   urlTypedStdioEnvKeys,
 } from "@/components/integrations/mcp-integration-schema"
+import { OAuthRedirectUriField } from "@/components/integrations/oauth-redirect-uri-field"
 import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import {
   Accordion,
@@ -1695,6 +1696,12 @@ export function MCPIntegrationDialog({
                               </FormItem>
                             )}
                           />
+                        ) : null}
+
+                        {serverType === "http" &&
+                        authType === "OAUTH2" &&
+                        oauthSetup === "oauth_client" ? (
+                          <OAuthRedirectUriField help="Add this redirect URI to the provider OAuth app." />
                         ) : null}
 
                         {serverType === "http" &&

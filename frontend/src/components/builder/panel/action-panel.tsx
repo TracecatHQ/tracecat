@@ -1,6 +1,7 @@
 "use client"
 
 import { ActionRunHistory } from "@/components/builder/panel/action-run-history"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -311,7 +312,7 @@ function ActionPanelContent({
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
-  const { validationErrors } = useWorkflow()
+  const { validationErrors, isReadOnly } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
     workspaceId,
@@ -700,6 +701,10 @@ function ActionPanelContent({
 
   const onSubmit = useCallback(
     async (values: ActionFormSchema) => {
+      // Managed workflows are read-only: blur, Cmd+S and submit all no-op.
+      if (isReadOnly) {
+        return
+      }
       try {
         await handleSave(values)
       } catch (error) {
@@ -720,7 +725,7 @@ function ActionPanelContent({
         ])
       }
     },
-    [handleSave, action]
+    [handleSave, action, isReadOnly]
   )
 
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -864,6 +869,7 @@ function ActionPanelContent({
                                 variant="flat"
                                 className="h-auto w-full border-none p-0 text-xs font-medium leading-none focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                 placeholder="Name your action..."
+                                readOnly={isReadOnly}
                                 {...field}
                                 // Always provide a string value so this
                                 // input stays controlled for its lifetime.
@@ -887,6 +893,7 @@ function ActionPanelContent({
                                     variant="flat"
                                     className="h-auto w-full max-w-xl overflow-x-auto whitespace-nowrap border-none bg-transparent p-0 text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                     placeholder="No description"
+                                    readOnly={isReadOnly}
                                     {...field}
                                     // Keep description input controlled
                                     // even when the value is initially undefined.
@@ -1001,266 +1008,278 @@ function ActionPanelContent({
             <div className="flex-1 overflow-auto">
               <div className="w-full min-w-80 overflow-x-auto">
                 <TabsContent value="inputs">
-                  <SectionErrorBoundary>
-                    <div className="mt-4 flex flex-col space-y-4 px-4 [--tool-list-inset:1rem]">
-                      {finalValErrors.length > 0 && (
-                        <ValidationErrorView
-                          validationErrors={finalValErrors}
-                          side="left"
-                          className="max-w-[600px]"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
-                            <span className="pointer-events-none text-xs text-rose-500">
-                              Hover to view errors.
-                            </span>
-                          </div>
-                        </ValidationErrorView>
-                      )}
-                      {/* Input Mode Toggle */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">
-                          {inputMode === "form"
-                            ? "Define action inputs using form fields below."
-                            : "Define action inputs in YAML below."}
-                        </span>
-                        {formModeEnabled && (
-                          <ToggleTabs
-                            options={
-                              [
-                                {
-                                  value: "form",
-                                  content: (
-                                    <div className="flex items-center gap-1">
-                                      <ListIcon className="size-3" />
-                                      <span className="text-xs">Form</span>
-                                    </div>
-                                  ),
-                                  tooltip: "Use form fields",
-                                  ariaLabel: "Form mode",
-                                },
-                                {
-                                  value: "yaml",
-                                  content: (
-                                    <div className="flex items-center gap-1">
-                                      <CodeIcon className="size-3" />
-                                      <span className="text-xs">YAML</span>
-                                    </div>
-                                  ),
-                                  tooltip: "Use YAML editor",
-                                  ariaLabel: "YAML mode",
-                                },
-                              ] as ToggleTabOption<InputMode>[]
-                            }
-                            value={inputMode}
-                            onValueChange={handleModeChange}
-                            size="sm"
-                            className="w-auto"
+                  <ReadOnlyFieldset readOnly={isReadOnly}>
+                    <SectionErrorBoundary>
+                      <div className="mt-4 flex flex-col space-y-4 px-4 [--tool-list-inset:1rem]">
+                        {finalValErrors.length > 0 && (
+                          <ValidationErrorView
+                            validationErrors={finalValErrors}
+                            side="left"
+                            className="max-w-[600px]"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+                              <span className="pointer-events-none text-xs text-rose-500">
+                                Hover to view errors.
+                              </span>
+                            </div>
+                          </ValidationErrorView>
+                        )}
+                        {/* Input Mode Toggle */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">
+                            {inputMode === "form"
+                              ? "Define action inputs using form fields below."
+                              : "Define action inputs in YAML below."}
+                          </span>
+                          {formModeEnabled && (
+                            <ToggleTabs
+                              options={
+                                [
+                                  {
+                                    value: "form",
+                                    content: (
+                                      <div className="flex items-center gap-1">
+                                        <ListIcon className="size-3" />
+                                        <span className="text-xs">Form</span>
+                                      </div>
+                                    ),
+                                    tooltip: "Use form fields",
+                                    ariaLabel: "Form mode",
+                                  },
+                                  {
+                                    value: "yaml",
+                                    content: (
+                                      <div className="flex items-center gap-1">
+                                        <CodeIcon className="size-3" />
+                                        <span className="text-xs">YAML</span>
+                                      </div>
+                                    ),
+                                    tooltip: "Use YAML editor",
+                                    ariaLabel: "YAML mode",
+                                  },
+                                ] as ToggleTabOption<InputMode>[]
+                              }
+                              value={inputMode}
+                              onValueChange={handleModeChange}
+                              size="sm"
+                              className="w-auto"
+                            />
+                          )}
+                        </div>
+
+                        {inputMode === "yaml" && (
+                          /* YAML Mode - Preserve raw YAML */
+                          <ControlledYamlField
+                            label="Inputs"
+                            fieldName="inputs"
                           />
                         )}
-                      </div>
+                        {inputMode === "form" && formModeEnabled && (
+                          <>
+                            {/* Required fields - always shown */}
+                            {displayedRequiredFields.map(
+                              ([fieldName, fieldDefn]) => {
+                                const fullFieldName = `inputs.${fieldName}`
+                                const label = getActionFieldLabel(
+                                  fieldName,
+                                  toolsFolding
+                                )
+                                if (!isTracecatJsonSchema(fieldDefn)) {
+                                  // For non-TracecatJsonSchema, we can't extract type information
+                                  return (
+                                    <ControlledYamlField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fullFieldName}
+                                      info="Please sync your base actions repository to get the latest field schema."
+                                    />
+                                  )
+                                }
 
-                      {inputMode === "yaml" && (
-                        /* YAML Mode - Preserve raw YAML */
-                        <ControlledYamlField
-                          label="Inputs"
-                          fieldName="inputs"
-                        />
-                      )}
-                      {inputMode === "form" && formModeEnabled && (
-                        <>
-                          {/* Required fields - always shown */}
-                          {displayedRequiredFields.map(
-                            ([fieldName, fieldDefn]) => {
-                              const fullFieldName = `inputs.${fieldName}`
-                              const label = getActionFieldLabel(
-                                fieldName,
-                                toolsFolding
-                              )
-                              if (!isTracecatJsonSchema(fieldDefn)) {
-                                // For non-TracecatJsonSchema, we can't extract type information
                                 return (
-                                  <ControlledYamlField
+                                  <PolymorphicField
                                     key={fieldName}
                                     label={label}
                                     fieldName={fullFieldName}
-                                    info="Please sync your base actions repository to get the latest field schema."
+                                    fieldDefn={fieldDefn}
+                                    actionProperties={actionProperties}
                                   />
                                 )
                               }
+                            )}
 
-                              return (
-                                <PolymorphicField
-                                  key={fieldName}
-                                  label={label}
-                                  fieldName={fullFieldName}
-                                  fieldDefn={fieldDefn}
-                                  actionProperties={actionProperties}
-                                />
+                            {/* Optional fields - only shown if in visibleOptionalFields */}
+                            {displayedOptionalFields
+                              .filter(([fieldName]) =>
+                                visibleOptionalFields.has(fieldName)
                               )
-                            }
-                          )}
+                              .map(([fieldName, fieldDefn]) => {
+                                const fullFieldName = `inputs.${fieldName}`
+                                const label = getActionFieldLabel(
+                                  fieldName,
+                                  toolsFolding
+                                )
+                                if (!isTracecatJsonSchema(fieldDefn)) {
+                                  // For non-TracecatJsonSchema, we can't extract type information
+                                  return (
+                                    <ControlledYamlField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fullFieldName}
+                                    />
+                                  )
+                                }
 
-                          {/* Optional fields - only shown if in visibleOptionalFields */}
-                          {displayedOptionalFields
-                            .filter(([fieldName]) =>
-                              visibleOptionalFields.has(fieldName)
-                            )
-                            .map(([fieldName, fieldDefn]) => {
-                              const fullFieldName = `inputs.${fieldName}`
-                              const label = getActionFieldLabel(
-                                fieldName,
-                                toolsFolding
-                              )
-                              if (!isTracecatJsonSchema(fieldDefn)) {
-                                // For non-TracecatJsonSchema, we can't extract type information
                                 return (
-                                  <ControlledYamlField
+                                  <PolymorphicField
                                     key={fieldName}
                                     label={label}
                                     fieldName={fullFieldName}
+                                    fieldDefn={fieldDefn}
+                                    actionProperties={actionProperties}
                                   />
                                 )
-                              }
+                              })}
 
-                              return (
-                                <PolymorphicField
-                                  key={fieldName}
-                                  label={label}
-                                  fieldName={fullFieldName}
-                                  fieldDefn={fieldDefn}
-                                  actionProperties={actionProperties}
-                                />
-                              )
-                            })}
-
-                          {/* Add optional fields dropdown */}
-                          {displayedOptionalFields.length > 0 && (
-                            <div className="mt-4">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full"
+                            {/* Add optional fields dropdown */}
+                            {displayedOptionalFields.length > 0 && (
+                              <div className="mt-4">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="w-full"
+                                    >
+                                      <Plus className="mr-2 size-4" />
+                                      Optional fields
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="start"
+                                    collisionPadding={8}
+                                    className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-96 overflow-y-auto"
                                   >
-                                    <Plus className="mr-2 size-4" />
-                                    Optional fields
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="start"
-                                  collisionPadding={8}
-                                  className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-96 overflow-y-auto"
-                                >
-                                  {displayedOptionalFields.map(
-                                    ([fieldName, fieldDefn]) => {
-                                      const label = getActionFieldLabel(
-                                        fieldName,
-                                        toolsFolding
-                                      )
-                                      const isVisible =
-                                        visibleOptionalFields.has(fieldName)
-                                      const description = isTracecatJsonSchema(
-                                        fieldDefn
-                                      )
-                                        ? fieldDefn.description
-                                        : null
-                                      const deprecated = isTracecatJsonSchema(
-                                        fieldDefn
-                                      )
-                                        ? fieldDefn.deprecated === true
-                                        : false
-                                      return (
-                                        <DropdownMenuCheckboxItem
-                                          key={fieldName}
-                                          checked={isVisible}
-                                          onCheckedChange={(checked) => {
-                                            if (checked) {
-                                              // Show the field
-                                              setManuallyVisibleFields(
-                                                (prev) =>
-                                                  new Set([...prev, fieldName])
-                                              )
-                                              setManuallyHiddenFields(
-                                                (prev) => {
-                                                  const newSet = new Set(prev)
-                                                  newSet.delete(fieldName)
-                                                  return newSet
-                                                }
-                                              )
-                                            } else {
-                                              // Hide the field
-                                              setManuallyHiddenFields(
-                                                (prev) =>
-                                                  new Set([...prev, fieldName])
-                                              )
-                                              setManuallyVisibleFields(
-                                                (prev) => {
-                                                  const newSet = new Set(prev)
-                                                  newSet.delete(fieldName)
-                                                  return newSet
-                                                }
-                                              )
-                                              // Remove field from form state when hiding
-                                              const currentInputs =
-                                                methods.getValues("inputs")
-                                              const remainingInputs =
-                                                removeOptionalField(
-                                                  currentInputs,
-                                                  fieldName,
-                                                  toolsFolding
+                                    {displayedOptionalFields.map(
+                                      ([fieldName, fieldDefn]) => {
+                                        const label = getActionFieldLabel(
+                                          fieldName,
+                                          toolsFolding
+                                        )
+                                        const isVisible =
+                                          visibleOptionalFields.has(fieldName)
+                                        const description =
+                                          isTracecatJsonSchema(fieldDefn)
+                                            ? fieldDefn.description
+                                            : null
+                                        const deprecated = isTracecatJsonSchema(
+                                          fieldDefn
+                                        )
+                                          ? fieldDefn.deprecated === true
+                                          : false
+                                        return (
+                                          <DropdownMenuCheckboxItem
+                                            key={fieldName}
+                                            checked={isVisible}
+                                            // The menu portals outside the
+                                            // locked fieldset, so lock its
+                                            // items too.
+                                            disabled={isReadOnly}
+                                            onCheckedChange={(checked) => {
+                                              if (checked) {
+                                                // Show the field
+                                                setManuallyVisibleFields(
+                                                  (prev) =>
+                                                    new Set([
+                                                      ...prev,
+                                                      fieldName,
+                                                    ])
                                                 )
-                                              methods.setValue(
-                                                "inputs",
-                                                remainingInputs
-                                              )
-                                              methods.unregister(
-                                                `inputs.${fieldName}`
-                                              )
-                                            }
-                                          }}
-                                        >
-                                          <div className="flex flex-col gap-1">
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-medium">
-                                                {label}
-                                              </span>
-                                              {deprecated && (
-                                                <Badge
-                                                  variant="outline"
-                                                  className="h-5 px-1.5 text-[10px] uppercase text-muted-foreground"
-                                                >
-                                                  Deprecated
-                                                </Badge>
+                                                setManuallyHiddenFields(
+                                                  (prev) => {
+                                                    const newSet = new Set(prev)
+                                                    newSet.delete(fieldName)
+                                                    return newSet
+                                                  }
+                                                )
+                                              } else {
+                                                // Hide the field
+                                                setManuallyHiddenFields(
+                                                  (prev) =>
+                                                    new Set([
+                                                      ...prev,
+                                                      fieldName,
+                                                    ])
+                                                )
+                                                setManuallyVisibleFields(
+                                                  (prev) => {
+                                                    const newSet = new Set(prev)
+                                                    newSet.delete(fieldName)
+                                                    return newSet
+                                                  }
+                                                )
+                                                // Remove field from form state when hiding
+                                                const currentInputs =
+                                                  methods.getValues("inputs")
+                                                const remainingInputs =
+                                                  removeOptionalField(
+                                                    currentInputs,
+                                                    fieldName,
+                                                    toolsFolding
+                                                  )
+                                                methods.setValue(
+                                                  "inputs",
+                                                  remainingInputs
+                                                )
+                                                methods.unregister(
+                                                  `inputs.${fieldName}`
+                                                )
+                                              }
+                                            }}
+                                          >
+                                            <div className="flex flex-col gap-1">
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-medium">
+                                                  {label}
+                                                </span>
+                                                {deprecated && (
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="h-5 px-1.5 text-[10px] uppercase text-muted-foreground"
+                                                  >
+                                                    Deprecated
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                              {description && (
+                                                <span className="text-xs text-muted-foreground">
+                                                  {description.endsWith(".")
+                                                    ? description
+                                                    : `${description}.`}
+                                                </span>
                                               )}
                                             </div>
-                                            {description && (
-                                              <span className="text-xs text-muted-foreground">
-                                                {description.endsWith(".")
-                                                  ? description
-                                                  : `${description}.`}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </DropdownMenuCheckboxItem>
-                                      )
-                                    }
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </SectionErrorBoundary>
+                                          </DropdownMenuCheckboxItem>
+                                        )
+                                      }
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </SectionErrorBoundary>
+                  </ReadOnlyFieldset>
                 </TabsContent>
                 <TabsContent value="history">
                   <ActionRunHistory
                     action={action}
                     workflowId={workflowId}
                     updateAction={updateAction}
+                    readOnly={isReadOnly}
                   />
                 </TabsContent>
                 <TabsContent value="schema">
@@ -1297,307 +1316,309 @@ function ActionPanelContent({
                   </SectionErrorBoundary>
                 </TabsContent>
                 <TabsContent value="control-flow">
-                  <SectionErrorBoundary>
-                    <div className="mt-4 space-y-8 px-4">
-                      {/* Run if */}
-                      <ControlFlowField
-                        label="Run if"
-                        description="Define a conditional expression that determines if the action executes."
-                        tooltip={<RunIfTooltip />}
-                      >
-                        <FormField
-                          name="run_if"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value}
-                                  onChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Loop */}
-                      <ControlFlowField
-                        label="For each"
-                        description="Define one or more loop expressions for the action to iterate over."
-                        tooltip={<ForEachTooltip />}
-                      >
-                        <ForEachField />
-                      </ControlFlowField>
-                      {/* Other options */}
-
-                      {/* Join strategy */}
-                      <ControlFlowField
-                        label="Join strategy"
-                        description="Define how to handle results when the action runs in parallel."
-                        tooltip={<JoinStrategyTooltip />}
-                      >
-                        <FormField
-                          name="join_strategy"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Select
-                                  value={field.value || ""}
-                                  onValueChange={field.onChange}
-                                >
-                                  <SelectTrigger className="text-xs">
-                                    <SelectValue
-                                      placeholder="Select strategy..."
-                                      className="text-xs"
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent className="w-full text-xs">
-                                    {$JoinStrategy.enum.map((strategy) => (
-                                      <SelectItem
-                                        key={strategy}
-                                        value={strategy}
-                                        className="text-xs"
-                                      >
-                                        {strategy.charAt(0).toUpperCase() +
-                                          strategy.slice(1)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Environment */}
-                      <ControlFlowField
-                        label="Environment"
-                        description="Override the environment for this action, otherwise the workflow's environment is used."
-                      >
-                        <FormField
-                          name="environment"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                  placeholder="Type @ to begin an expression..."
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      <ControlFlowField
-                        label="Tunnel"
-                        description="Route this action's HTTP(S) traffic through a workspace tunnel, otherwise the workflow's default tunnel is used."
-                      >
-                        <FormField
-                          name="tunnel"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <TunnelSelect
-                                  value={field.value}
-                                  onChange={field.onChange}
-                                  noneLabel="Workflow default"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      <ControlFlowField
-                        label="Mask output"
-                        description="Redact this action's result in workflow execution API responses while keeping downstream workflow data unchanged."
-                      >
-                        <FormField
-                          name="mask_output"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <div className="flex items-center gap-2">
+                  <ReadOnlyFieldset readOnly={isReadOnly}>
+                    <SectionErrorBoundary>
+                      <div className="mt-4 space-y-8 px-4">
+                        {/* Run if */}
+                        <ControlFlowField
+                          label="Run if"
+                          description="Define a conditional expression that determines if the action executes."
+                          tooltip={<RunIfTooltip />}
+                        >
+                          <FormField
+                            name="run_if"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
                                 <FormControl>
-                                  <Switch
-                                    checked={field.value ?? false}
-                                    onCheckedChange={field.onChange}
+                                  <ExpressionInput
+                                    value={field.value}
+                                    onChange={field.onChange}
                                   />
                                 </FormControl>
-                                <span className="text-xs text-muted-foreground">
-                                  {field.value ? "Enabled" : "Disabled"}
-                                </span>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
 
-                      <ControlFlowField
-                        label="Start delay"
-                        description="Define a delay before the action starts."
-                        tooltip={<StartDelayTooltip />}
-                      >
-                        <FormField
-                          name="start_delay"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value ?? ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseFloat(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="0.0"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
+                        {/* Loop */}
+                        <ControlFlowField
+                          label="For each"
+                          description="Define one or more loop expressions for the action to iterate over."
+                          tooltip={<ForEachTooltip />}
+                        >
+                          <ForEachField />
+                        </ControlFlowField>
+                        {/* Other options */}
 
-                      {/* Timeout */}
-                      <ControlFlowField
-                        label="Timeout"
-                        description={
-                          isAgentBackedAction
-                            ? "Define the maximum active runtime in seconds for the agent."
-                            : "Define the timeout in seconds for the action."
-                        }
-                        tooltip={
-                          <TimeoutTooltip isAgent={isAgentBackedAction} />
-                        }
-                      >
-                        <FormField
-                          name="timeout"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value ?? ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  min={1}
-                                  placeholder={
-                                    isAgentBackedAction
-                                      ? "Deployment default"
-                                      : String(DEFAULT_ACTION_TIMEOUT_SECONDS)
-                                  }
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
+                        {/* Join strategy */}
+                        <ControlFlowField
+                          label="Join strategy"
+                          description="Define how to handle results when the action runs in parallel."
+                          tooltip={<JoinStrategyTooltip />}
+                        >
+                          <FormField
+                            name="join_strategy"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <Select
+                                    value={field.value || ""}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <SelectTrigger className="text-xs">
+                                      <SelectValue
+                                        placeholder="Select strategy..."
+                                        className="text-xs"
+                                      />
+                                    </SelectTrigger>
+                                    <SelectContent className="w-full text-xs">
+                                      {$JoinStrategy.enum.map((strategy) => (
+                                        <SelectItem
+                                          key={strategy}
+                                          value={strategy}
+                                          className="text-xs"
+                                        >
+                                          {strategy.charAt(0).toUpperCase() +
+                                            strategy.slice(1)}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
 
-                      {/* Max attempts */}
-                      <ControlFlowField
-                        label="Max attempts"
-                        description="Define the maximum number of retry attempts for the action."
-                        tooltip={<MaxAttemptsTooltip />}
-                      >
-                        <FormField
-                          name="max_attempts"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value ?? ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="1"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
+                        {/* Environment */}
+                        <ControlFlowField
+                          label="Environment"
+                          description="Override the environment for this action, otherwise the workflow's environment is used."
+                        >
+                          <FormField
+                            name="environment"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <ExpressionInput
+                                    value={field.value || ""}
+                                    onChange={field.onChange}
+                                    placeholder="Type @ to begin an expression..."
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
 
-                      {/* Retry until */}
-                      <ControlFlowField
-                        label="Retry until"
-                        description="Define a conditional expression that determines when to stop retrying."
-                        tooltip={<RetryUntilTooltip />}
-                      >
-                        <FormField
-                          name="retry_until"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
+                        <ControlFlowField
+                          label="Tunnel"
+                          description="Route this action's HTTP(S) traffic through a workspace tunnel, otherwise the workflow's default tunnel is used."
+                        >
+                          <FormField
+                            name="tunnel"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <TunnelSelect
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    noneLabel="Workflow default"
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
 
-                      {/* Wait until */}
-                      <ControlFlowField
-                        label="Wait until"
-                        description="Define a conditional expression that determines when the action can proceed."
-                        tooltip={<WaitUntilTooltip />}
-                      >
-                        <FormField
-                          name="wait_until"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-                    </div>
-                  </SectionErrorBoundary>
+                        <ControlFlowField
+                          label="Mask output"
+                          description="Redact this action's result in workflow execution API responses while keeping downstream workflow data unchanged."
+                        >
+                          <FormField
+                            name="mask_output"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <div className="flex items-center gap-2">
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value ?? false}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
+                                  <span className="text-xs text-muted-foreground">
+                                    {field.value ? "Enabled" : "Disabled"}
+                                  </span>
+                                </div>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
+
+                        <ControlFlowField
+                          label="Start delay"
+                          description="Define a delay before the action starts."
+                          tooltip={<StartDelayTooltip />}
+                        >
+                          <FormField
+                            name="start_delay"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    value={field.value ?? ""}
+                                    onChange={(e) =>
+                                      field.onChange(
+                                        e.target.value
+                                          ? parseFloat(e.target.value)
+                                          : undefined
+                                      )
+                                    }
+                                    placeholder="0.0"
+                                    className="text-xs"
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
+
+                        {/* Timeout */}
+                        <ControlFlowField
+                          label="Timeout"
+                          description={
+                            isAgentBackedAction
+                              ? "Define the maximum active runtime in seconds for the agent."
+                              : "Define the timeout in seconds for the action."
+                          }
+                          tooltip={
+                            <TimeoutTooltip isAgent={isAgentBackedAction} />
+                          }
+                        >
+                          <FormField
+                            name="timeout"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    value={field.value ?? ""}
+                                    onChange={(e) =>
+                                      field.onChange(
+                                        e.target.value
+                                          ? parseInt(e.target.value)
+                                          : undefined
+                                      )
+                                    }
+                                    min={1}
+                                    placeholder={
+                                      isAgentBackedAction
+                                        ? "Deployment default"
+                                        : String(DEFAULT_ACTION_TIMEOUT_SECONDS)
+                                    }
+                                    className="text-xs"
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
+
+                        {/* Max attempts */}
+                        <ControlFlowField
+                          label="Max attempts"
+                          description="Define the maximum number of retry attempts for the action."
+                          tooltip={<MaxAttemptsTooltip />}
+                        >
+                          <FormField
+                            name="max_attempts"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    value={field.value ?? ""}
+                                    onChange={(e) =>
+                                      field.onChange(
+                                        e.target.value
+                                          ? parseInt(e.target.value)
+                                          : undefined
+                                      )
+                                    }
+                                    placeholder="1"
+                                    className="text-xs"
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
+
+                        {/* Retry until */}
+                        <ControlFlowField
+                          label="Retry until"
+                          description="Define a conditional expression that determines when to stop retrying."
+                          tooltip={<RetryUntilTooltip />}
+                        >
+                          <FormField
+                            name="retry_until"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <ExpressionInput
+                                    value={field.value || ""}
+                                    onChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
+
+                        {/* Wait until */}
+                        <ControlFlowField
+                          label="Wait until"
+                          description="Define a conditional expression that determines when the action can proceed."
+                          tooltip={<WaitUntilTooltip />}
+                        >
+                          <FormField
+                            name="wait_until"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormMessage className="whitespace-pre-line" />
+                                <FormControl>
+                                  <ExpressionInput
+                                    value={field.value || ""}
+                                    onChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </ControlFlowField>
+                      </div>
+                    </SectionErrorBoundary>
+                  </ReadOnlyFieldset>
                 </TabsContent>
                 {/* Template */}
                 {registryAction?.implementation && (

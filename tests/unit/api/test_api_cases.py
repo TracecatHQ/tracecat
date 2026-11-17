@@ -375,6 +375,16 @@ def _duplicate_column_error() -> ProgrammingError:
             id="delete-tracecat-validation-error",
         ),
         pytest.param(
+            "DELETE",
+            "/case-fields/missing_field",
+            None,
+            "delete_field",
+            TracecatNotFoundError("Column not found"),
+            status.HTTP_404_NOT_FOUND,
+            "Column not found",
+            id="delete-missing-column",
+        ),
+        pytest.param(
             "PATCH",
             "/case-fields/existing_field",
             {"name": "duplicate_name"},

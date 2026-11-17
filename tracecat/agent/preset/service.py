@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import uuid
 from collections import Counter
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -19,6 +19,8 @@ from sqlalchemy.orm import load_only, selectinload
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.channel_bots.platform_app import is_live_platform_install
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -26,6 +28,7 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPServerToolSummary,
     MCPStdioServerConfig,
+    is_stdio_mcp_server,
 )
 from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
@@ -59,6 +62,7 @@ from tracecat.agent.preset.types import (
     EffectivePresetTools,
     PresetToolInputs,
     SkillBindingSpec,
+    StdioMCPIntegrationSnapshot,
 )
 from tracecat.agent.skill.bindings import (
     SkillBindingService,
@@ -83,6 +87,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentCatalog,
+    AgentChannelBot,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
@@ -110,6 +115,17 @@ from tracecat.integrations.mcp_validation import (
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.managed_resources.guard import (
+    bypass_active,
+    ensure_unmanaged,
+    hold_for_customer_write,
+    is_managed,
+)
+from tracecat.managed_resources.presets import (
+    ensure_preset_update_allowed,
+    with_customer_skill_bindings,
+)
+from tracecat.managed_resources.values import changed_fields
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -121,11 +137,27 @@ from tracecat.secrets.common import call_with_masked_errors
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.auth.types import Role
+
+
+_MANAGED_DERIVED_FIELDS = ("enable_internet_access", "tool_tunnels")
+"""Preset fields derived from its skills that a managed preset must keep."""
+
+
+def _preset_values(preset: AgentPreset, fields: Iterable[str]) -> dict[str, object]:
+    """Return the preset's stored value for each update field it has a column for.
+
+    A field without a column is left out, so it counts as changed.
+    """
+    columns = sa.inspect(AgentPreset).column_attrs.keys()
+    # getattr: the names come from the update schema and are checked against
+    # the mapped columns first.
+    return {field: getattr(preset, field) for field in fields if field in columns}
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -566,6 +598,7 @@ class AgentPresetService(BaseWorkspaceService):
     @audit_log(resource_type="agent_preset", action="create")
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
+        await hold_for_customer_write(self.session, self.workspace_id)
         try:
             return await self._create_preset(params)
         except IntegrityError as exc:
@@ -744,9 +777,64 @@ class AgentPresetService(BaseWorkspaceService):
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
-        """Update an existing preset."""
+        """Update an existing preset.
+
+        On a managed preset only ``skills`` may change, and only by adding or
+        removing the customer's own skills.
+        """
+        # Takes the shared ownership lock, as rollouts take it exclusively.
+        managed = (
+            self.workspace_id is not None
+            and not bypass_active()
+            and await is_managed(
+                self.session,
+                workspace_id=self.workspace_id,
+                resource_type=SyncResourceType.AGENT_PRESET,
+                local_id=preset.id,
+            )
+        )
+        fields_set = set(params.model_fields_set)
+        if managed:
+            # Compare against the preset as it is now, not as the caller
+            # loaded it. The shared ownership lock is held, so no rollout is
+            # writing it; a plain re-read is enough, and taking no row lock
+            # here keeps the service's skill-then-preset lock order.
+            await self.session.refresh(preset)
+            # The agent builder sends the whole form back on save, so only
+            # fields whose value changed count against a managed preset.
+            fields_set = changed_fields(
+                params.model_dump(exclude_unset=True, exclude={"skills", "agents"}),
+                await self._effective_values(
+                    preset, params.model_fields_set - {"skills", "agents"}
+                ),
+            ) | ({"skills"} & params.model_fields_set)
+            # Stored subagents carry derived version details the form omits.
+            if "agents" in params.model_fields_set and (
+                self._subagent_declarations(params.agents)
+                != self._subagent_declarations(preset.agents)
+            ):
+                fields_set.add("agents")
+        await ensure_preset_update_allowed(
+            self.session,
+            workspace_id=self.workspace_id,
+            preset_id=preset.id,
+            fields_set=fields_set,
+            requested_skill_ids=(
+                [binding.skill_id for binding in params.skills or []]
+                if "skills" in params.model_fields_set
+                else None
+            ),
+        )
         try:
-            return await self._update_preset(preset, params)
+            return await self._update_preset(
+                preset,
+                params,
+                locked_values=(
+                    await self._effective_values(preset, _MANAGED_DERIVED_FIELDS)
+                    if managed
+                    else None
+                ),
+            )
         except IntegrityError as exc:
             await self.session.rollback()
             if not is_unique_violation(exc, "uq_agent_preset_workspace_slug_active"):
@@ -755,8 +843,29 @@ class AgentPresetService(BaseWorkspaceService):
                 "Agent preset slug is already in use for this workspace"
             ) from exc
 
+    async def _effective_values(
+        self, preset: AgentPreset, fields: Iterable[str]
+    ) -> dict[str, object]:
+        """The preset's values for ``fields`` as the read API reports them.
+
+        The read API reports internet access as on when the tool policy
+        forces it, so a form resends that value even when the stored flag is
+        off.
+        """
+        values = _preset_values(preset, fields)
+        if "enable_internet_access" in values:
+            policy = (await self.resolve_tool_policies([preset]))[preset.id]
+            values["enable_internet_access"] = (
+                preset.enable_internet_access or policy.requires_internet_access
+            )
+        return values
+
     async def _update_preset(
-        self, preset: AgentPreset, params: AgentPresetUpdate
+        self,
+        preset: AgentPreset,
+        params: AgentPresetUpdate,
+        *,
+        locked_values: Mapping[str, object] | None = None,
     ) -> AgentPreset:
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
@@ -867,6 +976,16 @@ class AgentPresetService(BaseWorkspaceService):
         )[preset.id]
         if policy.requires_internet_access:
             set_fields["enable_internet_access"] = True
+        if locked_values is not None and any(
+            field in set_fields and set_fields[field] != locked_values[field]
+            for field in _MANAGED_DERIVED_FIELDS
+        ):
+            # A customer skill can force these on, but they belong to the
+            # package; a later rollout would silently undo them.
+            raise TracecatValidationError(
+                "These skills would change the managed preset's internet access "
+                "or tool tunnels. Detach the preset to use them."
+            )
 
         # Update remaining fields
         for field, value in set_fields.items():
@@ -948,6 +1067,24 @@ class AgentPresetService(BaseWorkspaceService):
             for ref in config.subagents
         ]
 
+    async def _require_no_platform_channel_install(self, preset_id: uuid.UUID) -> None:
+        """A platform app install answers every unrouted channel with its default agent, so
+        losing it would silence the install. Only a live install counts."""
+        install_id = await self.session.scalar(
+            select(AgentChannelBot.id)
+            .where(
+                AgentChannelBot.workspace_id == self.workspace_id,
+                AgentChannelBot.agent_preset_id == preset_id,
+                is_live_platform_install(),
+            )
+            .limit(1)
+        )
+        if install_id is not None:
+            raise TracecatValidationError(
+                "This agent is the default agent of an installed Tracecat channel app;"
+                " make another agent the default before deleting this one"
+            )
+
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
     async def delete_preset(
@@ -955,6 +1092,12 @@ class AgentPresetService(BaseWorkspaceService):
         preset: AgentPreset,
     ) -> None:
         """Delete a preset and permanently unlink it from heads and history."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.AGENT_PRESET,
+            local_id=preset.id,
+        )
         # Saves lock parents and children in UUID order. Take the same order
         # before changing parent JSONB, including parents in the recycle bin.
         await self.session.execute(
@@ -966,6 +1109,7 @@ class AgentPresetService(BaseWorkspaceService):
             )
         )
         await self._lock_preset_row(preset.id)
+        await self._require_no_platform_channel_install(preset.id)
         channel_service = AgentChannelService(self.session, role=self.role)
         await channel_service.deactivate_tokens_for_preset(preset.id)
         for model in (AgentPreset, AgentPresetVersion):
@@ -1046,11 +1190,22 @@ class AgentPresetService(BaseWorkspaceService):
             preset_version=preset_version,
             include_deleted=include_deleted,
         )
-        return await self._version_to_agent_config(
+        config = await self._version_to_agent_config(
             version,
             prune_tool_tunnels=prune_tool_tunnels,
             resolve_dependencies_from_heads=resolve_dependencies_from_heads,
         )
+        # Runtime only: stored presets keep the retired model.
+        if replacement := await AgentCatalogService(
+            self.session
+        ).resolve_model_replacement(
+            role=self.role,
+            model_provider=config.model_provider,
+            model_name=config.model_name,
+            catalog_id=config.catalog_id,
+        ):
+            config = dataclasses.replace(config, **replacement.selection_update())
+        return config
 
     async def resolve_agent_preset_version(
         self,
@@ -1439,9 +1594,9 @@ class AgentPresetService(BaseWorkspaceService):
         integrations_service = IntegrationService(self.session, role=self.role)
         available = await integrations_service.list_mcp_integrations()
         by_id = {integration.id: integration for integration in available}
-        return self._mcp_integration_refs(mcp_integrations, by_id)
+        return self.mcp_integration_refs(mcp_integrations, by_id)
 
-    def _mcp_integration_refs(
+    def mcp_integration_refs(
         self,
         mcp_integrations: Sequence[str],
         by_id: Mapping[uuid.UUID, MCPIntegration],
@@ -1463,7 +1618,7 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
 
             mcp_integration = by_id.get(mcp_integration_id)
-            if mcp_integration is None:
+            if mcp_integration is None or not self._in_workspace(mcp_integration):
                 logger.warning(
                     "MCP integration not found, skipping: %r",
                     mcp_integration_id,
@@ -1529,7 +1684,7 @@ class AgentPresetService(BaseWorkspaceService):
                     active_tools = cast(
                         list[MCPServerToolSummary],
                         [
-                            tool.model_dump(exclude_none=True)
+                            tool.model_dump(exclude_none=True, exclude={"input_schema"})
                             for tool in stored_tools
                             if tool.enabled and tool.status == "available"
                         ],
@@ -1577,32 +1732,43 @@ class AgentPresetService(BaseWorkspaceService):
 
         return refs
 
-    async def resolve_mcp_integration_tool_policies(
-        self, mcp_integration_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
-        """Resolve stored MCP tool policy by integration id and tool name."""
+    async def load_mcp_integrations(
+        self, mcp_integration_ids: Collection[uuid.UUID]
+    ) -> dict[uuid.UUID, MCPIntegration]:
+        """Load the requested MCP integrations in this workspace in one read.
+
+        Pass the rows to :meth:`mcp_integration_refs`,
+        :meth:`mcp_tool_policies` and
+        :meth:`resolve_loaded_mcp_integration_secrets` instead of re-reading
+        them per use. IDs outside the workspace are absent from the result.
+        """
         if not mcp_integration_ids:
             return {}
+        integrations = await IntegrationService(
+            self.session, role=self.role
+        ).get_mcp_integrations(mcp_integration_ids)
+        return {integration.id: integration for integration in integrations}
 
-        requested_ids = set(mcp_integration_ids)
-        integrations_service = IntegrationService(self.session, role=self.role)
-        available = await integrations_service.list_mcp_integrations()
+    def _in_workspace(self, mcp_integration: MCPIntegration) -> bool:
+        """Whether a caller-supplied row belongs to this service's workspace.
 
-        return self._mcp_tool_policies(
-            [
-                integration
-                for integration in available
-                if integration.id in requested_ids
-            ]
-        )
+        Methods that take loaded rows re-check ownership so a row fetched
+        without the workspace predicate can never leak another workspace's
+        policy or credentials.
+        """
+        return mcp_integration.workspace_id == self.workspace_id
 
-    @staticmethod
-    def _mcp_tool_policies(
-        integrations: Sequence[MCPIntegration],
+    def mcp_tool_policies(
+        self, integrations: Collection[MCPIntegration]
     ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
-        """Index stored tool policy without loading integration metadata again."""
+        """Index stored tool policy without loading integration metadata again.
+
+        Rows from other workspaces are ignored.
+        """
         policies: dict[uuid.UUID, dict[str, MCPToolSummary]] = {}
         for mcp_integration in integrations:
+            if not self._in_workspace(mcp_integration):
+                continue
             tools = MCPToolSummary.validate_stored(
                 mcp_integration.tools,
                 mcp_integration_id=mcp_integration.id,
@@ -1622,7 +1788,7 @@ class AgentPresetService(BaseWorkspaceService):
         if not grants:
             return None
         merged: list[MCPServerConfig] = []
-        resolved = self._mcp_integration_refs(
+        resolved = self.mcp_integration_refs(
             [str(grant.mcp_integration_id) for grant in grants], integrations
         )
         resolved_by_id = {
@@ -1630,7 +1796,7 @@ class AgentPresetService(BaseWorkspaceService):
             for config in resolved or ()
             if (config_id := config.get("id")) is not None
         }
-        policies_by_id = self._mcp_tool_policies(
+        policies_by_id = self.mcp_tool_policies(
             [
                 integrations[grant.mcp_integration_id]
                 for grant in grants
@@ -1653,7 +1819,7 @@ class AgentPresetService(BaseWorkspaceService):
                 projected_config["tools"] = cast(
                     list[MCPServerToolSummary],
                     [
-                        policy.model_dump(exclude_none=True)
+                        policy.model_dump(exclude_none=True, exclude={"input_schema"})
                         for tool_name in sorted(grant.tool_names)
                         if (policy := policies.get(tool_name)) is not None
                     ],
@@ -1678,11 +1844,9 @@ class AgentPresetService(BaseWorkspaceService):
             MCPSecretResolutionError: If configured credentials/env exist but
                 cannot be resolved.
         """
-        integrations_service = IntegrationService(self.session, role=self.role)
-        available = await integrations_service.list_mcp_integrations()
-        mcp_integration = next(
-            (i for i in available if i.id == mcp_integration_id), None
-        )
+        mcp_integration = await IntegrationService(
+            self.session, role=self.role
+        ).get_mcp_integration(mcp_integration_id=mcp_integration_id)
         if mcp_integration is None:
             logger.warning(
                 "MCP integration not found",
@@ -1692,7 +1856,26 @@ class AgentPresetService(BaseWorkspaceService):
                 },
             )
             return None
+        return await self.resolve_loaded_mcp_integration_secrets(mcp_integration)
 
+    async def resolve_loaded_mcp_integration_secrets(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Resolve secrets for a row loaded from this workspace.
+
+        Same contract as :meth:`resolve_mcp_integration_secrets`, minus the
+        lookup. A row from another workspace is treated as not found.
+        """
+        if not self._in_workspace(mcp_integration):
+            logger.warning(
+                "MCP integration not found",
+                extra={
+                    "workspace_id": str(self.workspace_id),
+                    "mcp_integration_id": str(mcp_integration.id),
+                },
+            )
+            return None
+        integrations_service = IntegrationService(self.session, role=self.role)
         if mcp_integration.server_type == "stdio":
             stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
             if not stdio_env:
@@ -1744,6 +1927,76 @@ class AgentPresetService(BaseWorkspaceService):
                 ) from e
             return None
         return server_config.get("headers", {})
+
+    async def resolve_stdio_mcp_integration(
+        self, integration: MCPIntegration, *, resolve_env: bool
+    ) -> StdioMCPIntegrationSnapshot | None:
+        """Derive a stdio integration's config, policy and env from one row.
+
+        Everything comes from the single workspace-scoped row the caller
+        loaded, so a concurrent edit can't pair the old command with the new
+        env. Returns ``None`` when the row isn't a stdio server or belongs to
+        another workspace.
+
+        Raises:
+            TracecatValidationError: If the saved command fails validation.
+            MCPSecretResolutionError: If ``resolve_env`` is set and the env
+                cannot be resolved.
+        """
+        if integration.server_type != "stdio" or not self._in_workspace(integration):
+            return None
+        integrations_service = IntegrationService(self.session, role=self.role)
+        refs = self.mcp_integration_refs(
+            [str(integration.id)], {integration.id: integration}
+        )
+        config = refs[0]
+        if not is_stdio_mcp_server(config):
+            return None
+        env: dict[str, str] | None = None
+        stored_env = (
+            integrations_service.decrypt_stdio_env(integration) if resolve_env else None
+        )
+        # Same order as resolve_mcp_integrations: drop runtime-controlled keys
+        # from legacy rows, resolve templates, then validate the resolved env.
+        if stored_env and (
+            stdio_env := self._sanitize_persisted_stdio_env(
+                mcp_integration_id=integration.id, env=stored_env
+            )
+        ):
+            try:
+                env = await self.resolve_stdio_env(
+                    stdio_env=stdio_env,
+                    mcp_integration_id=integration.id,
+                    mcp_integration_slug=integration.slug,
+                )
+            except Exception as e:
+                raise MCPSecretResolutionError(
+                    "Stdio MCP integration env could not be resolved",
+                    mcp_integration_id=integration.id,
+                    server_name=integration.name,
+                    server_slug=integration.slug,
+                ) from e
+            env_valid = True
+            try:
+                validate_mcp_command_config(
+                    command=config["command"],
+                    args=config.get("args"),
+                    env=env,
+                    name=integration.slug,
+                )
+            except MCPValidationError:
+                env_valid = False
+            # Raise outside the handler: the validation error can quote
+            # resolved values and must not ride along as __context__.
+            if not env_valid:
+                raise TracecatValidationError(
+                    "Stdio MCP integration env failed validation"
+                )
+        return StdioMCPIntegrationSnapshot(
+            config=config,
+            tools=self.mcp_tool_policies([integration]).get(integration.id, {}),
+            env=env,
+        )
 
     async def resolve_stdio_env(
         self,
@@ -2403,6 +2656,12 @@ class AgentPresetService(BaseWorkspaceService):
         self, preset: AgentPreset, version: AgentPresetVersion
     ) -> AgentPreset:
         """Restore a historical version as the current preset head."""
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.AGENT_PRESET,
+            local_id=preset.id,
+        )
         if version.preset_id != preset.id:
             raise TracecatValidationError(
                 "Preset version does not belong to the selected preset"
@@ -2686,6 +2945,8 @@ class AgentPresetService(BaseWorkspaceService):
         binding projection and returns that version.
         """
 
+        # A managed rollout keeps the customer's own skills on the preset.
+        binding_specs = with_customer_skill_bindings(preset.id, binding_specs)
         await self._replace_head_skill_bindings(
             preset.id,
             binding_specs=binding_specs,

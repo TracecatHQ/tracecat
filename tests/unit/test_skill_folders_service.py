@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -14,15 +14,17 @@ from tracecat.agent.skill.folders.service import (
     SkillFolderService,
 )
 from tracecat.auth.types import Role
-from tracecat.db.models import Skill, SkillFolder
+from tracecat.db.models import ManagedResource, Skill, SkillFolder
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -461,3 +463,57 @@ async def test_folder_names_are_trimmed_and_must_not_be_blank(
 
     with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
         await folder_service.rename_folder(folder.id, "  ")
+
+
+async def _add_managed_skill(
+    folder_service: SkillFolderService, *, slug: str, folder_id: UUID | None = None
+) -> Skill:
+    skill = Skill(
+        workspace_id=folder_service.workspace_id,
+        name=slug,
+        slug=slug,
+        folder_id=folder_id,
+    )
+    folder_service.session.add(skill)
+    await folder_service.session.flush()
+    folder_service.session.add(
+        ManagedResource(
+            workspace_id=folder_service.workspace_id,
+            resource_type=SyncResourceType.SKILL.value,
+            local_id=skill.id,
+            source_id=f"source-{skill.id.hex[:8]}",
+            source_path=f"skills/{slug}/SKILL.md",
+            deployed_tag="v1.0.0",
+            deployed_commit_sha="a" * 40,
+        )
+    )
+    await folder_service.session.commit()
+    return skill
+
+
+@pytest.mark.anyio
+async def test_move_skill_rejects_managed_skill(
+    folder_service: SkillFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    target = await folder_service.create_folder(name="target", parent_path="/")
+    skill = await _add_managed_skill(folder_service, slug="managed-skill")
+
+    assert await folder_service.get_managed_skill_ids([skill.id]) == {skill.id}
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.move_skill(skill.id, target)
+
+
+@pytest.mark.anyio
+async def test_delete_folder_recursive_rejects_managed_skill_in_subtree(
+    folder_service: SkillFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/parent/")
+    await _add_managed_skill(folder_service, slug="managed-skill", folder_id=child.id)
+
+    with pytest.raises(ManagedResourceLockedError):
+        await folder_service.delete_folder(parent.id, recursive=True)

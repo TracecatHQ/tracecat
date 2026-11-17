@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
 from typing import cast
@@ -13,6 +14,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 import tracecat.agent.executor.loopback as loopback_module
+from tracecat.agent.channels.sinks.session import AgentStreamSink, FanoutStreamSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE, MessageType, build_message
@@ -26,8 +28,6 @@ from tracecat.agent.error_policy import (
     user_agent_execution_failed,
 )
 from tracecat.agent.executor.loopback import (
-    AgentStreamSink,
-    FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
     RuntimeEnvelopeProtocolError,
@@ -114,11 +114,16 @@ async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
     external_lookup = AsyncMock(side_effect=SQLAlchemyError("database unavailable"))
-    monkeypatch.setattr(handler, "_build_external_channel_sink", external_lookup)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
+        external_lookup,
+    )
 
     fake_stream = _FakeStream()
     stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
+    )
 
     emitted = await handler.emit_terminal_error(
         "runtime exited before connect",
@@ -141,43 +146,20 @@ async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
 
 
 @pytest.mark.anyio
-async def test_initialize_stream_sink_uses_fanout_when_external_sink_available(
-    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
-) -> None:
-    handler = LoopbackHandler(input=loopback_input)
-    external_sink = _FakeStream()
-    monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
-        AsyncMock(return_value=external_sink),
-    )
-    fake_stream = _FakeStream()
-    stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
-
-    sink = await handler._initialize_stream_sink()
-    event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
-    await sink.append(event)
-
-    assert isinstance(sink, FanoutStreamSink)
-    fake_stream.append.assert_awaited_once_with(event)
-    external_sink.append.assert_awaited_once_with(event)
-
-
-@pytest.mark.anyio
 async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
     monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
+        "tracecat.agent.channels.sinks.session._build_external_channel_sink",
         AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
     )
 
     fake_stream = _FakeStream()
     stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.AgentStream.new", stream_new
+    )
 
     handler._started_compaction_event = True
 
@@ -311,6 +293,18 @@ def _make_handler() -> LoopbackHandler:
     )
 
 
+def _tenant_session_for(
+    expected_workspace_id: UUID, session: object
+) -> Callable[..., _FakeSessionContext]:
+    """Tenant-session stub that only accepts the handler's own workspace."""
+
+    def factory(*, workspace_id: UUID) -> _FakeSessionContext:
+        assert workspace_id == expected_workspace_id
+        return _FakeSessionContext(session)
+
+    return factory
+
+
 @pytest.mark.anyio
 async def test_persist_session_line_preserves_raw_nul_content(
     monkeypatch: pytest.MonkeyPatch,
@@ -319,8 +313,8 @@ async def test_persist_session_line_preserves_raw_nul_content(
     handler._sdk_session_id = "sdk-session"
     session = _FakeHistoryPersistenceSession()
     monkeypatch.setattr(
-        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
-        lambda: _FakeSessionContext(session),
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        _tenant_session_for(handler.input.workspace_id, session),
     )
     raw_line = (
         r'{"type":"user","uuid":"line-uuid","message":{"role":"user",'
@@ -549,8 +543,8 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
             self.apply_artifact_side_effects = apply_artifact_side_effects
 
     monkeypatch.setattr(
-        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
-        lambda: _FakeSessionContext(fake_session),
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        _tenant_session_for(handler.input.workspace_id, fake_session),
     )
     monkeypatch.setattr(
         "tracecat.agent.executor.loopback.AgentSessionService",
@@ -1501,6 +1495,41 @@ async def test_duplicate_approval_request_events_are_deduped() -> None:
 
     result = handler.build_result()
     assert [item.id for item in result.approval_items] == ["call-1"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "first_output",
+    [
+        UnifiedStreamEvent(type=StreamEventType.THINKING_DELTA, thinking="hm"),
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi"),
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            tool_call_id="call-1",
+            tool_name="core.http_request",
+        ),
+    ],
+    ids=["thinking", "text", "tool_call"],
+)
+async def test_first_token_at_marks_first_model_output_only(
+    first_output: UnifiedStreamEvent,
+) -> None:
+    handler = _make_handler()
+    handler._stream_sink = _FakeStream()
+
+    await handler._handle_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
+    )
+    assert handler.build_result().first_token_at is None
+
+    await handler._handle_stream_event(first_output)
+    first_token_at = handler.build_result().first_token_at
+    assert first_token_at is not None
+
+    await handler._handle_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hi")
+    )
+    assert handler.build_result().first_token_at == first_token_at
 
 
 @pytest.mark.anyio

@@ -5,6 +5,13 @@ from ansible_runner import Runner, run
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry._internal.exceptions import TracecatException
+from tracecat_registry._internal.remote_exec import (
+    find_error_pattern,
+    output_tail,
+    resolve_remote_target,
+    validate_error_patterns,
+)
 
 ansible_secret = RegistrySecret(
     name="ansible",
@@ -19,6 +26,52 @@ ansible_secret = RegistrySecret(
     - `PRIVATE_KEY`
 """
 
+_FAILURE_EVENTS = frozenset({"runner_on_failed", "runner_on_unreachable"})
+
+
+def _first_failure_message(events: list[dict[str, Any]]) -> str | None:
+    for event in events:
+        if event.get("event") not in _FAILURE_EVENTS:
+            continue
+        event_data = event.get("event_data") or {}
+        res = event_data.get("res") or {}
+        message = res.get("msg") or res.get("stderr") or event.get("stdout")
+        if not message:
+            continue
+        task = event_data.get("task")
+        return f"{task}: {message}" if task else str(message)
+    return None
+
+
+def _raise_for_playbook_failure(
+    status: str,
+    rc: int | None,
+    stats: dict[str, Any] | None,
+    events: list[dict[str, Any]],
+    stdout: str,
+    error_patterns: list[str],
+) -> None:
+    if status != "successful":
+        reason = f"finished with status {status!r} (rc={rc})"
+    elif not (stats or {}).get("processed"):
+        # e.g. `hosts: localhost`, which the inventory limit excludes.
+        reason = (
+            "did not run on any host. Use `hosts: all`; `localhost` refers to "
+            "the Tracecat worker and is excluded"
+        )
+    elif pattern := find_error_pattern(error_patterns, [stdout]):
+        reason = f"output matched error pattern {pattern!r}"
+    else:
+        return
+    message = f"Ansible playbook {reason}."
+    if stats:
+        failed = sum((stats.get("failures") or {}).values())
+        unreachable = sum((stats.get("dark") or {}).values())
+        message += f" Failed hosts: {failed}. Unreachable hosts: {unreachable}."
+    if detail := _first_failure_message(events):
+        message += f"\n\n```\n{output_tail(detail)}\n```"
+    raise TracecatException(message, detail={"status": status, "rc": rc})
+
 
 @registry.register(
     default_title="Run Ansible playbook",
@@ -30,7 +83,14 @@ ansible_secret = RegistrySecret(
 )
 def run_playbook(
     playbook: Annotated[
-        list[dict[str, Any]], Field(..., description="List of plays to run")
+        list[dict[str, Any]],
+        Field(
+            ...,
+            description=(
+                "List of plays to run. Plays run only on the inventory host, so use "
+                "`hosts: all`."
+            ),
+        ),
     ],
     host: Annotated[
         str,
@@ -75,32 +135,55 @@ def run_playbook(
             description="List of events to ignore from the playbook. Returns all events by default."
         ),
     ] = None,
+    raise_on_failure: Annotated[
+        bool,
+        Field(
+            description=(
+                "Raise an error when the playbook fails, times out, is canceled, or its "
+                "output contains any error_patterns. Defaults to returning the events."
+            )
+        ),
+    ] = False,
+    error_patterns: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "Text that marks the run as failed when raise_on_failure is enabled. "
+                "The action raises if the playbook output contains any item exactly "
+                "as written: case-sensitive, and characters like `*`, `.` or `^` "
+                "match themselves (no wildcards or regex). Example: "
+                '`["FAILED!", "UNREACHABLE!"]`. '
+                "Up to 20 items, each 1-256 characters."
+            )
+        ),
+    ] = None,
 ) -> list[dict[str, Any]] | list[str]:
     ignore_events = ignore_events or []
+    patterns = validate_error_patterns(error_patterns)
 
     extravars = extravars or {}
-    runner_kwargs = runner_kwargs or {}
+    runner_kwargs = dict(runner_kwargs or {})
+    if "inventory" in runner_kwargs:
+        raise ValueError(
+            "`inventory` is not supported in this integration. Please use the `host` and `user` parameters instead."
+        )
+    # Only run against the inventory host; excludes Ansible's implicit localhost.
+    runner_kwargs.setdefault("limit", host_name)
     # Prevent ansible-runner from writing console output to stdout.
     # Registry actions are executed in a subprocess where stdout must contain
     # only the JSON protocol payload returned by minimal_runner.
     runner_kwargs.setdefault("quiet", True)
 
-    if "inventory" in runner_kwargs:
-        raise ValueError(
-            "`inventory` is not supported in this integration. Please use the `host` and `user` parameters instead."
-        )
-
-    local_patterns = ["localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"]
-    if host in local_patterns:
-        # Block local connections in initial host connection
-        raise ValueError(f"Local connections are not supported. Got host: {host}")
+    # Resolve once and pin the inventory to the validated address, so loopback,
+    # link-local, and metadata targets are rejected even behind DNS names.
+    target_address = resolve_remote_target(host, 22)
 
     # Create inventory config
     inventory = {
         "all": {
             "hosts": {
                 host_name: {
-                    "ansible_host": host,
+                    "ansible_host": target_address,
                     "ansible_user": user,
                     "ansible_connection": "ssh",
                 }
@@ -123,23 +206,36 @@ def run_playbook(
         **runner_kwargs,
     )
     if isinstance(result, Runner):
-        # Check stdout for errors
-        if result.stdout:
-            if "Error loading key" in result.stdout:
-                raise ValueError(
-                    "Failed to load SSH key. Please check the key begins and ends with `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`."
-                )
+        try:
+            with result.stdout as stdout_file:
+                stdout = stdout_file.read()
+        except Exception:
+            stdout = ""
+        if "Error loading key" in stdout:
+            raise ValueError(
+                "Failed to load SSH key. Please check the key begins and ends with `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`."
+            )
 
         # Events are a generator, so we need to convert to a list
+        events = list(result.events)
+        if raise_on_failure:
+            _raise_for_playbook_failure(
+                status=result.status,
+                rc=result.rc,
+                stats=result.stats,
+                events=events,
+                stdout=stdout,
+                error_patterns=patterns,
+            )
+
         # Filter out internal implementation details (temp paths, ssh key loading, etc.)
-        events = result.events
         filtered_events = []
         for event in events:
             if event.get("event") in ignore_events:
                 continue
             # Filter out verbose events that expose internal temp paths
-            stdout = event.get("stdout", "")
-            if "Identity added:" in stdout:
+            event_stdout = event.get("stdout", "")
+            if "Identity added:" in event_stdout:
                 continue
             filtered_events.append(event)
         return filtered_events

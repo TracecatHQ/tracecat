@@ -51,6 +51,7 @@ import {
 } from "@/components/agents/agents-catalog-view-toggle"
 import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
+import { useAgentsChannelsHref } from "@/components/agents/external-channels/agents-channels-href"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -69,6 +70,7 @@ import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
+import { CaseViewHeaderSlot } from "@/components/cases/case-view-header-slot"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -84,6 +86,7 @@ import { FormViewToggle } from "@/components/forms/form-view-toggle"
 import { CreateFormDialog } from "@/components/forms/forms-dashboard"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
 import { SkillLibrarySkillActions } from "@/components/skills/skill-library-skill-view"
@@ -95,6 +98,10 @@ import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import {
+  normalizeTableFolderPath,
+  TableFolderCreateDialog,
+} from "@/components/tables/table-folder-dialogs"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
@@ -260,8 +267,12 @@ function WorkflowsBreadcrumb({
 }
 
 function TablesActions() {
-  const [activeDialog, setActiveDialog] = useState<"create" | "import" | null>(
-    null
+  const searchParams = useSearchParams()
+  const [activeDialog, setActiveDialog] = useState<
+    "create" | "import" | "folder" | null
+  >(null)
+  const currentFolderPath = normalizeTableFolderPath(
+    searchParams?.get("path") ?? null
   )
 
   return (
@@ -305,15 +316,31 @@ function TablesActions() {
               </span>
             </div>
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setActiveDialog("folder")}>
+            <FolderIcon className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Folder</span>
+              <span className="text-xs text-muted-foreground">
+                Organize tables into folders
+              </span>
+            </div>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <CreateTableDialog
         open={activeDialog === "create"}
         onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
+        folderPath={currentFolderPath}
       />
       <TableImportTableDialog
         open={activeDialog === "import"}
         onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
+        folderPath={currentFolderPath}
+      />
+      <TableFolderCreateDialog
+        open={activeDialog === "folder"}
+        onOpenChange={(open) => setActiveDialog(open ? "folder" : null)}
+        parentPath={currentFolderPath}
       />
     </>
   )
@@ -543,11 +570,19 @@ function SkillsBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={skill?.name}
             skeletonClassName="h-4 w-28"
           />
+          {skill && (
+            <ManagedResourceStatus
+              resourceType="skill"
+              id={skill.id}
+              name={skill.slug}
+              showDetach
+            />
+          )}
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -706,9 +741,12 @@ function AgentsActions() {
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
 
+  const channelsHref = useAgentsChannelsHref(workspaceId)
   const catalogView = pathname?.includes("/agents/tags")
     ? AgentsCatalogViewMode.Tags
-    : AgentsCatalogViewMode.Agents
+    : pathname?.includes("/agents/channels")
+      ? AgentsCatalogViewMode.Channels
+      : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
   const isFoldersView =
@@ -729,7 +767,7 @@ function AgentsActions() {
           />
         )
       }
-    } else {
+    } else if (catalogView === AgentsCatalogViewMode.Agents) {
       agentActionControls = (
         <>
           <DropdownMenu>
@@ -789,11 +827,12 @@ function AgentsActions() {
 
   return (
     <>
-      {organizationEnabled ? (
+      {organizationEnabled || channelsHref ? (
         <AgentsCatalogViewToggle
           view={catalogView}
           agentsHref={agentsHref}
-          tagsHref={tagsHref}
+          tagsHref={organizationEnabled ? tagsHref : undefined}
+          channelsHref={channelsHref}
         />
       ) : null}
       <WorkspaceResourceSyncActions
@@ -2332,11 +2371,19 @@ function TableBreadcrumb({
         <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
-        <BreadcrumbItem>
+        <BreadcrumbItem className="gap-2">
           <BreadcrumbEntityPage
             label={table?.name}
             skeletonClassName="h-4 w-28"
           />
+          {table && (
+            <ManagedResourceStatus
+              resourceType="table"
+              id={table.id}
+              name={table.name}
+              showDetach
+            />
+          )}
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -2384,7 +2431,19 @@ function AgentPresetBreadcrumb({
       rootLabel={workspace?.name ?? <Skeleton className="h-4 w-20" />}
       rootHref={`/workspaces/${workspaceId}/agents`}
       folderPath={folderPath}
-      currentPage={preset?.name}
+      currentPage={
+        preset ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{preset.name}</span>
+            <ManagedResourceStatus
+              resourceType="agent_preset"
+              id={preset.id}
+              name={preset.slug}
+              showDetach
+            />
+          </span>
+        ) : undefined
+      }
       currentPageFallback={<Skeleton className="h-4 w-32" />}
     />
   )
@@ -2436,6 +2495,19 @@ function getPageConfig(
     if (pagePath === "/agents/tags") {
       return {
         title: "Agents",
+        actions: <AgentsActions />,
+      }
+    }
+
+    if (pagePath === "/agents/channels") {
+      return {
+        title: (
+          <FolderPathBreadcrumb
+            rootLabel="Agents"
+            rootHref={`${basePath}/agents`}
+            currentPage="Channels"
+          />
+        ),
         actions: <AgentsActions />,
       }
     }
@@ -2797,6 +2869,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         ) : (
           titleContent
         )}
+        {isCasesListPage && <CaseViewHeaderSlot />}
       </div>
 
       {/* Middle section: bulk selection actions */}

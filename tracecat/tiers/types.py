@@ -100,3 +100,29 @@ class EntitlementsDict(TypedDict, total=False):
             " network tunnels such as Pangolin",
         ),
     ]
+    agent_runtime_preview: Annotated[
+        bool,
+        Field(
+            title="Agent runtime preview",
+            description="Whether agent backends other than the built-in one may be"
+            " listed, used to create or fork agent sessions, and used to run"
+            " new turns in existing sessions",
+        ),
+    ]
+    agent_runtime_workflows: Annotated[
+        bool,
+        Field(
+            title="Agent runtime for workflows",
+            description="Whether workflow agent actions may run on agent backends"
+            " other than the built-in one. Takes effect only together with"
+            " agent_runtime_preview",
+        ),
+    ]
+    agent_channels_preview: Annotated[
+        bool,
+        Field(
+            title="Agent channels preview",
+            description="Whether the organization uses the channel bot API in place"
+            " of legacy agent channels",
+        ),
+    ]

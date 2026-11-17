@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Submit file to sandbox
+  description: >-
+    Submit file to sandbox. Submits a file to the sandbox for analysis. Calls POST
+    /v3.0/sandbox/files/analyze.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Sandbox-Analysis/paths/~1v3.0~1sandbox~1files~1analyze/post
+  namespace: tools.trend_vision_one
+  name: submit_file
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    file:
+      type: str
+      description: >-
+        Base64-encoded file content to upload.
+    documentPassword:
+      type: str | None
+      description: >-
+        Password encoded in Base64 used to decrypt the submitted file sample. The maximum
+        password length (without encoding) is 128 bytes.
+      default: null
+    archivePassword:
+      type: str | None
+      description: >-
+        Password encoded in Base64 used to decrypt the submitted archive. The maximum
+        password length (without encoding) is 128 bytes.
+      default: null
+    arguments:
+      type: str | None
+      description: >-
+        Parameter that allows you to specify Base64-encoded command line arguments to run
+        the submitted file. The maximum argument length before encoding is 1024 bytes.
+        Arguments are only available for Portable Executable (PE) files and script files.
+      default: null
+    filename:
+      type: str
+      description: Name of the uploaded file, including its extension.
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/sandbox/files/analyze
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+        files:
+          file:
+            filename: ${{ inputs.filename }}
+            content_base64: ${{ inputs.file }}
+        form_data:
+          documentPassword: ${{ inputs.documentPassword }}
+          archivePassword: ${{ inputs.archivePassword }}
+          arguments: ${{ inputs.arguments }}
+  returns: ${{ steps.request.result }}

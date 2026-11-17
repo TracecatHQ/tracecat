@@ -643,6 +643,75 @@ def test_google_secops_row_ships_templated_uri_and_pinned_authorize_params() -> 
     }
 
 
+def test_swif_row_discovers_oauth_and_takes_regional_server_uri() -> None:
+    """Swif uses DCR on a regional host, so only the server URL is configurable."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "swif-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.category == "Endpoint"
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.server_uri == "https://mcp.swifteam.com/mcp"
+    assert spec.scopes == ["swif:read", "offline_access"]
+    assert spec.oauth_authorization_endpoint is None
+    assert spec.oauth_token_endpoint is None
+    creds = {credential.key: credential for credential in spec.credentials}
+    assert set(creds) == {"SWIF_MCP_ENDPOINT"}
+    endpoint = creds["SWIF_MCP_ENDPOINT"]
+    assert endpoint.target == "server_uri"
+    assert endpoint.type == "url"
+    assert endpoint.secret is False
+
+
+def test_socket_row_discovers_oauth_with_read_scopes() -> None:
+    """Socket serves OAuth from api.socket.dev, so its endpoints are pinned."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "socket-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.name == "Socket"
+    assert entry.category == "AppSec"
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_oauth2"
+    assert spec.requires_config is False
+    assert spec.credentials == []
+    # The protected resource metadata names the URI with its trailing slash.
+    assert spec.server_uri == "https://mcp.socket.dev/"
+    assert spec.scopes == ["packages:list", "alerts:list", "threat-feed:list"]
+    # Pinned only to allowlist api.socket.dev; without client credentials the
+    # connect flow still discovers the registration endpoint and runs DCR.
+    assert (
+        spec.oauth_authorization_endpoint
+        == "https://api.socket.dev/v1/oauth2/authorize"
+    )
+    assert spec.oauth_token_endpoint == "https://api.socket.dev/v1/oauth2/token"
+
+
+def test_devin_row_uses_api_key_headers() -> None:
+    """Devin's OAuth server has no DCR, so the row connects with an API key."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "devin-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.name == "Devin"
+    spec = entry.connection_spec
+    assert spec is not None
+    assert spec.kind == "http_custom"
+    assert spec.server_uri == "https://mcp.devin.ai/mcp"
+    [credential] = spec.credentials
+    assert credential.key == "Authorization"
+    assert credential.target == "http_header"
+    assert credential.required is True
+    assert credential.secret is True
+    assert credential.placeholder == "Bearer cog_..."
+
+
 def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
     """Gmail, Drive and Calendar share the SecOps missing-refresh-token bug."""
     _clear_catalog_cache()

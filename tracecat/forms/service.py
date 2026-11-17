@@ -65,9 +65,14 @@ from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import (
+    ensure_unmanaged,
+    hold_for_customer_write,
+)
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseOrgService, BaseWorkspaceService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspaces.service import WorkspaceService
 
 # The fastapi-users base types these columns as plain values, so queries go
@@ -408,6 +413,13 @@ class FormsService(BaseWorkspaceService):
         editor can show them. It cannot go online until they are fixed.
         """
         workflow_id = WorkflowUUID.new(params.workflow_id)
+        # A managed workflow's form, or its absence, comes from the package.
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
         inputs = await self._require_inputs(workflow_id)
         already_exists = FormError(
             FormErrorCode.ALREADY_EXISTS, "This workflow already has a form"
@@ -448,6 +460,9 @@ class FormsService(BaseWorkspaceService):
             FormError: ``form_changed`` for a stale ``base_config_version``, or
                 the reason the config or status cannot be saved.
         """
+        # Before the row lock: rollouts take the ownership lock first and then
+        # lock form rows, so the opposite order could deadlock.
+        await self._ensure_config_editable(form.workflow_id, params)
         if params.base_config_version is not None:
             # Locked, so two saves from the same config cannot both pass.
             await self.session.refresh(form, with_for_update=True)
@@ -473,6 +488,7 @@ class FormsService(BaseWorkspaceService):
 
         Audited as the update or the create it turns into.
         """
+        await self._ensure_config_editable(workflow_id, params)
         if (form := await self.get_form_by_workflow_id(workflow_id)) is not None:
             return await self.update_form(form, params)
         return await self.create_form(
@@ -489,12 +505,39 @@ class FormsService(BaseWorkspaceService):
 
         The file blobs are deleted after the commit, best effort.
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=form.workflow_id,
+        )
         keys = await lock_forms_for_deletion(
             self.session, self.workspace_id, Form.id == form.id
         )
         await self.session.delete(form)
         await self.session.commit()
         await delete_file_blobs(keys)
+
+    async def _ensure_config_editable(
+        self, workflow_id: uuid.UUID, params: FormUpdate
+    ) -> None:
+        """Refuse a config change on a managed workflow's form.
+
+        Customers may switch a managed workflow's form on and off; its config
+        comes from the package. Checked on the config itself, not on the
+        fields sent, since a client may send ``config: null`` with a status.
+        """
+        if params.config is None:
+            # A status toggle is allowed, but still takes the ownership lock
+            # so it cannot land while a rollout carries the old status forward.
+            await hold_for_customer_write(self.session, self.workspace_id)
+            return
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
 
     async def sync_form(
         self, workflow_id: uuid.UUID, form_config: FormConfig | None, status: FormStatus

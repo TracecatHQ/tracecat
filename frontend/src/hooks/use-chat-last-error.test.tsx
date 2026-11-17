@@ -2,7 +2,7 @@ import { useChat } from "@ai-sdk/react"
 import { act, renderHook } from "@testing-library/react"
 import type { UIMessage } from "ai"
 import type { ReactNode } from "react"
-import { useVercelChat } from "@/hooks/use-chat"
+import { parseChatError, useVercelChat } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 let mockMessages: UIMessage[] = []
@@ -97,6 +97,41 @@ describe("useVercelChat lastError", () => {
     })
 
     expect(hook.result.current.lastError).toBe(detail)
+  })
+
+  it("shows a typed API error's message when a send is refused", () => {
+    const { hook, onError } = renderChat()
+    const message =
+      "This chat uses a feature your workspace no longer has. Start a new chat."
+
+    act(() => {
+      onError?.(
+        new Error(
+          JSON.stringify({
+            type: "EntitlementRequired",
+            message,
+            detail: { entitlement: "agent_runtime_preview" },
+          })
+        )
+      )
+    })
+
+    expect(hook.result.current.lastError).toBe(message)
+  })
+
+  it("shows a typed API error's message from a client error's body", () => {
+    const message =
+      "This chat uses a feature your workspace no longer has. Start a new chat."
+    const error = Object.assign(new Error("Forbidden"), {
+      status: 403,
+      body: {
+        type: "EntitlementRequired",
+        message,
+        detail: { entitlement: "agent_runtime_preview" },
+      },
+    })
+
+    expect(parseChatError(error)).toBe(message)
   })
 
   it("clears the error once a later turn finishes cleanly", () => {

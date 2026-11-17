@@ -2,8 +2,6 @@
 
 import { Cross2Icon } from "@radix-ui/react-icons"
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
   CalendarIcon,
   ChevronLeft,
   ChevronRight,
@@ -13,9 +11,13 @@ import {
   MousePointerClickIcon,
   TypeIcon,
 } from "lucide-react"
-import type { ComponentType } from "react"
 import { FilterMultiSelect } from "@/components/filters/filter-multi-select"
 import { ListHeaderSearch } from "@/components/list-header-search"
+import {
+  type ListSortFieldOption,
+  ListSortSelect,
+  type ListSortValue,
+} from "@/components/list-sort-select"
 import type { SkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import {
   Select,
@@ -27,12 +29,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export type SkillsSortField = "updated_at" | "created_at" | "name"
-export type SkillsSortDirection = "asc" | "desc"
-
-export interface SkillsSortValue {
-  field: SkillsSortField
-  direction: SkillsSortDirection
-}
+export type SkillsSortValue = ListSortValue<SkillsSortField>
 
 export type SkillsViewMode = "folders" | "list"
 
@@ -41,11 +38,7 @@ export const DEFAULT_SKILL_SORT: SkillsSortValue = {
   direction: "desc",
 }
 
-const SORT_FIELD_OPTIONS: Array<{
-  value: SkillsSortField
-  label: string
-  icon: ComponentType<{ className?: string }>
-}> = [
+const SORT_FIELD_OPTIONS: Array<ListSortFieldOption<SkillsSortField>> = [
   { value: "updated_at", label: "Updated", icon: Clock3 },
   { value: "created_at", label: "Created", icon: CalendarIcon },
   { value: "name", label: "Name", icon: TypeIcon },
@@ -57,68 +50,6 @@ function isDefaultSort(value: SkillsSortValue): boolean {
   return (
     value.field === DEFAULT_SKILL_SORT.field &&
     value.direction === DEFAULT_SKILL_SORT.direction
-  )
-}
-
-interface SortBySelectProps {
-  value: SkillsSortValue
-  onChange: (next: SkillsSortValue) => void
-}
-
-function SortBySelect({ value, onChange }: SortBySelectProps) {
-  const selectedLabel =
-    SORT_FIELD_OPTIONS.find((option) => option.value === value.field)?.label ??
-    "Updated"
-
-  return (
-    <div className="inline-flex items-center rounded-md border border-input bg-transparent">
-      <Select
-        value={value.field}
-        onValueChange={(nextField) =>
-          onChange({
-            field: nextField as SkillsSortField,
-            direction: value.direction,
-          })
-        }
-      >
-        <SelectTrigger className="h-6 w-[145px] rounded-r-none border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
-          <span className="text-muted-foreground">Sort by</span>
-          <span className="text-foreground">{selectedLabel}</span>
-        </SelectTrigger>
-        <SelectContent align="start">
-          {SORT_FIELD_OPTIONS.map((option) => {
-            const Icon = option.icon
-            return (
-              <SelectItem key={option.value} value={option.value}>
-                <span className="flex items-center gap-2">
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span>{option.label}</span>
-                </span>
-              </SelectItem>
-            )
-          })}
-        </SelectContent>
-      </Select>
-      <button
-        type="button"
-        className="flex h-6 w-7 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-        onClick={() =>
-          onChange({
-            field: value.field,
-            direction: value.direction === "asc" ? "desc" : "asc",
-          })
-        }
-        aria-label={
-          value.direction === "asc" ? "Sort ascending" : "Sort descending"
-        }
-      >
-        {value.direction === "asc" ? (
-          <ArrowUpIcon className="size-3.5" />
-        ) : (
-          <ArrowDownIcon className="size-3.5" />
-        )}
-      </button>
-    </div>
   )
 }
 
@@ -244,7 +175,11 @@ export function SkillsHeader({
             </SelectContent>
           </Select>
         ) : null}
-        <SortBySelect value={sortBy} onChange={onSortByChange} />
+        <ListSortSelect
+          value={sortBy}
+          onChange={onSortByChange}
+          options={SORT_FIELD_OPTIONS}
+        />
         <FilterMultiSelect
           placeholder="Agents"
           icon={MousePointerClickIcon}

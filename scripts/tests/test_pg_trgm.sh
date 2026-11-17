@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Three isolated scenarios on an explicitly selected disposable PostgreSQL server.
+# Four isolated scenarios on an explicitly selected disposable PostgreSQL server.
 # Requires Docker, Bash, uv and synced project dependencies; never removes volumes.
 set -euo pipefail
 
@@ -10,7 +10,7 @@ container=$PGTRGM_TEST_CONTAINER
 admin_user=${PGTRGM_TEST_ADMIN:-postgres}
 test_id="pgtrgm_$(date +%s)_$$"
 reader="${test_id}_reader"
-databases=("${test_id}_fresh" "${test_id}_existing" "${test_id}_invalid")
+databases=("${test_id}_fresh" "${test_id}_existing" "${test_id}_invalid" "${test_id}_ibm")
 failure_log=$(mktemp)
 upgrade_sql=$(mktemp)
 downgrade_sql=$(mktemp)
@@ -170,13 +170,12 @@ read_only_check "$existing" < "$sql_file"
 [[ $(admin "$existing" -Atc 'SELECT embedding::text FROM synthetic_source') == '[1,0,0]' ]]
 echo 'PASS: existing data and pgvector preserved; missing and granted schema/function/operator permissions'
 
-# 3. An existing extension in the wrong schema is never relocated. Objects
+# 3. An existing extension outside public is used in place, never relocated. Objects
 # detached from the extension must fail validation despite retaining their names.
 invalid=${databases[2]}
 admin "$invalid" -c 'CREATE SCHEMA synthetic_extensions; CREATE EXTENSION pg_trgm WITH SCHEMA synthetic_extensions' >/dev/null
 original_extension=$(admin "$invalid" -Atc "SELECT oid || ':' || extversion FROM pg_extension WHERE extname = 'pg_trgm'")
-expect_failure 55000 'pg_trgm must be installed in the public schema' \
-    migrate "$invalid"
+migrate "$invalid"
 [[ $(admin "$invalid" -Atc "SELECT oid || ':' || extversion FROM pg_extension WHERE extname = 'pg_trgm'") == "$original_extension" ]]
 [[ $(admin "$invalid" -Atc "SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pg_trgm'") == synthetic_extensions ]]
 admin "$invalid" -c 'ALTER EXTENSION pg_trgm SET SCHEMA public; ALTER EXTENSION pg_trgm DROP OPERATOR CLASS public.gin_trgm_ops USING gin' >/dev/null
@@ -193,4 +192,15 @@ admin "$invalid" -c "ALTER EXTENSION pg_trgm ADD OPERATOR public.%>>(text,text);
 expect_failure 55000 'pg_trgm must own the implementation of public.%>>(text,text)' read_only_check "$invalid" < "$sql_file"
 admin "$invalid" -c "ALTER EXTENSION pg_trgm ADD FUNCTION $operator_function" >/dev/null
 read_only_check "$invalid" < "$sql_file"
-echo 'PASS: incorrect schema and unrelated same-named extension objects rejected'
+echo 'PASS: existing schema kept and unrelated same-named extension objects rejected'
+
+# 4. IBM Cloud Databases for PostgreSQL: a fresh install goes into the
+# provider-managed ibm_extension schema, which the migration role cannot write.
+ibm=${databases[3]}
+admin "$ibm" -c "CREATE SCHEMA ibm_extension; GRANT USAGE ON SCHEMA ibm_extension TO $reader; GRANT CREATE ON DATABASE $ibm TO $reader" >/dev/null
+# IBM redirects plain CREATE EXTENSION into ibm_extension; listing it first emulates that.
+admin "$ibm" -c "ALTER DATABASE $ibm SET search_path = ibm_extension, \"\$user\", public" >/dev/null
+migrate "$ibm" "$reader"
+[[ $(admin "$ibm" -Atc "SELECT extnamespace::regnamespace FROM pg_extension WHERE extname = 'pg_trgm'") == ibm_extension ]]
+[[ $(admin "$ibm" -Atc "SELECT ibm_extension.similarity('synthetic search', 'synthetic search')") == 1 ]]
+echo 'PASS: fresh install uses the read-only ibm_extension schema when it exists'
