@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -19,6 +20,18 @@ if TYPE_CHECKING:
 
     from tracecat.config import DBEncryptionAlgorithm
     from tracecat.secrets.schemas import AwsSecretKeyMapping, SecretStoreConfig
+
+
+@dataclass(frozen=True, slots=True)
+class ActionSecrets:
+    """Secrets resolved for one action invocation."""
+
+    values: dict[str, Any] = field(repr=False)
+    expires_at: datetime | None = None
+    """When the earliest OAuth access token in `values` expires, if any."""
+    partial: bool = False
+    """True when an OAuth token lookup failed and was skipped, so a retry may
+    return tokens that are missing from `values`."""
 
 
 @dataclass(frozen=True, slots=True)

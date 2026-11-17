@@ -19,6 +19,9 @@ _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
     if spec.litellm_prefix is not None
 }
 
+KNOWN_MODEL_PROVIDERS: frozenset[str] = frozenset(_LITELLM_ROUTE_PREFIXES)
+"""Provider slugs with a managed LiteLLM route."""
+
 
 def get_litellm_route_model(
     *,

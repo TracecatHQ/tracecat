@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import orjson
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import (
@@ -29,6 +31,10 @@ from temporalio.api.history.v1 import (
 from temporalio.client import Client, WorkflowHandle
 from temporalio.converter import DefaultPayloadConverter
 
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
+from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.workflow_turns.schemas import WorkflowAgentTurnInput
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
@@ -55,6 +61,7 @@ from tracecat.workflow.executions.enums import (
 )
 from tracecat.workflow.executions.schemas import (
     EventFailure,
+    EventGroup,
     WorkflowExecutionEventCompact,
 )
 from tracecat.workflow.executions.service import (
@@ -1261,6 +1268,66 @@ class TestWorkflowExecutionEvents:
         assert event.action_ref == expected_ref
         assert event.should_mask_output is True
 
+    async def test_backend_agent_turn_shows_as_an_agent_action(self) -> None:
+        """An agent action on an installed backend shows in the run view.
+
+        Its parent workflow is Tracecat's own, so the run view reads the
+        action's arguments and session without the backend installed.
+        """
+        session_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="WorkflowAgentTurnWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"workflow-agent-turn/{run_id}"),
+        )
+        memo = AgentActionMemo(action_ref="triage", mask_output=True)
+        action_args = AgentWorkflowArgs(
+            role=Role(type="service", service_id="tracecat-runner"),
+            agent_args=RunAgentArgs(
+                user_prompt="Investigate", session_id=session_id, preset_slug="triage"
+            ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            agent_preset_id=uuid.uuid4(),
+        )
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                AsyncMock(return_value=memo),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(
+                    return_value=WorkflowAgentTurnInput(
+                        run_id=run_id, backend_id="uninstalled", args=action_args
+                    ).model_dump(mode="json")
+                ),
+            ),
+        ):
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+            group = await EventGroup.from_initiated_child_workflow(initiated)
+
+        assert event is not None
+        assert event.action_name == "ai.agent"
+        assert event.action_ref == "triage"
+        # The action's own arguments, as for the built-in workflow, so the run
+        # view shows the same input, preset link included.
+        assert event.action_input == action_args
+        assert event.session is not None and event.session.id == session_id
+        assert event.should_mask_output is True
+        assert group.udf_key == "ai.agent"
+        assert group.action_input == action_args
+
+    async def test_unknown_child_workflow_type_is_still_rejected(self) -> None:
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1, workflow_type_name="SomethingElse"
+        )
+        with pytest.raises(ValueError, match="Unexpected child workflow type"):
+            await WorkflowExecutionEventCompact.from_initiated_child_workflow(initiated)
+
     async def test_compact_masked_action_result_redacts_leaf_values(
         self,
         workflow_executions_service: WorkflowExecutionsService,
@@ -2094,6 +2161,31 @@ class TestTimeoutResolution:
         assert result == expected
         if workspace is None:
             mock_ws_service.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.usefixtures("db")
+    async def test_resolve_execution_timeout_loads_workspace_once(
+        self, mock_client: Mock, svc_role: Role
+    ) -> None:
+        """Batched dispatches (NDJSON webhooks) read workspace settings once."""
+        statements: list[str] = []
+
+        def record(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        service = WorkflowExecutionsService(client=mock_client, role=svc_role)
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            await service._resolve_execution_timeout(seconds=300)
+            first = len(statements)
+            for _ in range(7):
+                await service._resolve_execution_timeout(seconds=300)
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        # RLS set_config twice, then the workspace SELECT; later calls reuse it.
+        assert first == 3
+        assert len(statements) == first
 
 
 def test_event_failure_extract_root_cause_message_returns_deepest_message() -> None:

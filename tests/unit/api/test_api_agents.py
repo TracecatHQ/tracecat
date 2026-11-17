@@ -8,6 +8,10 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.agent import router as agent_router
+from tracecat.agent.exceptions import (
+    ProviderKeyCheckError,
+    ProviderKeyCheckErrorCode,
+)
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatNotFoundError
 
@@ -89,3 +93,51 @@ async def test_get_default_model_none(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "path", "payload", "service_method"),
+    [
+        pytest.param(
+            "POST",
+            "/agent/credentials",
+            {"provider": "openai", "credentials": {"OPENAI_API_KEY": "sk-bad"}},
+            "create_provider_credentials",
+            id="create",
+        ),
+        pytest.param(
+            "PUT",
+            "/agent/credentials/openai",
+            {"credentials": {"OPENAI_API_KEY": "sk-bad"}},
+            "update_provider_credentials",
+            id="update",
+        ),
+    ],
+)
+async def test_provider_key_check_error_returns_structured_detail(
+    client: TestClient,
+    test_admin_role: Role,
+    method: str,
+    path: str,
+    payload: dict[str, object],
+    service_method: str,
+) -> None:
+    error = ProviderKeyCheckError(
+        "OpenAI didn't accept this API key.",
+        code=ProviderKeyCheckErrorCode.INVALID_KEY,
+        field="OPENAI_API_KEY",
+    )
+    with patch.object(agent_router, "AgentManagementService") as MockService:
+        mock_svc = AsyncMock()
+        getattr(mock_svc, service_method).side_effect = error
+        MockService.return_value = mock_svc
+
+        response = client.request(method, path, json=payload)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == {
+        "code": "provider_key_invalid",
+        "message": "OpenAI didn't accept this API key.",
+        "field": "OPENAI_API_KEY",
+    }

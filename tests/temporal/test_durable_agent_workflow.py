@@ -60,9 +60,12 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tests.shared import recorded_patch_ids
+from tests.temporal.durable_agent_failure_harness import (
+    mock_resolve_agent_config_activity,
+)
 from tracecat import config
-from tracecat.agent import internal_router
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
@@ -70,16 +73,16 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
     ToolExecutionResult,
 )
-from tracecat.agent.preset.activities import ResolveAgentsConfigActivityInput
+from tracecat.agent.preset.activities import (
+    AgentPresetRef,
+    ResolveAgentConfigActivityInput,
+    ResolveAgentsConfigActivityInput,
+)
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
 )
-from tracecat.agent.schemas import (
-    AgentConfigSchema,
-    InternalRunAgentRequest,
-    RunAgentArgs,
-)
+from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -108,6 +111,7 @@ from tracecat.agent.subagents import (
 from tracecat.agent.tokens import UserMCPServerClaim
 from tracecat.agent.types import AgentConfig, ToolApproved, ToolDenied
 from tracecat.agent.workflow_config import agent_config_to_payload
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.enums import MessageKind
@@ -539,6 +543,9 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
         *,
         task_queue: str | None = None,
         custom_activities: Sequence[Callable[..., Any]] | None = None,
+        model_replacement: ModelReplacement | None = None,
+        resolve_inputs: list[ResolveAgentConfigActivityInput] | None = None,
+        preset_config: AgentConfigPayload | None = None,
     ) -> Worker:
         """Create a worker for agent workflows with required activities.
 
@@ -563,7 +570,14 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
         return Worker(
             client=client,
             task_queue=queue_name,
-            activities=custom_activities,
+            activities=[
+                *custom_activities,
+                mock_resolve_agent_config_activity(
+                    replacement=model_replacement,
+                    received=resolve_inputs,
+                    preset_config=preset_config,
+                ),
+            ],
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=threadpool,
@@ -632,71 +646,115 @@ async def test_agent_workflow_simple_execution(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_internal_agent_runner_executes_durable_workflow(
-    svc_role: Role,
+async def test_agent_workflow_runs_retired_model_on_its_replacement(
     temporal_client: Client,
     agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
     mock_session_id: uuid.UUID,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    queue = f"test-internal-agent-queue-{mock_session_id}"
+    """A retired model's run executes on the replacement the lifecycle names."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    replacement_catalog_id = uuid.uuid4()
     executor_inputs: list[AgentExecutorInput] = []
+    lookups: list[ResolveAgentConfigActivityInput] = []
+    retired = agent_workflow_args.agent_args.config
+    assert retired is not None
 
     def mock_executor(
-        call_count: int,
-        input: AgentExecutorInput,
+        call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
         del call_count
         executor_inputs.append(input)
-        return AgentExecutorResult(
-            success=True,
-            output={"status": "ranked"},
-            result_num_turns=1,
-            result_usage={"input_tokens": 7, "output_tokens": 3},
-        )
+        return AgentExecutorResult(success=True)
 
-    async def get_test_temporal_client() -> Client:
-        return temporal_client
-
-    activities = create_activities_with_mock_executor(mock_executor)
-    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
-    monkeypatch.setattr(
-        internal_router,
-        "get_temporal_client",
-        get_test_temporal_client,
-    )
-    workflow_args = internal_router.build_agent_workflow_args(
-        InternalRunAgentRequest(
-            user_prompt="Rank the incident",
-            config=AgentConfigSchema(
-                model_name="test-model",
-                model_provider="test-provider",
-                actions=[],
-            ),
-            max_requests=6,
-            max_tool_calls=0,
-        ),
-        role=svc_role,
-        session_id=mock_session_id,
-    )
     async with agent_worker_factory(
         temporal_client,
         task_queue=queue,
-        custom_activities=activities,
+        custom_activities=create_activities_with_mock_executor(mock_executor),
+        model_replacement=ModelReplacement(
+            model_provider="openai",
+            model_name="gpt-5.6-sol",
+            catalog_id=replacement_catalog_id,
+        ),
+        resolve_inputs=lookups,
     ):
-        result = await internal_router._execute_agent_workflow(
-            workflow_args,
-            session_id=mock_session_id,
+        await temporal_client.execute_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
         )
 
-    assert result.output == {"status": "ranked"}
-    assert result.session_id == mock_session_id
-    assert result.usage is not None
-    assert result.usage.requests == 1
-    assert result.usage.input_tokens == 7
+    # The resolve step sees the configured model, and the run uses its answer.
+    assert len(lookups) == 1
+    source = lookups[0].source
+    assert isinstance(source, AgentConfigPayload)
+    assert (source.model_provider, source.model_name, source.catalog_id) == (
+        retired.model_provider,
+        retired.model_name,
+        retired.catalog_id,
+    )
     assert len(executor_inputs) == 1
-    assert executor_inputs[0].user_prompt == "Rank the incident"
-    assert executor_inputs[0].config.model_name == "test-model"
+    config = executor_inputs[0].config
+    assert (config.model_provider, config.model_name, config.catalog_id) == (
+        "openai",
+        "gpt-5.6-sol",
+        replacement_catalog_id,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_runs_preset_through_the_resolve_step(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """A preset run executes the config its resolve step returns."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    executor_inputs: list[AgentExecutorInput] = []
+    sources: list[ResolveAgentConfigActivityInput] = []
+    preset_args = agent_workflow_args.model_copy(
+        update={
+            "agent_args": agent_workflow_args.agent_args.model_copy(
+                update={"preset_slug": "analyst", "config": None}
+            )
+        }
+    )
+
+    def mock_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count
+        executor_inputs.append(input)
+        return AgentExecutorResult(success=True)
+
+    async with agent_worker_factory(
+        temporal_client,
+        task_queue=queue,
+        custom_activities=create_activities_with_mock_executor(mock_executor),
+        resolve_inputs=sources,
+        preset_config=AgentConfigPayload(
+            model_name="gpt-5.6-sol", model_provider="openai", retries=3
+        ),
+    ):
+        await temporal_client.execute_workflow(
+            DurableAgentWorkflow.run,
+            preset_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+    assert len(sources) == 1
+    assert isinstance(sources[0].source, AgentPresetRef)
+    assert sources[0].source.preset_slug == "analyst"
+    assert len(executor_inputs) == 1
+    assert executor_inputs[0].config.model_name == "gpt-5.6-sol"
 
 
 @pytest.mark.anyio
@@ -1967,6 +2025,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             mock_record_approval_requests,
             mock_apply_approval_decisions,
             mock_emit_session_done,
+            mock_resolve_agent_config_activity(),
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
@@ -2311,6 +2370,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             mock_apply_approval_decisions,
             mock_emit_session_done,
             mock_reconcile_tool_results_activity,
+            mock_resolve_agent_config_activity(),
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),

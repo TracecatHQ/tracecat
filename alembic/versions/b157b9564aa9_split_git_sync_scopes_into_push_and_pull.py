@@ -10,7 +10,7 @@ The old scope rows and their links stay so the previous app version keeps
 working during rollout. Drop them in a later contract migration.
 
 Revision ID: b157b9564aa9
-Revises: 002febfa86c3
+Revises: 8f7328b839fb
 Create Date: 2026-10-28 19:16:24.000000
 """
 
@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "b157b9564aa9"
-down_revision: str | None = "002febfa86c3"
+down_revision: str | None = "8f7328b839fb"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

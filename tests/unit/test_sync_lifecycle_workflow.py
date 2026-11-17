@@ -27,6 +27,11 @@ from tracecat.workspace_sync.schemas import WorkspaceSyncExportRequest
 
 pytestmark = [pytest.mark.anyio, pytest.mark.temporal]
 
+# Test server v1.41.0 leaves some workflow Updates here unanswered, and the
+# environment then hangs on shutdown, stalling CI. "default" tracks the latest
+# sdk-java release; keep this pinned to a version that passes.
+TEST_SERVER_VERSION = "v1.40.0"
+
 
 def start_input() -> SyncLifecycleInput:
     return SyncLifecycleInput(
@@ -140,7 +145,8 @@ async def ready(handle):
 
 async def test_confirmation_survives_worker_replacement_and_is_idempotent():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=get_data_converter()
+        data_converter=get_data_converter(),
+        test_server_download_version=TEST_SERVER_VERSION,
     ) as env:
         tasks = LifecycleActivities()
         queue = f"sync-test-{uuid.uuid4()}"
@@ -193,7 +199,8 @@ async def test_confirmation_survives_worker_replacement_and_is_idempotent():
 
 async def test_confirmation_deadline_uses_temporal_timer():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=get_data_converter()
+        data_converter=get_data_converter(),
+        test_server_download_version=TEST_SERVER_VERSION,
     ) as env:
         tasks = LifecycleActivities()
         queue = f"sync-test-{uuid.uuid4()}"
@@ -215,7 +222,8 @@ async def test_confirmation_deadline_uses_temporal_timer():
 
 async def test_lost_commit_response_finishes_receipt_without_user_retry():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=get_data_converter()
+        data_converter=get_data_converter(),
+        test_server_download_version=TEST_SERVER_VERSION,
     ) as env:
         tasks = LifecycleActivities(lose_commit_response=True)
         queue = f"sync-test-{uuid.uuid4()}"
@@ -242,7 +250,8 @@ async def test_lost_commit_response_finishes_receipt_without_user_retry():
 
 async def test_delayed_history_never_blocks_confirmation():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=get_data_converter()
+        data_converter=get_data_converter(),
+        test_server_download_version=TEST_SERVER_VERSION,
     ) as env:
         tasks = LifecycleActivities(fail_history=True, terminal_copy_failures=3)
         queue = f"sync-test-{uuid.uuid4()}"
@@ -268,7 +277,8 @@ async def test_delayed_history_never_blocks_confirmation():
 
 async def test_retry_requires_current_failure_revision_and_stays_in_same_execution():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=get_data_converter()
+        data_converter=get_data_converter(),
+        test_server_download_version=TEST_SERVER_VERSION,
     ) as env:
         tasks = LifecycleActivities(prepare_failures=5)
         queue = f"sync-test-{uuid.uuid4()}"

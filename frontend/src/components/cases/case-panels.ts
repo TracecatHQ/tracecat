@@ -42,8 +42,9 @@ export interface CasePanelDefinition {
   label: string
   icon: LucideIcon
   /**
-   * 1-based digit shortcut, fixed forever per panel — never derived from the
-   * button list, so an entitlement-locked panel never renumbers the others.
+   * 1-based digit shortcut matching the panel's display position. Never
+   * derived from the visible button list, so an entitlement-locked panel never
+   * renumbers the others.
    */
   shortcut: number
 }
@@ -53,10 +54,10 @@ export const CASE_PANELS: readonly CasePanelDefinition[] = [
   { key: "description", label: "Description", icon: AlignLeft, shortcut: 1 },
   { key: "tasks", label: "Tasks", icon: ListChecks, shortcut: 2 },
   { key: "attachments", label: "Attachments", icon: Paperclip, shortcut: 3 },
-  { key: "sub-cases", label: "Sub-cases", icon: ListTree, shortcut: 7 },
-  { key: "rows", label: "Tables", icon: Table2, shortcut: 4 },
-  { key: "payload", label: "Payload", icon: Braces, shortcut: 5 },
-  { key: "activity", label: "Activity", icon: Activity, shortcut: 6 },
+  { key: "sub-cases", label: "Sub-cases", icon: ListTree, shortcut: 4 },
+  { key: "rows", label: "Tables", icon: Table2, shortcut: 5 },
+  { key: "payload", label: "Payload", icon: Braces, shortcut: 6 },
+  { key: "activity", label: "Activity", icon: Activity, shortcut: 7 },
 ]
 
 /**

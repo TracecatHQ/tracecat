@@ -4,19 +4,42 @@
 
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { CatalogMappingRequirement } from "@/client"
+import type { ReactElement } from "react"
+import {
+  type CatalogMappingRequirement,
+  workflowsListSyncDiffs,
+} from "@/client"
 import { GitSyncChangeList } from "@/components/workspace-sync/git-sync-change-list"
 import { CatalogMappingRequirements } from "@/components/workspace-sync/mapping-requirements-card"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/workspace-sync/unified-diff", () => ({
   UnifiedDiff: ({ diff }: { diff: string }) => <pre>{diff}</pre>,
 }))
 
-jest.mock("@/components/workspace-sync/sync-operation-diffs", () => ({
-  OperationDiffs: ({ count }: { count: number }) => (
-    <div data-testid="paged-diffs">{count}</div>
+const mockDiff = {
+  title: null,
+  resource_type: "variable" as const,
+  source_id: "example",
+  source_path: "variables/example.yml",
+  change_type: "modified" as const,
+  diff: "",
+}
+
+jest.mock("@/client", () => ({
+  ...jest.requireActual("@/client"),
+  workflowsListSyncDiffs: jest.fn(() => Promise.resolve({ items: [mockDiff] })),
+  workflowsGetSyncDiff: jest.fn(() =>
+    Promise.resolve({ ...mockDiff, diff: "@@ -1 +1 @@\n-before\n+after" })
   ),
 }))
+
+function renderWithClient(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
 
 const skill = {
   resource_type: "skill",
@@ -28,7 +51,7 @@ const skill = {
 describe("GitSyncChangeList", () => {
   it("shows the companion file path and counts content that looks like a header", async () => {
     const user = userEvent.setup()
-    render(
+    renderWithClient(
       <GitSyncChangeList
         workspaceId="workspace-1"
         direction="pull"
@@ -118,8 +141,8 @@ describe("CatalogMappingRequirements", () => {
   })
 })
 
-it("uses the server's changed-file count for a paginated operation preview", () => {
-  render(
+it("lists a paginated operation preview's files in grouped rows", async () => {
+  renderWithClient(
     <GitSyncChangeList
       workspaceId="workspace-1"
       operationId="synthetic-operation"
@@ -133,5 +156,15 @@ it("uses the server's changed-file count for a paginated operation preview", () 
   )
   expect(screen.getByText("3 files")).toBeInTheDocument()
   expect(screen.queryByText("0 files")).not.toBeInTheDocument()
-  expect(screen.getByTestId("paged-diffs")).toHaveTextContent("3")
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: /Variables/ }))
+  expect(workflowsListSyncDiffs).toHaveBeenCalledWith({
+    workspaceId: "workspace-1",
+    operationId: "synthetic-operation",
+    cursor: undefined,
+  })
+  await user.click(
+    screen.getByRole("button", { name: /variables\/example.yml/ })
+  )
+  expect(await screen.findByText(/\+after/)).toBeInTheDocument()
 })

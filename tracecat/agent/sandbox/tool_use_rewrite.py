@@ -88,13 +88,28 @@ class ToolUseStreamRewriter:
 
     With ``rewrite_read=False`` no block is buffered or rewritten; the stream
     is only observed for errors and progress.
+
+    An ``error`` event whose type is in ``held_error_types`` is not forwarded.
+    The first one is kept in ``held_error`` and ``held_error_event`` so the
+    caller decides whether the client sees it.
     """
 
-    def __init__(self, *, rewrite_read: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        rewrite_read: bool = True,
+        held_error_types: frozenset[str] = frozenset(),
+    ) -> None:
         self._rewrite_read = rewrite_read
+        self._held_error_types = held_error_types
         self._buffer = b""
         self._pending: dict[int, _PendingToolUse] = {}
         self.error: dict[str, Any] | None = None
+        self.held_error: dict[str, Any] | None = None
+        self.held_error_event: bytes | None = None
+        # Indexes of open tool_use blocks, and whether any has completed.
+        self._tool_use_indexes: set[int] = set()
+        self.completed_tool_use = False
         # Stream progress for observability; never carries event content.
         self.event_count = 0
         self.saw_message_stop = False
@@ -132,6 +147,8 @@ class ToolUseStreamRewriter:
                 "index": int(index),
                 "content_block": dict() as block,
             }:
+                if block.get("type") == "tool_use":
+                    self._tool_use_indexes.add(index)
                 if (
                     self._rewrite_read
                     and block.get("type") == "tool_use"
@@ -154,11 +171,19 @@ class ToolUseStreamRewriter:
                 return b""
             case {"type": "error", "error": dict() as error}:
                 self.error = error
+                if str(error.get("type")) in self._held_error_types:
+                    if self.held_error is None:
+                        self.held_error = error
+                        self.held_error_event = event
+                    return b""
                 return event
             case {"type": "message_stop"}:
                 self.saw_message_stop = True
                 return event
             case {"type": "content_block_stop", "index": int(index)}:
+                if index in self._tool_use_indexes:
+                    self._tool_use_indexes.discard(index)
+                    self.completed_tool_use = True
                 pending = self._pending.pop(index, None)
                 if pending is None:
                     return event

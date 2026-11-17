@@ -188,6 +188,7 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
       typeof item.metadata?.last_error === "string"
         ? item.metadata.last_error
         : null,
+    channelThread: item.channel_thread ?? null,
   }
 }
 

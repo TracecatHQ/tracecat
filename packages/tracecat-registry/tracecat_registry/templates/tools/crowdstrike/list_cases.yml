@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List cases
+  description: >-
+    Retrieve the IDs of Falcon cases that match an FQL filter. Use
+    `tools.crowdstrike.get_cases` for details. Requires the Cases: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/case-management/#queriescasesgetv1
+  namespace: tools.crowdstrike
+  name: list_cases
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter, for example `status:'new'+created_timestamp:>='2026-01-01T00:00:00Z'`.
+      default: null
+    q:
+      type: str | None
+      description: Free-text search across case fields.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of case IDs to return. Maximum 10000.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start retrieving records from.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `created_timestamp|desc`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_cases
+      action: tools.falconpy.call_command
+      args:
+        operation_id: queries_cases_get_v1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          q: ${{ inputs.q }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_cases.result }}

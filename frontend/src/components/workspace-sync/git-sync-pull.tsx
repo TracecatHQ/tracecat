@@ -24,6 +24,16 @@ import type {
   SecretStoreMappingRequirement,
   VcsProvider,
 } from "@/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -186,6 +196,7 @@ export function GitSyncPullTab({
       countChangedResources(pullPreview?.resource_diffs ?? []))
     : 0
   const shortSha = effectivePullSha?.substring(0, 7)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const resetPullPreview = useCallback(() => {
     setPullPreview(null)
@@ -462,7 +473,7 @@ export function GitSyncPullTab({
         <Button
           type="button"
           size="sm"
-          onClick={() => void handleApplyPull()}
+          onClick={() => setConfirmOpen(true)}
           disabled={pullWorkflowsIsPending || !canApplyPull}
           className="shrink-0 gap-1.5"
         >
@@ -471,9 +482,34 @@ export function GitSyncPullTab({
           ) : (
             <ArrowDownIcon className="size-4" />
           )}
-          {getPullButtonLabel({ isApplying, changeCount, workspaceName })}
+          {getPullButtonLabel({ isApplying, workspaceName })}
         </Button>
       </GitSyncActionBar>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {getPullConfirmation({
+                changeCount,
+                shortSha,
+                baseBranch,
+                workspaceName,
+                syncSchedules,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pullWorkflowsIsPending || !canApplyPull}
+              onClick={() => void handleApplyPull()}
+            >
+              {getPullButtonLabel({ isApplying: false, workspaceName })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -546,20 +582,35 @@ function getPullPreviewSummary(
 
 function getPullButtonLabel({
   isApplying,
-  changeCount,
   workspaceName,
 }: {
   isApplying: boolean
-  changeCount: number
   workspaceName: string
 }): string {
-  if (isApplying) {
-    return "Pulling..."
-  }
-  if (changeCount > 0) {
-    return `Pull ${changeCount} into ${workspaceName}`
-  }
-  return `Pull into ${workspaceName}`
+  // Keep the label stable; the preview above already shows what changes.
+  return isApplying ? "Pulling..." : `Pull into ${workspaceName}`
+}
+
+function getPullConfirmation({
+  changeCount,
+  shortSha,
+  baseBranch,
+  workspaceName,
+  syncSchedules,
+}: {
+  changeCount: number
+  shortSha: string | undefined
+  baseBranch: string | undefined
+  workspaceName: string
+  syncSchedules: boolean
+}): string {
+  const changes = `${changeCount} ${changeCount === 1 ? "change" : "changes"}`
+  const commit = shortSha ?? "the selected commit"
+  const source = baseBranch ? `${commit} on ${baseBranch}` : commit
+  const schedules = syncSchedules
+    ? "Workflow schedules are replaced with the ones in Git."
+    : "Workflow schedules are kept."
+  return `This applies ${changes} from ${source} to ${workspaceName}. ${schedules}`
 }
 
 /**

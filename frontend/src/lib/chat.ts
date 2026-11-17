@@ -345,12 +345,48 @@ export function coalesceToolInputDeltas(
  */
 export const CHAT_MESSAGES_THROTTLE_MS = 50
 
+type CoalescingChatTransportOptions = NonNullable<
+  ConstructorParameters<typeof ai.DefaultChatTransport<ai.UIMessage>>[0]
+> & {
+  /** Called when a reconnect streams more than an empty start and finish. */
+  onReconnectContent?: () => void
+}
+
 /** Default transport that merges streamed tool input fragments. */
 export class CoalescingChatTransport extends ai.DefaultChatTransport<ai.UIMessage> {
+  private readonly onReconnectContent?: () => void
+
+  constructor({
+    onReconnectContent,
+    ...options
+  }: CoalescingChatTransportOptions = {}) {
+    super(options)
+    this.onReconnectContent = onReconnectContent
+  }
+
   protected override processResponseStream(stream: ReadableStream<Uint8Array>) {
     return super
       .processResponseStream(stream)
       .pipeThrough(coalesceToolInputDeltas())
+  }
+
+  override async reconnectToStream(
+    options: Parameters<
+      ai.DefaultChatTransport<ai.UIMessage>["reconnectToStream"]
+    >[0]
+  ) {
+    const stream = await super.reconnectToStream(options)
+    const onContent = this.onReconnectContent
+    if (stream === null || !onContent) return stream
+    // A turn that already ended reconnects as a bare start and finish.
+    return stream.pipeThrough(
+      new TransformStream<ai.UIMessageChunk, ai.UIMessageChunk>({
+        transform(chunk, controller) {
+          if (chunk.type !== "start" && chunk.type !== "finish") onContent()
+          controller.enqueue(chunk)
+        },
+      })
+    )
   }
 }
 

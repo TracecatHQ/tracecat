@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from typing import Literal
 
 import tracecat_registry
 
@@ -15,6 +16,7 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, set_current_span_attributes
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     PLATFORM_REGISTRY_NAMESPACE,
@@ -35,28 +37,41 @@ async def get_registry_artifact_uris(
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
         return []
 
-    origins = dict(input.registry_lock.origins)
-    artifact_uris: list[str] = []
+    with platform_span("tracecat.action.resolve_registry_artifacts"):
+        origins = dict(input.registry_lock.origins)
+        artifact_uris: list[str] = []
+        builtin_source: Literal["bundled", "artifact", "none"] = (
+            "artifact" if DEFAULT_REGISTRY_ORIGIN in origins else "none"
+        )
 
-    if (
-        origins.get(DEFAULT_REGISTRY_ORIGIN) == tracecat_registry.__version__
-        and (builtin_version := origins.get(DEFAULT_REGISTRY_ORIGIN)) is not None
-        and _bundled_builtin_matches_lock(input.registry_lock, builtin_version)
-    ):
-        del origins[DEFAULT_REGISTRY_ORIGIN]
-        artifact_uris.append(bundled_builtin_registry_uri(builtin_version))
+        if (
+            origins.get(DEFAULT_REGISTRY_ORIGIN) == tracecat_registry.__version__
+            and (builtin_version := origins.get(DEFAULT_REGISTRY_ORIGIN)) is not None
+            and _bundled_builtin_matches_lock(input.registry_lock, builtin_version)
+        ):
+            del origins[DEFAULT_REGISTRY_ORIGIN]
+            artifact_uris.append(bundled_builtin_registry_uri(builtin_version))
+            builtin_source = "bundled"
 
-    if not origins:
-        return artifact_uris
+        set_current_span_attributes(
+            {
+                "tracecat.registry.builtin_source": builtin_source,
+                "tracecat.registry.artifact_origin_count": len(origins),
+            }
+        )
+        if not origins:
+            return artifact_uris
 
-    if role.organization_id is None:
-        raise ValueError("organization_id is required for registry artifacts lookup")
+        if role.organization_id is None:
+            raise ValueError(
+                "organization_id is required for registry artifacts lookup"
+            )
 
-    artifacts = await get_registry_artifacts_for_lock(
-        origins,
-        role.organization_id,
-    )
-    return artifact_uris + sort_registry_artifact_uris(artifacts)
+        artifacts = await get_registry_artifacts_for_lock(
+            origins,
+            role.organization_id,
+        )
+        return artifact_uris + sort_registry_artifact_uris(artifacts)
 
 
 def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:

@@ -496,6 +496,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                 expiry=expiry,
                 force_download=force_download,
                 override_content_type=override_content_type,
+                download_filename=attachment.file.name,
             )
             return presigned_url, attachment.file.name, attachment.file.content_type
         except Exception as e:

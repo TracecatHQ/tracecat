@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceVariables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -65,6 +66,10 @@ export function EditVariableDialog({
   const { updateVariableById } = useWorkspaceVariables(workspaceId, {
     listEnabled: false,
   })
+  // A managed variable only accepts new values for its existing keys.
+  const { isManaged, isLoading: managedLoading } =
+    useManagedResources(workspaceId)
+  const valuesOnly = isManaged("variable", selectedVariable?.id)
 
   const methods = useForm<UpdateVariableFormData>({
     resolver: zodResolver(updateVariableFormSchema),
@@ -149,8 +154,9 @@ export function EditVariableDialog({
           <DialogTitle>Edit variable</DialogTitle>
           <DialogDescription className="flex flex-col">
             <span>
-              Leave a field blank to keep its existing value. You must update
-              all values at once.
+              {valuesOnly
+                ? "Managed by Tracecat. Only values can be changed."
+                : "Leave a field blank to keep its existing value. You must update all values at once."}
             </span>
           </DialogDescription>
         </DialogHeader>
@@ -172,6 +178,7 @@ export function EditVariableDialog({
                       <Input
                         className="text-sm"
                         placeholder={selectedVariable?.name || "Name"}
+                        disabled={valuesOnly}
                         {...register("name")}
                       />
                     </FormControl>
@@ -195,6 +202,7 @@ export function EditVariableDialog({
                         placeholder={
                           selectedVariable?.description || "Description"
                         }
+                        disabled={valuesOnly}
                         {...register("description")}
                       />
                     </FormControl>
@@ -219,6 +227,7 @@ export function EditVariableDialog({
                         placeholder={
                           selectedVariable?.environment || "Environment"
                         }
+                        disabled={valuesOnly}
                         {...register("environment")}
                       />
                     </FormControl>
@@ -250,6 +259,7 @@ export function EditVariableDialog({
                                 id={`key-${index}`}
                                 className="text-sm"
                                 placeholder={"Key"}
+                                readOnly={valuesOnly}
                                 {...field}
                               />
                             </FormControl>
@@ -282,6 +292,7 @@ export function EditVariableDialog({
                       <Button
                         type="button"
                         variant="ghost"
+                        disabled={valuesOnly}
                         onClick={() => remove(index)}
                       >
                         <Trash2Icon className="size-3.5" />
@@ -292,6 +303,7 @@ export function EditVariableDialog({
               <Button
                 type="button"
                 variant="outline"
+                disabled={valuesOnly}
                 onClick={() => append({ key: "", value: "" })}
                 className="w-full space-x-2 text-xs text-foreground/80"
               >
@@ -306,7 +318,8 @@ export function EditVariableDialog({
             </DialogBody>
             <DialogFooter>
               <DialogClose asChild>
-                <Button size="sm" type="submit">
+                {/* Wait for the managed lookup so locked fields are known. */}
+                <Button size="sm" type="submit" disabled={managedLoading}>
                   <SaveIcon className="mr-2 size-4" />
                   Save
                 </Button>

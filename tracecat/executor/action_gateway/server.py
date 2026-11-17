@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import uvicorn
@@ -13,17 +11,7 @@ import uvicorn
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.logger import logger
-
-
-class _ExecutorOwnedSignalServer(uvicorn.Server):
-    """Uvicorn server that leaves process signal handling to the executor."""
-
-    @contextmanager
-    def capture_signals(self) -> Iterator[None]:
-        # The executor must stop Temporal intake and drain active activities
-        # before this gateway closes. Uvicorn's default signal capture would
-        # close the socket first and make in-flight SDK calls fail.
-        yield
+from tracecat.temporal.worker_lifecycle import WorkerOwnedUvicornServer
 
 
 class ActionGateway:
@@ -50,7 +38,7 @@ class ActionGateway:
             log_level="warning",
             lifespan="on",
         )
-        server = _ExecutorOwnedSignalServer(uvicorn_config)
+        server = WorkerOwnedUvicornServer(uvicorn_config)
         self._server = server
         self._socket_path = socket_path
         self._task = asyncio.create_task(server.serve())

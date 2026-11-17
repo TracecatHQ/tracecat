@@ -25,6 +25,7 @@ from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
 )
 from tracecat.service import BasePlatformService
+from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from .schemas import AdminUserCreate, AdminUserRead
 
@@ -185,7 +186,7 @@ class AdminUserService(BasePlatformService):
             )
         )
         # Membership is derived, so removing the assignments delists the user.
-        # The legacy table is still cleared for app versions that read it.
+        # Rows left in the legacy table would block the user delete (FK).
         await self.session.execute(
             delete(LegacyMembership).where(LegacyMembership.user_id == user_id)
         )
@@ -197,6 +198,7 @@ class AdminUserService(BasePlatformService):
             .where(Approval.approved_by == user_id)
             .values(approved_by=None)
         )
+        await delete_personal_case_views(self.session, user_id)
 
         await self.session.delete(user)
         try:

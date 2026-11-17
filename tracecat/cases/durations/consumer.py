@@ -26,7 +26,7 @@ from tracecat.cases.durations.sync_queue import (
     enqueue_rollout_backfill_once,
     publish_case_duration_sync,
 )
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import Case, Workspace
 from tracecat.logger import logger
 from tracecat.redis.client import (
@@ -368,7 +368,9 @@ class CaseDurationSyncConsumer:
     async def _process_backfill_job(
         self, job: DurationDefinitionSyncJob | DurationBackfillSyncJob
     ) -> bool:
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_tenant_context_manager(
+            workspace_id=job.workspace_id
+        ) as session:
             if not await self._has_case_addons_entitlement(session, job.workspace_id):
                 logger.debug(
                     "Skipping case duration backfill; entitlement missing",

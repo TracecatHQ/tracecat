@@ -10,7 +10,7 @@ from fastapi import FastAPI
 
 from tests.unit.test_durable_workspace_sync import push_inputs
 from tracecat.auth.types import Role
-from tracecat.db.locks import pg_advisory_connection_lock, pg_advisory_xact_lock
+from tracecat.db.locks import hold_pg_advisory_xact_lock, pg_advisory_xact_lock
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.workspace_sync.operations import auth
 from tracecat.workspace_sync.operations.auth import refresh_sync_role
@@ -116,12 +116,12 @@ async def test_unprepared_preview_remains_retryable_after_queue_outage(
 @pytest.mark.anyio
 @pytest.mark.parametrize("key", [-(2**63) - 1, 2**63])
 async def test_invalid_lock_keys_do_not_touch_connections(key):
-    connection = AsyncMock()
+    engine = AsyncMock()
     with pytest.raises(ValueError):
-        async with pg_advisory_connection_lock(connection, key):
+        async with hold_pg_advisory_xact_lock(engine, key):
             pytest.fail("Invalid lock key entered the context")
-    connection.execute.assert_not_awaited()
-    connection.invalidate.assert_not_awaited()
+    engine.connect.assert_not_called()
+    connection = AsyncMock()
     with pytest.raises(ValueError):
         await pg_advisory_xact_lock(connection, key)
     connection.execute.assert_not_awaited()

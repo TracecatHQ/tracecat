@@ -32,15 +32,15 @@ Follow the full [Docker Compose guide](/self-hosting/docker-compose) or run the 
 
 ```bash
 # Setup environment variables and secrets
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/.env.example
+curl -fL -o env.sh https://github.com/TracecatHQ/tracecat/releases/latest/download/env.sh
+curl -fL -o .env.example https://github.com/TracecatHQ/tracecat/releases/latest/download/env.example
 chmod +x env.sh && ./env.sh
 
 # Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/Caddyfile
+curl -fL -o Caddyfile https://github.com/TracecatHQ/tracecat/releases/latest/download/Caddyfile
 
 # Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/docker-compose.yml
+curl -fL -o docker-compose.yml https://github.com/TracecatHQ/tracecat/releases/latest/download/docker-compose.yml
 
 # Start Tracecat
 docker compose up -d

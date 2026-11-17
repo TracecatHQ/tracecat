@@ -103,6 +103,10 @@ class PreparedSync(BaseModel):
     compare_sha: str
     target_exists: bool = Field(default=True)
     delete_roots: list[str] = Field(default_factory=list)
+    package_include: str | None = Field(
+        default=None,
+        description="Include file text of a managed resources package push.",
+    )
 
 
 class StoredSyncArtifact(BaseModel):

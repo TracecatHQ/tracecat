@@ -49,6 +49,7 @@ import {
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { AgentDeleteDescription } from "@/components/agents/agent-preset-delete-dialog"
+import { AgentSlackBadges } from "@/components/agents/agent-slack-badges"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import {
@@ -80,6 +81,7 @@ import {
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { RowTimestamps } from "@/components/timestamps"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -138,6 +140,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAgentSlackPlacements } from "@/hooks/use-agent-channel-bots"
 import {
   type AgentDirectoryItem,
   useAgentDirectoryItems,
@@ -151,6 +154,7 @@ import {
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   type AgentCatalogFilters,
@@ -159,6 +163,7 @@ import {
   matchesAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
+import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
   compareAgentStatusPriority,
@@ -1315,8 +1320,8 @@ function AgentPresetContextActions({
   areTagsLoading = false,
   onDuplicate,
   duplicateDisabled = false,
-  canUpdateAgent,
-  canDeleteAgent,
+  canUpdateAgent: canUpdateAgentScope,
+  canDeleteAgent: canDeleteAgentScope,
   canDuplicateAgent,
   organizationEnabled = true,
   defaultAgentActions,
@@ -1337,6 +1342,11 @@ function AgentPresetContextActions({
 }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  // Managed presets cannot be changed, moved, retagged or deleted.
+  const { isManaged } = useManagedResources()
+  const isLocked = isManaged("agent_preset", item.id)
+  const canUpdateAgent = canUpdateAgentScope && !isLocked
+  const canDeleteAgent = canDeleteAgentScope && !isLocked
   const canOrganize = canUpdateAgent && organizationEnabled
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
@@ -1594,6 +1604,7 @@ type McpIntegrationsBySlug = Map<string, MCPIntegrationRead>
 const NO_MCP_INTEGRATIONS: McpIntegrationsBySlug = new Map()
 
 const NO_WORKFLOWS: AgentWorkflowRef[] = []
+const NO_SLACK_PLACEMENTS: SlackPlacement[] = []
 
 function pluralize(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`
@@ -1713,10 +1724,12 @@ function AgentCatalogRow({
   defaultAgentActions,
   mcpBySlug,
   workflows,
+  slackPlacements,
 }: {
   item: AgentDirectoryItem
   mcpBySlug: McpIntegrationsBySlug
   workflows: AgentWorkflowRef[]
+  slackPlacements: SlackPlacement[]
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
   setSelectedItem: (item: AgentDirectoryItem) => void
@@ -1802,11 +1815,17 @@ function AgentCatalogRow({
             <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
+              <ManagedResourceStatus
+                resourceType="agent_preset"
+                id={item.id}
+                name={item.slug}
+              />
               <AgentToolSources
                 summary={item.tool_summary}
                 mcpBySlug={mcpBySlug}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
+                <AgentSlackBadges placements={slackPlacements} />
                 <AgentWorkflowBadges workflows={workflows} />
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
@@ -2103,6 +2122,7 @@ export function AgentsDashboard() {
     searchParams,
     replaceParams,
   })
+  const slackPlacementsByPreset = useAgentSlackPlacements(workspaceId)
   // A folder only lists its own children, so an active filter searches the
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
@@ -2407,6 +2427,9 @@ export function AgentsDashboard() {
                   item={item}
                   mcpBySlug={mcpBySlug}
                   workflows={workflowsByPreset.get(item.id) ?? NO_WORKFLOWS}
+                  slackPlacements={
+                    slackPlacementsByPreset.get(item.id) ?? NO_SLACK_PLACEMENTS
+                  }
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
                   setSelectedItem={setSelectedItem}

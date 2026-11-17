@@ -54,20 +54,27 @@ def payload_paths_query(
 PayloadPathsQuery = Annotated[list[list[str]] | None, Depends(payload_paths_query)]
 
 
-async def executor_case_id_path_dependency(
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    case_id: Annotated[str, Path()],
-) -> uuid.UUID:
-    service = CasesService(session, role)
+async def resolve_case_refs(
+    service: CasesService, case_refs: list[str]
+) -> list[uuid.UUID]:
+    """Resolve case UUIDs and short IDs, mapping bad refs to 422 and unknown ones to 404."""
     try:
-        return await service.resolve_case_id(case_id)
+        return await service.resolve_case_ids(case_refs)
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+async def executor_case_id_path_dependency(
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    case_id: Annotated[str, Path()],
+) -> uuid.UUID:
+    (resolved,) = await resolve_case_refs(CasesService(session, role), [case_id])
+    return resolved
 
 
 ExecutorCaseIDPath = Annotated[uuid.UUID, Depends(executor_case_id_path_dependency)]

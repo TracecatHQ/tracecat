@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 import pytest
 from authlib.integrations.base_client.errors import OAuthError
+from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -53,7 +54,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.resolver import (
     ResolvedCatalogConnection,
@@ -68,6 +69,7 @@ from tracecat.integrations.mcp_validation import (
     MCPSecretResolutionError,
 )
 from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
     DynamicRegistrationResult,
     MCPAuthProvider,
     OAuthDiscoveryResult,
@@ -1784,6 +1786,42 @@ class TestMCPIntegrationCRUD:
                     client_secret=SecretStr("test-client-secret"),
                 )
             )
+
+    async def test_custom_authorization_code_provider_uses_pkce(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Custom delegated-access providers send an S256 PKCE challenge."""
+        provider = await integration_service.create_custom_provider(
+            params=CustomOAuthProviderCreate(
+                name="PKCE Required",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                authorization_endpoint="https://auth.example.com/authorize",
+                token_endpoint="https://auth.example.com/token",
+                client_id="test-client-id",
+                client_secret=SecretStr("test-client-secret"),
+            )
+        )
+        provider_impl = await integration_service.resolve_provider_impl(
+            provider_key=ProviderKey(
+                id=provider.provider_id,
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            )
+        )
+        assert provider_impl is not None
+        oauth_provider = cast(type[AuthorizationCodeOAuthProvider], provider_impl)(
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+        )
+
+        auth_url, code_verifier = await oauth_provider.get_authorization_url(
+            "test-state"
+        )
+
+        assert code_verifier is not None
+        query = parse_qs(urlparse(auth_url).query)
+        assert query["code_challenge"] == [create_s256_code_challenge(code_verifier)]
+        assert query["code_challenge_method"] == ["S256"]
 
     async def test_connect_platform_mcp_catalog_requires_config_when_needed(
         self,
@@ -4566,6 +4604,79 @@ class TestMCPProviderOAuth:
         assert "scope" not in captured
         assert captured["grant_types"] == ["authorization_code", "refresh_token"]
 
+    @pytest.mark.parametrize(
+        ("public_client_supported", "expected_methods"),
+        [
+            (True, ["client_secret_basic", "none"]),
+            (False, ["client_secret_basic"]),
+        ],
+    )
+    async def test_mcp_dcr_retries_as_public_client_on_metadata_rejection(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+        public_client_supported: bool,
+        expected_methods: list[str],
+    ) -> None:
+        """A rejected confidential DCR retries once as a public client."""
+        sent: list[dict[str, object]] = []
+
+        class FakeAsyncClient:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                _ = args, kwargs
+
+            async def __aenter__(self) -> "FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                _ = args
+
+            async def post(
+                self, url: str, *, json: dict[str, object], **kwargs: object
+            ) -> httpx.Response:
+                _ = kwargs
+                sent.append(json)
+                request = httpx.Request("POST", url)
+                if json["token_endpoint_auth_method"] != "none":
+                    return httpx.Response(
+                        400,
+                        json={
+                            "error": "invalid_client_metadata",
+                            "error_description": "Only public clients are supported",
+                        },
+                        request=request,
+                    )
+                return httpx.Response(
+                    201, json={"client_id": "public-client"}, request=request
+                )
+
+        monkeypatch.setattr(mcp_tunnel_module.httpx, "AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr(
+            integration_service_module,
+            "validate_oauth_endpoint_resolves_public_async",
+            _noop_validate_oauth_endpoint,
+        )
+
+        registration = integration_service._perform_mcp_dynamic_registration(
+            registration_endpoint="https://auth.example.test/oauth/register",
+            client_name="Test MCP",
+            token_auth_method="client_secret_basic",
+            requested_scopes=["read"],
+            public_client_supported=public_client_supported,
+        )
+        if public_client_supported:
+            result = await registration
+            assert result.client_id == "public-client"
+            assert result.client_secret is None
+            assert result.auth_method == "none"
+        else:
+            with pytest.raises(httpx.HTTPStatusError):
+                await registration
+
+        assert [payload["token_endpoint_auth_method"] for payload in sent] == (
+            expected_methods
+        )
+
     def test_build_dcr_payload_advertises_refresh_token_grant(self) -> None:
         """The shared provider-class DCR builder advertises refresh_token too."""
         payload = build_dcr_payload(
@@ -5998,8 +6109,10 @@ class TestMCPProviderOAuth:
             client_name: str,
             token_auth_method: str | None,
             requested_scopes: list[str],
+            public_client_supported: bool = False,
         ) -> integration_service_module.MCPOAuthRegistrationResult:
-            _ = client_name, token_auth_method, requested_scopes
+            _ = token_auth_method, requested_scopes
+            assert client_name == "Tracecat"
             assert registration_endpoint == f"{self_hosted}/oauth/client"
             return integration_service_module.MCPOAuthRegistrationResult(
                 client_id="self-hosted-client",
@@ -6063,6 +6176,7 @@ class TestMCPProviderOAuth:
             client_name: str,
             token_auth_method: str | None,
             requested_scopes: list[str],
+            public_client_supported: bool = False,
         ) -> integration_service_module.MCPOAuthRegistrationResult:
             _ = registration_endpoint, client_name, token_auth_method
             _ = requested_scopes
@@ -6662,6 +6776,7 @@ class TestMCPProviderOAuth:
             registration_endpoint: str,
             registration_auth_method: str | None,
             requested_scopes: list[str],
+            public_client_supported: bool = False,
             logger_instance,
         ) -> DynamicRegistrationResult:
             _ = cls, logger_instance
@@ -6888,6 +7003,7 @@ class TestMCPProviderOAuth:
             client_name: str,
             token_auth_method: str | None,
             requested_scopes: list[str],
+            public_client_supported: bool = False,
         ) -> integration_service_module.MCPOAuthRegistrationResult:
             _ = registration_endpoint, client_name, token_auth_method, requested_scopes
             return integration_service_module.MCPOAuthRegistrationResult(
@@ -6973,6 +7089,7 @@ class TestMCPProviderOAuth:
             client_name: str,
             token_auth_method: str | None,
             requested_scopes: list[str],
+            public_client_supported: bool = False,
         ) -> integration_service_module.MCPOAuthRegistrationResult:
             _ = registration_endpoint, client_name, token_auth_method, requested_scopes
             # No scope echo: effective scopes equal the requested set.
@@ -7244,6 +7361,7 @@ class TestMCPProviderOAuth:
             client_name: str,
             token_auth_method: str | None,
             requested_scopes: list[str],
+            public_client_supported: bool = False,
         ) -> integration_service_module.MCPOAuthRegistrationResult:
             _ = registration_endpoint, client_name, token_auth_method, requested_scopes
             return integration_service_module.MCPOAuthRegistrationResult(
@@ -7899,11 +8017,15 @@ class TestMCPConnectionVerification:
             role=integration_service.role,
         )
 
+        row = await integration_service.get_mcp_integration(
+            mcp_integration_id=mcp_integration.id
+        )
+        assert row is not None
         without_env = await preset_service.resolve_stdio_mcp_integration(
-            mcp_integration.id, resolve_env=False
+            row, resolve_env=False
         )
         with_env = await preset_service.resolve_stdio_mcp_integration(
-            mcp_integration.id, resolve_env=True
+            row, resolve_env=True
         )
 
         assert without_env is not None and with_env is not None
@@ -7912,12 +8034,6 @@ class TestMCPConnectionVerification:
         assert with_env.tools["read"].input_schema == {"type": "object"}
         assert without_env.env is None
         assert with_env.env == {"EXAMPLE_TOKEN": "token"}
-        assert (
-            await preset_service.resolve_stdio_mcp_integration(
-                uuid.uuid4(), resolve_env=True
-            )
-            is None
-        )
 
     @pytest.mark.parametrize(
         ("stored_env", "expected_env"),
@@ -7961,13 +8077,13 @@ class TestMCPConnectionVerification:
         if expected_env is None:
             with pytest.raises(TracecatValidationError) as exc_info:
                 await preset_service.resolve_stdio_mcp_integration(
-                    mcp_integration.id, resolve_env=True
+                    mcp_integration, resolve_env=True
                 )
             assert exc_info.value.__cause__ is None
             assert exc_info.value.__context__ is None
             return
         snapshot = await preset_service.resolve_stdio_mcp_integration(
-            mcp_integration.id, resolve_env=True
+            mcp_integration, resolve_env=True
         )
         assert snapshot is not None
         assert snapshot.env == expected_env
@@ -8808,6 +8924,58 @@ class TestMCPConnectionVerification:
         stored_tools = MCPToolSummary.validate_stored(integration.tools)
         assert stored_tools is not None
         assert [tool.name for tool in stored_tools] == ["search", "create", "delete"]
+
+    async def test_persist_mcp_integration_tools_missing_row_raises_not_found(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        with pytest.raises(TracecatNotFoundError, match="MCP integration not found"):
+            await integration_service.persist_mcp_integration_tools(
+                mcp_integration_id=uuid.uuid4(),
+                discovered_tools=[MCPToolSummary(name="search")],
+            )
+
+    async def test_stdio_test_connection_reports_row_deleted_during_probe(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Deleting the row mid-probe returns a failed test, not a 500."""
+        integration = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Deleted Mid Probe MCP",
+                stdio_command="npx",
+                stdio_args=["@example/server"],
+            )
+        )
+        integration_id = integration.id
+
+        async def _probe_stdio(
+            mcp_integration: MCPIntegration,
+        ) -> list[MCPToolSummary]:
+            assert mcp_integration.id == integration_id
+            assert await integration_service.delete_mcp_integration(
+                mcp_integration_id=integration_id
+            )
+            return [MCPToolSummary(name="search", description="Search")]
+
+        monkeypatch.setattr(
+            integration_service,
+            "_probe_mcp_stdio_server",
+            _probe_stdio,
+        )
+
+        result = await integration_service.test_mcp_connection(
+            params=MCPStdioIntegrationTestConnectionRequest(
+                server_type="stdio",
+                mcp_integration_id=integration_id,
+            )
+        )
+
+        assert result.success is False
+        assert result.mcp_integration_id == integration_id
+        assert result.message == "MCP integration not found"
+        assert result.tools is None
 
     async def test_update_mcp_tool_policies(
         self, integration_service: IntegrationService

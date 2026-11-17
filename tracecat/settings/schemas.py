@@ -337,6 +337,8 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
     agent_case_chat_inject_content: bool
+    # Defaulted: orgs created before this setting have no stored value.
+    agent_auto_migrate_retired_models: bool = Field(default=False)
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -357,6 +359,10 @@ class AgentSettingsUpdate(BaseSettingsGroup):
     agent_case_chat_inject_content: bool = Field(
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
+    )
+    agent_auto_migrate_retired_models: bool = Field(
+        default=False,
+        description="Whether runs on a retired model move to its replacement when that model is enabled.",
     )
 
 

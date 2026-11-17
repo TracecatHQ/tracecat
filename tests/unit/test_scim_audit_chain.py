@@ -23,7 +23,8 @@ from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import ORG_ADMIN_SCOPES
+from tracecat.authz.scopes import ORG_OWNER_SCOPES
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Organization, User
 from tracecat.tiers import defaults as tier_defaults
@@ -72,25 +73,31 @@ def auth_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.fixture
-async def admin_user(session: AsyncSession, org: Organization) -> User:
+async def owner_user(session: AsyncSession, org: Organization) -> User:
     user = User(
         id=uuid.uuid4(),
-        email=f"admin-{uuid.uuid4().hex[:8]}@example.com",
+        email=f"owner-{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="x",
     )
     session.add(user)
+    await session.flush()
+    # Token issuance reads the caller's scopes live, so the owner must exist.
+    await seed_system_scopes(session)
+    await grant_org_membership(
+        session, user_id=user.id, organization_id=org.id, slug="organization-owner"
+    )
     await session.commit()
     return user
 
 
 @pytest.fixture
-def admin_role(org: Organization, admin_user: User) -> Role:
+def owner_role(org: Organization, owner_user: User) -> Role:
     return Role(
         type="user",
-        user_id=admin_user.id,
+        user_id=owner_user.id,
         organization_id=org.id,
         service_id="tracecat-api",
-        scopes=ORG_ADMIN_SCOPES,
+        scopes=ORG_OWNER_SCOPES,
     )
 
 
@@ -114,15 +121,15 @@ async def member(session: AsyncSession, org: Organization) -> User:
 async def test_scim_deprovision_is_audited_as_the_connection(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     member: User,
     monkeypatch: pytest.MonkeyPatch,
     auth_session: None,
 ) -> None:
     """A SCIM-driven removal is attributed to the connection, not a user."""
-    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    issued = await ScimConnectionService(session, role=owner_role).issue_token()
     connection_id = issued.connection.id
-    await SCIMService(session, role=admin_role).activate([])
+    await SCIMService(session, role=owner_role).activate([])
 
     scim_role = await authenticate_scim_connection(
         HTTPAuthorizationCredentials(scheme="Bearer", credentials=issued.token)
@@ -172,7 +179,7 @@ async def test_scim_deprovision_is_audited_as_the_connection(
 async def test_user_driven_removal_is_still_attributed_to_the_user(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     member: User,
     monkeypatch: pytest.MonkeyPatch,
     auth_session: None,
@@ -198,9 +205,9 @@ async def test_user_driven_removal_is_still_attributed_to_the_user(
 
     from tracecat.organization.service import OrgService
 
-    token = ctx_role.set(admin_role)
+    token = ctx_role.set(owner_role)
     try:
-        await OrgService(session, role=admin_role).delete_member(
+        await OrgService(session, role=owner_role).delete_member(
             member.id, allow_idp_managed=True
         )
     finally:
@@ -210,15 +217,15 @@ async def test_user_driven_removal_is_still_attributed_to_the_user(
     assert terminal
     event = terminal[-1]
     assert event.actor_type is AuditEventActor.USER
-    assert event.actor_id == admin_role.user_id
+    assert event.actor_id == owner_role.user_id
 
 
 @pytest.mark.anyio
 async def test_connection_issue_and_revoke_are_audited(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
-    admin_user: User,
+    owner_role: Role,
+    owner_user: User,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Minting and revoking the credential are themselves security events."""
@@ -239,12 +246,12 @@ async def test_connection_issue_and_revoke_are_audited(
         )
 
     monkeypatch.setattr(AuditService, "create_event", capture)
-    service = ScimConnectionService(session, role=admin_role)
+    service = ScimConnectionService(session, role=owner_role)
 
-    token = ctx_role.set(admin_role)
+    token = ctx_role.set(owner_role)
     try:
         issued = await service.issue_token()
-        await SCIMService(session, role=admin_role).disconnect()
+        await SCIMService(session, role=owner_role).disconnect()
     finally:
         ctx_role.reset(token)
 
@@ -256,7 +263,7 @@ async def test_connection_issue_and_revoke_are_audited(
 
     created = by_action["create"]
     assert created.actor_type is AuditEventActor.USER
-    assert created.actor_id == admin_user.id
+    assert created.actor_id == owner_user.id
     assert created.organization_id == org.id
     assert created.resource_id == issued.connection.id
 
@@ -265,7 +272,7 @@ async def test_connection_issue_and_revoke_are_audited(
 async def test_scim_writes_emit_their_audit_events(
     session: AsyncSession,
     org: Organization,
-    admin_role: Role,
+    owner_role: Role,
     auth_session: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -301,16 +308,16 @@ async def test_scim_writes_emit_their_audit_events(
     session.add(group)
     await session.flush()
 
-    token = ctx_role.set(admin_role)
+    token = ctx_role.set(owner_role)
     try:
         provisioned = await ScimProvisioningService(
-            session, role=admin_role
+            session, role=owner_role
         ).provision_user(
             external_id=f"idp-{uuid.uuid4().hex[:8]}",
             email=f"scim-{uuid.uuid4().hex[:8]}@tracecat.com",
         )
-        scim = SCIMService(session, role=admin_role)
-        await ScimConnectionService(session, role=admin_role).issue_token()
+        scim = SCIMService(session, role=owner_role)
+        await ScimConnectionService(session, role=owner_role).issue_token()
         await scim.activate([])
         external = await scim.upsert_external_group(
             external_id=f"eg-{uuid.uuid4().hex[:8]}", display_name="Engineering"

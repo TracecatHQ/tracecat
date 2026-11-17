@@ -92,3 +92,41 @@ async def test_explicit_ref_kind_never_falls_back_to_another_kind():
     assert branch.files == {"new.txt": "branch"}
     assert commit.commit_sha == initial.commit_sha
     assert branch.commit_sha != commit.commit_sha
+
+
+@pytest.mark.anyio
+async def test_tags_page_newest_first_like_the_real_providers():
+    server = FakeVcsServer()
+    url = GitUrl(host="github.com", org="example", repo="sync-test")
+    transport = server.transport_factory(VcsProvider.GITHUB, session=None, role=None)
+    for version in range(1, 6):
+        await transport.write_files(
+            url=url,
+            files={"release.txt": str(version)},
+            message=f"Release {version}",
+            branch="main",
+            create_pr=False,
+        )
+        server.create_tag(url, tag=f"v{version}", ref="main")
+
+    names: list[str] = []
+    cursors: list[str] = []
+    cursor: str | None = None
+    page_sizes: list[int] = []
+    while True:
+        tags, cursor = await transport.list_tags(url=url, limit=2, cursor=cursor)
+        names.extend(tag.name for tag in tags)
+        page_sizes.append(len(tags))
+        if cursor is None:
+            break
+        cursors.append(cursor)
+
+    assert names == ["v5", "v4", "v3", "v2", "v1"]
+    assert page_sizes == [2, 2, 1]
+    for limit in (0, -1):
+        assert await transport.list_tags(url=url, limit=limit) == ([], None)
+    # Cursors are validated like the real providers'.
+    with pytest.raises(TracecatValidationError, match="different page size"):
+        await transport.list_tags(url=url, limit=3, cursor=cursors[0])
+    with pytest.raises(TracecatValidationError, match="Invalid tag cursor"):
+        await transport.list_tags(url=url, limit=2, cursor="2")

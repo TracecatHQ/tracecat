@@ -8,9 +8,10 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import Position
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
 from tracecat.identifiers.workflow import exec_id_to_parts
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
@@ -19,6 +20,7 @@ from tracecat.workflow.actions.schemas import (
     ActionPositionUpdate,
     ActionUpdate,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 
 class WorkflowActionService(BaseWorkspaceService):
@@ -92,6 +94,24 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
+        workflow_id = WorkflowUUID.new(params.workflow_id)
+        # KEY SHARE holds off a concurrent workflow delete until this insert commits.
+        locked_workflow_id = await self.session.scalar(
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_id,
+            )
+            .with_for_update(read=True, key_share=True)
+        )
+        if locked_workflow_id is None:
+            raise TracecatNotFoundError(f"Workflow {workflow_id.short()} not found")
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_id,
+        )
         control_flow = params.control_flow or ActionControlFlow()
         if PlatformAction.is_agent(params.type) and (
             "timeout" not in control_flow.retry_policy.model_fields_set
@@ -101,7 +121,7 @@ class WorkflowActionService(BaseWorkspaceService):
             control_flow.retry_policy.timeout = clamp_agent_timeout_seconds(None)
         action = Action(
             workspace_id=self.workspace_id,
-            workflow_id=WorkflowUUID.new(params.workflow_id),
+            workflow_id=workflow_id,
             type=params.type,
             title=params.title,
             description=params.description,
@@ -118,6 +138,12 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:update")
     async def update_action(self, action: Action, params: ActionUpdate) -> Action:
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=action.workflow_id,
+        )
         set_fields = params.model_dump(exclude_unset=True)
         if locked := set_fields.get("locked_execution_id"):
             try:
@@ -145,6 +171,12 @@ class WorkflowActionService(BaseWorkspaceService):
         Uses a single JSONB UPDATE query to filter out edges referencing
         the deleted action, followed by the DELETE - all in one transaction.
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=action.workflow_id,
+        )
         deleted_action_id = str(action.id)
         workflow_id = action.workflow_id
 
@@ -205,6 +237,12 @@ class WorkflowActionService(BaseWorkspaceService):
         preventing race conditions from concurrent position updates.
         """
         workflow_uuid = WorkflowUUID.new(workflow_id)
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow_uuid,
+        )
 
         # Update action positions
         for pos in action_positions:

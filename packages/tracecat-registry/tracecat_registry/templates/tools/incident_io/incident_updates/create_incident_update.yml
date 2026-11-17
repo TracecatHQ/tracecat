@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Create incident update
+  description: >-
+    Share an update against an incident. Calls POST /v2/incident_updates directly. Requires API
+    key scope: incident_updates.create.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/incident-updates-v2/create
+  namespace: tools.incident_io
+  name: create_incident_update
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    idempotency_key:
+      type: str
+      description: >-
+        Unique string used to de-duplicate incident update requests. Retrying with the same key
+        returns the update the first request created, rather than sharing a second one.
+    incident_id:
+      type: str
+      description: The incident you want to update
+    message:
+      type: str | None
+      description: Message that explains the context behind the update, in markdown
+      default: null
+    to_incident_status_id:
+      type: str | None
+      description: Move the incident to this status
+      default: null
+    to_severity_id:
+      type: str | None
+      description: Move the incident to this severity
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/incident_updates
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        payload:
+          idempotency_key: ${{ inputs.idempotency_key }}
+          incident_id: ${{ inputs.incident_id }}
+          message: ${{ inputs.message }}
+          to_incident_status_id: ${{ inputs.to_incident_status_id }}
+          to_severity_id: ${{ inputs.to_severity_id }}
+  returns: ${{ steps.request.result }}

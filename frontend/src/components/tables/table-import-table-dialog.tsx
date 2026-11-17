@@ -71,11 +71,13 @@ type TableImportFormValues = z.infer<typeof tableImportSchema>
 interface TableImportTableDialogProps extends DialogProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  folderPath?: string
 }
 
 export function TableImportTableDialog({
   open,
   onOpenChange,
+  folderPath = "/",
 }: TableImportTableDialogProps) {
   const workspaceId = useWorkspaceId()
   const { importTable, importTableIsPending } = useImportTableFromCsv()
@@ -128,6 +130,7 @@ export function TableImportTableDialog({
         formData: {
           file,
           table_name: values.tableName ?? null,
+          folder_path: folderPath === "/" ? null : folderPath,
         },
       })
 

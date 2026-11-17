@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, Literal
 
 import pydantic
@@ -56,6 +56,32 @@ def granted_tool_tunnels(
         name: tunnel for name, tunnel in (tool_tunnels or {}).items() if name in allowed
     }
     return kept or None
+
+
+def apply_preset_overrides(
+    preset_config: AgentConfig, overrides: AgentConfig | None
+) -> AgentConfig:
+    """Layer a workflow action's overrides onto its preset's configuration.
+
+    Override actions and output type replace the preset's, and override
+    instructions follow the preset's. Tool tunnels are then pruned against the
+    final actions, since an override can re-add a tool the preset's skills no
+    longer grant.
+    """
+    config = replace(preset_config)
+    if overrides is not None:
+        if overrides.actions:
+            config.actions = overrides.actions
+        if overrides.instructions:
+            config.instructions = (
+                f"{config.instructions}\n{overrides.instructions}"
+                if config.instructions
+                else overrides.instructions
+            )
+        if overrides.output_type is not None:
+            config.output_type = overrides.output_type
+    config.tool_tunnels = granted_tool_tunnels(config.tool_tunnels, config.actions)
+    return config
 
 
 class StreamKey(str):

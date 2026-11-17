@@ -101,6 +101,12 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "Manage SCIM connections and mappings, including granting and revoking IdP-managed access",
     ),
     ScopeDefinition(
+        "org:scim:token",
+        "org:scim",
+        "token",
+        "Issue or rotate the SCIM connection token",
+    ),
+    ScopeDefinition(
         "org:service_account:read",
         "org:service_account",
         "read",

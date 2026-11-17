@@ -6,13 +6,6 @@ locals {
   tracecat_migrations_image     = coalesce(var.tracecat_migrations_image, var.tracecat_image)
   tracecat_migrations_image_tag = coalesce(var.tracecat_migrations_image_tag, local.tracecat_image_tag)
 
-  # WAF regex pattern set names. Default to "${name_prefix}-..." so each stack
-  # gets uniquely-named pattern sets within a shared AWS account; explicit
-  # variable values override (e.g. legacy stacks that already own bare names).
-  waf_attachments_endpoint_pattern_name = coalesce(var.waf_attachments_endpoint_pattern_name, "${var.name_prefix}-attachments-endpoint-pattern")
-  waf_mcp_oauth_endpoints_pattern_name  = coalesce(var.waf_mcp_oauth_endpoints_pattern_name, "${var.name_prefix}-mcp-oauth-endpoints-pattern")
-  waf_mcp_public_endpoint_pattern_name  = coalesce(var.waf_mcp_public_endpoint_pattern_name, "${var.name_prefix}-mcp-public-endpoint-pattern")
-
   # Tracecat common URLs
   public_app_url   = "https://${var.domain_name}"
   public_api_url   = "https://${var.domain_name}/api"
@@ -129,6 +122,7 @@ locals {
         TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
+        TRACECAT__SLACK_INGRESS_MODE               = var.slack_ingress_mode
 
         # Break-glass recovery for a platform admin IP allowlist lockout.
         TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = var.platform_admin_ip_allowlist_bypass

@@ -15,6 +15,17 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 let mockSecret: SecretRead
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/client", () => ({
   secretsSearchSecrets: jest.fn(),
   secretsListAuthorizedSecretStores: jest.fn(),

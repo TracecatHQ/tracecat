@@ -33,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import { useSkillVersion, useSkillVersionFile } from "@/hooks/use-skills"
 import { splitMarkdownFrontmatter } from "@/lib/markdown-frontmatter"
 import {
@@ -82,6 +83,9 @@ function SkillsDetailActionsContent() {
     onSaveWorkingCopy,
     onPublish,
   } = studio
+  // Managed skills cannot be saved, published or restored.
+  const { isManaged } = useManagedResources(workspaceId)
+  const readOnly = isManaged("skill", skill?.id)
 
   const [versionToRestore, setVersionToRestore] =
     useState<SkillVersionRead | null>(null)
@@ -144,7 +148,7 @@ function SkillsDetailActionsContent() {
   }, [selectedVersionDetail, selectedVersionPath, versionToRestore])
 
   const handleConfirmRestore = async () => {
-    if (!versionToRestore) {
+    if (!versionToRestore || readOnly) {
       return
     }
     try {
@@ -208,7 +212,7 @@ function SkillsDetailActionsContent() {
                     <DropdownMenuItem
                       key={version.id}
                       className="items-start px-3 py-2"
-                      disabled={restoreSkillVersionPending}
+                      disabled={restoreSkillVersionPending || readOnly}
                       onSelect={() => setVersionToRestore(version)}
                     >
                       <div className="flex min-w-0 flex-col gap-0.5">
@@ -234,7 +238,7 @@ function SkillsDetailActionsContent() {
             variant="ghost"
             className="size-7"
             onClick={() => void onSaveWorkingCopy()}
-            disabled={saveDisabled}
+            disabled={saveDisabled || readOnly}
           >
             {saveBusy ? (
               <Loader2 className="size-4 animate-spin" />
@@ -253,7 +257,7 @@ function SkillsDetailActionsContent() {
             variant="ghost"
             className="size-7"
             onClick={() => void onPublish()}
-            disabled={!canPublish || publishSkillPending}
+            disabled={!canPublish || publishSkillPending || readOnly}
           >
             {publishSkillPending ? (
               <Loader2 className="size-4 animate-spin" />
@@ -419,7 +423,7 @@ function SkillsDetailActionsContent() {
                 event.preventDefault()
                 void handleConfirmRestore()
               }}
-              disabled={restoreSkillVersionPending}
+              disabled={restoreSkillVersionPending || readOnly}
             >
               {restoreSkillVersionPending ? (
                 <>

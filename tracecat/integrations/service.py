@@ -13,6 +13,7 @@ from typing import Any, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
+import httpx
 import orjson
 import sqlalchemy as sa
 from authlib.integrations.base_client.errors import OAuthError
@@ -40,7 +41,7 @@ from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_secret_masks
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
@@ -58,7 +59,11 @@ from tracecat.db.models import (
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
-from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import UserID
 from tracecat.integrations.catalog.loader import (
     get_platform_mcp_catalog_entries,
@@ -78,6 +83,10 @@ from tracecat.integrations.enums import (
     IntegrationStatus,
     MCPAuthType,
     OAuthGrantType,
+)
+from tracecat.integrations.mcp_headers import (
+    require_header_expression_scope,
+    resolve_mcp_header_values,
 )
 from tracecat.integrations.mcp_tunnel import (
     create_mcp_oauth_http_client,
@@ -144,6 +153,7 @@ from tracecat.integrations.types import (
 )
 from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
+from tracecat.secrets.masking import SecretMaskCollector
 from tracecat.service import BaseWorkspaceService
 
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
@@ -235,6 +245,8 @@ class _AuthorizeUrlKwargs(TypedDict, total=False):
 
 
 _CUSTOM_MCP_OAUTH_PROVIDER_PREFIX = "custom_mcp_"
+# Some servers reserve their own name, so DCR identifies the client as Tracecat.
+_MCP_OAUTH_DCR_CLIENT_NAME = "Tracecat"
 _TUNNELED_MCP_OAUTH_PROVIDER_ERROR = (
     "MCP servers behind a tunnel must be authorized through their own OAuth "
     "flow. Reconnect the server instead of reusing an existing OAuth connection."
@@ -1209,6 +1221,38 @@ class IntegrationService(BaseWorkspaceService):
             )
         return await self._discover_mcp_oauth_endpoints(server_uri=server_uri)
 
+    async def _post_mcp_dcr_request(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        registration_endpoint: str,
+        client_name: str,
+        token_auth_method: str | None,
+        requested_scopes: list[str],
+    ) -> httpx.Response:
+        payload = build_dcr_payload(
+            client_name=client_name,
+            redirect_uris=[self._mcp_oauth_redirect_uri()],
+            token_endpoint_auth_method=token_auth_method,
+            requested_scopes=requested_scopes,
+        )
+        return await client.post(
+            registration_endpoint,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10.0,
+        )
+
+    @staticmethod
+    def _is_mcp_dcr_client_metadata_rejection(response: httpx.Response) -> bool:
+        if response.status_code != httpx.codes.BAD_REQUEST:
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        return isinstance(body, dict) and body.get("error") == "invalid_client_metadata"
+
     async def _perform_mcp_dynamic_registration(
         self,
         *,
@@ -1216,22 +1260,37 @@ class IntegrationService(BaseWorkspaceService):
         client_name: str,
         token_auth_method: str | None,
         requested_scopes: list[str],
+        public_client_supported: bool = False,
     ) -> MCPOAuthRegistrationResult:
-        payload = build_dcr_payload(
-            client_name=client_name,
-            redirect_uris=[self._mcp_oauth_redirect_uri()],
-            token_endpoint_auth_method=token_auth_method,
-            requested_scopes=requested_scopes,
-        )
-
         await self._validate_mcp_oauth_endpoint_reachable(registration_endpoint)
         async with create_mcp_oauth_http_client() as client:
-            response = await client.post(
-                registration_endpoint,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=10.0,
+            response = await self._post_mcp_dcr_request(
+                client,
+                registration_endpoint=registration_endpoint,
+                client_name=client_name,
+                token_auth_method=token_auth_method,
+                requested_scopes=requested_scopes,
             )
+            # Some servers advertise confidential token auth methods but only
+            # register public clients (RFC 7591 invalid_client_metadata).
+            if (
+                public_client_supported
+                and token_auth_method not in (None, "none")
+                and self._is_mcp_dcr_client_metadata_rejection(response)
+            ):
+                self.logger.info(
+                    "Retrying custom MCP OAuth registration as a public client",
+                    registration_endpoint_host=urlparse(registration_endpoint).hostname,
+                    rejected_token_auth_method=token_auth_method,
+                )
+                token_auth_method = "none"
+                response = await self._post_mcp_dcr_request(
+                    client,
+                    registration_endpoint=registration_endpoint,
+                    client_name=client_name,
+                    token_auth_method=token_auth_method,
+                    requested_scopes=requested_scopes,
+                )
         response.raise_for_status()
         try:
             registration_response = DCRResponse.model_validate(response.json())
@@ -1522,11 +1581,12 @@ class IntegrationService(BaseWorkspaceService):
                 )
             registration = await self._perform_mcp_dynamic_registration(
                 registration_endpoint=endpoints.registration_endpoint,
-                client_name=params.name,
+                client_name=_MCP_OAUTH_DCR_CLIENT_NAME,
                 token_auth_method=self._select_mcp_registration_auth_method(
                     endpoints.token_methods
                 ),
                 requested_scopes=requested_scopes,
+                public_client_supported="none" in endpoints.token_methods,
             )
         # RFC 7591: a DCR scope echo is the authoritative registered set.
         effective_scopes = (
@@ -3304,6 +3364,7 @@ class IntegrationService(BaseWorkspaceService):
             ):
                 custom_credentials = params.custom_credentials.get_secret_value()
                 if custom_credentials:
+                    require_header_expression_scope(custom_credentials, role=self.role)
                     encrypted_custom_credentials = self._encrypt_token(
                         custom_credentials
                     )
@@ -4057,6 +4118,17 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
+    async def get_mcp_integrations(
+        self, mcp_integration_ids: Iterable[uuid.UUID]
+    ) -> Sequence[MCPIntegration]:
+        """Get the MCP integrations with these IDs in this workspace."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.id.in_(list(mcp_integration_ids)),
+            MCPIntegration.workspace_id == self.workspace_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
     async def _probe_mcp_http_server(
         self, mcp_integration: MCPIntegration
     ) -> list[MCPToolSummary]:
@@ -4073,8 +4145,11 @@ class IntegrationService(BaseWorkspaceService):
         # that import this module (e.g. the executor worker).
         from tracecat.agent.mcp.user_client import list_remote_mcp_tools
 
+        masks = SecretMaskCollector()
+        mask_token = ctx_secret_masks.set(masks)
         try:
             server_config = await self.resolve_mcp_http_server_config(mcp_integration)
+            masks.observe(server_config.get("headers", {}))
             timeout = mcp_integration.timeout or MCP_TEST_CONNECTION_TIMEOUT_CAP
             server_config["timeout"] = min(timeout, MCP_TEST_CONNECTION_TIMEOUT_CAP)
             # The transport timeout only covers reads; the outer timeout guards
@@ -4082,23 +4157,27 @@ class IntegrationService(BaseWorkspaceService):
             async with asyncio.timeout(MCP_TEST_CONNECTION_TIMEOUT_CAP + 5):
                 return await list_remote_mcp_tools(server_config)
         except MCPConfigurationError as e:
-            raise MCPConnectionVerificationError(
+            error = MCPConnectionVerificationError(
                 "MCP integration is not configured correctly",
-                sanitize_urls_in_text(str(e)),
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))),
+            )
         except TimeoutError as e:
-            raise MCPConnectionVerificationError(
+            error = MCPConnectionVerificationError(
                 "Connection to the MCP server timed out",
-                sanitize_urls_in_text(str(e)) or "Timed out",
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))) or "Timed out",
+            )
         except Exception as e:
             # Transport errors can echo the full request URL, including
             # userinfo or query-string secrets — sanitize before this text
-            # reaches logs or API error responses.
-            raise MCPConnectionVerificationError(
+            # reaches logs or API error responses. Mask first: sanitizing can
+            # rewrite a URL-shaped header value so the exact mask misses it.
+            error = MCPConnectionVerificationError(
                 "Failed to connect to the MCP server",
-                sanitize_urls_in_text(str(e)),
-            ) from e
+                sanitize_urls_in_text(masks.redact(str(e))),
+            )
+        finally:
+            ctx_secret_masks.reset(mask_token)
+        raise error
 
     async def _probe_mcp_stdio_server(
         self, mcp_integration: MCPIntegration
@@ -4169,7 +4248,7 @@ class IntegrationService(BaseWorkspaceService):
             for_update=True,
         )
         if mcp_integration is None:
-            raise ValueError("MCP integration not found")
+            raise TracecatNotFoundError("MCP integration not found")
 
         merge_base_tools = (
             previous_tools if previous_tools is not None else mcp_integration.tools
@@ -4227,6 +4306,8 @@ class IntegrationService(BaseWorkspaceService):
             # (the user cleared the credentials editor) — mirror the update
             # path, which maps "" to no headers rather than back-filling.
             raw_credentials = params.custom_credentials.get_secret_value()
+            if raw_credentials:
+                require_header_expression_scope(raw_credentials, role=self.role)
             encrypted_headers = (
                 self._encrypt_token(raw_credentials) if raw_credentials else None
             )
@@ -4333,11 +4414,19 @@ class IntegrationService(BaseWorkspaceService):
                 error=e.error or e.message,
             )
 
-        merged_tools = await self.persist_mcp_integration_tools(
-            mcp_integration_id=mcp_integration.id,
-            discovered_tools=tools,
-            previous_tools=previous_tools,
-        )
+        try:
+            merged_tools = await self.persist_mcp_integration_tools(
+                mcp_integration_id=mcp_integration.id,
+                discovered_tools=tools,
+                previous_tools=previous_tools,
+            )
+        except TracecatNotFoundError:
+            # The row can be deleted while the probe runs unlocked.
+            return await self._record_mcp_verification_failure(
+                mcp_integration,
+                message="MCP integration not found",
+                error="MCP integration was deleted during verification",
+            )
         self.logger.info(
             "MCP integration verified",
             mcp_integration_id=str(mcp_integration.id),
@@ -4596,7 +4685,11 @@ class IntegrationService(BaseWorkspaceService):
                         custom_headers.pop(key, None)
                 headers.update(custom_headers)
         elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
-            headers.update(self._decrypt_mcp_custom_headers(mcp_integration))
+            headers.update(
+                await resolve_mcp_header_values(
+                    self._decrypt_mcp_custom_headers(mcp_integration), role=self.role
+                )
+            )
         elif mcp_integration.auth_type == MCPAuthType.NONE:
             pass
         else:

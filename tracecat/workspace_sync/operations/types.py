@@ -48,10 +48,27 @@ class SyncOperationStartError(Exception):
     """Temporal could not confirm that the operation started."""
 
 
+VALIDATION_FAILED_MESSAGE = (
+    "Validation failed. Review the inputs and start a fresh preview."
+)
+_MAX_VALIDATION_MESSAGE_LENGTH = 500
+
+
+def validation_message(exc: BaseException) -> str:
+    """Return a bounded, single-line form of a user-facing validation error."""
+    text = " ".join(str(exc).split())
+    if not text:
+        return VALIDATION_FAILED_MESSAGE
+    if len(text) > _MAX_VALIDATION_MESSAGE_LENGTH:
+        return text[: _MAX_VALIDATION_MESSAGE_LENGTH - 1] + "…"
+    return text
+
+
 @dataclass(frozen=True, slots=True)
 class SyncFailure:
     ref: SyncOperationRef
     reason: Literal["stale", "authorization", "validation", "transient"]
+    message: str | None = None
 
 
 class SyncPreviewSummary(TypedDict):

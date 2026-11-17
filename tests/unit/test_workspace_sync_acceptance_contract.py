@@ -183,7 +183,10 @@ def workspace_sync_service() -> WorkspaceSyncService:
         organization_id=uuid.uuid4(),
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
-    return WorkspaceSyncService(session=session, role=role)
+    service = WorkspaceSyncService(session=session, role=role)
+    # The mocked session cannot answer the managed resource lookup.
+    service._managed_ids_by_type = AsyncMock(return_value={})
+    return service
 
 
 def test_every_sync_resource_type_is_adapter_backed() -> None:
@@ -1569,11 +1572,13 @@ async def test_source_export_target_pull_preserves_projected_workspace(
         source_projection = await source_service.project_workspace(
             create_missing_mappings=False
         )
-        assert f"{TABLE_ROOT}/qa_indicators/table.yml" in source_projection.files
-        assert (
-            f"{TABLE_ROOT}/qa_indicators_roundtrip/table.yml"
-            not in source_projection.files
+        # The renamed table moved to a folder named after its new name, and
+        # kept its source id, so the target updates the same table in place.
+        assert f"{TABLE_ROOT}/qa_indicators/table.yml" not in source_projection.files
+        renamed_table_spec = yaml.safe_load(
+            source_projection.files[f"{TABLE_ROOT}/qa_indicators_roundtrip/table.yml"]
         )
+        assert renamed_table_spec["id"] == "qa_indicators"
         # Confirm the fake VCS commit stores exactly what source projection emits.
         assert (
             fake_vcs.repo_files(git_url, ref=second_export.commit.sha)
@@ -1718,18 +1723,19 @@ async def test_selected_export_by_source_id_targets_mapped_resource_after_rename
         )
         # Only the selected tag (plus the synthesised manifest) is pushed; the
         # unmapped neighbor is never written.
-        assert set(selected_remote_files) == {
-            MANIFEST_FILENAME,
-            f"{CASE_TAG_ROOT}/qa-alert.yml",
-        }
-        selected_spec = yaml.safe_load(
-            selected_remote_files[f"{CASE_TAG_ROOT}/qa-alert.yml"]
-        )
-        # The exported file keeps the canonical source id while carrying the
+        # Every tag lives in one bundle file.
+        selected_path = f"{CASE_TAG_ROOT}/_all.yml"
+        assert set(selected_remote_files) == {MANIFEST_FILENAME, selected_path}
+        bundled = yaml.safe_load(selected_remote_files[selected_path])["tags"]
+        # The exported entry keeps the canonical source id while carrying the
         # local name edit, confirming the row (not the ref) was resolved.
-        assert selected_spec["id"] == "qa-alert"
-        assert selected_spec["name"] == "QA alert selected by source id"
-        assert f"{CASE_TAG_ROOT}/qa-neighbor.yml" not in selected_remote_files
+        assert bundled == [
+            {
+                "id": "qa-alert",
+                "name": "QA alert selected by source id",
+                "color": "#D92D20",
+            }
+        ]
 
         # ==================================================================
         # PULL: destination materialises only the intended selected resource
@@ -1764,6 +1770,171 @@ async def test_selected_export_by_source_id_targets_mapped_resource_after_rename
         source_id="qa-alert",
         local_id=target_tag.id,
     )
+
+
+@pytest.mark.anyio
+async def test_case_tags_move_into_one_bundle_and_partial_pushes_keep_others(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A repository with one file per tag upgrades to one bundle file.
+
+    The source pulls a repository written before bundling, and a full push
+    rewrites its tags into ``case_tags/_all.yml``. A teammate then adds a tag
+    to that bundle. A partial push of one tag must keep the teammate's tag,
+    preview only its own change, and a fresh workspace must import both.
+    """
+    assert svc_role.workspace_id is not None
+    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-tag-bundle-qa.git"
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-tag-bundle-qa")
+    bundle_path = f"{CASE_TAG_ROOT}/_all.yml"
+    branch = "sync/tag-bundle"
+    fake_vcs = FakeVcsServer()
+    await _set_workspace_git_repo_url(
+        session, workspace_id=svc_role.workspace_id, repo_url=repo_url
+    )
+    target_role = await _create_workspace_role(
+        session,
+        source_role=svc_role,
+        workspace_name="target-tag-bundle-workspace",
+        repo_url=repo_url,
+    )
+    service = WorkspaceSyncService(
+        session=session, role=svc_role, transport_factory=fake_vcs.transport_factory
+    )
+    transport = fake_vcs.transport_factory(
+        VcsProvider.GITHUB, session=session, role=svc_role
+    )
+    seed = await transport.write_files(
+        url=git_url,
+        files=_expanded_full_git_tree(include_schedules=False),
+        message="Seed with one file per tag",
+        branch="seed/tags",
+        create_pr=False,
+    )
+    assert seed.sha is not None
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        # The old per-tag file still pulls.
+        pulled = await service.pull(options=PullOptions(commit_sha=seed.sha))
+        assert pulled.success is True, pulled.diagnostics
+
+        # A full push moves the tag into the bundle and deletes the old file.
+        full = await service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Full push", branch=branch, create_pr=False
+            )
+        )
+        assert full.commit.sha is not None
+        files = fake_vcs.repo_files(git_url, ref=full.commit.sha)
+        assert f"{CASE_TAG_ROOT}/qa-alert.yml" not in files
+        assert [tag["id"] for tag in yaml.safe_load(files[bundle_path])["tags"]] == [
+            "qa-alert"
+        ]
+
+        # A teammate adds a tag this workspace has never pulled.
+        bundle = yaml.safe_load(files[bundle_path])
+        bundle["tags"].append({"id": "teammate", "name": "Teammate tag"})
+        await transport.write_files(
+            url=git_url,
+            files={bundle_path: yaml.safe_dump(bundle, sort_keys=False)},
+            message="Teammate adds a tag",
+            branch=branch,
+            create_pr=False,
+        )
+
+        tag = await session.scalar(
+            select(CaseTag).where(
+                CaseTag.workspace_id == svc_role.workspace_id,
+                CaseTag.ref == "qa-alert",
+            )
+        )
+        assert tag is not None
+        tag.name = "QA alert v2"
+        session.add(tag)
+        await session.flush()
+        selection = [
+            ResourceRef(resource_type=SyncResourceType.CASE_TAG, source_id="qa-alert")
+        ]
+
+        # The preview lists only the tag that changed, not the whole bundle.
+        preview = await service.preview_export_workspace(
+            WorkspaceSyncExportPreviewRequest(resources=selection, compare_ref=branch)
+        )
+        assert [
+            (diff.source_id, diff.change_type, diff.source_path)
+            for diff in preview.resource_diffs
+        ] == [("qa-alert", "modified", bundle_path)]
+
+        partial = await service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Rename one tag",
+                branch=branch,
+                create_pr=False,
+                resources=selection,
+            )
+        )
+        assert partial.commit.sha is not None
+        tags = yaml.safe_load(
+            fake_vcs.repo_files(git_url, ref=partial.commit.sha)[bundle_path]
+        )["tags"]
+        assert tags == [
+            {"id": "qa-alert", "name": "QA alert v2", "color": "#D92D20"},
+            {"id": "teammate", "name": "Teammate tag"},
+        ]
+
+        # A fresh workspace imports both tags from the bundle.
+        target_service = WorkspaceSyncService(
+            session=session,
+            role=target_role,
+            transport_factory=fake_vcs.transport_factory,
+        )
+        target_pull = await target_service.pull(
+            options=PullOptions(commit_sha=partial.commit.sha)
+        )
+        assert target_pull.success is True, target_pull.diagnostics
+    target_names = set(
+        await session.scalars(
+            select(CaseTag.name).where(CaseTag.workspace_id == target_role.workspace_id)
+        )
+    )
+    assert target_names == {"QA alert v2", "Teammate tag"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("root", [f"{CASE_TAG_ROOT}/", "config/tags/"])
+async def test_pull_preview_diffs_bundled_tags_under_any_manifest_root(
+    session: AsyncSession,
+    svc_role: Role,
+    root: str,
+) -> None:
+    """A renamed tag shows in the pull preview wherever the manifest puts tags."""
+    session.add(
+        CaseTag(workspace_id=svc_role.workspace_id, ref="urgent", name="Urgent")
+    )
+    await session.flush()
+    manifest = WorkspaceManifest.model_validate({"resources": {"case_tags": root}})
+    bundle_path = f"{root}_all.yml"
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot, diagnostics = await service.parse_files(
+        {
+            MANIFEST_FILENAME: canonical_json_text(manifest),
+            bundle_path: _yaml(
+                {"version": 1, "tags": [{"id": "urgent", "name": "Urgent v2"}]}
+            ),
+        },
+        commit_sha="e" * 40,
+    )
+    assert diagnostics == []
+
+    diffs = await service._resource_diffs_for_pull(snapshot, sync_schedules=False)
+
+    assert [(diff.source_id, diff.change_type, diff.source_path) for diff in diffs] == [
+        ("urgent", "modified", bundle_path)
+    ]
 
 
 @pytest.mark.anyio
@@ -2148,8 +2319,9 @@ async def test_single_workflow_export_includes_dependency_closure(
     assert export.commit.status is PushStatus.COMMITTED
     assert export.commit.sha is not None
     exported_files = fake_vcs.repo_files(git_url, ref=export.commit.sha)
-    assert f"{WORKFLOW_ROOT}/qa-root/definition.yml" in exported_files
-    assert f"{WORKFLOW_ROOT}/qa-child/definition.yml" in exported_files
+    # Workflow folders are named after titles; the source ids stay inside.
+    assert f"{WORKFLOW_ROOT}/qa-root-orchestrator/definition.yml" in exported_files
+    assert f"{WORKFLOW_ROOT}/qa-child-enrichment/definition.yml" in exported_files
     assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in exported_files
     assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in exported_files
     assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in exported_files
@@ -2236,14 +2408,147 @@ async def test_project_workspace_preserves_workflow_source_id_after_rename(
     await session.flush()
 
     projection = await service.project_workspace(create_missing_mappings=False)
-    old_path = f"{WORKFLOW_ROOT}/qa-workflow/definition.yml"
-    new_path = f"{WORKFLOW_ROOT}/qa-workflow-renamed/definition.yml"
+    legacy_path = f"{WORKFLOW_ROOT}/qa-workflow/definition.yml"
+    # The folder follows the title, not the alias or the source id.
+    readable_path = f"{WORKFLOW_ROOT}/QA-workflow/definition.yml"
 
-    assert old_path in projection.files
-    assert new_path not in projection.files
-    workflow_spec = yaml.safe_load(projection.files[old_path])
+    assert legacy_path not in projection.files
+    assert projection.paths[SyncResourceType.WORKFLOW] == {"qa-workflow": readable_path}
+    workflow_spec = yaml.safe_load(projection.files[readable_path])
     assert workflow_spec["id"] == "qa-workflow"
     assert workflow_spec["alias"] == "qa-workflow-renamed"
+
+
+@pytest.mark.anyio
+async def test_push_moves_legacy_id_folders_and_renames_without_new_identity(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Readable folders: upgrade an id-named repo, then rename a workflow.
+
+    1. The repo starts in the legacy layout: ``workflows/<source id>/``.
+    2. A full push moves the workflow to a folder named after its title and
+       deletes the id folder.
+    3. A single-workflow push after a title change moves the folder again and
+       deletes the old one.
+    4. A second workspace pulls each commit and keeps updating the same
+       workflow: the ``id`` in the file, not the folder, is the identity.
+    """
+    source_id = "wf-legacy-id"
+    legacy_path = f"{WORKFLOW_ROOT}/{source_id}/definition.yml"
+    first_path = f"{WORKFLOW_ROOT}/Triage-alerts/definition.yml"
+    renamed_path = f"{WORKFLOW_ROOT}/Triage-incidents/definition.yml"
+    legacy_files = _workflow_git_tree(
+        source_id=source_id, alias="triage", title="Triage alerts"
+    )
+    harness = await _legacy_upgrade_harness(
+        session,
+        source_role=svc_role,
+        repo_name="git-sync-readable-paths-qa",
+        target_workspace_name="target-readable-paths-workspace",
+        legacy_files=legacy_files,
+    )
+    target_workspace_id = harness.target_role.workspace_id
+    assert target_workspace_id is not None
+
+    async def target_workflows() -> list[Workflow]:
+        return list(
+            (
+                await session.scalars(
+                    select(Workflow).where(
+                        Workflow.workspace_id == target_workspace_id,
+                        Workflow.alias == "triage",
+                    )
+                )
+            ).all()
+        )
+
+    with patch(
+        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+    ):
+        # Both workspaces read the legacy layout.
+        source_pull = await harness.source_service.pull(
+            options=PullOptions(commit_sha=harness.legacy_commit_sha)
+        )
+        target_pull = await harness.target_service.pull(
+            options=PullOptions(commit_sha=harness.legacy_commit_sha)
+        )
+        assert source_pull.success is True
+        assert target_pull.success is True
+        [target_workflow] = await target_workflows()
+        target_workflow_id = target_workflow.id
+
+        # A full push moves the workflow to its readable folder.
+        upgrade = await harness.source_service.export_workspace(
+            WorkspaceSyncExportRequest(
+                message="Move to readable folders", branch="main", create_pr=False
+            )
+        )
+        assert upgrade.commit.sha is not None
+        files = harness.fake_vcs.repo_files(harness.git_url, ref=upgrade.commit.sha)
+        assert legacy_path not in files
+        assert yaml.safe_load(files[first_path])["id"] == source_id
+
+        upgrade_pull = await harness.target_service.pull(
+            options=PullOptions(commit_sha=upgrade.commit.sha)
+        )
+        assert upgrade_pull.success is True
+        assert [workflow.id for workflow in await target_workflows()] == [
+            target_workflow_id
+        ]
+
+        # Rename the workflow and push only that workflow.
+        source_workflow = await session.scalar(
+            select(Workflow).where(
+                Workflow.workspace_id == svc_role.workspace_id,
+                Workflow.alias == "triage",
+            )
+        )
+        assert source_workflow is not None
+        definition = yaml.safe_load(legacy_files[legacy_path])["definition"]
+        renamed_dsl = DSLInput.model_validate(
+            {**definition, "title": "Triage incidents"}
+        )
+        rename = await harness.source_service.export_workflow(
+            workflow=source_workflow,
+            dsl=renamed_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Rename triage workflow", branch="main", create_pr=False
+            ),
+        )
+        assert rename.commit.sha is not None
+        files = harness.fake_vcs.repo_files(harness.git_url, ref=rename.commit.sha)
+        assert first_path not in files
+        assert legacy_path not in files
+        renamed_spec = yaml.safe_load(files[renamed_path])
+        assert renamed_spec["id"] == source_id
+        assert renamed_spec["definition"]["title"] == "Triage incidents"
+
+        rename_pull = await harness.target_service.pull(
+            options=PullOptions(commit_sha=rename.commit.sha)
+        )
+
+    assert rename_pull.success is True
+    # Still one workflow in the target, the same row as before.
+    [renamed_target] = await target_workflows()
+    assert renamed_target.id == target_workflow_id
+    # The target records where it read the workflow, for its own next push.
+    await _assert_mapping_targets(
+        session,
+        role=harness.target_role,
+        resource_type=SyncResourceType.WORKFLOW,
+        source_id=source_id,
+        local_id=target_workflow_id,
+    )
+    target_mapping = await session.scalar(
+        select(WorkspaceSyncResourceMapping).where(
+            WorkspaceSyncResourceMapping.workspace_id == target_workspace_id,
+            WorkspaceSyncResourceMapping.source_id == source_id,
+        )
+    )
+    assert target_mapping is not None
+    assert target_mapping.source_path == renamed_path
 
 
 @pytest.mark.anyio
@@ -2362,75 +2667,76 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
 
     projection = await service.project_workspace(create_missing_mappings=False)
 
-    tag_spec = yaml.safe_load(projection.files[f"{CASE_TAG_ROOT}/qa-alert.yml"])
-    assert f"{CASE_TAG_ROOT}/qa-alert-renamed.yml" not in projection.files
-    assert tag_spec["id"] == "qa-alert"
-    assert tag_spec["name"] == "QA alert renamed"
-
-    dropdown_spec = yaml.safe_load(
-        projection.files[f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml"]
+    # Each renamed resource moves to a path named after its new name, while
+    # the ``id`` inside the file keeps its original source id.
+    expected = [
+        (
+            f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
+            f"{CASE_DROPDOWN_ROOT}/QA-resolution-reason-renamed.yml",
+            "qa_resolution_reason",
+            {"name": "QA resolution reason renamed"},
+        ),
+        (
+            f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml",
+            f"{CASE_DURATION_ROOT}/qa_time_to_triage_renamed.yml",
+            "qa_time_to_triage",
+            {"name": "qa_time_to_triage_renamed"},
+        ),
+        (
+            f"{VARIABLE_ROOT}/default/qa_config.yml",
+            f"{VARIABLE_ROOT}/default/qa_config_renamed.yml",
+            "default/qa_config",
+            {"name": "qa_config_renamed"},
+        ),
+        (
+            f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml",
+            f"{SECRET_METADATA_ROOT}/default/qa_threatintel_renamed.yml",
+            "default/qa_threatintel",
+            {"name": "qa_threatintel_renamed"},
+        ),
+        (
+            f"{CASE_FIELD_ROOT}/qa_external_ref.yml",
+            f"{CASE_FIELD_ROOT}/qa_vendor_ref.yml",
+            "qa_external_ref",
+            {"name": "qa_vendor_ref"},
+        ),
+        (
+            f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml",
+            f"{AGENT_PRESET_ROOT}/qa-triage-parent-9000/preset.yml",
+            "qa-triage-parent",
+            {"slug": "qa-triage-parent-9000", "name": "QA triage parent 9000"},
+        ),
+        (
+            f"{TABLE_ROOT}/qa_indicators/table.yml",
+            f"{TABLE_ROOT}/qa_indicators_renamed/table.yml",
+            "qa_indicators",
+            {"name": "qa_indicators_renamed"},
+        ),
+        (
+            f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml",
+            f"{SKILL_ROOT}/qa-enrichment-restored/skill.yml",
+            "qa-enrichment-skill",
+            {"slug": "qa-enrichment-restored", "name": "qa-enrichment-skill"},
+        ),
+    ]
+    for old_path, new_path, source_id, fields in expected:
+        assert old_path not in projection.files
+        resource_spec = yaml.safe_load(projection.files[new_path])
+        assert resource_spec["id"] == source_id
+        for key, value in fields.items():
+            assert resource_spec[key] == value
+    # Tags share one bundle file, so a renamed tag stays in it with its id.
+    assert f"{CASE_TAG_ROOT}/qa-alert.yml" not in projection.files
+    bundled_tags = yaml.safe_load(projection.files[f"{CASE_TAG_ROOT}/_all.yml"])
+    assert bundled_tags["tags"] == [
+        {"id": "qa-alert", "name": "QA alert renamed", "color": "#D92D20"}
+    ]
+    # Skill companion files move with the skill folder.
+    assert f"{SKILL_ROOT}/qa-enrichment-restored/files/SKILL.md" in projection.files
+    assert not any(
+        path.startswith(f"{SKILL_ROOT}/qa-enrichment-skill/")
+        for path in projection.files
     )
-    assert (
-        f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason_renamed.yml" not in projection.files
-    )
-    assert dropdown_spec["id"] == "qa_resolution_reason"
-    assert dropdown_spec["name"] == "QA resolution reason renamed"
-
-    duration_spec = yaml.safe_load(
-        projection.files[f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml"]
-    )
-    assert f"{CASE_DURATION_ROOT}/qa_time_to_triage_renamed.yml" not in projection.files
-    assert duration_spec["id"] == "qa_time_to_triage"
-    assert duration_spec["name"] == "qa_time_to_triage_renamed"
-
-    variable_spec = yaml.safe_load(
-        projection.files[f"{VARIABLE_ROOT}/default/qa_config.yml"]
-    )
-    assert f"{VARIABLE_ROOT}/default/qa_config_renamed.yml" not in projection.files
-    assert variable_spec["id"] == "default/qa_config"
-    assert variable_spec["name"] == "qa_config_renamed"
-
-    secret_spec = yaml.safe_load(
-        projection.files[f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml"]
-    )
-    assert (
-        f"{SECRET_METADATA_ROOT}/default/qa_threatintel_renamed.yml"
-        not in projection.files
-    )
-    assert secret_spec["id"] == "default/qa_threatintel"
-    assert secret_spec["name"] == "qa_threatintel_renamed"
-
-    case_field_spec = yaml.safe_load(
-        projection.files[f"{CASE_FIELD_ROOT}/qa_external_ref.yml"]
-    )
-    assert f"{CASE_FIELD_ROOT}/qa_vendor_ref.yml" not in projection.files
-    assert case_field_spec["id"] == "qa_external_ref"
-    assert case_field_spec["name"] == "qa_vendor_ref"
-
-    parent_spec = yaml.safe_load(
-        projection.files[f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml"]
-    )
-    assert (
-        f"{AGENT_PRESET_ROOT}/qa-triage-parent-9000/preset.yml" not in projection.files
-    )
-    assert parent_spec["id"] == "qa-triage-parent"
-    assert parent_spec["slug"] == "qa-triage-parent-9000"
-    assert parent_spec["name"] == "QA triage parent 9000"
-
-    table_spec = yaml.safe_load(
-        projection.files[f"{TABLE_ROOT}/qa_indicators/table.yml"]
-    )
-    assert f"{TABLE_ROOT}/qa_indicators_renamed/table.yml" not in projection.files
-    assert table_spec["id"] == "qa_indicators"
-    assert table_spec["name"] == "qa_indicators_renamed"
-
-    skill_spec = yaml.safe_load(
-        projection.files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"]
-    )
-    assert f"{SKILL_ROOT}/qa-enrichment-restored/skill.yml" not in projection.files
-    assert skill_spec["id"] == "qa-enrichment-skill"
-    assert skill_spec["slug"] == "qa-enrichment-restored"
-    assert skill_spec["name"] == "qa-enrichment-skill"
 
 
 @pytest.mark.anyio
@@ -8685,6 +8991,7 @@ def _expanded_selected_git_tree() -> dict[str, str]:
 
 
 def _expected_full_paths() -> set[str]:
+    """Paths a push writes for the seed tree; tags move into one bundle."""
     return {
         MANIFEST_FILENAME,
         f"{WORKFLOW_ROOT}/qa-root/definition.yml",
@@ -8696,7 +9003,7 @@ def _expected_full_paths() -> set[str]:
         f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md",
         f"{SKILL_ROOT}/qa-enrichment-skill/files/enrich.py",
         f"{TABLE_ROOT}/qa_indicators/table.yml",
-        f"{CASE_TAG_ROOT}/qa-alert.yml",
+        f"{CASE_TAG_ROOT}/_all.yml",
         f"{CASE_DROPDOWN_ROOT}/qa_resolution_reason.yml",
         f"{CASE_DURATION_ROOT}/qa_time_to_triage.yml",
         f"{CASE_FIELD_ROOT}/qa_external_ref.yml",
@@ -8901,9 +9208,8 @@ async def _only_form(session: AsyncSession, role: Role) -> Form | None:
 
 async def _exported_workflow(service: WorkspaceSyncService) -> dict[str, Any]:
     projection = await service.project_workspace(create_missing_mappings=False)
-    return yaml.safe_load(
-        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
-    )
+    path = projection.paths[SyncResourceType.WORKFLOW]["laptop-request"]
+    return yaml.safe_load(projection.files[path])
 
 
 @pytest.mark.anyio

@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -31,7 +32,6 @@ from tracecat.agent.tokens import (
 from tracecat.auth.secrets import get_service_key
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
-    TracecatValidationError,
 )
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.registry.lock.types import RegistryLock
@@ -142,8 +142,13 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def resolve_mcp_integration_refs(self, integration_ids):
+        async def load_mcp_integrations(self, integration_ids):
+            assert integration_ids == [integration_id]
+            return {integration_id: SimpleNamespace(id=integration_id)}
+
+        def mcp_integration_refs(self, integration_ids, integrations):
             assert integration_ids == [str(integration_id)]
+            assert set(integrations) == {integration_id}
             return [
                 {
                     "type": "http",
@@ -154,8 +159,8 @@ async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
-            assert resolved_integration_id == integration_id
+        async def resolve_loaded_mcp_integration_secrets(self, integration):
+            assert integration.id == integration_id
             return {"Authorization": "Bearer secret"}
 
     monkeypatch.setattr(
@@ -543,8 +548,13 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def resolve_mcp_integration_refs(self, integration_ids):
+        async def load_mcp_integrations(self, integration_ids):
+            assert integration_ids == [integration_id]
+            return {integration_id: SimpleNamespace(id=integration_id)}
+
+        def mcp_integration_refs(self, integration_ids, integrations):
             assert integration_ids == [str(integration_id)]
+            assert set(integrations) == {integration_id}
             return [
                 {
                     "type": "http",
@@ -555,8 +565,8 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
-            assert resolved_integration_id == integration_id
+        async def resolve_loaded_mcp_integration_secrets(self, integration):
+            assert integration.id == integration_id
             return {}
 
     discovered_config_names: list[list[str]] = []
@@ -664,7 +674,10 @@ async def test_user_mcp_discovery_cache_is_scoped_by_workspace_and_tunnel(
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def resolve_mcp_integration_refs(self, integration_ids):
+        async def load_mcp_integrations(self, integration_ids):
+            return {integration_id: SimpleNamespace(id=integration_id)}
+
+        def mcp_integration_refs(self, integration_ids, integrations):
             return [
                 {
                     "type": "http",
@@ -675,7 +688,7 @@ async def test_user_mcp_discovery_cache_is_scoped_by_workspace_and_tunnel(
                 }
             ]
 
-        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+        async def resolve_loaded_mcp_integration_secrets(self, integration):
             return {}
 
     async def fake_resolve_proxy(*, workspace_id, tunnel_id, **_: Any) -> str:
@@ -1625,13 +1638,18 @@ class _StdioPresetService:
             and integration_id == _STDIO_INTEGRATION_ID
         )
 
-    async def resolve_mcp_integration_refs(
-        self, integration_ids: list[str]
+    async def load_mcp_integrations(
+        self, integration_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, SimpleNamespace]:
+        return {
+            integration_id: SimpleNamespace(id=integration_id, server_type="stdio")
+            for integration_id in integration_ids
+            if self._owns_row(integration_id)
+        }
+
+    def mcp_integration_refs(
+        self, integration_ids: list[str], integrations: dict[uuid.UUID, Any]
     ) -> list[dict[str, Any]]:
-        if not self._owns_row(uuid.UUID(integration_ids[0])):
-            raise TracecatValidationError(
-                "No matching MCP integrations found in the workspace"
-            )
         return [
             {
                 "type": "stdio",
@@ -1644,10 +1662,9 @@ class _StdioPresetService:
         ]
 
     async def resolve_stdio_mcp_integration(
-        self, integration_id: uuid.UUID, *, resolve_env: bool
+        self, integration: Any, *, resolve_env: bool
     ) -> StdioMCPIntegrationSnapshot | None:
-        if not self._owns_row(integration_id):
-            return None
+        assert self._owns_row(integration.id)
         return StdioMCPIntegrationSnapshot(
             config={
                 "type": "stdio",
@@ -1866,10 +1883,10 @@ async def test_stdio_call_runs_only_what_one_row_read_holds(
 
     class _EditedMidCall(_StdioPresetService):
         async def resolve_stdio_mcp_integration(
-            self, integration_id: uuid.UUID, *, resolve_env: bool
+            self, integration: Any, *, resolve_env: bool
         ) -> StdioMCPIntegrationSnapshot | None:
             snapshot = await super().resolve_stdio_mcp_integration(
-                integration_id, resolve_env=resolve_env
+                integration, resolve_env=resolve_env
             )
             assert snapshot is not None
             config = {**snapshot.config, "args": ["-y", "edited-server"]}

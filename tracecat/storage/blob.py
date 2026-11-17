@@ -342,6 +342,25 @@ async def ensure_bucket_exists(bucket: str) -> None:
                 raise
 
 
+_verified_buckets: set[str] = set()
+
+
+async def ensure_bucket_exists_once(bucket: str) -> None:
+    """Ensure the bucket exists, skipping the S3 check once it has passed.
+
+    For hot paths that would otherwise send a HEAD request before every upload.
+    Concurrent first calls may each check. A bucket deleted after a passing
+    check is not recreated until restart.
+
+    Args:
+        bucket: Bucket name (required)
+    """
+    if bucket in _verified_buckets:
+        return
+    await ensure_bucket_exists(bucket)
+    _verified_buckets.add(bucket)
+
+
 async def get_bucket_lifecycle(
     bucket: str,
 ) -> GetBucketLifecycleConfigurationOutputTypeDef | None:

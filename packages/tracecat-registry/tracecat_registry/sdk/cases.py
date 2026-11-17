@@ -256,6 +256,7 @@ class CasesClient:
         limit: int = 20,
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
+        view_id: str | Unset = UNSET,
         search_term: str | Unset = UNSET,
         search_mode: Literal["full_text", "literal"] | Unset = UNSET,
         search_columns: list[Literal["summary", "description"]] | Unset = UNSET,
@@ -276,6 +277,9 @@ class CasesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
+        created_by: list[str] | Unset = UNSET,
+        created_within: dict[str, Any] | Unset = UNSET,
+        updated_within: dict[str, Any] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
         payload_fields: list[str] | Unset = UNSET,
@@ -296,9 +300,18 @@ class CasesClient:
         preserved; is_null matches missing paths, not explicit JSON null.
         Exact IDs and compatibility criteria are ANDed with the filter tree.
         Returned details are independent of matching.
+        view_id runs a saved or built-in case view. Its matching criteria
+        replace the request's: filters is ANDed with them, and any other
+        matching field is rejected. Pagination, result options, and
+        order_by/sort still apply; order_by overrides the view's saved order.
         Explicit full_text uses required words/per-field phrases and defaults to
         relevance. Literal is an escaped complete substring. Omitted mode retains
         legacy behavior. search_columns selects summary/description.
+        created_by takes user IDs, or "me" for the signed-in user; workflows
+        have no signed-in user, so "me" fails there. created_within and updated_within
+        take a window ending now, such as {"amount": 30, "unit": "day"}
+        (units: hour, day, week, month); they replace the matching fixed
+        bounds.
 
         Either non-empty selector returns the selected subset. payload_fields
         and payload_paths combine and override include_payload. Up to 100 paths
@@ -315,6 +328,8 @@ class CasesClient:
             params["cursor"] = cursor
         if is_set(reverse):
             params["reverse"] = reverse
+        if is_set(view_id):
+            params["view_id"] = view_id
         if is_set(search_term):
             params["search_term"] = search_term
         if is_set(status):
@@ -372,6 +387,9 @@ class CasesClient:
             ("short_id", short_id),
             ("case_id", case_id),
             ("filters", filters),
+            ("created_by", created_by),
+            ("created_within", created_within),
+            ("updated_within", updated_within),
             ("hierarchy", hierarchy),
             ("parent_id", parent_id),
             ("include_durations", include_durations),
@@ -382,6 +400,34 @@ class CasesClient:
                 params[name] = value
         # The standalone registry forwards JSON; the server validates the shared AST.
         return await self._client.post("/cases/search", json=to_jsonable_python(params))
+
+    # === Views === #
+
+    async def list_views(
+        self, *, limit: int = 100, cursor: str | Unset = UNSET
+    ) -> types.CaseViewListResponse:
+        """List shared saved case views. Workflows have no personal views.
+
+        Args:
+            limit: Maximum views per page.
+            cursor: Continuation cursor from a previous page.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        return await self._client.get("/case-views", params=params)
+
+    async def list_builtin_views(self) -> list[types.CaseViewRead]:
+        """List the built-in case views, such as "Assigned to me"."""
+        return await self._client.get("/case-views/builtins")
+
+    async def get_view(self, view_id: str) -> types.CaseViewDetail:
+        """Get one shared or built-in case view.
+
+        Args:
+            view_id: A saved view UUID or a built-in view ID.
+        """
+        return await self._client.get(f"/case-views/{view_id}")
 
     # === Comments === #
 
@@ -541,6 +587,14 @@ class CasesClient:
             tag_id: The tag UUID or ref.
         """
         await self._client.delete(f"/cases/{case_id}/tags/{tag_id}")
+
+    async def delete_case_tag(self, tag_id: str) -> None:
+        """Delete a case tag definition from the workspace.
+
+        Args:
+            tag_id: The tag UUID or ref.
+        """
+        await self._client.delete(f"/case-tags/{tag_id}")
 
     # === Attachments === #
 
@@ -726,6 +780,7 @@ class CasesClient:
         fields: dict[str, Any] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         create_missing_tags: bool = False,
+        parent_case_id: str | Unset = UNSET,
     ) -> types.Case:
         """Create a new case and return simple dict format.
 
@@ -742,6 +797,8 @@ class CasesClient:
             tags: List of tag names or IDs to attach.
             fields: Custom field values.
             dropdown_values: Dropdown selections to set on the case.
+            parent_case_id: UUID or short ID of a top-level case to create
+                this case under as a sub-case.
 
         Returns:
             Created case data (CaseDict format).
@@ -767,8 +824,42 @@ class CasesClient:
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if create_missing_tags:
             data["create_missing_tags"] = create_missing_tags
+        if is_set(parent_case_id):
+            data["parent_case_id"] = parent_case_id
 
         return await self._client.post("/cases/simple", json=data)
+
+    async def batch_set_parent(
+        self, *, case_ids: list[str], parent_case_id: str
+    ) -> types.CaseBatchResponse:
+        """Group cases as sub-cases of a top-level parent case.
+
+        Args:
+            case_ids: UUIDs or short IDs of the cases to group (max 1000).
+            parent_case_id: UUID or short ID of the top-level parent case.
+
+        Returns:
+            Per-case results and aggregate counts.
+        """
+        return await self._client.post(
+            "/cases/batch-set-parent",
+            json={"case_ids": case_ids, "parent_case_id": parent_case_id},
+        )
+
+    async def batch_clear_parent(
+        self, *, case_ids: list[str]
+    ) -> types.CaseBatchResponse:
+        """Remove cases from their parent case, returning them to the top level.
+
+        Args:
+            case_ids: UUIDs or short IDs of the sub-cases to ungroup (max 1000).
+
+        Returns:
+            Per-case results and aggregate counts.
+        """
+        return await self._client.post(
+            "/cases/batch-clear-parent", json={"case_ids": case_ids}
+        )
 
     async def update_case_simple(
         self,
@@ -1084,6 +1175,30 @@ class CasesClient:
             data["default_trigger_values"] = default_trigger_values
 
         return await self._client.patch(f"/cases/tasks/{task_id}", json=data)
+
+    async def run_task(
+        self,
+        case_id: str,
+        task_id: str,
+        *,
+        inputs: dict[str, Any] | None | Unset = UNSET,
+    ) -> types.CaseTaskRunRead:
+        """Run the workflow linked to a case task.
+
+        Args:
+            case_id: The case UUID or short ID.
+            task_id: The task UUID.
+            inputs: Trigger inputs that override the task's default trigger values.
+
+        Returns:
+            The started workflow run.
+        """
+        data: dict[str, Any] = {}
+        if is_set(inputs):
+            data["inputs"] = inputs
+        return await self._client.post(
+            f"/cases/{case_id}/tasks/{task_id}/run", json=data
+        )
 
     async def delete_task(self, task_id: str) -> None:
         """Delete a case task.

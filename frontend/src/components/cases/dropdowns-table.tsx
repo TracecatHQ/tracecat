@@ -44,6 +44,8 @@ import {
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import type { IconPickerProps } from "@/components/form/icon-picker"
+import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 
 const IconPicker = dynamic<IconPickerProps>(
   () => import("@/components/form/icon-picker").then((mod) => mod.IconPicker),
@@ -160,6 +162,8 @@ export function DropdownsTable({
   const [selectedDef, setSelectedDef] =
     useState<CaseDropdownDefinitionRead | null>(null)
   const [action, setAction] = useState<DefinitionAction | null>(null)
+  // Managed dropdowns keep their definition; choosing values on cases works.
+  const { isManaged } = useManagedResources()
 
   const handleCloseEdit = () => {
     setSelectedDef(null)
@@ -207,6 +211,12 @@ export function DropdownsTable({
                     <span className="text-xs text-foreground/80">
                       {def.name}
                     </span>
+                    <ManagedResourceStatus
+                      resourceType="case_dropdown"
+                      id={def.id}
+                      name={def.name}
+                      showDetach
+                    />
                   </div>
                 )
               },
@@ -290,6 +300,7 @@ export function DropdownsTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const isLocked = isManaged("case_dropdown", row.original.id)
                 return (
                   <div className="flex justify-end">
                     <DropdownMenu>
@@ -309,6 +320,7 @@ export function DropdownsTable({
                           Copy reference
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={isLocked}
                           onClick={() => {
                             setSelectedDef(row.original)
                             setAction(DefinitionAction.Edit)
@@ -319,6 +331,7 @@ export function DropdownsTable({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
+                          disabled={isLocked}
                           onClick={() => {
                             setSelectedDef(row.original)
                             setAction(DefinitionAction.Delete)

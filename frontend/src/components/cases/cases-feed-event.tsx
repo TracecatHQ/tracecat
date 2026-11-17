@@ -482,34 +482,52 @@ export function CommentReplyUpdatedEvent({
 }
 
 export function CommentDeletedEvent({
-  event: _event,
+  event,
   actor,
+  userMap,
 }: {
   event: CommentDeletedEventRead
   actor: User
+  userMap: Record<string, User>
 }) {
+  const author = event.author_id ? userMap[event.author_id] : undefined
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={TrashIcon} />
       <span>
         <EventActor user={actor} /> deleted a comment
+        {author && author.id !== actor.id ? (
+          <>
+            {" "}
+            by <EventActor user={author} />
+          </>
+        ) : null}
       </span>
     </div>
   )
 }
 
 export function CommentReplyDeletedEvent({
-  event: _event,
+  event,
   actor,
+  userMap,
 }: {
   event: CommentReplyDeletedEventRead
   actor: User
+  userMap: Record<string, User>
 }) {
+  const author = event.author_id ? userMap[event.author_id] : undefined
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={TrashIcon} />
       <span>
         <EventActor user={actor} /> deleted a reply
+        {author && author.id !== actor.id ? (
+          <>
+            {" "}
+            by <EventActor user={author} />
+          </>
+        ) : null}
       </span>
     </div>
   )

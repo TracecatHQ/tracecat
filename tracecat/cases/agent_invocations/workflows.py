@@ -34,6 +34,27 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.concurrency import drain_future_through_cancellation
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
+    from tracecat.runtime.errors import (
+        RuntimeErrorOwner,
+        select_error_classification,
+    )
+    from tracecat.temporal.errors import extract_error_classifications
+
+
+def _failure_message(error: BaseException) -> str:
+    """Show a user-owned failure's message instead of Temporal's wrapper text.
+
+    Activity and child failures arrive wrapped (``Activity task failed``). A
+    user-owned classification carries a message written for the comment's
+    reader. Platform diagnostics stay out of case-scoped records.
+    """
+    if classifications := extract_error_classifications(
+        error, include_implicit_context=False
+    ):
+        classification = select_error_classification(classifications)
+        if classification.owner is RuntimeErrorOwner.USER:
+            return classification.message
+    return str(error)
 
 
 @workflow.defn(name=CASE_COMMENT_AGENT_INVOCATION_WORKFLOW)
@@ -124,7 +145,7 @@ class CaseCommentAgentInvocationWorkflow:
             )
         except (Exception, asyncio.CancelledError) as exc:
             kind = "cancelled" if is_cancelled_exception(exc) else stage
-            await self._record_failure(input, kind, str(exc))
+            await self._record_failure(input, kind, _failure_message(exc))
             raise
 
     async def _record_failure(

@@ -2,6 +2,9 @@
 
 from fastapi import APIRouter
 
+from tracecat_ee.admin.managed_resources.router import (
+    router as managed_resources_router,
+)
 from tracecat_ee.admin.organizations.router import router as organizations_router
 from tracecat_ee.admin.settings.router import router as settings_router
 from tracecat_ee.admin.tiers.router import router as tiers_router
@@ -9,6 +12,7 @@ from tracecat_ee.admin.users.router import router as users_router
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+router.include_router(managed_resources_router)
 router.include_router(organizations_router)
 router.include_router(settings_router)
 router.include_router(tiers_router)

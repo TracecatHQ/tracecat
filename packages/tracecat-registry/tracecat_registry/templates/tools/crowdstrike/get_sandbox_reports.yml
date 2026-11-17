@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get sandbox reports
+  description: >-
+    Get full Falcon Sandbox reports by report ID. Requires the Sandbox (Falcon
+    Intelligence): Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/falconx-sandbox/#getreports
+  namespace: tools.crowdstrike
+  name: get_sandbox_reports
+  expects:
+    ids:
+      type: list[str]
+      description: Report IDs, for example from `tools.crowdstrike.submit_sandbox_analysis`.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: get_sandbox_reports
+      action: tools.falconpy.call_command
+      args:
+        operation_id: GetReports
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          ids: ${{ inputs.ids }}
+  returns: ${{ steps.get_sandbox_reports.result }}

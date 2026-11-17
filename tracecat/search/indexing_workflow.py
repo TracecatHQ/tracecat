@@ -13,7 +13,10 @@ with workflow.unsafe.imports_passed_through():
     import sqlalchemy as sa
     from opentelemetry import metrics
 
-    from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+    from tracecat.db.engine import (
+        get_async_session_bypass_rls_context_manager,
+        get_async_session_tenant_context_manager,
+    )
     from tracecat.db.models import SearchCollection
     from tracecat.search.capacity import search_capacity
     from tracecat.search.cleanup import cleanup_orphans
@@ -69,7 +72,9 @@ async def index_search_collection(work: CollectionWork) -> IndexingProgress:
     """One bounded activity; distributed admission also bounds DB concurrency."""
     safe_error: str | None = None
     try:
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_tenant_context_manager(
+            organization_id=work.organization_id
+        ) as session:
             entitled = await is_org_entitled(
                 session, work.organization_id, Entitlement.SEMANTIC_SEARCH
             )

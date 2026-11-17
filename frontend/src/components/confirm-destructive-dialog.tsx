@@ -152,7 +152,7 @@ export function ConfirmDestructiveDialog({
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       {children}
-      <AlertDialogContent className="focus:outline-none">
+      <AlertDialogContent className="grid-cols-[minmax(0,1fr)] focus:outline-none">
         {onFinalStep ? (
           <AlertDialogHeader>
             <AlertDialogTitle>{finalStep.title}</AlertDialogTitle>

@@ -20,6 +20,11 @@ own embedded collection truncation behavior below.
 - `edit_workflow(workspace_id, workflow_id, base_revision, patch_ops, validate_only=False)`
 - `list_workflows(workspace_id, status=None, limit=50, search=None, cursor=None)`
 - `list_workflow_tree(workspace_id, path="/", depth=1, include_workflows=True, limit=20, cursor=None)`
+- `create_workflow_folder(workspace_id, path, parents=False)`
+- `rename_workflow_folder(workspace_id, path, new_name)`
+- `move_workflow_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_workflow_folder(workspace_id, path, recursive=False)`
+- `move_workflows(workspace_id, workflow_ids, destination_path="/", dry_run=False)`
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
@@ -115,7 +120,7 @@ truncation metadata under `truncation.collections`.
 
 ## Form tools
 
-These need the `forms` feature flag and the `forms` entitlement, plus scopes:
+These need the `forms` entitlement, plus scopes:
 `list_forms` needs `form:read`; `get_form` needs `form:read` and one of
 `form:update` or `form:submission:read`, and reports a form it hides as not
 found; `update_form` needs `form:read` and `form:update`, and `form:create`
@@ -150,6 +155,22 @@ Notes:
 - Sub-case tools and the `parent_id` arguments require the case add-ons entitlement.
 - `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` on every case.
 - Sub-cases are one level deep. Closing a parent case does not change its sub-cases.
+
+## Case view tools
+
+Case views are an enterprise feature: these tools, and `search_cases(view_id=...)`, need the case add-ons entitlement.
+
+- `list_case_views(workspace_id, limit=..., cursor=None, pinned=False, include_builtins=True)` lists the built-in views separately from a page of saved views
+- `search_cases(workspace_id, view_id=...)` runs a saved or built-in view. The view supplies the matching criteria: a `filters` tree narrows it further, and any other matching argument (such as `status` or `tags`) is rejected. Paging and result options still apply, and `order_by`/`sort` override the view's saved order
+- `create_case_view(workspace_id, name, query=None, visibility="personal", order_by=None, sort=None, columns=None)` saves a case search as a view
+- `update_case_view(workspace_id, view_id, changes)` renames, re-queries, shares, or unshares a view you can edit
+- `pin_case_view(workspace_id, view_id, position=None)` and `unpin_case_view(workspace_id, view_id)` change your own sidebar. Saved and built-in views can both be pinned, and share one pin order
+
+Notes:
+
+- Personal views are visible only to their owner. Sharing a view with the workspace requires `case:update`.
+- Built-in views, such as `assigned_to_me`, cannot be changed or deleted. They appear in the sidebar only once pinned.
+- A view's `query` takes the same matching fields as `search_cases`, including relative windows (`created_within`) and `"me"`.
 
 ## Case tag tools
 
@@ -206,6 +227,12 @@ Notes:
 - `create_table(workspace_id, name, columns_json=None)`
 - `get_table(workspace_id, table_id)`
 - `update_table(workspace_id, table_id, name=None)`
+- `list_table_tree(workspace_id, path="/", depth=1, include_tables=True, limit=20, cursor=None)`
+- `create_table_folder(workspace_id, path, parents=False)`
+- `rename_table_folder(workspace_id, path, new_name)`
+- `move_table_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_table_folder(workspace_id, path, recursive=False)`
+- `move_tables(workspace_id, table_ids, destination_path="/", dry_run=False)`
 - `create_column(workspace_id, table_id, column)`
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
 - `insert_rows(workspace_id, table_id, rows_json, upsert=False)`
@@ -230,6 +257,9 @@ Notes:
 
 - `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+- `create_variable(workspace_id, name, values, description=None, environment=DEFAULT_SECRETS_ENVIRONMENT, tags=None)`
+- `update_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT, new_name=None, description=None, values=None, tags=None, new_environment=None)`
+- `delete_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 - `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_secret_metadata(workspace_id, secret_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 
@@ -253,6 +283,12 @@ Notes:
 - `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, clear_output_type=False, actions=None, namespaces=None, tool_approvals=None, tool_tunnels=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None, subagents=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
+- `list_agent_tree(workspace_id, path="/", depth=1, include_presets=True, limit=20, cursor=None)`
+- `create_agent_folder(workspace_id, path, parents=False)`
+- `rename_agent_folder(workspace_id, path, new_name)`
+- `move_agent_folder(workspace_id, path, destination_parent_path="/")`
+- `delete_agent_folder(workspace_id, path, recursive=False)`
+- `move_agent_presets(workspace_id, preset_slugs, destination_path="/", dry_run=False)`
 - `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`
 
 `list_integrations` and `get_agent_preset_authoring_context` keep object

@@ -9,8 +9,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from tracecat.db.models import Table, TableColumn
+from tracecat.db.models import Table, TableColumn, TableFolder
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
@@ -111,7 +112,7 @@ class TableAdapter(DirectoryManifestAdapter):
         return (
             select(Table)
             .where(Table.workspace_id == workspace_service.workspace_id)
-            .options(selectinload(Table.columns))
+            .options(selectinload(Table.columns), selectinload(Table.folder))
             .order_by(Table.name.asc(), Table.id.asc())
         )
 
@@ -148,6 +149,7 @@ class TableAdapter(DirectoryManifestAdapter):
             specs[source_id] = TableResourceSpec(
                 id=source_id,
                 name=table.name,
+                folder_path=table.folder.path if table.folder else None,
                 columns=columns,
             )
             resources.append(self.projected_resource(source_id, table.id))
@@ -256,9 +258,61 @@ class TableAdapter(DirectoryManifestAdapter):
                 table_service=table_service,
             )
 
+            folder = await self._ensure_table_folder(
+                workspace_service, spec.folder_path
+            )
+            folder_id = folder.id if folder is not None else None
+            if table.folder_id != folder_id:
+                # A pull can adopt a managed table by name; its folder is
+                # part of the managed spec, so only a rollout may move it.
+                await ensure_unmanaged(
+                    workspace_service.session,
+                    workspace_id=workspace_service.workspace_id,
+                    resource_type=SyncResourceType.TABLE,
+                    local_id=table.id,
+                )
+                table.folder_id = folder_id
+                workspace_service.session.add(table)
+
             await workspace_service.session.flush()
             imported.append(self.imported_resource(source_id, table.id))
         return imported
+
+    async def _ensure_table_folder(
+        self,
+        workspace_service: SyncMappingService,
+        folder_path: str | None,
+    ) -> TableFolder | None:
+        """Resolve ``folder_path`` to a :class:`TableFolder`, creating segments.
+
+        Returns ``None`` when ``folder_path`` is empty, placing the table at the
+        workspace root.
+        """
+        if not folder_path:
+            return None
+        segments = [segment for segment in folder_path.strip("/").split("/") if segment]
+        if not segments:
+            return None
+        current_path = "/"
+        folder: TableFolder | None = None
+        for segment in segments:
+            current_path = f"{current_path}{segment}/"
+            folder = await workspace_service.session.scalar(
+                select(TableFolder).where(
+                    TableFolder.workspace_id == workspace_service.workspace_id,
+                    TableFolder.path == current_path,
+                )
+            )
+            if folder is None:
+                folder = TableFolder(
+                    workspace_id=workspace_service.workspace_id,
+                    name=segment,
+                    path=current_path,
+                )
+                workspace_service.session.add(folder)
+                # Flush so the next segment can be parented under this row.
+                await workspace_service.session.flush()
+        return folder
 
     async def _table_by_source_id(
         self,
