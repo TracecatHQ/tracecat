@@ -1,7 +1,7 @@
 ---
 title: "Get started with Tracecat in Slack"
 sidebarTitle: "Slack quickstart"
-description: "Install Tracecat in a Slack workspace, invite it to a channel, and get your first reply from a preset agent."
+description: "Install Tracecat in Slack and get your first reply from an agent."
 icon: "lock"
 ---
 
@@ -9,22 +9,25 @@ icon: "lock"
 
 ## Add Tracecat to Slack
 
-You'll need a saved [preset agent](/agents/ai-preset-agent#configure-a-preset), permission to edit agents in your Tracecat workspace (`agent:update`), and permission to install apps in the Slack workspace.
+Your Tracecat organization needs the Agent Channels preview entitlement (`agent_channels_preview`).
+You need a [saved preset](/agents/ai-preset-agent#configure-a-preset), `agent:update` in the workspace, and permission to install Slack apps.
 
-Free Slack workspaces can install up to 10 third-party or custom apps. If your workspace requires app approval, ask a Slack workspace owner to approve the install. See [Slack's workspace limits](https://slack.com/help/articles/115002422943-Usage-limits-for-free-workspaces) and [app approval settings](https://slack.com/help/articles/222386767-Manage-app-approval-for-your-workspace/).
+1. Open `Agents` and select the `#` (Channels) view.
+2. Choose a `Default agent` and click `Add to Slack`. Anyone who can message the app directly can use this agent's tools.
+3. In the same browser, select your Slack workspace and click `Allow`. Tracecat shows `Connected to Slack`.
 
-1. Open `Agents` in the Tracecat workspace you want to connect. Select the `#` (Channels) view at the top of the page.
-2. In the Slack card, choose a `Default agent` whose tools are appropriate for people who can message the app directly. Click `Add to Slack`.
-3. In the same browser, check the Slack workspace shown on the authorization screen and click `Allow`. When you return to Tracecat, the card reads `Connected to Slack`.
-
-![Slack installation card with a default agent selected and Add to Slack enabled](/img/agents/slack-add-to-workspace.png)
-
-If the Channels view is missing, ask your platform administrator to check that your organization has the Agent Channels preview and that the [platform Slack app](/manage-platform/slack-app) is registered. You can also [connect a custom Slack app to one agent](/agents/channels#connect-a-slack-app).
+![Default agent and Add to Slack](/img/agents/slack-add-to-workspace.png)
 
 ## Get your first reply
 
-1. Open a Slack channel whose members should be able to use the agent's tools and approve its calls. Run `/invite @Tracecat` and select the app.
-2. Send `@Tracecat What can you help me with?` as a new channel message. The agent replies in a thread.
-3. Mention `@Tracecat` again in that thread to continue the same session. You can also message the app directly to chat with the default agent.
+1. Run `/invite @Tracecat` in a channel whose members should have access to the agent's tools and approvals.
+2. Send `@Tracecat What can you help me with?` Mention the app in the reply thread to continue.
 
-To send new threads in a particular channel to a different agent, [set a channel route](/agents/channels#choose-which-agent-answers).
+To use a different agent in that channel, [add a channel route](/agents/channels#choose-which-agent-answers).
+
+<Accordion title="Can't install the app?">
+  If the Channels view is missing, ask your administrator to check the preview entitlement and [platform app registration](/manage-platform/slack-app).
+  For a bot dedicated to one preset, [connect a custom app](/agents/channels#connect-a-slack-app).
+
+  Free Slack workspaces allow 10 app installations. For workspace restrictions, see [Slack's app limits](https://slack.com/help/articles/115002422943-Usage-limits-for-free-workspaces) and [app approval settings](https://slack.com/help/articles/222386767-Manage-app-approval-for-your-workspace/).
+</Accordion>
