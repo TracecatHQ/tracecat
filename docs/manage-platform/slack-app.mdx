@@ -22,7 +22,7 @@ Set `TRACECAT__PUBLIC_API_URL` on the API service before creating the app, for e
 
 1. Open `Admin → Agent → Slack App` and click `Create in Slack`. Choose a workspace where you can manage apps and click `Create`.
 2. In Slack, open `Basic Information → App Credentials`. Copy the app ID, client ID, client secret, and signing secret into Tracecat.
-3. Click `Save` in Tracecat. The card shows `Registered`.
+3. Click `Save` in Tracecat. The card shows `Ready`.
 
 ![Slack app registration and credentials](/img/manage-platform/slack-app-setup.png)
 
@@ -32,12 +32,12 @@ Set `TRACECAT__PUBLIC_API_URL` on the API service before creating the app, for e
   For HTTP, use the manifest's request URL for both events and interactivity. If verification fails, save the signing secret in Tracecat and retry in Slack.
 </Accordion>
 
-## Let other workspaces install the app
+## Allow other Slack workspaces (optional)
 
-Enable public distribution if other Slack workspaces will install the app.
+Skip this section if you only use the Slack workspace where you created the app. Until you turn on public distribution, only that workspace can add Tracecat.
 
 1. Click `Open Manage Distribution`. In Slack, complete the checklist and click `Activate Public Distribution`.
-2. Return to Tracecat and click `Mark done` next to `Turn on public distribution`.
+2. Return to Tracecat and click `Mark done` next to `Turn on public distribution (optional)`. Use `Undo` if you marked it by mistake.
 
 ![Public distribution checklist](/img/manage-platform/slack-app-distribution.png)
 
