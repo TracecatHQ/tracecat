@@ -6,6 +6,7 @@ import {
   CirclePause,
   Loader2,
   type LucideIcon,
+  MoreHorizontal,
   Pause,
   Play,
   TriangleAlert,
@@ -41,6 +42,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -112,7 +119,21 @@ const STATE_ICONS: Record<ChannelBotState, LucideIcon> = {
 }
 
 /** A bot's state as an icon and label, or nothing before it is reserved. */
-export function ChannelBotStatus({ state }: { state: ChannelBotState }) {
+export function ChannelBotStatus({
+  state,
+  updateNeeded = false,
+}: {
+  state: ChannelBotState
+  /** The install lacks scopes; shown over its run state. */
+  updateNeeded?: boolean
+}) {
+  if (updateNeeded) {
+    return (
+      <StatusLabel icon={TriangleAlert} destructive>
+        Update needed
+      </StatusLabel>
+    )
+  }
   const { label } = CHANNEL_BOT_STATES[state]
   if (!label) {
     return null
@@ -127,19 +148,20 @@ export function ChannelBotStatus({ state }: { state: ChannelBotState }) {
   )
 }
 
-/** A provider row's icon, title, state and actions; wraps on narrow panels. */
+/** A provider row's icon, title, status and actions; wraps on narrow panels. */
 export function ChannelBotHeader({
   providerId,
   title,
   description,
-  state,
+  status,
   children,
 }: {
   providerId: string
   title: string
   description: ReactNode
-  state: ChannelBotState
-  /** The row's actions, after the state. */
+  /** Usually a `ChannelBotStatus`; null shows none. */
+  status: ReactNode
+  /** The row's actions, after the status. */
   children?: ReactNode
 }) {
   return (
@@ -147,10 +169,10 @@ export function ChannelBotHeader({
       <ProviderIcon providerId={providerId} className="size-10 p-2" />
       <div className="min-w-48 flex-1">
         <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <div className="text-xs text-muted-foreground">{description}</div>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-3">
-        <ChannelBotStatus state={state} />
+        {status}
         {children}
       </div>
     </div>
@@ -185,7 +207,7 @@ export function ChannelBotCard({
   title,
   description,
   state,
-  reconnectHint,
+  reconnectDescription,
   onManage,
   opening = false,
   children,
@@ -194,8 +216,8 @@ export function ChannelBotCard({
   title: string
   description: ReactNode
   state: ChannelBotState
-  /** What restores a bot that needs reconnecting. */
-  reconnectHint: string
+  /** The description while the bot needs reconnecting. */
+  reconnectDescription: string
   onManage: () => void
   opening?: boolean
   /** Provider notices and the provider's dialog. */
@@ -204,33 +226,40 @@ export function ChannelBotCard({
   const { installed } = CHANNEL_BOT_STATES[state]
   // Every channel bot request needs agent:update.
   const canUpdateAgent = useScopeCheck("agent:update") === true
+  const reconnecting = state === "needs_reconnect"
+  let action = "Connect"
+  if (reconnecting) {
+    action = "Reconnect"
+  } else if (installed) {
+    action = "Manage"
+  }
+  let shownDescription = description
+  if (reconnecting) {
+    shownDescription = canUpdateAgent
+      ? reconnectDescription
+      : ASK_AN_AGENT_EDITOR
+  }
   return (
     <div role="group" aria-label={title}>
       <ChannelBotHeader
         providerId={providerId}
         title={title}
-        description={description}
-        state={state}
+        description={shownDescription}
+        status={<ChannelBotStatus state={state} />}
       >
         <Button
           type="button"
           size="sm"
+          variant={reconnecting ? "default" : "outline"}
           onClick={onManage}
           disabled={opening || !canUpdateAgent}
         >
           {opening ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-          {installed ? "Manage" : "Connect"}
+          {action}
         </Button>
       </ChannelBotHeader>
       {/* The dialog portals out, so a row with no notices stays empty. */}
-      <div className="space-y-3 px-4 pb-4 empty:hidden">
-        {state === "needs_reconnect" ? (
-          <ChannelBotNotice title="Reconnect needed">
-            {canUpdateAgent ? reconnectHint : ASK_AN_AGENT_EDITOR}
-          </ChannelBotNotice>
-        ) : null}
-        {children}
-      </div>
+      <div className="space-y-3 px-4 pb-4 empty:hidden">{children}</div>
     </div>
   )
 }
@@ -316,27 +345,18 @@ export function ChannelBotDialog({
   )
 }
 
-/** Pause, resume and disconnect for an installed bot. */
-export function ChannelBotLifecycleActions({
-  workspaceId,
-  bot,
-  state,
-  onDisconnected,
-  disconnectDescription = "The stored credentials are deleted and the bot stops answering until you connect it again.",
-}: {
-  workspaceId: string
-  bot: AgentChannelBotRead
-  state: ChannelBotState
+/** Pausing, resuming and disconnecting a bot, with their toasts. */
+function useChannelBotLifecycle(
+  workspaceId: string,
+  bot: AgentChannelBotRead,
   onDisconnected?: () => void
-  disconnectDescription?: string
-}) {
+) {
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, bot.provider)
   const { disconnectBot } = useDisconnectAgentChannelBot(
     workspaceId,
     bot.provider
   )
   const busy = useChannelBotsBusy(workspaceId)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[bot.provider]
 
   function setRunState(status: "active" | "paused"): void {
@@ -359,6 +379,61 @@ export function ChannelBotLifecycleActions({
       },
     })
   }
+
+  return { busy, providerName, setRunState, disconnect }
+}
+
+const DEFAULT_DISCONNECT_DESCRIPTION =
+  "The stored credentials are deleted and the bot stops answering until you connect it again."
+
+function DisconnectConfirm({
+  open,
+  onOpenChange,
+  providerName,
+  description,
+  onDisconnect,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  providerName: string
+  description: string
+  onDisconnect: () => void
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Disconnect {providerName}?</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onDisconnect}>
+            Disconnect
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/** Pause, resume and disconnect for an installed bot. */
+export function ChannelBotLifecycleActions({
+  workspaceId,
+  bot,
+  state,
+  onDisconnected,
+  disconnectDescription = DEFAULT_DISCONNECT_DESCRIPTION,
+}: {
+  workspaceId: string
+  bot: AgentChannelBotRead
+  state: ChannelBotState
+  onDisconnected?: () => void
+  disconnectDescription?: string
+}) {
+  const { busy, providerName, setRunState, disconnect } =
+    useChannelBotLifecycle(workspaceId, bot, onDisconnected)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -396,22 +471,109 @@ export function ChannelBotLifecycleActions({
         <Unplug className="mr-2 size-4" />
         Disconnect
       </Button>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect {providerName}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {disconnectDescription}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={disconnect}>
-              Disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DisconnectConfirm
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        providerName={providerName}
+        description={disconnectDescription}
+        onDisconnect={disconnect}
+      />
     </div>
+  )
+}
+
+/** Resumes a paused bot. */
+export function ChannelBotResumeButton({
+  workspaceId,
+  bot,
+}: {
+  workspaceId: string
+  bot: AgentChannelBotRead
+}) {
+  const { busy, setRunState } = useChannelBotLifecycle(workspaceId, bot)
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={() => setRunState("active")}
+      disabled={busy}
+    >
+      <Play className="mr-2 size-4" />
+      Resume
+    </Button>
+  )
+}
+
+/** Pause, resume and disconnect for an installed bot, in a menu beside its status. */
+export function ChannelBotActionsMenu({
+  workspaceId,
+  bot,
+  state,
+  offerResume,
+  disconnectDescription = DEFAULT_DISCONNECT_DESCRIPTION,
+}: {
+  workspaceId: string
+  bot: AgentChannelBotRead
+  state: ChannelBotState
+  /** Whether a paused bot's Resume lives here rather than beside its status. */
+  offerResume: boolean
+  disconnectDescription?: string
+}) {
+  const { busy, providerName, setRunState, disconnect } =
+    useChannelBotLifecycle(workspaceId, bot)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            className="size-8"
+            aria-label="More actions"
+            disabled={busy}
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="shadow-none">
+          {state === "active" ? (
+            <DropdownMenuItem
+              className="text-xs"
+              onSelect={() => setRunState("paused")}
+            >
+              <Pause className="mr-2 size-4" />
+              Pause
+            </DropdownMenuItem>
+          ) : null}
+          {state === "paused" && offerResume ? (
+            <DropdownMenuItem
+              className="text-xs"
+              onSelect={() => setRunState("active")}
+            >
+              <Play className="mr-2 size-4" />
+              Resume
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem
+            className="text-xs"
+            onSelect={() => setConfirmOpen(true)}
+          >
+            <Unplug className="mr-2 size-4" />
+            Disconnect
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DisconnectConfirm
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        providerName={providerName}
+        description={disconnectDescription}
+        onDisconnect={disconnect}
+      />
+    </>
   )
 }

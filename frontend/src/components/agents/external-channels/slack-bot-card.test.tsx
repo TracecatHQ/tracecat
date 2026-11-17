@@ -52,7 +52,9 @@ beforeEach(() => {
   serveAppManifest()
 })
 
-async function openDialog(action: "Connect" | "Manage"): Promise<void> {
+async function openDialog(
+  action: "Connect" | "Manage" | "Reconnect"
+): Promise<void> {
   await openProvider("Custom Slack app", action)
 }
 
@@ -265,7 +267,7 @@ describe("SlackBotCard", () => {
       authorization_url: AUTHORIZE_URL,
     })
     renderPanel()
-    await openDialog("Manage")
+    await openDialog("Reconnect")
     expect(
       screen.queryByRole("button", { name: "Save credentials" })
     ).toBeNull()
@@ -391,9 +393,6 @@ describe("Creating the custom Slack app", () => {
 
     await userEvent.click(link)
     expect(screen.getByText("Slack app ready")).toBeInTheDocument()
-    expect(screen.getByLabelText("Client ID")).toHaveAccessibleDescription(
-      "App Credentials → Client ID"
-    )
   })
 
   it("cannot open Slack without a bot name", async () => {
@@ -626,7 +625,7 @@ describe("Reconnecting a bot that needs it", () => {
   async function startReconnect(transport: "http" | "socket"): Promise<void> {
     serveBots([slackBot({ status: "needs_reconnect" }, { transport })])
     renderPanel()
-    await openDialog("Manage")
+    await openDialog("Reconnect")
     await fillInstallFields()
   }
 

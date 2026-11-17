@@ -27,6 +27,7 @@ import {
   type ChannelBotPlatformApp,
   type ChannelBotPlatformInstall,
   type ChannelBotProvider,
+  type CursorPaginatedResponse_AgentChannelRouteRead_,
   type CursorPaginatedResponse_ChannelBotChannel_,
   type InboxChannelThread,
 } from "@/client"
@@ -333,13 +334,17 @@ function useAllChannelBotRoutes(
   return { routes: query.data, routesError: query.error }
 }
 
-/** Whether any channel of a platform install routes to the agent, asked of the server. */
+/** The first page of a platform install's routes to the agent, asked of the server. */
 export function useChannelRoutesToAgent(
   workspaceId: string,
   botId: string,
-  agentPresetId: string
+  agentPresetId: string,
+  { enabled = true }: { enabled?: boolean } = {}
 ) {
-  const { data: routed } = useQuery<boolean, TracecatApiError>({
+  const { data } = useQuery<
+    CursorPaginatedResponse_AgentChannelRouteRead_,
+    TracecatApiError
+  >({
     queryKey: [
       CHANNEL_BOTS_QUERY_KEY,
       workspaceId,
@@ -347,19 +352,21 @@ export function useChannelRoutesToAgent(
       "routes",
       agentPresetId,
     ],
-    queryFn: async () => {
-      const page = await agentChannelBotsListBotRoutes({
+    queryFn: async () =>
+      await agentChannelBotsListBotRoutes({
         workspaceId,
         botId,
         agentPresetId,
-        limit: 1,
-      })
-      return page.items.length > 0
-    },
+        limit: ROUTE_PAGE_LIMIT,
+      }),
+    enabled,
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-  return { routed: routed === true }
+  return {
+    routesToAgent: data?.items,
+    hasMoreRoutesToAgent: data?.has_more === true,
+  }
 }
 
 /** A provider that cannot list channels never will, so that refusal is not retried. */
@@ -461,6 +468,7 @@ export function useChannelBotRoutableChannels(
     hasMoreChannels: query.hasNextPage,
     loadingMoreChannels: query.isFetchingNextPage,
     loadMoreChannels: () => void query.fetchNextPage(),
+    retryChannels: () => void query.refetch(),
   }
 }
 

@@ -203,15 +203,19 @@ export function channelPage(
 
 /** An install of the platform app for Slack, by default for `PRESET`. */
 export function platformSlackBot(
-  overrides: Partial<AgentChannelBotRead> = {}
+  overrides: Partial<AgentChannelBotRead> = {},
+  details: Partial<SlackBotDetails> = {}
 ): AgentChannelBotRead {
-  return slackBot({
-    id: "platform-1",
-    app_owner: "platform",
-    provider_app_id: "APLAT",
-    endpoint_url: null,
-    ...overrides,
-  })
+  return slackBot(
+    {
+      id: "platform-1",
+      app_owner: "platform",
+      provider_app_id: "APLAT",
+      endpoint_url: null,
+      ...overrides,
+    },
+    details
+  )
 }
 
 /** Serves the organization's entitlements; by default both channel ones. */

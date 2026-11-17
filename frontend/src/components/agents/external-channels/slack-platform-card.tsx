@@ -1,18 +1,23 @@
 "use client"
 
 import { Loader2 } from "lucide-react"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { ChannelAccessSelect } from "@/components/agents/external-channels/channel-access-select"
 import {
+  ChannelBotActionsMenu,
   ChannelBotHeader,
-  ChannelBotLifecycleActions,
   ChannelBotNotice,
+  ChannelBotResumeButton,
+  ChannelBotStatus,
 } from "@/components/agents/external-channels/channel-bot-card"
 import {
   CHANNEL_BOT_STATES,
+  channelBotDetails,
   channelBotReturnUrl,
   goToChannelBotAuthorization,
+  PLATFORM_SLACK_TITLE,
   platformInstallState,
+  slackUpdateNeeded,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import {
   AgentSelect,
@@ -27,6 +32,8 @@ import {
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { getApiErrorDetail } from "@/lib/errors"
+
+const ASK_TO_RECONNECT = "Ask someone who can edit agents to reconnect it."
 
 /**
  * The platform app for Slack: one install per workspace, answering new threads
@@ -94,84 +101,138 @@ export function SlackPlatformCard({
     )
   }
 
-  let title = "Slack"
-  let description =
-    "Mention @Tracecat in a channel and an agent answers in the thread. Replies, approvals and the session stay in sync with Tracecat."
-  if (installed) {
-    title = "Connected to Slack"
-    description =
-      "New threads go to the default agent, or to the agent set for their channel."
+  function installButton(label: string, disabled: boolean): ReactNode {
+    return (
+      <Button type="button" size="sm" onClick={addToSlack} disabled={disabled}>
+        {installPlatformBotIsPending ? (
+          <Loader2 className="mr-2 size-4 animate-spin" />
+        ) : null}
+        {label}
+      </Button>
+    )
+  }
+
+  if (!install || !installed) {
+    return (
+      <div role="group" aria-label={PLATFORM_SLACK_TITLE}>
+        <ChannelBotHeader
+          providerId="slack"
+          title={PLATFORM_SLACK_TITLE}
+          description="Mention @Tracecat in Slack and an agent answers in the thread."
+          status={<ChannelBotStatus state={state} />}
+        />
+        <div className="space-y-3 border-t p-4">
+          {workspaceClaimed ? (
+            <ChannelBotNotice title="Another Tracecat workspace has that Slack workspace">
+              Ask its admin to disconnect it, or choose a different Slack
+              workspace when you try again.
+            </ChannelBotNotice>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="min-w-48 flex-1">
+              <p className="text-xs font-medium">Default agent</p>
+              <p className="text-xs text-muted-foreground">
+                Answers DMs and any channel you don&apos;t assign.
+              </p>
+            </div>
+            {canUpdateAgent ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <AgentSelect
+                  label="Default agent"
+                  value={defaultAgentId}
+                  agents={agents}
+                  disabled={busy}
+                  onChange={setChosenAgentId}
+                />
+                {installButton("Add to Slack", busy || !defaultAgentId)}
+              </div>
+            ) : null}
+          </div>
+          {canUpdateAgent ? null : (
+            <p className="text-xs">
+              Ask someone who can edit agents to add Tracecat to Slack.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const details = channelBotDetails(install, "slack")
+  const missingScopes = details?.missing_scopes ?? []
+  const updateNeeded = slackUpdateNeeded(details, state)
+
+  let action: ReactNode = null
+  let band: ReactNode = null
+  // The menu offers Resume only when the header button doesn't.
+  let headerResumes = false
+  if (state === "needs_reconnect") {
+    action = installButton("Reconnect", busy)
+    band = canUpdateAgent
+      ? "Tracecat isn't answering in Slack. Reconnect to restore it."
+      : `Tracecat isn't answering in Slack. ${ASK_TO_RECONNECT}`
+  } else if (updateNeeded) {
+    // Before paused: a reconnect requests every scope and activates the install.
+    action = installButton("Reconnect", busy)
+    let next = ASK_TO_RECONNECT
+    if (canUpdateAgent) {
+      next =
+        state === "paused"
+          ? "Reconnect to approve them, which also resumes it."
+          : "Reconnect to approve them. Tracecat stops answering until you finish in Slack."
+    }
+    band = (
+      <>
+        Slack hasn&apos;t granted every permission Tracecat needs. {next}
+        {missingScopes.length > 0 ? (
+          <span className="mt-1 block font-mono text-muted-foreground">
+            Missing: {missingScopes.join(", ")}
+          </span>
+        ) : null}
+      </>
+    )
+  } else if (state === "paused") {
+    action = <ChannelBotResumeButton workspaceId={workspaceId} bot={install} />
+    headerResumes = true
+    band = canUpdateAgent
+      ? "Tracecat ignores Slack messages until you resume."
+      : "Tracecat ignores Slack messages until it's resumed. Ask someone who can edit agents to resume it."
   }
 
   return (
-    <div role="group" aria-label="Tracecat for Slack">
+    <div role="group" aria-label={PLATFORM_SLACK_TITLE}>
       <ChannelBotHeader
         providerId="slack"
-        title={title}
-        description={description}
-        state={state}
+        title={PLATFORM_SLACK_TITLE}
+        description="New threads go to their channel's agent, or the default."
+        status={<ChannelBotStatus state={state} updateNeeded={updateNeeded} />}
       >
-        {!installed || state === "needs_reconnect" ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={addToSlack}
-            disabled={
-              busy || !canUpdateAgent || (!installed && !defaultAgentId)
-            }
-          >
-            {installPlatformBotIsPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : null}
-            {installed ? "Reconnect" : "Add to Slack"}
-          </Button>
-        ) : null}
-      </ChannelBotHeader>
-      {workspaceClaimed && !installed ? (
-        <div className="px-4 pb-4">
-          <ChannelBotNotice title="This Slack workspace is already connected to another Tracecat workspace">
-            A Slack workspace can belong to one Tracecat workspace. Ask that
-            workspace&apos;s admin to disconnect it, or pick another Slack
-            workspace.
-          </ChannelBotNotice>
-        </div>
-      ) : null}
-      {installed ? null : (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t p-4">
-          <div className="min-w-48 flex-1">
-            <p className="text-xs font-medium">Default agent</p>
-            <p className="text-xs text-muted-foreground">
-              Answers DMs and every channel. Pick one before you add Tracecat to
-              Slack.
-            </p>
-          </div>
-          <AgentSelect
-            label="Default agent"
-            value={defaultAgentId}
-            agents={agents}
-            disabled={busy || !canUpdateAgent}
-            onChange={setChosenAgentId}
-          />
-        </div>
-      )}
-      {install && installed ? (
-        <div className="space-y-6 border-t p-4">
-          <PlatformChannelRoutes
-            workspaceId={workspaceId}
-            install={install}
-            canUpdate={canUpdateAgent}
-          />
-          <ChannelAccessSelect workspaceId={workspaceId} bot={install} />
-          {canUpdateAgent ? (
-            <ChannelBotLifecycleActions
+        {canUpdateAgent ? (
+          <>
+            {action}
+            <ChannelBotActionsMenu
               workspaceId={workspaceId}
               bot={install}
               state={state}
+              offerResume={!headerResumes}
               disconnectDescription="Tracecat stops answering in this Slack workspace until you add it again, and another Tracecat workspace can then add it there."
             />
-          ) : null}
+          </>
+        ) : null}
+      </ChannelBotHeader>
+      {band ? (
+        <div className="border-t p-4">
+          <p className="text-xs">{band}</p>
         </div>
       ) : null}
+      <div className="space-y-6 border-t p-4">
+        <PlatformChannelRoutes
+          workspaceId={workspaceId}
+          install={install}
+          canUpdate={canUpdateAgent}
+        />
+        <ChannelAccessSelect workspaceId={workspaceId} bot={install} />
+      </div>
     </div>
   )
 }

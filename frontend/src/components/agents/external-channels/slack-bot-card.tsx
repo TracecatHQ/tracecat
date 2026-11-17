@@ -29,8 +29,10 @@ import {
   channelBotReturnUrl,
   channelBotState,
   channelLabel,
+  channelSummary,
   goToChannelBotAuthorization,
   httpsUrlOrNull,
+  slackUpdateNeeded,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import {
   CreateInSlackButton,
@@ -80,9 +82,7 @@ export function SlackBotCard({
   const state = channelBotState(bot, details?.has_bot_token === true)
   const missingScopes = details?.missing_scopes ?? []
   const canUpdateAgent = useScopeCheck("agent:update") === true
-  const updateNeeded =
-    CHANNEL_BOT_STATES[state].installed &&
-    (details?.update_needed === true || missingScopes.length > 0)
+  const updateNeeded = slackUpdateNeeded(details, state)
   const { channels, hasMoreChannels } = useChannelBotChannels(
     workspaceId,
     bot?.id ?? "",
@@ -93,7 +93,11 @@ export function SlackBotCard({
   const channelLabels = (state === "active" ? [...(channels ?? [])] : [])
     .sort(byChannelName)
     .map((channel) => channelLabel("slack", channel))
-  const hiddenChannels = channelLabels.length - CHANNEL_SUMMARY_CAP
+  const summary = channelSummary(
+    channelLabels,
+    CHANNEL_SUMMARY_CAP,
+    hasMoreChannels
+  )
 
   return (
     <ChannelBotCard
@@ -106,7 +110,7 @@ export function SlackBotCard({
         </>
       }
       state={state}
-      reconnectHint="Connect to Slack again to restore this bot."
+      reconnectDescription="Not answering in Slack until you reconnect."
       onManage={dialog.openDialog}
       opening={dialog.opening}
     >
@@ -119,10 +123,8 @@ export function SlackBotCard({
       ) : null}
       {channelLabels.length > 0 ? (
         <p className="truncate text-xs text-muted-foreground">
-          In {channelLabels.slice(0, CHANNEL_SUMMARY_CAP).join(", ")}
-          {hiddenChannels > 0
-            ? ` +${hiddenChannels}${hasMoreChannels ? "+" : ""}`
-            : ""}
+          In {summary.shown.join(", ")}
+          {summary.overflow}
         </p>
       ) : null}
       {updateNeeded ? (
