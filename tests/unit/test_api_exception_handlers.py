@@ -116,6 +116,16 @@ def test_exception_handler_status_codes(exc: Exception, expected_status: int) ->
     assert _get(exc).status_code == expected_status
 
 
+def test_tracecat_error_with_braces_keeps_its_message() -> None:
+    """A brace in the message must not break logging and mask the error."""
+    message = 'Failed to parse expression: {"key": "${{ ACTIONS.a.result'
+    response = _get(TracecatValidationError(message))
+
+    assert response.status_code == 500
+    assert response.json()["type"] == "TracecatValidationError"
+    assert response.json()["message"] == message
+
+
 def test_authorization_response_is_fixed_and_opaque() -> None:
     """The generic 403 body must not echo the exception message."""
     response = _get(
