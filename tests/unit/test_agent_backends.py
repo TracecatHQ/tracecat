@@ -53,6 +53,8 @@ from tracecat.agent.control.schemas import (
     AgentSteerControl,
     AgentWithdrawControl,
 )
+from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     create_session_activity,
@@ -203,6 +205,11 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
     class IncompleteBackend(AgentBackend[None, None]):
         async def prepare_fork(self, context: SessionForkContext) -> None:
             pass
+
+        async def register_stdio_mcp_server(
+            self, server: StdioMCPServer, env: dict[str, str] | None
+        ) -> StdioMCPProbeResult:
+            raise NotImplementedError
 
         async def build_workflow_args(self, context: SessionWorkflowContext) -> None:
             return None

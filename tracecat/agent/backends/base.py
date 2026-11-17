@@ -6,9 +6,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import UUID
 
+from mcp.types import CallToolResult
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import (
@@ -49,6 +50,11 @@ from tracecat.agent.backends.types import (
     WithdrawResult,
 )
 from tracecat.agent.cancellation import signal_turn_cancel
+from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
+from tracecat.agent.mcp.stdio_runner import (
+    StdioMCPCallUnsupportedError,
+    StdioMCPServer,
+)
 from tracecat.agent.references.contracts import ReferenceCapabilities
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
@@ -203,6 +209,45 @@ class AgentBackend[InputT, OutputT](ABC):
         the request is cancelled.
         """
         return None
+
+    @abstractmethod
+    async def register_stdio_mcp_server(
+        self, server: StdioMCPServer, env: dict[str, str] | None
+    ) -> StdioMCPProbeResult:
+        """Make a saved stdio MCP server runnable on this backend and list its tools.
+
+        Tracecat calls this on the agent executor when the integration is saved
+        or re-verified, once for each enabled backend its organization may use.
+        Every such backend must succeed for the verification to pass. Prepare
+        here whatever this backend's turns need to start the server later, and
+        start it once to list its tools.
+
+        ``env`` is the server's resolved process environment, credentials
+        included. It must only reach the server process.
+        """
+
+    async def call_stdio_mcp_tool(
+        self,
+        server: StdioMCPServer,
+        env: dict[str, str] | None,
+        tool: str,
+        args: dict[str, Any],
+    ) -> CallToolResult:
+        """Start the server, call one tool, and stop it.
+
+        The trusted MCP server calls this for a turn of this backend that
+        routes its stdio MCP calls through Tracecat. A backend whose runtime
+        starts stdio servers itself never routes a call here and keeps this
+        default. ``env`` must only reach the server process.
+
+        Raises:
+            StdioMCPCallUnsupportedError: This backend does not run stdio MCP
+                calls through Tracecat.
+        """
+        raise StdioMCPCallUnsupportedError(
+            f"Stdio MCP server '{server.name}' can't be called through the "
+            "Tracecat MCP server"
+        )
 
     @abstractmethod
     async def build_workflow_args(self, context: SessionWorkflowContext) -> InputT:

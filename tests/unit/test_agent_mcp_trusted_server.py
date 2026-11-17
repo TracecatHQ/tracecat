@@ -14,10 +14,10 @@ from mcp.types import CallToolResult, TextContent
 from pydantic import ValidationError
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
-from tracecat.agent.mcp.stdio_probe import NsjailStdioMCPRunner
 from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
 from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
@@ -1684,19 +1684,21 @@ class _StdioPresetService:
         )
 
 
-class _FakeStdioRunner:
+class _FakeStdioBackend:
+    """The stdio half of an agent backend that runs calls through Tracecat."""
+
     def __init__(self, result: CallToolResult | None = None) -> None:
         self.calls: list[tuple[StdioMCPServer, dict[str, str] | None, str, dict]] = []
         self.result = result or CallToolResult(
             content=[TextContent(type="text", text="file contents")]
         )
 
-    async def list_tools(
+    async def register_stdio_mcp_server(
         self, server: StdioMCPServer, env: dict[str, str] | None
     ) -> StdioMCPProbeResult:
         raise AssertionError("the trusted server lists stdio tools from the row")
 
-    async def call_tool(
+    async def call_stdio_mcp_tool(
         self,
         server: StdioMCPServer,
         env: dict[str, str] | None,
@@ -1708,14 +1710,16 @@ class _FakeStdioRunner:
 
 
 @pytest.fixture
-def stdio_runner(monkeypatch: pytest.MonkeyPatch) -> _FakeStdioRunner:
-    runner = _FakeStdioRunner()
+def stdio_backend(monkeypatch: pytest.MonkeyPatch) -> _FakeStdioBackend:
+    backend = _FakeStdioBackend()
     monkeypatch.setattr(AgentPresetService, "with_session", _StdioPresetService)
-    monkeypatch.setattr(trusted_server, "get_stdio_mcp_runner", lambda: runner)
+    monkeypatch.setattr(
+        trusted_server, "_session_backend", AsyncMock(return_value=backend)
+    )
     monkeypatch.setattr(
         trusted_server, "fetch_tool_definitions_for_lock", AsyncMock(return_value={})
     )
-    return runner
+    return backend
 
 
 def _stdio_token(
@@ -1738,7 +1742,7 @@ def _stdio_token(
 @pytest.mark.anyio
 async def test_token_scoped_mcp_lists_and_calls_stdio_tool_through_runner(
     monkeypatch: pytest.MonkeyPatch,
-    stdio_runner: _FakeStdioRunner,
+    stdio_backend: _FakeStdioBackend,
 ) -> None:
     """A stdio row is listed from its saved tools and called through the runner."""
     monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
@@ -1758,7 +1762,7 @@ async def test_token_scoped_mcp_lists_and_calls_stdio_tool_through_runner(
     assert [
         block.text for block in result.content if isinstance(block, TextContent)
     ] == ["file contents"]
-    assert stdio_runner.calls == [
+    assert stdio_backend.calls == [
         (
             StdioMCPServer(
                 workspace_id=_STDIO_WORKSPACE_ID,
@@ -1809,7 +1813,7 @@ async def test_token_scoped_mcp_lists_and_calls_stdio_tool_through_runner(
     ],
 )
 async def test_execute_user_mcp_refuses_stdio_call_before_runner(
-    stdio_runner: _FakeStdioRunner,
+    stdio_backend: _FakeStdioBackend,
     claims_kwargs: dict[str, Any],
     tool_name: str,
     error: str,
@@ -1825,14 +1829,14 @@ async def test_execute_user_mcp_refuses_stdio_call_before_runner(
     with pytest.raises(ToolError, match=error):
         await trusted_server._execute_user_mcp("files", tool_name, {}, claims)
 
-    assert stdio_runner.calls == []
+    assert stdio_backend.calls == []
 
 
 @pytest.mark.anyio
 async def test_execute_user_mcp_raises_stdio_tool_error_result(
-    stdio_runner: _FakeStdioRunner,
+    stdio_backend: _FakeStdioBackend,
 ) -> None:
-    stdio_runner.result = CallToolResult(
+    stdio_backend.result = CallToolResult(
         content=[TextContent(type="text", text="no such file")], isError=True
     )
 
@@ -1851,15 +1855,26 @@ async def test_execute_user_mcp_raises_stdio_tool_error_result(
 
 
 @pytest.mark.anyio
-async def test_execute_user_mcp_reports_builtin_runner_refusal(
+@pytest.mark.parametrize(
+    ("backend", "refusal"),
+    [
+        # The built-in backend's runtime starts stdio servers itself.
+        (DefaultBackend(), "can't be called through the Tracecat MCP server"),
+        # The session's backend is not installed in this process.
+        (None, "agent backend is unavailable"),
+    ],
+)
+async def test_execute_user_mcp_reports_backend_refusal(
     monkeypatch: pytest.MonkeyPatch,
+    backend: DefaultBackend | None,
+    refusal: str,
 ) -> None:
     monkeypatch.setattr(AgentPresetService, "with_session", _StdioPresetService)
     monkeypatch.setattr(
-        trusted_server, "get_stdio_mcp_runner", lambda: NsjailStdioMCPRunner()
+        trusted_server, "_session_backend", AsyncMock(return_value=backend)
     )
 
-    with pytest.raises(ToolError, match="no stdio MCP runner is installed"):
+    with pytest.raises(ToolError, match=refusal):
         await trusted_server._execute_user_mcp(
             "files",
             "read",
@@ -1876,7 +1891,7 @@ async def test_execute_user_mcp_reports_builtin_runner_refusal(
 @pytest.mark.anyio
 async def test_stdio_call_runs_only_what_one_row_read_holds(
     monkeypatch: pytest.MonkeyPatch,
-    stdio_runner: _FakeStdioRunner,
+    stdio_backend: _FakeStdioBackend,
 ) -> None:
     """An edit landing after the type check can't pair the old command with
     the new env: command, policy and env all come from one row snapshot."""
@@ -1910,7 +1925,7 @@ async def test_stdio_call_runs_only_what_one_row_read_holds(
         ),
     )
 
-    server, env, _tool, _args = stdio_runner.calls[0]
+    server, env, _tool, _args = stdio_backend.calls[0]
     assert (server.args, env) == (
         ("-y", "edited-server"),
         {"API_TOKEN": "edited-secret"},
