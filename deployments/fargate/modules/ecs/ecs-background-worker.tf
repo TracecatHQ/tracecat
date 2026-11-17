@@ -44,6 +44,10 @@ resource "aws_ecs_service" "tracecat_background_worker" {
       condition     = var.background_worker_desired_count == 0 || var.api_desired_count > 0
       error_message = "An active background worker requires at least one API task so its migrations can finish before the worker starts. Pause both services together."
     }
+    precondition {
+      condition     = var.background_worker_desired_count > 0 || var.api_desired_count == 0
+      error_message = "Case triggers and Git sync run on the background worker. Keep at least one background worker task while the API runs."
+    }
   }
 
   network_configuration {

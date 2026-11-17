@@ -200,3 +200,25 @@ def test_sanitize_non_streaming_messages_response() -> None:
     assert rewritten["content"][1]["input"] == {"file_path": "/a.md"}
     assert rewritten["content"][2]["input"] == {"command": "ls", "pages": ""}
     assert sanitize_messages_response_body(b"not json") == b"not json"
+
+
+def test_stream_rewriter_tracks_completed_tool_use() -> None:
+    raw = _read_tool_use_stream(['{"file_path": "/a.md"}'])
+    rewriter = ToolUseStreamRewriter(rewrite_read=False)
+    tool_stop = raw.rindex(b"event: content_block_stop")
+
+    rewriter.feed(raw[:tool_stop])
+    assert rewriter.completed_tool_use is False
+    rewriter.feed(raw[tool_stop:])
+    assert rewriter.completed_tool_use is True
+
+
+def test_stream_rewriter_ignores_unhashable_error_type() -> None:
+    event = (
+        b'event: error\ndata: {"type":"error","error":'
+        b'{"type":{"nested":true},"message":"synthetic"}}\n\n'
+    )
+    rewriter = ToolUseStreamRewriter(held_error_types=frozenset({"x"}))
+
+    assert rewriter.feed(event) == event
+    assert rewriter.held_error is None

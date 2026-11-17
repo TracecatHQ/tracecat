@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from temporalio.common import Priority, RetryPolicy
 
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.schemas import RunAgentArgs
@@ -68,3 +69,19 @@ class WorkflowApprovalSubmission(BaseModel):
 
 class WorkflowCancelRequest(BaseModel):
     reason: Literal["user_cancel"] = "user_cancel"
+
+
+class ChildAgentTurn(BaseModel):
+    """A prepared turn that its caller starts as a child workflow by type name."""
+
+    backend_id: str
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    workflow_type: str
+    workflow_id: str
+    task_queue: str
+    priority: Priority
+    retry_policy: RetryPolicy
+    # The selected backend's own workflow input, kept opaque so the caller's
+    # workflow never imports another backend's types. The child decodes it.
+    args: Any

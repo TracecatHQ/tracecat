@@ -261,7 +261,14 @@ See [IP allowlist](/manage-platform/ip-allowlist) for configuration steps and th
 
 ### Tenant isolation
 
-Tracecat enforces tenant scope in the application layer, and PostgreSQL row-level security enforces it again on tenant-owned tables. The second layer is the one that matters under failure: when an application check slips, row-level security still withholds another tenant's rows.
+Tracecat enforces tenant scope in the application layer. PostgreSQL row-level security (RLS) can enforce it again on tenant-owned tables, so a query that misses its tenant filter still withholds another tenant's rows.
+
+RLS adds this second layer to tenant sessions only when both of these hold. Platform admin sessions and system jobs that span tenants keep the RLS bypass under every mode, so only the application layer scopes them.
+
+- `TRACECAT__RLS_MODE` is `enforce`. In `off` (the default) and `shadow`, every database session runs with the RLS bypass on, so only the application layer scopes queries. Use `shadow` to roll out with the same behavior as `off` before you switch to `enforce`.
+- The app logs in as a role that can't skip RLS, such as the `app` role from database role setup. Under `enforce`, Tracecat services check their login at startup and refuse to start if the login, or any role it can act as, is a superuser, has `BYPASSRLS`, `CREATEROLE` or `REPLICATION`, owns a table in `public` (or is a member of the role that does, such as `tracecat_owner`), or owns the database or the `public` schema. The check doesn't cover workspace tables and case fields: their tables belong to `app_owner`, which `app` is a member of, so RLS holds on them only while the dynamic-table RLS guard is installed. Role setup installs the guard when its admin can create event triggers, and otherwise tells you to run the guard migration's `MANUAL_INSTALL_SQL` as a superuser.
+
+RLS guards against missing tenant filters in Tracecat's queries, not against SQL injection. Tracecat passes the tenant and bypass context to PostgreSQL as custom settings, and any role can change those, so SQL that runs as the app's login can reach any tenant's rows.
 
 ### Credentials and sensitive settings
 
@@ -296,7 +303,7 @@ Temporal persists workflow and agent inputs and outputs for the life of an execu
 - A Tracecat-side codec encrypts payloads with AES-256-GCM before Temporal stores anything, so Temporal only ever holds ciphertext.
 - Each workspace gets a distinct key, derived with HKDF-SHA256 from a versioned root secret using the workspace ID as derivation context. One workspace's key does not decrypt another's payloads.
 - The keyring is versioned. Rotation issues a new key ID, and existing histories stay readable under the ID they were written with.
-- Tracecat masks secret values as `***` in action results, and masking runs before it persists the result, so history holds the masked form.
+- Tracecat masks secret values as `***` in action results, and masking runs before it persists the result, so history holds the masked form. Masking covers mapping keys as well as values, and keys that become identical after masking collapse into one entry with the later value.
 - Large triggers and action results move to object storage automatically. Workflow state keeps a scoped reference, which bounds how much data one run pushes through durable history.
 
 Two limits apply. Masking is literal substring replacement, so it misses an encoded or otherwise transformed copy of a secret. Payload encryption is a deployment setting (`TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED`) that ships off by default — enable it wherever Temporal history can hold sensitive data.
@@ -354,6 +361,12 @@ Agent-controlled code runs in the same sandbox as the agent, so generated code c
 - The LLM receives typed interfaces and results; Tracecat never places a stored credential value into model context. Secret expressions in tool arguments resolve outside the sandbox, after the model responds.
 
 Local `stdio` MCP is the exception. Its credentials enter the shared sandbox, so treat them as readable by agent-controlled code.
+
+The agent runtime's database login is another exception. The runtime holds its database credential, which agent-controlled code could read:
+
+- Any DSN you give it in `agentRuntime.durable.database.dsnSecret` or `agentRuntime.extraEnv`. Never point one at the admin login.
+- Otherwise, with password login, the services' password: `app` with [database roles](/self-hosting/database-roles), else the single login, often the admin.
+- With the Helm chart's `awsIam` or `azureWorkloadIdentity` mode, a short-lived token for the `app` login that the database accepts directly until it expires. See [Database IAM login](/self-hosting/database-iam#kubernetes-with-pgdog).
 
 ## Agent and MCP control plane
 
@@ -531,7 +544,7 @@ Every pull targets an explicit commit, so imports are reproducible and rollback 
   A pull reproduces workspace configuration, not action versions. Imported workflows carry no registry lock, so each execution resolves actions against the target workspace's current core and custom registry versions until you publish the workflow there.
 </Info>
 
-See [Git sync](/manage-platform/git-sync) for connecting a repository, exporting a workspace as a pull request, and pulling a commit.
+See [Workspace Git sync](/gitops/workspace-git-sync) for connecting a repository, and [Push and pull](/gitops/push-and-pull) for exporting a workspace as a pull request and pulling a commit.
 
 ## Dependencies
 

@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get script report
+  description: >-
+    Get the full result of a script or osquery command execution on a device, including the
+    command or osquery SQL and the raw response. Calls GET
+    /restful/organization/api/v1/script-reports/{reportId}.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/14188336-public-apis-fetch-script-execution-reports
+  namespace: tools.swif
+  name: get_script_report
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    reportId:
+      type: str
+      description: Script report ID (24-character MongoID).
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/api/v1/script-reports/${{ FN.url_encode(inputs.reportId) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+  returns: ${{ steps.request.result }}

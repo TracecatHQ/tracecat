@@ -8,6 +8,7 @@ import json
 import tarfile
 import uuid
 from collections import Counter
+from collections.abc import Iterator
 from math import ceil
 from types import SimpleNamespace
 from typing import Any, cast
@@ -45,9 +46,11 @@ from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
     VARIABLE_RESOURCE_ADAPTER,
+    WORKFLOW_RESOURCE_ADAPTER,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.layout import plan_resource_paths
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
@@ -82,10 +85,20 @@ from tracecat.workspace_sync.transport import (
 from tracecat.workspace_sync.types import PreparedSnapshot, SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
-    workflow_source_path,
     workflow_spec_to_remote,
     workflow_spec_with_source_workflow_ids,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_managed_resources() -> Iterator[None]:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    with patch.object(
+        WorkspaceSyncService,
+        "_managed_ids_by_type",
+        AsyncMock(return_value={}),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -134,7 +147,7 @@ async def test_pull_does_not_sync_schedules_by_default(
     )
     files = {
         "tracecat.json": canonical_json_text(WorkspaceManifest()),
-        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key(spec.id): serialize_workflow_spec(spec),
     }
     transport = AsyncMock()
     transport.read_files.return_value = VcsTreeSnapshot(
@@ -235,7 +248,7 @@ async def test_pull_dry_run_returns_resource_diffs_without_import(
     assert result.files == sorted(incoming_files)
     assert result.resources is not None
     assert [(resource.name, resource.path) for resource in result.resources] == [
-        ("sync-me", workflow_source_path(source_id))
+        ("sync-me", WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id))
     ]
     diff = result.resource_diffs[0]
     assert diff.change_type == "modified"
@@ -394,7 +407,7 @@ async def test_parse_files_rejects_legacy_workflow_tree_without_manifest(
 
     snapshot, diagnostics = await workspace_sync_service.parse_files(
         {
-            workflow_source_path(source_id): _legacy_workflow_yaml(
+            WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id): _legacy_workflow_yaml(
                 source_id,
                 title="Legacy workflow",
             )
@@ -416,7 +429,7 @@ async def test_parse_files_rejects_legacy_string_version_manifest(
     snapshot, diagnostics = await workspace_sync_service.parse_files(
         {
             MANIFEST_FILENAME: '{"version":"1"}',
-            workflow_source_path(source_id): _legacy_workflow_yaml(
+            WORKFLOW_RESOURCE_ADAPTER.path_for_key(source_id): _legacy_workflow_yaml(
                 source_id,
                 title="Legacy manifest workflow",
             ),
@@ -532,6 +545,7 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
             manifest=WorkspaceManifest(),
             spec=spec,
             files={"b.json": "{}", "a.json": "{}"},
+            paths=plan_resource_paths(spec),
         )
     )
 
@@ -549,17 +563,19 @@ async def test_preview_export_counts_resources_without_mutating_mappings(
         (resource.resource_type, resource.source_id, resource.name, resource.path)
         for resource in preview.resources
     ] == [
+        # Both workflows are titled "Sync me". The lower source id gets the
+        # plain folder; the other gets its source id appended. Sorted by path.
         (
             SyncResourceType.WORKFLOW,
-            "wf-1",
-            "wf-1",
-            "workflows/wf-1/definition.yml",
+            "wf-2",
+            "wf-2",
+            "workflows/Sync-me-wf-2/definition.yml",
         ),
         (
             SyncResourceType.WORKFLOW,
-            "wf-2",
-            "wf-2",
-            "workflows/wf-2/definition.yml",
+            "wf-1",
+            "wf-1",
+            "workflows/Sync-me/definition.yml",
         ),
     ]
     # Preview must never create sync mappings as a side effect.
@@ -618,6 +634,12 @@ async def test_preview_export_reports_resource_diffs_against_compare_ref(
                     ),
                 }
             ),
+            paths={
+                SyncResourceType.WORKFLOW: {
+                    "fresh": "workflows/fresh/definition.yml",
+                    "stale": "workflows/stale/definition.yml",
+                }
+            },
             files={
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
                 "workflows/fresh/definition.yml": "version: 1\n",
@@ -701,7 +723,7 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync"}),
+        scopes=frozenset({"workspace_sync:push"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.project_workspace = AsyncMock(
@@ -741,7 +763,7 @@ async def test_mcp_metadata_queries_require_integration_read_before_sql() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync", "agent:read"}),
+        scopes=frozenset({"workspace_sync:push", "agent:read"}),
     )
     session = AsyncMock()
     service = WorkspaceSyncService(session=session, role=role)
@@ -759,24 +781,25 @@ async def test_mcp_metadata_queries_require_integration_read_before_sql() -> Non
     session.execute.assert_not_awaited()
 
 
-def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
+def test_workflow_export_scope_requires_push_grant() -> None:
     base_role = Role(
         type="service",
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:update", "workflow:sync"}),
+        scopes=frozenset({"workflow:update", "workspace_sync:pull"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=base_role)
 
-    service._require_workflow_export_scope()
+    with pytest.raises(ScopeDeniedError):
+        service._require_workflow_export_scope()
 
     service.role = Role(
         type="service",
         service_id="tracecat-api",
         workspace_id=base_role.workspace_id,
         organization_id=base_role.organization_id,
-        scopes=frozenset({"workflow:update", "workspace_sync:sync"}),
+        scopes=frozenset({"workflow:update", "workspace_sync:push"}),
     )
     service._require_workflow_export_scope()
 
@@ -800,7 +823,7 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:update", "workflow:sync"}),
+        scopes=frozenset({"workflow:update", "workspace_sync:push"}),
     )
     session = AsyncMock()
     session.add = Mock()
@@ -839,12 +862,17 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
             manifest=projection_manifest,
             spec=projection_spec,
         ),
+        paths=plan_resource_paths(projection_spec),
     )
     service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
     )
     service.project_workspace = AsyncMock(return_value=projection)
     transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="b" * 40, tree_sha="tree-sha", files={}
+    )
     transport.write_files.return_value = CommitInfo(
         status=PushStatus.COMMITTED,
         sha="a" * 40,
@@ -874,9 +902,10 @@ async def test_workflow_export_allows_projected_dependencies_with_publish_scope(
     transport.write_files.assert_awaited_once()
     expected_paths = {
         MANIFEST_FILENAME,
-        workflow_source_path("parent"),
-        VARIABLE_RESOURCE_ADAPTER.source_path("default/api_token"),
-        SECRET_METADATA_RESOURCE_ADAPTER.source_path("default/vendor_api"),
+        # The folder is named after the workflow title, not its source id.
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key("Sync-me"),
+        VARIABLE_RESOURCE_ADAPTER.path_for_key("default/api_token"),
+        SECRET_METADATA_RESOURCE_ADAPTER.path_for_key("default/vendor_api"),
     }
     written_files = transport.write_files.await_args.kwargs["files"]
     assert set(written_files) == expected_paths
@@ -890,7 +919,7 @@ def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:sync"}),
+        scopes=frozenset({"workspace_sync:pull"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=base_role)
 
@@ -901,7 +930,7 @@ def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service_id="tracecat-api",
         workspace_id=base_role.workspace_id,
         organization_id=base_role.organization_id,
-        scopes=frozenset({"workspace_sync:sync"}),
+        scopes=frozenset({"workspace_sync:push"}),
     )
     service._require_sync_operation_scope()
 
@@ -928,7 +957,7 @@ def test_pull_requires_workspace_update_only_for_explicit_default_metadata(
         user_id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync", "agent:create", "agent:update"}),
+        scopes=frozenset({"workspace_sync:push", "agent:create", "agent:update"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     spec = WorkspaceSpec(
@@ -963,7 +992,7 @@ def test_pull_requires_form_write_scopes_only_to_apply_a_form_block(
         organization_id=uuid.uuid4(),
         scopes=frozenset(
             {
-                "workspace_sync:sync",
+                "workspace_sync:push",
                 "workflow:read",
                 "workflow:create",
                 "workflow:update",
@@ -1022,7 +1051,7 @@ async def test_pull_dry_run_requires_read_scopes_for_incoming_resources() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync"}),
+        scopes=frozenset({"workspace_sync:pull"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -1076,7 +1105,7 @@ async def test_pull_apply_requires_create_scopes_for_incoming_resources() -> Non
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync", "secret:update", "variable:update"}),
+        scopes=frozenset({"workspace_sync:pull", "secret:update", "variable:update"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     incoming_spec = WorkspaceSpec(
@@ -1128,7 +1157,7 @@ async def test_pull_blocks_entitled_resource_without_entitlement() -> None:
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync", "case:update"}),
+        scopes=frozenset({"workspace_sync:pull", "case:update"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.has_entitlement = AsyncMock(return_value=False)
@@ -1174,7 +1203,7 @@ async def test_pull_allows_workflow_case_trigger_without_entitlement(
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"workspace_sync:sync", "workflow:read"}),
+        scopes=frozenset({"workspace_sync:pull", "workflow:read"}),
     )
     service = WorkspaceSyncService(session=AsyncMock(), role=role)
     service.has_entitlement = AsyncMock(return_value=False)
@@ -1230,7 +1259,7 @@ async def test_full_export_skips_unentitled_resource_types() -> None:
             service_id="tracecat-api",
             workspace_id=uuid.uuid4(),
             organization_id=uuid.uuid4(),
-            scopes=frozenset({"workspace_sync:sync"}),
+            scopes=frozenset({"workspace_sync:push"}),
         ),
     )
     service.has_entitlement = AsyncMock(return_value=False)
@@ -1254,7 +1283,7 @@ async def test_selected_export_blocks_unentitled_resource_type() -> None:
             service_id="tracecat-api",
             workspace_id=uuid.uuid4(),
             organization_id=uuid.uuid4(),
-            scopes=frozenset({"workspace_sync:sync"}),
+            scopes=frozenset({"workspace_sync:push"}),
         ),
     )
     service.has_entitlement = AsyncMock(return_value=False)
@@ -1685,6 +1714,11 @@ async def test_selected_export_deletes_stale_companion_files_under_selected_reso
             files={
                 MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
                 "skills/qa-enrichment-skill/skill.yml": "version: 1\nname: current\n",
+            },
+            paths={
+                SyncResourceType.SKILL: {
+                    "qa-enrichment-skill": "skills/qa-enrichment-skill/skill.yml"
+                }
             },
         )
     )
@@ -2794,7 +2828,7 @@ definition:
 def _workspace_files(spec: WorkflowResourceSpec) -> dict[str, str]:
     return {
         MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
-        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        WORKFLOW_RESOURCE_ADAPTER.path_for_key(spec.id): serialize_workflow_spec(spec),
     }
 
 
@@ -3599,3 +3633,231 @@ async def test_parse_diagnostics_stop_preview_before_partial_spec_processing(
             )
         entitlements.assert_awaited_once_with(snapshot.spec)
         correlate.assert_not_awaited()
+
+
+def _publish_service(
+    sample_dsl: DSLInput,
+) -> tuple[WorkspaceSyncService, AsyncMock, Any]:
+    """Build a service whose single-workflow push writes to a mocked transport."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:update", "workspace_sync:push"}),
+    )
+    session = AsyncMock()
+    session.add = Mock()
+    service = WorkspaceSyncService(session=session, role=role)
+    spec = WorkspaceSpec(
+        workflows={
+            "parent": WorkflowResourceSpec(
+                id="parent", alias="parent", definition=sample_dsl
+            )
+        }
+    )
+    service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(),
+            spec=spec,
+            files=service._files_from_spec(manifest=WorkspaceManifest(), spec=spec),
+            paths={
+                SyncResourceType.WORKFLOW: {
+                    "parent": WORKFLOW_RESOURCE_ADAPTER.path_for_key("Sync-me")
+                }
+            },
+        )
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="b" * 40, tree_sha="tree-sha", files={}
+    )
+    workflow = cast(Any, SimpleNamespace(id=WorkflowUUID.new_uuid4()))
+    return service, transport, workflow
+
+
+@pytest.mark.anyio
+async def test_publish_reports_a_branch_that_moved_as_push_again(
+    sample_dsl: DSLInput,
+) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    transport.write_files.side_effect = SyncCommitConflictError(
+        "Target branch changed; create a new preview"
+    )
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(SyncCommitConflictError, match="Push again"),
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    # The write was pinned to the commit the cleanup was planned against.
+    assert transport.write_files.await_args.kwargs["expected_commit_sha"] == "b" * 40
+
+
+@pytest.mark.anyio
+async def test_publish_reports_a_branch_deleted_mid_push(sample_dsl: DSLInput) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    # The branch exists when the push reads it, then disappears.
+    transport.branch_exists.side_effect = [True, False]
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        pytest.raises(SyncCommitConflictError, match="was deleted"),
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    transport.write_files.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_publish_reads_primary_files_and_owns_workflow_folders(
+    sample_dsl: DSLInput,
+) -> None:
+    service, transport, workflow = _publish_service(sample_dsl)
+    transport.write_files.return_value = CommitInfo(
+        status=PushStatus.COMMITTED,
+        sha="a" * 40,
+        ref="main",
+        base_ref="main",
+        pr_url=None,
+        pr_number=None,
+        pr_reused=False,
+        message="Committed workspace sync changes.",
+    )
+
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        await service.export_workflow(
+            workflow=workflow,
+            dsl=sample_dsl,
+            params=WorkspaceSyncExportRequest(
+                message="Publish", branch="main", create_pr=False
+            ),
+        )
+
+    resource_filter = transport.read_files.await_args.kwargs["resource_filter"]
+    assert resource_filter("workflows/Other/definition.yml")
+    # Types the push does not write, and companion files, are not read.
+    assert not resource_filter("tables/iocs/table.yml")
+    assert not resource_filter("workflows/Other/notes.md")
+    # The push owns the workflow folder, so it deletes the script files of
+    # actions the workflow no longer has.
+    delete_roots = transport.write_files.await_args.kwargs["delete_missing_paths_under"]
+    assert "workflows/Sync-me" in delete_roots
+
+
+_TRIAGE_PATHS = {
+    SyncResourceType.WORKFLOW: {
+        "wf_a": WORKFLOW_RESOURCE_ADAPTER.path_for_key("Triage")
+    }
+}
+
+
+@pytest.mark.anyio
+async def test_partial_push_owns_each_pushed_workflow_folder(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    spec = WorkspaceSpec(
+        workflows={
+            "wf_a": WorkflowResourceSpec(id="wf_a", alias="a", definition=sample_dsl)
+        }
+    )
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(), spec=spec, files={}, paths=_TRIAGE_PATHS
+    )
+
+    roots = await workspace_sync_service._export_delete_roots(
+        projection,
+        full_workspace_export=False,
+        resource_ids={SyncResourceType.WORKFLOW: {uuid.uuid4()}},
+        base=None,
+    )
+
+    # So the push deletes script files of actions the workflow no longer has.
+    assert roots == ("workflows/Triage",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("current_args", "incoming_args"),
+    [
+        pytest.param({"script": "x = 1"}, {}, id="script-file-deleted-in-git"),
+        pytest.param({}, {"script": "x = 1"}, id="script-file-added-in-git"),
+    ],
+)
+async def test_pull_preview_shows_a_changed_script_file_as_modified(
+    workspace_sync_service: WorkspaceSyncService,
+    current_args: dict[str, object],
+    incoming_args: dict[str, object],
+) -> None:
+    def workflow(
+        args: dict[str, object], source_id: str = "wf_a", title: str = "Triage"
+    ) -> WorkflowResourceSpec:
+        return WorkflowResourceSpec(
+            id=source_id,
+            alias=source_id,
+            definition=DSLInput(
+                title=title,
+                description="Pull preview test workflow",
+                entrypoint=DSLEntrypoint(ref="score", expects={}),
+                actions=[
+                    ActionStatement(
+                        ref="score", action="core.script.run_python", args=args
+                    )
+                ],
+            ),
+        )
+
+    # A local-only workflow is not in Git, so the preview must not list it.
+    current = WorkspaceSpec(
+        workflows={
+            "wf_a": workflow(current_args),
+            "wf_local": workflow({"script": "y = 2"}, "wf_local", "Local"),
+        }
+    )
+    incoming = WorkspaceSpec(workflows={"wf_a": workflow(incoming_args)})
+    workspace_sync_service.project_workspace = AsyncMock(
+        return_value=WorkspaceProjection(
+            manifest=WorkspaceManifest(), spec=current, files={}, paths=_TRIAGE_PATHS
+        )
+    )
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40, files={}, spec=incoming, paths=_TRIAGE_PATHS
+    )
+
+    diffs = await workspace_sync_service._resource_diffs_for_pull(
+        snapshot, sync_schedules=False
+    )
+
+    # definition.yml is unchanged, so only the script file shows the change.
+    # The workflow already exists, so it is modified, not added.
+    assert [(d.source_path, d.change_type) for d in diffs] == [
+        ("workflows/Triage/scripts/score.py", "modified")
+    ]
+    assert "x = 1" in diffs[0].diff

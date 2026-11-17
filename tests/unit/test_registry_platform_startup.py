@@ -4,18 +4,20 @@ This test suite validates:
 1. Leader election behavior (lock acquisition)
 2. Version existence checks (skip sync if version exists and is current)
 3. No auto-promotion of existing non-current versions
-4. No-downgrade guard during sync
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import delete, select
+from sqlalchemy.exc import UnboundExecutionError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import (
@@ -25,6 +27,7 @@ from tracecat.db.models import (
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -205,44 +208,6 @@ async def test_startup_sync_defers_existing_target_when_no_current_version(
 
     await session.refresh(repo)
     assert repo.current_version_id is None
-
-
-@pytest.mark.anyio
-async def test_startup_sync_refuses_downgrade(
-    session: AsyncSession,
-) -> None:
-    """Test that startup sync refuses to downgrade to older version."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
-
-    # Get or create platform repo (may already exist from conftest seeding)
-    repo = await _get_or_create_platform_repo(session)
-
-    version = PlatformRegistryVersion(
-        repository_id=repo.id,
-        version="2.0.0",
-        manifest=_make_manifest(["test.action"]),
-        tarball_uri="s3://test/v2.tar.gz",
-    )
-    session.add(version)
-    await session.flush()
-
-    repo.current_version_id = version.id
-    session.add(repo)
-    await session.commit()
-
-    # Try to sync to version 1.0.0 (older)
-    with patch(
-        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-    ) as mock_sync_service:
-        artifact_build = await _sync_as_leader(session, "1.0.0")
-
-        # Should NOT call sync service (downgrade refused)
-        mock_sync_service.assert_not_called()
-        assert artifact_build is None
-
-    # Verify current version is still 2.0.0
-    await session.refresh(repo)
-    assert repo.current_version_id == version.id
 
 
 @pytest.mark.anyio
@@ -543,6 +508,55 @@ async def test_promote_after_artifact_build_skips_when_current_changed(
 
     await session.refresh(repo)
     assert repo.current_version_id == newer_current.id
+
+
+@pytest.mark.anyio
+async def test_artifact_build_holds_no_db_connection_before_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The build runs without a DB connection; promotion opens one afterwards.
+
+    A transaction left idle across a multi-minute build gets its connection
+    closed by a pooler or server timeout, and promotion then fails on it.
+    """
+    from tracecat.registry.sync import jobs
+    from tracecat.registry.sync.base_service import ArtifactsBuildResult
+
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def fake_session_cm() -> AsyncGenerator[object]:
+        events.append("session")
+        yield object()
+
+    async def fake_build(
+        self: PlatformRegistrySyncService, **kwargs: object
+    ) -> ArtifactsBuildResult:
+        with pytest.raises(UnboundExecutionError):
+            await self.session.execute(select(1))
+        events.append("build")
+        return ArtifactsBuildResult(artifact_uri="s3://test/v2.tar.gz")
+
+    async def fake_promote(session: object, **kwargs: object) -> None:
+        events.append("promote")
+
+    monkeypatch.setattr(
+        jobs, "get_async_session_bypass_rls_context_manager", fake_session_cm
+    )
+    monkeypatch.setattr(
+        PlatformRegistrySyncService, "_build_and_upload_artifacts", fake_build
+    )
+    monkeypatch.setattr(
+        jobs, "_promote_platform_registry_version_after_artifact_build", fake_promote
+    )
+
+    await jobs._build_platform_registry_artifact(
+        "2.0.0",
+        promote_version_id=uuid.uuid4(),
+        expected_current_version_id=uuid.uuid4(),
+    )
+
+    assert events == ["build", "session", "promote"]
 
 
 def _isolate_platform_sync_lock(monkeypatch: pytest.MonkeyPatch) -> int:

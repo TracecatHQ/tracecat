@@ -64,11 +64,12 @@ def resolve_oss_default_entitlements(
     case agent runs. Agent channels (Slack and Microsoft Teams, including approvals
     from those channels) are closed source and gated by ``agent_channels``; the
     legacy ``agent-channels`` feature flag maps to it. Semantic table search is
-    closed source and gated by ``semantic_search``. Forms are gated by ``forms``;
-    the ``forms`` feature flag maps to it, so one token turns on both the flag
-    and the entitlement on single-tenant deployments. Non-default agent backends
-    are gated by ``agent_runtime_preview``, which is on whenever one is
-    installed, since installing a backend is how a deployment opts in.
+    closed source and gated by ``semantic_search``. Forms are gated by ``forms``.
+    Non-default agent backends are gated by ``agent_runtime_preview``, and
+    workflow agent actions on them also by ``agent_runtime_workflows``. Both are
+    on whenever a backend is
+    installed, since installing a backend is how a deployment opts in. The
+    channel bot API also needs ``agent_channels_preview``, off on both paths.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -91,6 +92,8 @@ def resolve_oss_default_entitlements(
             forms=False,
             tunnels=False,
             agent_runtime_preview=agent_backend_installed,
+            agent_runtime_workflows=agent_backend_installed,
+            agent_channels_preview=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -110,7 +113,6 @@ def resolve_oss_default_entitlements(
             break
 
     agent_channels_enabled = "agent-channels" in normalized_flags
-    forms_enabled = "forms" in normalized_flags
 
     rbac_enabled = False
     for flag in _RBAC_FLAGS:
@@ -131,9 +133,11 @@ def resolve_oss_default_entitlements(
         external_secret_stores=False,
         agent_channels=agent_channels_enabled,
         semantic_search=False,
-        forms=forms_enabled,
+        forms=False,
         tunnels=False,
         agent_runtime_preview=agent_backend_installed,
+        agent_runtime_workflows=agent_backend_installed,
+        agent_channels_preview=False,
     )
 
 

@@ -247,10 +247,16 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
 
 
 def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
-    """Validation, gateway, and agent processes share the operator's policy."""
+    """Validation, gateway, agent, and search-indexing processes share the policy."""
     name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
     for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
-        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+        for service in (
+            "api",
+            "litellm",
+            "agent-executor",
+            "agent-worker",
+            "background-worker",
+        ):
             match = re.search(
                 rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
                 path.read_text(),
@@ -273,6 +279,34 @@ def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
             r'variable "outbound_allowed_private_cidrs" \{[^}]*default\s*=\s*""',
             (fargate / tf).read_text(),
         ), tf
+
+
+def test_slack_ingress_mode_is_wired_to_the_fargate_api_only() -> None:
+    """An Enterprise deployment setting: Fargate's API task only, never Compose."""
+    name = "TRACECAT__SLACK_INGRESS_MODE"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        assert name not in path.read_text(), path.name
+    assert name not in (REPO_ROOT / ".env.example").read_text()
+
+    fargate = REPO_ROOT / "deployments/fargate"
+    locals_tf = (fargate / "modules/ecs/locals.tf").read_text()
+    api_env = re.search(r"(?ms)^  api_env = \[\n(?P<body>.*?)^  \]\n", locals_tf)
+    assert api_env is not None
+    assert re.search(rf"{name}\s*=\s*var\.slack_ingress_mode", api_env.group("body"))
+    assert name not in locals_tf.replace(api_env.group(0), ""), "api_env only"
+    assert re.search(
+        r"slack_ingress_mode\s*=\s*var.slack_ingress_mode",
+        (fargate / "main.tf").read_text(),
+    )
+    for tf in ("variables.tf", "modules/ecs/variables.tf"):
+        block = re.search(
+            r'(?ms)^variable "slack_ingress_mode" \{\n(?P<body>.*?)^\}',
+            (fargate / tf).read_text(),
+        )
+        assert block is not None, tf
+        assert re.search(r'default\s*=\s*"http"', block.group("body")), tf
+        # Accepted values live in the enterprise docs, not this repo.
+        assert "validation" not in block.group("body"), tf
 
 
 def test_smtp_env_is_wired_to_api_deployments() -> None:
@@ -495,9 +529,9 @@ def test_removed_agent_runtime_feature_flag_is_ignored(
     """Deployments that still set the removed flag keep starting."""
     try:
         with monkeypatch.context() as env:
-            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,forms")
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime,ai-ranking")
             reloaded_config = importlib.reload(tracecat_config)
-            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.FORMS}
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {FeatureFlag.AI_RANKING}
     finally:
         importlib.reload(tracecat_config)
 

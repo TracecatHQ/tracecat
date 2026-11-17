@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -43,6 +44,7 @@ from tracecat.expressions.policy import build_provenance
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.integrations.enums import OAuthGrantType
+from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import MASK_VALUE
@@ -280,6 +282,41 @@ async def test_resolve_action_secrets_reports_earliest_oauth_expiry(mocker):
     assert resolved.expires_at == _OAUTH_EXPIRIES[OAuthGrantType.CLIENT_CREDENTIALS]
 
 
+@pytest.mark.anyio
+async def test_resolve_action_secrets_log_record_serializes(mocker):
+    """The secrets log record survives Loguru's built-in JSON serialization."""
+    _patch_oauth_secret_env(
+        mocker, [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS]
+    )
+    messages: list[str] = []
+    sink_id = logger.add(
+        messages.append,
+        level="INFO",
+        serialize=True,
+        catch=False,
+        filter=lambda record: record["message"] == "Handling secrets",
+    )
+    try:
+        await secrets_manager.resolve_action_secrets(
+            secret_exprs={
+                "azure_log_analytics_oauth.AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+            },
+            action_secrets=_AZURE_OAUTH_SECRETS,
+        )
+    finally:
+        logger.remove(sink_id)
+
+    [message] = messages
+    extra = json.loads(message)["record"]["extra"]
+    assert extra["oauth_provider_ids"] == [
+        "azure_log_analytics (authorization_code)",
+        "azure_log_analytics (client_credentials)",
+    ]
+    assert extra["args_oauth_token_names"] == {
+        "azure_log_analytics (client_credentials)": "AZURE_LOG_ANALYTICS_SERVICE_TOKEN"
+    }
+
+
 @pytest.mark.parametrize(
     "failing_call",
     [
@@ -377,7 +414,96 @@ async def test_invoke_once_offloads_root_secret_masking(mocker):
         executor_service.apply_masks_object,
         action_result,
         masks={"secret"},
+        mask_keys=True,
     )
+
+
+_RESULT_SECRET = "result-secret-value"
+_OTHER_RESULT_SECRET = "other-result-secret"
+
+
+async def _invoke_once_with_result(mocker, action_result: object) -> object:
+    """Run invoke_once with a stubbed step result and the real masking offload."""
+    role = Role(
+        type="service",
+        organization_id=UUID(int=1),
+        service_id="tracecat-executor",
+    )
+    action_input = mocker.Mock()
+    action_input.task.action = "core.transform.reshape"
+    action_input.task.retry_policy = ActionRetryPolicy()
+    action_input.registry_lock = {}
+    action_input.exec_context = {}
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=mocker.Mock(logical_time=mocker.sentinel.logical_time),
+        mask_values={_RESULT_SECRET, _OTHER_RESULT_SECRET},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(return_value=action_result),
+    )
+    return await executor_service.invoke_once(
+        backend=mocker.Mock(),
+        input=action_input,
+        ctx=executor_service.DispatchActionContext(role=role),
+    )
+
+
+@pytest.mark.anyio
+async def test_invoke_once_masks_secret_result_keys(mocker):
+    """A secret used as a result mapping key is persisted as the mask value."""
+    result = await _invoke_once_with_result(mocker, {_RESULT_SECRET: "ok"})
+
+    assert result == {MASK_VALUE: "ok"}
+
+
+@pytest.mark.anyio
+async def test_invoke_once_masks_nested_secret_result_keys(mocker):
+    """Secret keys are masked inside mappings nested in lists and mappings."""
+    result = await _invoke_once_with_result(
+        mocker,
+        {
+            "items": [{f"prefix-{_RESULT_SECRET}": 1}],
+            "outer": {"inner": {_RESULT_SECRET: [_RESULT_SECRET]}},
+        },
+    )
+
+    assert result == {
+        "items": [{f"prefix-{MASK_VALUE}": 1}],
+        "outer": {"inner": {MASK_VALUE: [MASK_VALUE]}},
+    }
+
+
+@pytest.mark.anyio
+async def test_invoke_once_leaves_non_secret_result_keys_unchanged(mocker):
+    """Results without secrets keep their keys, values, and types."""
+    action_result = {"status": "ok", "count": 2, "rows": [{"id": "a", "n": None}]}
+
+    result = await _invoke_once_with_result(mocker, action_result)
+
+    assert result == action_result
+
+
+@pytest.mark.anyio
+async def test_invoke_once_collapses_colliding_masked_result_keys(mocker):
+    """Two secret keys mask to one key; the later entry's value wins."""
+    result = await _invoke_once_with_result(
+        mocker,
+        {_RESULT_SECRET: "first", _OTHER_RESULT_SECRET: "second"},
+    )
+
+    assert result == {MASK_VALUE: "second"}
 
 
 def _expression_policy_role(service_id: InternalServiceID) -> Role:

@@ -13,6 +13,7 @@ _ALLOWED_METADATA_KEYS = frozenset(
         "changed_fields",
         "delete_mode",
         "operation",
+        "release_tag",
         "trigger_type",
         "workflow_status",
     }

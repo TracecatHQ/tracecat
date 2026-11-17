@@ -27,7 +27,7 @@ from tracecat.contexts import (
     ctx_role,
     ctx_secret_masks,
 )
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
@@ -81,6 +81,7 @@ from tracecat.expressions.policy import (
 )
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -217,7 +218,9 @@ async def get_registry_artifacts_for_lock(
 
     # Fetch all misses with a single UNION ALL query
     fetched_artifacts: list[RegistryArtifactsContext] = []
-    async with get_async_session_bypass_rls_context_manager() as session:
+    async with get_async_session_tenant_context_manager(
+        organization_id=organization_id
+    ) as session:
         statements = []
 
         # Platform query (no org filter)
@@ -1060,15 +1063,18 @@ async def invoke_once(
         # Keep this inside the error wrapper so entitlement failures are
         # normalized into ExecutionError and then ApplicationError at activity
         # boundaries.
-        await registry_resolver.prefetch_lock(input.registry_lock, role.organization_id)
+        with platform_span("tracecat.action.prepare_context"):
+            await registry_resolver.prefetch_lock(
+                input.registry_lock, role.organization_id
+            )
 
-        # Prepare resolved context (secrets, variables, action impl, evaluated args)
-        # This is done once here and passed to all backends
-        # For templates, secrets are fetched recursively for all steps
-        if loop_context is None:
-            prepared = await prepare_resolved_context(input, role)
-        else:
-            prepared = await loop_context.prepare(input)
+            # Prepare resolved context (secrets, variables, action impl, evaluated args)
+            # This is done once here and passed to all backends
+            # For templates, secrets are fetched recursively for all steps
+            if loop_context is None:
+                prepared = await prepare_resolved_context(input, role)
+            else:
+                prepared = await loop_context.prepare(input)
         resolved_context = prepared.resolved_context
         mask_values = prepared.mask_values
         for value in mask_values or ():
@@ -1150,10 +1156,14 @@ async def invoke_once(
         # Apply secret masking at root level only. Large action results can make
         # this CPU-bound traversal expensive, so keep it off the activity event
         # loop where it could otherwise delay heartbeats for every activity on
-        # the worker.
+        # the worker. Keys are masked too, so a secret returned as a mapping
+        # key is not persisted verbatim.
         if mask_values:
             action_result = await asyncio.to_thread(
-                apply_masks_object, action_result, masks=mask_values
+                apply_masks_object,
+                action_result,
+                masks=mask_values,
+                mask_keys=True,
             )
         return action_result
     finally:

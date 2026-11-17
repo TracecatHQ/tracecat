@@ -26,6 +26,7 @@ from tracecat.tiers.exceptions import (
     InvalidOrganizationConcurrencyCapError,
 )
 from tracecat.tiers.permits import PermitAcquireOutcome
+from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.tiers.semaphore import AcquireResult
 
 ORG_ID = uuid.UUID("00000000-0000-4000-8000-000000000111")
@@ -120,12 +121,12 @@ async def test_get_tier_limits_activity_classifies_service_failure() -> None:
     diagnostic = "tier diagnostic must not enter history"
     mock_service = AsyncMock()
     mock_service.get_effective_limits.side_effect = RuntimeError(diagnostic)
-    mock_ctx = AsyncMock()
-    mock_ctx.__aenter__.return_value = mock_service
-
-    with patch(
-        "tracecat.tiers.activities.TierService.with_session",
-        return_value=mock_ctx,
+    with (
+        patch(
+            "tracecat.tiers.activities.get_async_session_tenant_context_manager",
+            return_value=AsyncMock(),
+        ),
+        patch("tracecat.tiers.activities.TierService", return_value=mock_service),
     ):
         with pytest.raises(ApplicationError) as exc_info:
             await get_tier_limits_activity(GetTierLimitsInput(org_id=ORG_ID))
@@ -142,12 +143,12 @@ async def test_get_tier_limits_activity_classifies_service_failure() -> None:
 async def test_get_tier_limits_activity_maps_missing_default_tier() -> None:
     mock_service = AsyncMock()
     mock_service.get_effective_limits.side_effect = DefaultTierNotConfiguredError()
-    mock_ctx = AsyncMock()
-    mock_ctx.__aenter__.return_value = mock_service
-
-    with patch(
-        "tracecat.tiers.activities.TierService.with_session",
-        return_value=mock_ctx,
+    with (
+        patch(
+            "tracecat.tiers.activities.get_async_session_tenant_context_manager",
+            return_value=AsyncMock(),
+        ),
+        patch("tracecat.tiers.activities.TierService", return_value=mock_service),
     ):
         with pytest.raises(ApplicationError) as exc_info:
             await get_tier_limits_activity(GetTierLimitsInput(org_id=ORG_ID))
@@ -158,3 +159,30 @@ async def test_get_tier_limits_activity_maps_missing_default_tier() -> None:
     assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
     assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
     assert "Run database migrations" not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_get_tier_limits_activity_reads_tier_in_org_scope() -> None:
+    """The activity has no ctx_role; a role-derived session would see no org tier."""
+    limits = EffectiveLimits(
+        api_rate_limit=None,
+        api_burst_capacity=None,
+        max_concurrent_workflows=3,
+        max_action_executions_per_workflow=None,
+        max_concurrent_actions=None,
+    )
+    mock_service = AsyncMock()
+    mock_service.get_effective_limits.return_value = limits
+
+    with (
+        patch(
+            "tracecat.tiers.activities.get_async_session_tenant_context_manager",
+            return_value=AsyncMock(),
+        ) as tenant_session,
+        patch("tracecat.tiers.activities.TierService", return_value=mock_service),
+    ):
+        result = await get_tier_limits_activity(GetTierLimitsInput(org_id=ORG_ID))
+
+    assert result == limits
+    tenant_session.assert_called_once_with(organization_id=ORG_ID)
+    mock_service.get_effective_limits.assert_awaited_once_with(ORG_ID)

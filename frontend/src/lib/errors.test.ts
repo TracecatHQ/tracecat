@@ -1,6 +1,7 @@
 import {
   chainError,
   getApiErrorDetail,
+  isManagedResourceLockedError,
   showFallbackErrorToast,
 } from "@/lib/errors"
 
@@ -139,6 +140,24 @@ describe("chainError", () => {
     chainError()(error)
 
     expect(mockToast).not.toHaveBeenCalled()
+  })
+
+  it("toasts the managed resource lock message without a local handler", () => {
+    const error = Object.assign(new Error("Forbidden"), {
+      status: 403,
+      body: {
+        detail: "Managed by Tracecat. Detach to edit.",
+        error: { code: "managed_resource_locked" },
+      },
+    })
+
+    expect(isManagedResourceLockedError(error)).toBe(true)
+    chainError()(error)
+
+    expect(mockToast).toHaveBeenCalledWith({
+      description: "Managed by Tracecat. Detach to edit.",
+      variant: "destructive",
+    })
   })
 
   it("forwards unmatched errors and all callback arguments locally", () => {

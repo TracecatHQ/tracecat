@@ -23,7 +23,9 @@ jest.mock("@/providers/builder", () => ({
     setTriggerPanelTab: jest.fn(),
   }),
 }))
-jest.mock("@/providers/workflow", () => ({ useWorkflow: jest.fn() }))
+jest.mock("@/providers/workflow", () => ({
+  useWorkflow: () => ({ isReadOnly: false }),
+}))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
@@ -39,7 +41,7 @@ jest.mock("@/components/forms/form-trigger-controls", () => ({
 it.each<[FormsAccess, boolean | undefined, boolean]>([
   ["enabled", true, true],
   ["locked", true, false],
-  ["hidden", true, false],
+  ["loading", true, false],
   ["enabled", false, false],
 ])(
   "shows the Form tab when Forms is %s and form:read is %p: %p",

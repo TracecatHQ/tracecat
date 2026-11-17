@@ -39,6 +39,8 @@ import type {
   GraphResponse,
   RegistryActionReadMinimal,
 } from "@/client"
+import { graphPreviewAutoLayout } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import actionNode, {
   type ActionNodeData,
   type ActionNodeType,
@@ -170,7 +172,7 @@ export const WorkflowCanvas = React.forwardRef<
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
   const { toast } = useToast()
-  const { workspaceId, workflowId } = useWorkflow()
+  const { workspaceId, workflowId, isReadOnly } = useWorkflow()
   const { selectedNodeId, setSelectedNodeId } = useWorkflowBuilder()
   const { resolvedTheme } = useTheme()
   const backgroundPatternColor =
@@ -180,6 +182,8 @@ export const WorkflowCanvas = React.forwardRef<
     workspaceId,
     workflowId ?? ""
   )
+  const canUpdateWorkflow = useScopeCheck("workflow:update")
+  const lacksUpdateScope = canUpdateWorkflow === false
   const [graphVersion, setGraphVersion] = useState<number>(1)
   const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(
     null
@@ -772,7 +776,7 @@ export const WorkflowCanvas = React.forwardRef<
         })
       }
 
-      if (operations.length === 0) return
+      if (operations.length === 0 || lacksUpdateScope) return
 
       try {
         const result = await applyGraphOperations({
@@ -803,11 +807,30 @@ export const WorkflowCanvas = React.forwardRef<
         }
       }
     },
-    [graphVersion, applyGraphOperations, refetchGraph]
+    [graphVersion, applyGraphOperations, refetchGraph, lacksUpdateScope]
   )
 
   const onLayout = useCallback(async () => {
     if (!workflowId) return
+    if (lacksUpdateScope) {
+      // Read-only users get a local-only layout; nothing is saved.
+      try {
+        const preview = await graphPreviewAutoLayout({
+          workspaceId,
+          workflowId,
+        })
+        const { nodes: previewNodes, edges: previewEdges } =
+          buildNodesAndEdgesFromGraph(preview)
+        hydrateCanvasFromGraph(previewNodes, previewEdges)
+      } catch (error) {
+        console.error("Failed to preview auto-layout:", error)
+        toast({
+          title: "Failed to auto-layout workflow",
+          description: "Please try again.",
+        })
+      }
+      return
+    }
     const operations: GraphOperation[] = [{ type: "auto_layout", payload: {} }]
     try {
       const result = await applyGraphOperations({
@@ -834,10 +857,15 @@ export const WorkflowCanvas = React.forwardRef<
     }
   }, [
     workflowId,
+    workspaceId,
+    lacksUpdateScope,
     graphVersion,
     applyGraphOperations,
     refetchGraph,
     updateStateFromGraph,
+    hydrateCanvasFromGraph,
+    buildNodesAndEdgesFromGraph,
+    toast,
   ])
 
   // Batch update positions when nodes are dragged
@@ -851,7 +879,7 @@ export const WorkflowCanvas = React.forwardRef<
   // Save viewport when panning/zooming stops
   const onMoveEnd = useCallback(
     async (_event: unknown, viewport: Viewport) => {
-      if (!workflowId) return
+      if (!workflowId || lacksUpdateScope) return
 
       const operation: GraphOperation = {
         type: "update_viewport",
@@ -891,7 +919,13 @@ export const WorkflowCanvas = React.forwardRef<
         }
       }
     },
-    [workflowId, graphVersion, applyGraphOperations, refetchGraph]
+    [
+      workflowId,
+      lacksUpdateScope,
+      graphVersion,
+      applyGraphOperations,
+      refetchGraph,
+    ]
   )
 
   // Add this function to center on a node
@@ -1036,12 +1070,16 @@ export const WorkflowCanvas = React.forwardRef<
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onNodeDragStop={onNodesDragStop}
-        onMoveEnd={onMoveEnd}
+        nodesDraggable={!isReadOnly}
+        nodesConnectable={!isReadOnly}
+        edgesReconnectable={!isReadOnly}
+        // Managed workflows cannot write the graph, viewport included.
+        onMoveEnd={isReadOnly ? undefined : onMoveEnd}
         onPaneClick={onPaneClick}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}
-        deleteKeyCode={["Backspace", "Delete"]}
+        deleteKeyCode={isReadOnly ? null : ["Backspace", "Delete"]}
         fitView
         fitViewOptions={activeFitViewOptions}
         nodeDragThreshold={4}
@@ -1049,7 +1087,7 @@ export const WorkflowCanvas = React.forwardRef<
         minZoom={0.25}
         panOnScroll
         connectionLineType={ConnectionLineType.SmoothStep}
-        onPaneContextMenu={onPaneContextMenu}
+        onPaneContextMenu={isReadOnly ? undefined : onPaneContextMenu}
       >
         <Background
           bgColor="hsl(var(--background))"
@@ -1059,28 +1097,34 @@ export const WorkflowCanvas = React.forwardRef<
           className="rounded-sm"
           fitViewOptions={activeFitViewOptions}
         />
-        <Panel position="bottom-right" className="flex items-center gap-1">
-          <Badge
-            variant="outline"
-            className="select-none bg-background text-xs font-normal hover:cursor-default"
-          >
-            Layout
-          </Badge>
-          <Button
-            variant="outline"
-            className="m-0 size-6 p-0 text-xs"
-            onClick={onLayout}
-          >
-            <MoveVerticalIcon className="size-3" strokeWidth={2} />
-          </Button>
-        </Panel>
+        {!isReadOnly && (
+          <Panel position="bottom-right" className="flex items-center gap-1">
+            <Badge
+              variant="outline"
+              className="select-none bg-background text-xs font-normal hover:cursor-default"
+            >
+              Layout
+            </Badge>
+            <Button
+              variant="outline"
+              className="m-0 size-6 p-0 text-xs"
+              onClick={onLayout}
+            >
+              <MoveVerticalIcon className="size-3" strokeWidth={2} />
+            </Button>
+          </Panel>
+        )}
         <Panel position="bottom-center" className="mb-4">
-          <CanvasToolbar
-            onAddAction={handleToolbarAddAction}
-            onAddActions={handleToolbarAddActions}
-            embedded={embedded}
-            trailing={<ToggleConditionsButton />}
-          />
+          {isReadOnly ? (
+            <ToggleConditionsButton />
+          ) : (
+            <CanvasToolbar
+              onAddAction={handleToolbarAddAction}
+              onAddActions={handleToolbarAddActions}
+              embedded={embedded}
+              trailing={<ToggleConditionsButton />}
+            />
+          )}
         </Panel>
         <NodeSilhouette
           position={silhouettePosition}

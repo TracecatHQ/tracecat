@@ -32,6 +32,7 @@ from tracecat.workflow.store.service import WorkflowStoreService
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
 from tracecat.workspace_sync.schemas import (
+    WorkspacePackageRead,
     WorkspaceSyncExportError,
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportPreviewRequest,
@@ -48,8 +49,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
     response_model=WorkflowDslPublishResult,
     responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workflow:update")
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workflow:update", "workspace_sync:push")
 async def publish_workflow(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -145,7 +145,7 @@ async def list_workflow_repositories(
 
 
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_workflow_commits(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -210,7 +210,7 @@ async def list_workflow_commits(
 
 
 @router.get("/sync/branches", response_model=list[GitBranchInfo])
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
 async def list_workflow_branches(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -266,7 +266,7 @@ async def list_workflow_branches(
     response_model=WorkspaceSyncExportResult,
     responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workspace_sync:sync")
+@require_scope("workspace_sync:push")
 async def export_workspace_sync(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -301,12 +301,52 @@ async def export_workspace_sync(
         ) from e
 
 
+@router.get(
+    "/sync/package",
+    response_model=WorkspacePackageRead,
+    responses={400: {"model": WorkspaceSyncExportError}},
+)
+@require_scope("workspace_sync:push", "workspace_sync:pull", require_all=False)
+async def get_workspace_sync_package(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    ref: str | None = Query(default=None, max_length=255),
+) -> WorkspacePackageRead | JSONResponse:
+    """Read the managed resources package selection of the source workspace."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    try:
+        sync_service = await WorkspaceSyncService.for_workspace(
+            session=session, role=role
+        )
+        return await sync_service.read_package(ref=ref)
+    except WorkflowExportValidationError as e:
+        return _export_validation_response(e)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except (
+        TracecatSettingsError,
+        TracecatValidationError,
+        VcsProviderError,
+    ) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
 @router.post(
     "/sync/export/preview",
     response_model=WorkspaceSyncExportPreview,
     responses={400: {"model": WorkspaceSyncExportError}},
 )
-@require_scope("workspace_sync:sync")
+@require_scope("workspace_sync:push")
 async def preview_export_workspace_sync(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -342,7 +382,7 @@ async def preview_export_workspace_sync(
 
 
 @router.post("/sync/pull", response_model=PullResult)
-@require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+@require_scope("workspace_sync:pull")
 async def pull_workflows(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,

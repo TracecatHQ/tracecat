@@ -53,7 +53,7 @@ Default response:
 Query parameters:
 
 - `echo=true`: add the original request body to the response under `payload`.
-- `empty_echo=true`: return an empty `200` with no body. Implies `echo=true`.
+- `echo=true&empty_echo=true`: return an empty `200` with no body. `empty_echo` only applies together with `echo=true`.
 - `vendor=okta`: handle Okta verification challenges. See [Okta verification](#okta-verification).
 
 ## Synchronous execution with /wait
@@ -62,11 +62,11 @@ To run a workflow synchronously and receive its `return` value in the response, 
 
 ## Slack event subscriptions
 
-Slack event subscription verification uses `?echo=true`.
+Slack event subscription verification uses `?echo=true`. See [ChatOps](/automations/integrations/chatops#event-subscriptions).
 
 ## Slack modal close and fast acknowledgements
 
-Slack interactive flows that need a fast empty acknowledgement use `?echo=true&empty_echo=true`.
+Slack interactivity and slash commands need a fast empty acknowledgement: use `?echo=true&empty_echo=true`. See [ChatOps](/automations/integrations/chatops#interactivity).
 
 ## Okta verification
 

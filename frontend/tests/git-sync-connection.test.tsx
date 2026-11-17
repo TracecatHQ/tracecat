@@ -23,8 +23,8 @@ import {
 } from "@/hooks/use-workspace-sync"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 
-jest.mock("@/components/workspace-sync/sync-operation-history", () => ({
-  SyncOperationHistory: () => <div data-testid="sync-operation-history" />,
+jest.mock("@/components/workspace-sync/sync-operation-status", () => ({
+  SyncOperationStatus: () => <div data-testid="sync-operation-status" />,
 }))
 
 const mockUpdateWorkspace = jest.fn()
@@ -791,11 +791,16 @@ describe("GitSyncConnectionPanel connected repository", () => {
 describe("GitSyncView connection", () => {
   it("asks non-admins to get a repository connected", () => {
     render(
-      <GitSyncView workspace={setup()} canSync canManageConnection={false} />
+      <GitSyncView
+        workspace={setup()}
+        canPush
+        canPull
+        canManageConnection={false}
+      />
     )
 
     expect(screen.getByText("No repository connected")).toBeInTheDocument()
-    expect(screen.getByTestId("sync-operation-history")).toBeInTheDocument()
+    expect(screen.getByTestId("sync-operation-status")).toBeInTheDocument()
     expect(
       screen.getByText(
         "Ask a workspace admin to connect one. Once it's connected, you can push and pull here."
@@ -806,16 +811,23 @@ describe("GitSyncView connection", () => {
 
   it("hides operation history without sync access", () => {
     render(
-      <GitSyncView workspace={setup()} canSync={false} canManageConnection />
+      <GitSyncView
+        workspace={setup()}
+        canPush={false}
+        canPull={false}
+        canManageConnection
+      />
     )
 
     expect(
-      screen.queryByTestId("sync-operation-history")
+      screen.queryByTestId("sync-operation-status")
     ).not.toBeInTheDocument()
   })
 
   it("renders the remote line inline for admins without a repository", () => {
-    render(<GitSyncView workspace={setup()} canSync canManageConnection />)
+    render(
+      <GitSyncView workspace={setup()} canPush canPull canManageConnection />
+    )
 
     expect(
       screen.getByRole("heading", { name: "Connect a repository" })
@@ -832,7 +844,8 @@ describe("GitSyncView connection", () => {
           gitProvider: "github",
           branches: [{ name: "main", is_default: true }],
         })}
-        canSync
+        canPush
+        canPull
         canManageConnection
       />
     )

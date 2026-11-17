@@ -1,0 +1,286 @@
+---
+title: "ChatOps"
+description: "Trigger Tracecat workflows from Slack mentions, button clicks, and slash commands, then reply from the workflow."
+keywords: ["slack", "slack app", "chatops", "slash commands", "interactivity", "event subscriptions", "teams"]
+---
+
+<Info>
+To chat with a preset agent in Slack without building workflows, use [Channels](/agents/channels) (Enterprise).
+</Info>
+
+## Slack apps
+
+A Slack app sends Slack activity to Tracecat [webhooks](/automations/triggers/webhooks). Your workflows reply with [`tools.slack`](/tools/slack) actions.
+
+| Slack feature | Use it to | Webhook URL suffix |
+| --- | --- | --- |
+| [Event subscriptions](#event-subscriptions) | Run a workflow when someone mentions the app | `?echo=true` |
+| [Interactivity](#interactivity) | Handle button clicks, menu selections, and modal submissions | `?echo=true&empty_echo=true` |
+| [Slash commands](#slash-commands) | Run a workflow from `/command` | `?echo=true&empty_echo=true` |
+
+Slack expects an `HTTP 200` within 3 seconds. `echo=true` answers the [URL verification challenge](https://docs.slack.dev/reference/events/url_verification). `echo=true&empty_echo=true` returns the empty `200` Slack expects for [interactions](https://docs.slack.dev/interactivity/handling-user-interaction#acknowledgment_response) and [slash commands](https://docs.slack.dev/interactivity/implementing-slash-commands). `empty_echo` only applies together with `echo=true`.
+
+Use one workflow per Slack feature. Each webhook URL starts one workflow.
+
+Slack app settings pages live at `https://api.slack.com/apps/<app-id>/<page>`. Find the app ID in `Basic Information` on [Slack apps](https://api.slack.com/apps).
+
+### App manifest and scopes
+
+The manifest requests these [bot token scopes](https://docs.slack.dev/reference/scopes). Edit scopes later in `OAuth & Permissions` (`/apps/<app-id>/oauth`).
+
+Remove the `slash_commands`, `event_subscriptions`, or `interactivity` block if you don't use that feature. See the [app manifest reference](https://docs.slack.dev/reference/app-manifest).
+
+```json
+{
+  "display_information": {
+    "name": "Tracecat"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Tracecat",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/tracecat",
+        "url": "https://<tracecat-host>/api/webhooks/<slash-command-workflow-id>/<webhook-secret>?echo=true&empty_echo=true",
+        "description": "Run a Tracecat workflow",
+        "usage_hint": "[text]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "chat:write.public",
+        "commands",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:write",
+        "reactions:read",
+        "reactions:write",
+        "users:read",
+        "users:read.email"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://<tracecat-host>/api/webhooks/<events-workflow-id>/<webhook-secret>?echo=true",
+      "bot_events": ["app_mention"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://<tracecat-host>/api/webhooks/<interactivity-workflow-id>/<webhook-secret>?echo=true&empty_echo=true"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
+```
+
+| Scope | Why |
+| --- | --- |
+| `app_mentions:read` | Receive `@Tracecat` mentions |
+| `channels:history`, `groups:history` | Read messages and threads in channels the app is in |
+| `channels:read`, `groups:read` | Look up channel names and IDs |
+| `chat:write` | Post and update messages |
+| `chat:write.public` | Post to public channels without joining |
+| `commands` | Register slash commands |
+| `im:history`, `im:write` | Read DMs to the app and open DMs with users |
+| `reactions:read`, `reactions:write` | Read and add reactions |
+| `users:read`, `users:read.email` | Look up users by ID or email |
+
+<Accordion title="Optional scopes">
+Add these only for the `tools.slack` actions you use.
+
+| Scope | Add it for |
+| --- | --- |
+| `channels:manage`, `groups:write` | Creating, archiving, or managing channel members |
+| `channels:join` | Joining public channels without an invite |
+| `pins:read`, `pins:write` | Listing and adding pins |
+| `bookmarks:read`, `bookmarks:write` | Listing and adding channel bookmarks |
+| `canvases:read`, `canvases:write` | Reading and editing canvases |
+| `files:read`, `files:write` | Reading and uploading files |
+| `assistant:write` | Status, title, and suggested prompts in assistant threads |
+| `mpim:history`, `mpim:read` | Reading group DMs |
+| `emoji:read` | Using custom workspace emoji |
+| `links:read`, `links:write` | Unfurling links to your domains |
+</Accordion>
+
+### Create the app
+
+Before you start, publish each workflow, copy its webhook URL (`https://<tracecat-host>/api/webhooks/<workflow-id>/<webhook-secret>`), and leave webhook [API key authentication](/automations/triggers/webhooks#api-key-authentication) off. Slack can't send the `x-tracecat-api-key` header and must reach Tracecat over public HTTPS.
+
+<Steps>
+  <Step title="Create the app from a manifest">
+    Open [Slack apps](https://api.slack.com/apps), click `Create New App` > `From a manifest`, pick your workspace, and paste the [manifest](#app-manifest-and-scopes) above with your webhook URLs.
+  </Step>
+  <Step title="Install the app">
+    Open `Install App` (`/apps/<app-id>/install-on-team`) and click `Install to Workspace`.
+  </Step>
+  <Step title="Save the bot token in Tracecat">
+    Copy the `Bot User OAuth Token` (`xoxb-...`) from `OAuth & Permissions` (`/apps/<app-id>/oauth`). In Tracecat, set `SLACK_BOT_TOKEN` on the `slack` [credential](/automations/integrations/prebuilt-credentials).
+  </Step>
+  <Step title="Invite the app">
+    In each channel the app should read, run `/invite @<app-name>`.
+  </Step>
+</Steps>
+
+Reinstall the app after you change scopes, events, or slash commands.
+
+### Event subscriptions
+
+Run a workflow when something happens in Slack, such as a user mentioning `@Tracecat`.
+
+<Steps>
+  <Step title="Turn on events">
+    Open `Event Subscriptions` (`/apps/<app-id>/event-subscriptions`) and turn on `Enable Events`.
+
+    ![Slack Event Subscriptions toggle](/img/chatops/slack-event-subscriptions.png)
+  </Step>
+  <Step title="Set the request URL">
+    Paste the webhook URL with `?echo=true`. Slack shows `Verified` when Tracecat echoes the challenge.
+
+    ![Slack request URL verified](/img/chatops/slack-request-url-verified.png)
+  </Step>
+  <Step title="Subscribe to app_mention">
+    Under `Subscribe to bot events`, add `app_mention`, then click `Save Changes`.
+  </Step>
+</Steps>
+
+Start with [`app_mention`](https://docs.slack.dev/reference/events/app_mention). It only fires when a user mentions the app. Message events such as `message.channels` start a run for every message in every channel the app is in.
+
+<Accordion title="Other common bot events">
+| Bot event | Fires when | Scope |
+| --- | --- | --- |
+| [`message.im`](https://docs.slack.dev/reference/events/message.im) | A user DMs the app | `im:history` |
+| [`message.channels`](https://docs.slack.dev/reference/events/message.channels) | Any message in a public channel the app is in | `channels:history` |
+| [`reaction_added`](https://docs.slack.dev/reference/events/reaction_added) | A user adds a reaction | `reactions:read` |
+</Accordion>
+
+The event is in `TRIGGER.event`. The verification request also starts a run, so skip it with `run_if`:
+
+```yaml
+- ref: reply_in_thread
+  action: tools.slack.post_message
+  run_if: ${{ TRIGGER.type == "event_callback" }}
+  args:
+    channel: ${{ TRIGGER.event.channel }}
+    thread_ts: ${{ TRIGGER.event.ts }}
+    text: "Looking into it, <@${{ TRIGGER.event.user }}>."
+```
+
+Slack [retries](https://docs.slack.dev/apis/events-api#retries) events that don't get a `200` in 3 seconds. Deduplicate on `TRIGGER.event_id`.
+
+### Interactivity
+
+Run a workflow when a user clicks or submits something in a message or modal your workflow posted.
+
+<Steps>
+  <Step title="Turn on interactivity">
+    Open `Interactivity & Shortcuts` (`/apps/<app-id>/interactive-messages`) and turn on `Interactivity`.
+  </Step>
+  <Step title="Set the request URL">
+    Paste the webhook URL with `?echo=true&empty_echo=true`, then click `Save Changes`.
+  </Step>
+</Steps>
+
+Slack allows one interactivity URL per app. Send every interaction to one workflow and branch on `action_id` or `type`.
+
+<Accordion title="Common interactive components">
+| Component | Payload `type` |
+| --- | --- |
+| [Buttons](https://docs.slack.dev/reference/block-kit/block-elements/button-element) | `block_actions` |
+| [Select menus](https://docs.slack.dev/reference/block-kit/block-elements/select-menu-element) and [multi-select menus](https://docs.slack.dev/reference/block-kit/block-elements/multi-select-menu-element) | `block_actions` |
+| [Overflow menus](https://docs.slack.dev/reference/block-kit/block-elements/overflow-menu-element) | `block_actions` |
+| [Checkboxes](https://docs.slack.dev/reference/block-kit/block-elements/checkboxes-element) and [radio buttons](https://docs.slack.dev/reference/block-kit/block-elements/radio-button-group-element) | `block_actions` |
+| [Date pickers](https://docs.slack.dev/reference/block-kit/block-elements/date-picker-element) | `block_actions` |
+| [Modal](https://docs.slack.dev/surfaces/modals) submit or close | `view_submission`, `view_closed` |
+| [Global and message shortcuts](https://docs.slack.dev/interactivity/implementing-shortcuts) | `shortcut`, `message_action` |
+
+Build messages and modals in [Block Kit Builder](https://api.slack.com/block-kit-builder).
+</Accordion>
+
+Slack sends the interaction as a JSON string in the `payload` form field. Parse it with `FN.deserialize_json`:
+
+```yaml
+- ref: parse_payload
+  action: core.transform.reshape
+  args:
+    value: ${{ FN.deserialize_json(TRIGGER.payload) }}
+
+- ref: mark_approved
+  action: tools.slack.update_message
+  run_if: ${{ ACTIONS.parse_payload.result.actions[0].action_id == "approve" }}
+  args:
+    channel: ${{ ACTIONS.parse_payload.result.channel.id }}
+    ts: ${{ ACTIONS.parse_payload.result.message.ts }}
+    text: "Approved by <@${{ ACTIONS.parse_payload.result.user.id }}>"
+```
+
+See [`block_actions` payloads](https://docs.slack.dev/reference/interaction-payloads/block_actions-payload) for every field.
+
+### Slash commands
+
+Let users run a workflow on demand, such as `/tracecat lookup 1.2.3.4`.
+
+![Slack slash command](/img/chatops/slack-slash-command.png)
+
+<Steps>
+  <Step title="Create the command">
+    Open `Slash Commands` (`/apps/<app-id>/slash-commands`) and click `Create New Command`.
+  </Step>
+  <Step title="Set the request URL">
+    Enter the command, such as `/tracecat`, and paste the webhook URL with `?echo=true&empty_echo=true`. Click `Save`.
+  </Step>
+  <Step title="Reinstall the app">
+    Reinstall the app so Slack adds the `commands` scope.
+  </Step>
+</Steps>
+
+Each command has its own URL. Slack sends form fields directly on `TRIGGER`:
+
+| Field | Value |
+| --- | --- |
+| `TRIGGER.text` | Everything after the command |
+| `TRIGGER.user_id` | User who ran the command |
+| `TRIGGER.channel_id` | Channel where the user ran the command |
+| `TRIGGER.response_url` | URL for replies, valid for 30 minutes |
+| `TRIGGER.trigger_id` | ID for `tools.slack.open_view`, valid for 3 seconds |
+
+```yaml
+- ref: reply
+  action: tools.slack.post_ephemeral
+  args:
+    channel: ${{ TRIGGER.channel_id }}
+    user: ${{ TRIGGER.user_id }}
+    text: "Running `${{ TRIGGER.text }}`..."
+```
+
+## Microsoft Teams bots
+
+Coming soon.
+
+## References
+
+- [Events API](https://docs.slack.dev/apis/events-api) and [request URL verification](https://docs.slack.dev/apis/events-api/using-http-request-urls)
+- [Handling user interaction](https://docs.slack.dev/interactivity/handling-user-interaction)
+- [Implementing slash commands](https://docs.slack.dev/interactivity/implementing-slash-commands)
+- [Block Kit](https://docs.slack.dev/block-kit)
+- [App manifest reference](https://docs.slack.dev/reference/app-manifest)
+- [Scopes reference](https://docs.slack.dev/reference/scopes)
+- [Verifying requests from Slack](https://docs.slack.dev/authentication/verifying-requests-from-slack)
+
+## Related pages
+
+- See [Webhooks](/automations/triggers/webhooks) for webhook URLs, payload parsing, and security options.
+- See [Slack](/tools/slack) for every `tools.slack` action and its inputs.
+- See [Channels](/agents/channels) to connect a preset agent to Slack without building workflows.

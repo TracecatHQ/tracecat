@@ -7,12 +7,15 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import uvicorn
+
 from tracecat.agent.otel_delivery import (
     DeliveryLimits,
     OtelDeliveryPool,
     collector_client,
 )
 from tracecat.logger import logger
+from tracecat.temporal.worker_lifecycle import WorkerOwnedUvicornServer
 
 _mcp_server_task: asyncio.Task[None] | None = None
 
@@ -45,8 +48,6 @@ async def start_mcp_server() -> None:
     """Start the trusted MCP HTTP server on Unix socket."""
     global _mcp_server_task
 
-    import uvicorn
-
     from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
     from tracecat.agent.mcp.trusted_server import app
 
@@ -62,7 +63,7 @@ async def start_mcp_server() -> None:
         uds=str(socket_path),
         log_level="warning",
     )
-    server = uvicorn.Server(uvicorn_config)
+    server = WorkerOwnedUvicornServer(uvicorn_config)
     _mcp_server_task = asyncio.create_task(server.serve())
 
     if not await _wait_for_socket(socket_path):

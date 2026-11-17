@@ -147,6 +147,7 @@ async def test_authenticate_api_key_cold_workspace_cache_uses_one_auth_checkout(
         scopes=[SimpleNamespace(name="workflow:read")],
     )
     record = SimpleNamespace(
+        surrogate_id=1,
         revoked_at=None,
         salt=generated.salt_b64,
         hashed=generated.hashed,
@@ -159,8 +160,11 @@ async def test_authenticate_api_key_cold_workspace_cache_uses_one_auth_checkout(
     workspace_result = MagicMock()
     workspace_result.scalar_one_or_none.return_value = organization_id
     auth_session = AsyncMock()
-    auth_session.add = MagicMock()
-    auth_session.execute.side_effect = [api_key_result, workspace_result]
+    auth_session.execute.side_effect = [
+        api_key_result,
+        workspace_result,
+        MagicMock(),
+    ]
 
     checkout_count = 0
     active_checkouts = 0
@@ -200,7 +204,7 @@ async def test_authenticate_api_key_cold_workspace_cache_uses_one_auth_checkout(
     assert checkout_count == 1
     assert max_active_checkouts == 1
     assert active_checkouts == 0
-    assert auth_session.execute.await_count == 2
+    assert auth_session.execute.await_count == 3
 
 
 @pytest.mark.anyio

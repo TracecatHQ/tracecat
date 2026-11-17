@@ -668,6 +668,9 @@ class AgentChannelService(BaseWorkspaceService):
             select(AgentChannelToken)
             .join(AgentPreset, AgentPreset.id == AgentChannelToken.agent_preset_id)
             .where(
+                # Public requests look this up without RLS; keep the preset in
+                # the token's workspace explicitly.
+                AgentPreset.workspace_id == AgentChannelToken.workspace_id,
                 AgentChannelToken.id == token_id,
                 AgentChannelToken.channel_type == channel_type.value,
                 AgentPreset.deleted_at.is_(None),

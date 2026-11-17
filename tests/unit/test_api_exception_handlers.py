@@ -11,8 +11,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError, IntegrityError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.api import app as api_app
+from tracecat.api import common as api_common
 from tracecat.api.app import (
     _install_scim_exception_handlers,
     authorization_exception_handler,
@@ -23,9 +25,11 @@ from tracecat.api.app import (
 )
 from tracecat.api.common import (
     database_exception_handler,
+    generic_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     serialize_validation_errors,
+    temporal_rpc_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.exceptions import (
@@ -194,6 +198,63 @@ def test_query_error_response_contract(
         "code": expected_code,
         "message": str(exc),
     }
+
+
+@pytest.mark.parametrize(
+    ("rpc_status", "expected_status"),
+    [
+        (RPCStatusCode.DEADLINE_EXCEEDED, 503),
+        (RPCStatusCode.UNAVAILABLE, 503),
+        (RPCStatusCode.RESOURCE_EXHAUSTED, 503),
+        (RPCStatusCode.INTERNAL, 500),
+        (RPCStatusCode.NOT_FOUND, 500),
+    ],
+)
+def test_temporal_rpc_errors_map_transient_faults_to_503(
+    rpc_status: RPCStatusCode, expected_status: int
+) -> None:
+    app = FastAPI()
+    app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+
+    async def boom() -> None:
+        raise RPCError("downstream duration timeout", rpc_status, b"")
+
+    app.add_api_route("/boom", boom, methods=["GET"])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+
+    assert response.status_code == expected_status
+    if expected_status == 503:
+        assert response.json()["detail"]["code"] == "temporal_unavailable"
+    assert "downstream duration timeout" not in response.text
+
+
+def test_temporal_rpc_errors_log_the_route_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Webhook URLs carry a credential in the path, so the log keeps the template.
+    logged = Mock()
+    monkeypatch.setattr(api_common, "logger", logged)
+    app = FastAPI()
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+
+    async def boom(secret: str) -> None:
+        raise RPCError("timeout", RPCStatusCode.DEADLINE_EXCEEDED, b"")
+
+    app.add_api_route("/webhooks/{secret}", boom, methods=["POST"])
+    with TestClient(app) as client:
+        response = client.post("/webhooks/live-webhook-secret")
+
+    assert response.status_code == 503
+    logged.warning.assert_called_once()
+    assert logged.warning.call_args.kwargs["route"] == "/webhooks/{secret}"
+    assert "live-webhook-secret" not in repr(logged.warning.call_args)
+
+
+def test_temporal_rpc_handler_is_registered_in_both_api_apps() -> None:
+    for app in (create_api_app(), create_action_gateway_app()):
+        assert app.exception_handlers[RPCError] is temporal_rpc_exception_handler
 
 
 def test_query_error_handlers_are_registered_in_both_api_apps() -> None:
@@ -385,3 +446,35 @@ def test_validation_errors_replace_surrogates() -> None:
             "ctx": {"error": "b\ufffd"},
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [
+        pytest.param(252, id="orjson-limit"),
+        pytest.param(300, id="pydantic-core-limit"),
+        pytest.param(995, id="python-recursion-limit"),
+    ],
+)
+def test_deeply_nested_rejected_input_returns_422(depth: int) -> None:
+    app = FastAPI()
+    app.add_exception_handler(
+        RequestValidationError, api_app.validation_exception_handler
+    )
+
+    async def validate(params: FormValidateRequest) -> None:
+        return None
+
+    app.add_api_route("/validate", validate, methods=["POST"])
+    body = '{"n": ' * depth + "1" + "}" * depth
+    with TestClient(app) as client:
+        response = client.post(
+            "/validate",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["type"] == "missing"
+    assert "input" not in error

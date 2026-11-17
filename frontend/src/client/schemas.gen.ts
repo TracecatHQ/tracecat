@@ -1487,6 +1487,19 @@ export const $AgentCatalogRead = {
       ],
       title: "Model Metadata",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -1496,9 +1509,227 @@ export const $AgentCatalogRead = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "AgentCatalogRead",
   description: "Single catalog model entry.",
+} as const
+
+export const $AgentChannelBotCreate = {
+  properties: {
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["agent_preset_id", "provider"],
+  title: "AgentChannelBotCreate",
+  description: "Reserve a bot before the provider app exists.",
+} as const
+
+export const $AgentChannelBotRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+      description:
+        "The agent that answers; a platform install's default agent.",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    app_owner: {
+      $ref: "#/components/schemas/ChannelBotAppOwner",
+    },
+    status: {
+      $ref: "#/components/schemas/ChannelBotStatus",
+    },
+    provider_tenant_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Tenant Id",
+    },
+    provider_app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider App Id",
+    },
+    endpoint_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Url",
+      description:
+        "Inbound event URL; None when the bot's events arrive over a socket.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    details: {
+      $ref: "#/components/schemas/ChannelBotDetails",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "agent_preset_id",
+    "provider",
+    "app_owner",
+    "status",
+    "provider_tenant_id",
+    "provider_app_id",
+    "endpoint_url",
+    "created_at",
+    "updated_at",
+    "details",
+  ],
+  title: "AgentChannelBotRead",
+} as const
+
+export const $AgentChannelBotUpdate = {
+  properties: {
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "New target. Existing threads stay on the agent they started with.",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelBotRunState",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    credentials: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelBotCredentialsUpdate",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Must name the bot's provider.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AgentChannelBotUpdate",
+} as const
+
+export const $AgentChannelRouteRead = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "bot_id",
+    "provider_channel_id",
+    "agent_preset_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentChannelRouteRead",
+} as const
+
+export const $AgentChannelRouteSet = {
+  properties: {
+    provider_channel_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^\\S+$",
+      title: "Provider Channel Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider_channel_id", "agent_preset_id"],
+  title: "AgentChannelRouteSet",
+  description:
+    "Answer new threads in one channel with another agent than the default.",
 } as const
 
 export const $AgentChannelTokenCreate = {
@@ -4544,7 +4775,6 @@ export const $AgentSessionCreate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -4741,6 +4971,13 @@ export const $AgentSessionRead = {
       title: "Is Readonly",
       description: "Whether the requesting actor can modify this session",
       default: false,
+    },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -4973,6 +5210,13 @@ export const $AgentSessionReadVercel = {
       title: "Is Readonly",
       description: "Whether the requesting actor can modify this session",
       default: false,
+    },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
     },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
@@ -5214,6 +5458,13 @@ export const $AgentSessionReadWithMessages = {
       description: "Whether the requesting actor can modify this session",
       default: false,
     },
+    can_decide_approvals: {
+      type: "boolean",
+      title: "Can Decide Approvals",
+      description:
+        "Whether the requesting actor can approve or deny this session's tool calls",
+      default: true,
+    },
     entity_type: {
       $ref: "#/components/schemas/AgentSessionEntity",
     },
@@ -5441,7 +5692,6 @@ export const $AgentSessionUpdate = {
             type: "string",
           },
           type: "array",
-          maxItems: 50,
         },
         {
           type: "null",
@@ -5562,6 +5812,11 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      default: false,
+    },
   },
   type: "object",
   required: [
@@ -5614,6 +5869,13 @@ export const $AgentSettingsUpdate = {
       title: "Agent Case Chat Inject Content",
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+    agent_auto_migrate_retired_models: {
+      type: "boolean",
+      title: "Agent Auto Migrate Retired Models",
+      description:
+        "Whether runs on a retired model move to its replacement when that model is enabled.",
       default: false,
     },
   },
@@ -5798,11 +6060,29 @@ export const $AlertArtifact = {
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
-export const $AndClause = {
+export const $AndClause_Input = {
   properties: {
     and: {
       items: {
-        $ref: "#/components/schemas/Filter",
+        $ref: "#/components/schemas/Filter-Input",
+      },
+      type: "array",
+      minItems: 1,
+      title: "And",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["and"],
+  title: "AndClause",
+  description: "A conjunction of one or more filters.",
+} as const
+
+export const $AndClause_Output = {
+  properties: {
+    and: {
+      items: {
+        $ref: "#/components/schemas/Filter-Output",
       },
       type: "array",
       minItems: 1,
@@ -7826,6 +8106,17 @@ export const $Body_tables_import_table_from_csv = {
       ],
       title: "Table Name",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
   },
   type: "object",
   required: ["file"],
@@ -7898,6 +8189,18 @@ export const $BooleanApprovalDecision = {
   required: ["value", "metadata"],
   title: "BooleanApprovalDecision",
   description: "Persisted boolean decision enriched with submission metadata.",
+} as const
+
+export const $BuildEdition = {
+  type: "string",
+  enum: ["oss", "ee"],
+  title: "BuildEdition",
+  description: "Edition of the running deployment.",
+} as const
+
+export const $BuiltinCaseViewId = {
+  type: "string",
+  const: "assigned_to_me",
 } as const
 
 export const $CaseAgentSessionBackfillStatus = {
@@ -8778,6 +9081,624 @@ export const $CaseCreate = {
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
   title: "CaseCreate",
+} as const
+
+export const $CaseCriteria_Input = {
+  properties: {
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseCriteria",
+  description: `Matching criteria shared by case search, status counts, and saved views.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
+} as const
+
+export const $CaseCriteria_Output = {
+  properties: {
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseCriteria",
+  description: `Matching criteria shared by case search, status counts, and saved views.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
 } as const
 
 export const $CaseDropdownDefinitionCreate = {
@@ -10552,7 +11473,7 @@ export const $CaseQuery = {
     filters: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Filter",
+          $ref: "#/components/schemas/Filter-Input",
         },
         {
           type: "null",
@@ -10697,7 +11618,7 @@ export const $CaseQuery = {
               },
               {
                 type: "string",
-                enum: ["unassigned", "__UNASSIGNED__"],
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
               },
             ],
           },
@@ -10708,6 +11629,32 @@ export const $CaseQuery = {
         },
       ],
       title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
     },
     tags: {
       anyOf: [
@@ -10763,6 +11710,18 @@ export const $CaseQuery = {
       ],
       title: "End Time",
     },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
     updated_after: {
       anyOf: [
         {
@@ -10787,23 +11746,88 @@ export const $CaseQuery = {
       ],
       title: "Updated Before",
     },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.",
+    },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
   title: "CaseQuery",
-  description: `Matching criteria shared by case search and filtered status counts.
+  description:
+    "Case criteria as a request runs them: on their own or through a view.",
+} as const
 
-Explicit text, identity, and hierarchy constraints are combined with
-\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
-service and cannot be supplied or negated by this request.
+export const $CaseQueryErrorCode = {
+  type: "string",
+  const: "current_user_required",
+} as const
 
-Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
-\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
-\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+export const $CaseQueryErrorDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/CaseQueryErrorCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["code", "message"],
+  title: "CaseQueryErrorDetail",
+  description: "A case query error with a machine-readable code.",
+} as const
 
-Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
-\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
-unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
+export const $CaseQueryErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          $ref: "#/components/schemas/CaseQueryErrorDetail",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "CaseQueryErrorResponse",
+  description: "A rejected case query: a plain message, or a typed error.",
 } as const
 
 export const $CaseRead = {
@@ -11214,7 +12238,7 @@ export const $CaseSearchRequest = {
     filters: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Filter",
+          $ref: "#/components/schemas/Filter-Input",
         },
         {
           type: "null",
@@ -11359,7 +12383,7 @@ export const $CaseSearchRequest = {
               },
               {
                 type: "string",
-                enum: ["unassigned", "__UNASSIGNED__"],
+                enum: ["unassigned", "__UNASSIGNED__", "me"],
               },
             ],
           },
@@ -11370,6 +12394,32 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Assignee Id",
+      description: 'User IDs, "unassigned", or "me" for the requesting user.',
+    },
+    created_by: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                const: "me",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+      description: `Users who created the case, or "me" for the requesting user. A case a workflow or agent created on a user's behalf counts as that user's. Scheduled, webhook, and other runs with no user record no creator, so their cases never match.`,
     },
     tags: {
       anyOf: [
@@ -11425,6 +12475,18 @@ export const $CaseSearchRequest = {
       ],
       title: "End Time",
     },
+    created_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Created within this window, ending at the time the query runs.",
+    },
     updated_after: {
       anyOf: [
         {
@@ -11448,6 +12510,41 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Updated Before",
+    },
+    updated_within: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelativeTimeWindow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Updated within this window, ending at the time the query runs.",
+    },
+    view_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          $ref: "#/components/schemas/BuiltinCaseViewId",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "View Id",
+      description:
+        "Run a saved case view. The view supplies the matching criteria; the request may add a `filters` tree, which is ANDed with the view's, and other matching fields are rejected. Pagination, result options, and order_by/sort still apply; order_by overrides the view's order.",
+    },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
     },
     order_by: {
       anyOf: [
@@ -11545,12 +12642,6 @@ export const $CaseSearchRequest = {
       title: "Promote Exact Match",
       description:
         "Place complete case references before filtered text matches within the authorized workspace.",
-      default: false,
-    },
-    match_none: {
-      type: "boolean",
-      title: "Match None",
-      description: "The ordinary filter population matches no cases.",
       default: false,
     },
   },
@@ -12553,6 +13644,494 @@ export const $CaseVersionRestoreRead = {
     "Confirmation that a historical case field version was restored.",
 } as const
 
+export const $CaseViewColumns = {
+  items: {
+    type: "string",
+  },
+  type: "array",
+  maxItems: 100,
+} as const
+
+export const $CaseViewCreate = {
+  properties: {
+    name: {
+      $ref: "#/components/schemas/CaseViewName",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+      default: "personal",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseCriteria-Input",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewColumns",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["name"],
+  title: "CaseViewCreate",
+  description: "Save a case search as a named view.",
+} as const
+
+export const $CaseViewDetail = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "A UUID for saved views, or a built-in view ID.",
+    },
+    kind: {
+      $ref: "#/components/schemas/CaseViewKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+    },
+    owner_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Owner Id",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseCriteria-Output",
+      description:
+        "The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Columns",
+    },
+    can_edit: {
+      type: "boolean",
+      title: "Can Edit",
+      description:
+        "Whether the requesting user may rename, change, or delete it.",
+    },
+    pinned: {
+      type: "boolean",
+      title: "Pinned",
+      default: false,
+    },
+    pin_position: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pin Position",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+    stale_refs: {
+      items: {
+        $ref: "#/components/schemas/CaseViewStaleRef",
+      },
+      type: "array",
+      title: "Stale Refs",
+      description:
+        "Deleted tags, dropdowns, or dropdown options the stored query names. They are removed from query.",
+    },
+    empty_rules: {
+      $ref: "#/components/schemas/CaseViewEmptyRules",
+      description: "Rules left with nothing to match after deletions.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "kind",
+    "name",
+    "visibility",
+    "query",
+    "can_edit",
+    "stale_refs",
+    "empty_rules",
+  ],
+  title: "CaseViewDetail",
+  description: "One view in the form it runs in, with what deletions changed.",
+} as const
+
+export const $CaseViewEmptyRules = {
+  properties: {
+    tags: {
+      type: "boolean",
+      title: "Tags",
+      default: false,
+    },
+    dropdown_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Dropdown Refs",
+    },
+    filters: {
+      type: "boolean",
+      title: "Filters",
+      description: "The advanced filter tree names something deleted.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "CaseViewEmptyRules",
+  description: `Rules of a view left with nothing to match after deletions.
+
+Each one makes the view match no cases until it is given new values.`,
+} as const
+
+export const $CaseViewKind = {
+  type: "string",
+  enum: ["builtin", "custom"],
+} as const
+
+export const $CaseViewName = {
+  type: "string",
+  maxLength: 255,
+  minLength: 1,
+} as const
+
+export const $CaseViewPinUpdate = {
+  properties: {
+    position: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 10000,
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Position",
+      description: "Sidebar position. Omit to add the view at the end.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseViewPinUpdate",
+  description: "Where to put a pinned view in the sidebar.",
+} as const
+
+export const $CaseViewRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "A UUID for saved views, or a built-in view ID.",
+    },
+    kind: {
+      $ref: "#/components/schemas/CaseViewKind",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    visibility: {
+      $ref: "#/components/schemas/CaseViewVisibility",
+    },
+    owner_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Owner Id",
+    },
+    query: {
+      $ref: "#/components/schemas/CaseCriteria-Output",
+      description:
+        "The view's criteria. Reading one view removes deleted tags and options; see CaseViewDetail.",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Columns",
+    },
+    can_edit: {
+      type: "boolean",
+      title: "Can Edit",
+      description:
+        "Whether the requesting user may rename, change, or delete it.",
+    },
+    pinned: {
+      type: "boolean",
+      title: "Pinned",
+      default: false,
+    },
+    pin_position: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pin Position",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "kind", "name", "visibility", "query", "can_edit"],
+  title: "CaseViewRead",
+  description: "A saved or built-in case view, as seen by the requesting user.",
+} as const
+
+export const $CaseViewSort = {
+  type: "string",
+  enum: ["asc", "desc"],
+} as const
+
+export const $CaseViewStaleRef = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["tag", "dropdown"],
+      title: "Kind",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+      description:
+        "The identifier as stored in the view's query: a tag ref, a `definition_ref:option_ref` entry, or a dropdown ref from the filter tree.",
+    },
+  },
+  type: "object",
+  required: ["kind", "value"],
+  title: "CaseViewStaleRef",
+  description:
+    "A reference in a view's query to something that no longer exists.",
+} as const
+
+export const $CaseViewUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewName",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    visibility: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewVisibility",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    query: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCriteria-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewSort",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    columns: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseViewColumns",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseViewUpdate",
+  description: `Change a saved view. Omitted fields stay as they are.
+
+\`\`order_by\`\`, \`\`sort\`\`, and \`\`columns\`\` accept \`\`null\`\` to clear them.`,
+} as const
+
+export const $CaseViewVisibility = {
+  type: "string",
+  enum: ["personal", "workspace"],
+  title: "CaseViewVisibility",
+  description: "Who can see a saved case view.",
+} as const
+
 export const $CaseViewedEventRead = {
   properties: {
     wf_exec_id: {
@@ -12800,6 +14379,242 @@ export const $CatalogMappingSelection = {
   title: "CatalogMappingSelection",
   description:
     "User-selected target catalog row for one source catalog reference.",
+} as const
+
+export const $ChannelBotAppOwner = {
+  type: "string",
+  enum: ["workspace", "platform"],
+  title: "ChannelBotAppOwner",
+  description: "Who owns a bot's provider app.",
+} as const
+
+export const $ChannelBotChannel = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    is_private: {
+      type: "boolean",
+      title: "Is Private",
+    },
+    is_member: {
+      type: "boolean",
+      title: "Is Member",
+    },
+    team_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Id",
+    },
+    team_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Team Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "is_private", "is_member"],
+  title: "ChannelBotChannel",
+  description:
+    "A channel in the bot's provider tenant, which a route can name.",
+} as const
+
+export const $ChannelBotCredentialsUpdate = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotCredentialsUpdate",
+    },
+  },
+} as const
+
+export const $ChannelBotDetails = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotDetails",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotDetails",
+    },
+  },
+} as const
+
+export const $ChannelBotInstall = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SlackBotInstall",
+    },
+  ],
+  discriminator: {
+    propertyName: "provider",
+    mapping: {
+      slack: "#/components/schemas/SlackBotInstall",
+    },
+  },
+} as const
+
+export const $ChannelBotInstallResult = {
+  properties: {
+    bot: {
+      $ref: "#/components/schemas/AgentChannelBotRead",
+    },
+    authorization_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Authorization Url",
+      description:
+        "Where to send the browser to finish the install; None when the provider has no browser step.",
+    },
+  },
+  type: "object",
+  required: ["bot", "authorization_url"],
+  title: "ChannelBotInstallResult",
+} as const
+
+export const $ChannelBotPlatformApp = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "ChannelBotPlatformApp",
+  description:
+    "A provider app the deployment owns, which a workspace installs in one step.",
+} as const
+
+export const $ChannelBotPlatformAppSetup = {
+  properties: {
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+    request_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Url",
+    },
+  },
+  type: "object",
+  required: ["transport", "oauth_redirect_url", "request_url"],
+  title: "ChannelBotPlatformAppSetup",
+  description:
+    "What a platform admin pastes into the deployment's own provider app.",
+} as const
+
+export const $ChannelBotPlatformInstall = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description: "Platform install to reconnect. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Id",
+      description:
+        "The install's default agent. Required without bot_id; with it, replaces it.",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider", "return_url"],
+  title: "ChannelBotPlatformInstall",
+  description:
+    "Install the platform app, which the deployment registers, over OAuth; or reconnect.",
+} as const
+
+export const $ChannelBotProvider = {
+  type: "string",
+  enum: ["slack"],
+  title: "ChannelBotProvider",
+} as const
+
+export const $ChannelBotRunState = {
+  type: "string",
+  enum: ["active", "paused"],
+  title: "ChannelBotRunState",
+  description:
+    "The statuses an admin sets directly; the others follow install and uninstall.",
+} as const
+
+export const $ChannelBotStatus = {
+  type: "string",
+  enum: ["active", "paused", "disconnected", "needs_reconnect"],
+  title: "ChannelBotStatus",
+} as const
+
+export const $ChannelBotTransport = {
+  type: "string",
+  enum: ["http", "socket"],
+  title: "ChannelBotTransport",
+  description:
+    "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
 } as const
 
 export const $ChannelType = {
@@ -13567,6 +15382,19 @@ export const $CommentDeletedEventRead = {
     delete_mode: {
       $ref: "#/components/schemas/CaseCommentDeleteMode",
     },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+      description: "The author of the deleted comment.",
+    },
     user_id: {
       anyOf: [
         {
@@ -13705,6 +15533,19 @@ export const $CommentReplyDeletedEventRead = {
     },
     delete_mode: {
       $ref: "#/components/schemas/CaseCommentDeleteMode",
+    },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+      description: "The author of the deleted comment.",
     },
     user_id: {
       anyOf: [
@@ -13930,7 +15771,35 @@ export const $CommitInfo = {
   title: "CommitInfo",
 } as const
 
-export const $Condition = {
+export const $Condition_Input = {
+  properties: {
+    field: {
+      type: "string",
+      minLength: 1,
+      title: "Field",
+    },
+    op: {
+      $ref: "#/components/schemas/FilterOp",
+    },
+    value: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FilterValue",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "op"],
+  title: "Condition",
+  description: "A predicate over one resolver-defined field.",
+} as const
+
+export const $Condition_Output = {
   properties: {
     field: {
       type: "string",
@@ -14115,6 +15984,132 @@ export const $CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AdminOrgInvitationRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelBotRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelBotRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelBotRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelRouteRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelRouteRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelRouteRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {
@@ -14556,6 +16551,132 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_CaseViewRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseViewRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseViewRead]",
+} as const
+
+export const $CursorPaginatedResponse_ChannelBotChannel_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ChannelBotChannel",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ChannelBotChannel]",
 } as const
 
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
@@ -15440,6 +17561,69 @@ export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_TableFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[TableFolderRead]",
+} as const
+
 export const $CursorPaginatedResponse_TableRowRead_ = {
   properties: {
     items: {
@@ -16250,6 +18434,93 @@ export const $DeferredToolUse = {
   title: "DeferredToolUse",
 } as const
 
+export const $DetachedCopy = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    original_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Original Local Id",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "local_id", "name", "original_local_id"],
+  title: "DetachedCopy",
+  description: "The copy a detach created.",
+} as const
+
+export const $DetachedCopyRead = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    original_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Original Local Id",
+    },
+    original_name: {
+      type: "string",
+      title: "Original Name",
+    },
+    detached_at: {
+      type: "string",
+      format: "date-time",
+      title: "Detached At",
+    },
+    case_field_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Field Name",
+      description: "For a case field copy, its current schema key.",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "For a workflow copy, its short ``wf_`` id.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "local_id",
+    "original_local_id",
+    "original_name",
+    "detached_at",
+  ],
+  title: "DetachedCopyRead",
+  description: "A customer-owned copy made by detaching a managed resource.",
+} as const
+
 export const $DocumentState = {
   type: "string",
   enum: ["pending", "building", "ready", "empty", "failed", "deleted"],
@@ -16775,7 +19046,21 @@ export const $EffectiveEntitlements = {
       type: "boolean",
       title: "Agent runtime preview",
       description:
-        "Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions",
+        "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
+      default: false,
+    },
+    agent_runtime_workflows: {
+      type: "boolean",
+      title: "Agent runtime for workflows",
+      description:
+        "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+      default: false,
+    },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
       default: false,
     },
   },
@@ -17023,7 +19308,19 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Agent runtime preview",
       description:
-        "Whether agent backends other than the built-in one may be listed and used to create or fork agent sessions",
+        "Whether agent backends other than the built-in one may be listed, used to create or fork agent sessions, and used to run new turns in existing sessions",
+    },
+    agent_runtime_workflows: {
+      type: "boolean",
+      title: "Agent runtime for workflows",
+      description:
+        "Whether workflow agent actions may run on agent backends other than the built-in one. Takes effect only together with agent_runtime_preview",
+    },
+    agent_channels_preview: {
+      type: "boolean",
+      title: "Agent channels preview",
+      description:
+        "Whether the organization uses the channel bot API in place of legacy agent channels",
     },
   },
   type: "object",
@@ -17617,7 +19914,6 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-fs-persistence",
     "workspace-sync-github-archive",
-    "forms",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -17761,19 +20057,36 @@ export const $FileUIPart = {
   description: "A file part of a message.",
 } as const
 
-export const $Filter = {
+export const $Filter_Input = {
   oneOf: [
     {
-      $ref: "#/components/schemas/Condition",
+      $ref: "#/components/schemas/Condition-Input",
     },
     {
-      $ref: "#/components/schemas/AndClause",
+      $ref: "#/components/schemas/AndClause-Input",
     },
     {
-      $ref: "#/components/schemas/OrClause",
+      $ref: "#/components/schemas/OrClause-Input",
     },
     {
-      $ref: "#/components/schemas/NotClause",
+      $ref: "#/components/schemas/NotClause-Input",
+    },
+  ],
+} as const
+
+export const $Filter_Output = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Condition-Output",
+    },
+    {
+      $ref: "#/components/schemas/AndClause-Output",
+    },
+    {
+      $ref: "#/components/schemas/OrClause-Output",
+    },
+    {
+      $ref: "#/components/schemas/NotClause-Output",
     },
   ],
 } as const
@@ -21028,6 +23341,30 @@ export const $IPAllowlistCheckResult = {
   title: "IPAllowlistCheckResult",
 } as const
 
+export const $InboxChannelThread = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+      description: "Channel bot the thread is linked on",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+      description: "The bot's provider",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+      description: "The provider's channel ID",
+    },
+  },
+  type: "object",
+  required: ["bot_id", "provider", "provider_channel_id"],
+  title: "InboxChannelThread",
+  description: "The provider channel a session's linked thread is in.",
+} as const
+
 export const $InboxGroup = {
   type: "string",
   enum: ["review_required", "running", "error", "completed"],
@@ -21127,6 +23464,18 @@ export const $InboxItemRead = {
       ],
       title: "Metadata",
       description: "Type-specific metadata",
+    },
+    channel_thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/InboxChannelThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The channel of the session's linked provider thread, if any",
     },
   },
   type: "object",
@@ -24244,6 +26593,437 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedReferenceKind = {
+  type: "string",
+  enum: ["model", "mcp_integration", "secret_store"],
+  title: "ManagedReferenceKind",
+  description:
+    "Kind of source-side reference a target workspace must resolve locally.",
+} as const
+
+export const $ManagedReferenceMatchItem = {
+  properties: {
+    reference_kind: {
+      $ref: "#/components/schemas/ManagedReferenceKind",
+    },
+    source_key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Source Key",
+    },
+    resolved_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resolved Id",
+      description: "Target resource id. Null leaves a secret store unlinked.",
+    },
+  },
+  type: "object",
+  required: ["reference_kind", "source_key"],
+  title: "ManagedReferenceMatchItem",
+  description:
+    "The target's equivalent of one source model, MCP integration or store.",
+} as const
+
+export const $ManagedReferenceMatchesUpdate = {
+  properties: {
+    matches: {
+      items: {
+        $ref: "#/components/schemas/ManagedReferenceMatchItem",
+      },
+      type: "array",
+      maxItems: 1000,
+      title: "Matches",
+    },
+  },
+  type: "object",
+  title: "ManagedReferenceMatchesUpdate",
+  description: "Replace a target's saved reference matches.",
+} as const
+
+export const $ManagedReleaseCandidateRead = {
+  properties: {
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Base branch of the source repository.",
+    },
+    commit_sha: {
+      type: "string",
+      title: "Commit Sha",
+    },
+    commit_message: {
+      type: "string",
+      title: "Commit Message",
+    },
+    commit_author: {
+      type: "string",
+      title: "Commit Author",
+    },
+    commit_date: {
+      type: "string",
+      title: "Commit Date",
+    },
+    existing_tags: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Existing Tags",
+      description: "Tags already on this commit.",
+    },
+    package: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspacePackageManifest",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Package metadata at this commit; null if none was published.",
+    },
+  },
+  type: "object",
+  required: [
+    "branch",
+    "commit_sha",
+    "commit_message",
+    "commit_author",
+    "commit_date",
+  ],
+  title: "ManagedReleaseCandidateRead",
+  description:
+    "The commit a new release would tag, and the package published in it.",
+} as const
+
+export const $ManagedReleaseCreate = {
+  properties: {
+    tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Tag",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+      description:
+        "The commit the caller reviewed. When set, the release is refused if the base branch has moved past it.",
+    },
+  },
+  type: "object",
+  required: ["tag"],
+  title: "ManagedReleaseCreate",
+  description:
+    "Cut a release tag at the HEAD of the source repository's base branch.",
+} as const
+
+export const $ManagedResourceDetach = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    new_name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "New Name",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "local_id", "new_name"],
+  title: "ManagedResourceDetach",
+  description:
+    "Detach a managed resource into an editable copy named ``new_name``.",
+} as const
+
+export const $ManagedResourceRead = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    deployed_tag: {
+      type: "string",
+      title: "Deployed Tag",
+      description: "Package tag the resource came from.",
+    },
+    deployed_commit_sha: {
+      type: "string",
+      title: "Deployed Commit Sha",
+    },
+    deployed_at: {
+      type: "string",
+      format: "date-time",
+      title: "Deployed At",
+      description: "When the last rollout wrote it.",
+    },
+    case_field_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Field Name",
+      description:
+        "For a case field, its current schema key. Case fields have no row id, and the key can differ from ``source_id``.",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description:
+        "For a workflow, its short ``wf_`` id, as workflow APIs return it.",
+    },
+    package_skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Package Skill Ids",
+      description:
+        "For an agent preset, the skills the package binds to it. They cannot be removed; skills the customer added can.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "local_id",
+    "source_id",
+    "deployed_tag",
+    "deployed_commit_sha",
+    "deployed_at",
+  ],
+  title: "ManagedResourceRead",
+  description: 'One managed resource, for the "Managed by Tracecat" badge.',
+} as const
+
+export const $ManagedRolloutApplyRequest = {
+  properties: {
+    rollout_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Rollout Ids",
+    },
+  },
+  type: "object",
+  required: ["rollout_ids"],
+  title: "ManagedRolloutApplyRequest",
+  description: "Apply previewed rollouts; only ready ones are applied.",
+} as const
+
+export const $ManagedRolloutKind = {
+  type: "string",
+  enum: ["apply", "unassign"],
+  title: "ManagedRolloutKind",
+  description: "What a rollout record does to its target workspace.",
+} as const
+
+export const $ManagedRolloutPreviewRequest = {
+  properties: {
+    target_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Target Ids",
+    },
+    tag: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag",
+      description: "Tag to preview. ``None`` uses each target's pinned tag.",
+    },
+  },
+  type: "object",
+  required: ["target_ids"],
+  title: "ManagedRolloutPreviewRequest",
+  description: "Preview a tag for several targets at once.",
+} as const
+
+export const $ManagedRolloutRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    kind: {
+      $ref: "#/components/schemas/ManagedRolloutKind",
+    },
+    status: {
+      $ref: "#/components/schemas/ManagedRolloutStatus",
+    },
+    tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tag",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    preview: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RolloutPreview",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    applied_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Applied At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "target_id",
+    "workspace_id",
+    "kind",
+    "status",
+    "tag",
+    "commit_sha",
+    "preview",
+    "error",
+    "created_at",
+    "applied_at",
+  ],
+  title: "ManagedRolloutRead",
+  description: "One rollout record for one target.",
+} as const
+
+export const $ManagedRolloutStatus = {
+  type: "string",
+  enum: [
+    "previewing",
+    "ready",
+    "no_changes",
+    "blocked",
+    "needs_references",
+    "applying",
+    "applied",
+    "failed",
+    "stale",
+  ],
+  title: "ManagedRolloutStatus",
+  description: "Lifecycle of one rollout record for one target workspace.",
+} as const
+
 export const $ManagedSourceRead = {
   properties: {
     workspace_id: {
@@ -24305,6 +27085,127 @@ export const $ManagedSourceUpdate = {
 
 The workspace must have a Git sync provider and repository URL; both are
 pinned with the setting.`,
+} as const
+
+export const $ManagedTargetCreate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    pinned_tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Pinned Tag",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "pinned_tag"],
+  title: "ManagedTargetCreate",
+  description: "Assign a workspace as a target, pinned to a tag.",
+} as const
+
+export const $ManagedTargetRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    pinned_tag: {
+      type: "string",
+      title: "Pinned Tag",
+    },
+    last_applied_tag: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Applied Tag",
+    },
+    last_rollout_status: {
+      $ref: "#/components/schemas/ManagedTargetStatus",
+    },
+    last_rollout_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Rollout At",
+    },
+    assigned_at: {
+      type: "string",
+      format: "date-time",
+      title: "Assigned At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_name",
+    "pinned_tag",
+    "last_applied_tag",
+    "last_rollout_status",
+    "last_rollout_at",
+    "assigned_at",
+  ],
+  title: "ManagedTargetRead",
+  description: "A customer workspace that receives the package.",
+} as const
+
+export const $ManagedTargetStatus = {
+  type: "string",
+  enum: ["pending", "up_to_date", "blocked", "needs_references", "failed"],
+  title: "ManagedTargetStatus",
+  description:
+    "Outcome of the most recent rollout to a managed target workspace.",
+} as const
+
+export const $ManagedTargetUpdate = {
+  properties: {
+    pinned_tag: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Pinned Tag",
+    },
+  },
+  type: "object",
+  required: ["pinned_tag"],
+  title: "ManagedTargetUpdate",
+  description: "Move a target's pin to another tag; a rollout applies it.",
 } as const
 
 export const $ManagedTunnelCreate = {
@@ -24379,6 +27280,56 @@ export const $ManagedTunnelCreated = {
   title: "ManagedTunnelCreated",
   description:
     "A new managed tunnel. The site credentials are only returned once.",
+} as const
+
+export const $ManagedWorkspaceRead = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    is_source: {
+      type: "boolean",
+      title: "Is Source",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+      description: "Set when the workspace is already a target.",
+    },
+  },
+  type: "object",
+  required: [
+    "workspace_id",
+    "workspace_name",
+    "organization_id",
+    "organization_name",
+    "is_source",
+  ],
+  title: "ManagedWorkspaceRead",
+  description: "A workspace an FDE can assign as a target.",
 } as const
 
 export const $McpIntegrationMappingAffectedPreset = {
@@ -24986,6 +27937,52 @@ export const $ModelCredentialUpdate = {
   description: "Model for updating model credentials.",
 } as const
 
+export const $ModelLifecycleRead = {
+  properties: {
+    deprecated_on: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated On",
+    },
+    retires_on: {
+      type: "string",
+      format: "date",
+      title: "Retires On",
+    },
+    replacement: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Replacement",
+      description: "Same-provider catalog model that retired runs move to.",
+    },
+    status: {
+      $ref: "#/components/schemas/ModelLifecycleStatus",
+    },
+  },
+  type: "object",
+  required: ["retires_on", "status"],
+  title: "ModelLifecycleRead",
+  description: "Provider deprecation of a platform model, as of the request.",
+} as const
+
+export const $ModelLifecycleStatus = {
+  type: "string",
+  enum: ["deprecated", "retired"],
+} as const
+
 export const $ModelSecretConfig = {
   properties: {
     required: {
@@ -25068,10 +28065,23 @@ Keys match the TypeScript SDK's \`\`ModelUsage\`\` shape (camelCase), since
 the value is passed through verbatim from the CLI's \`\`modelUsage\`\` field.`,
 } as const
 
-export const $NotClause = {
+export const $NotClause_Input = {
   properties: {
     not: {
-      $ref: "#/components/schemas/Filter",
+      $ref: "#/components/schemas/Filter-Input",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["not"],
+  title: "NotClause",
+  description: "The negation of one filter.",
+} as const
+
+export const $NotClause_Output = {
+  properties: {
+    not: {
+      $ref: "#/components/schemas/Filter-Output",
     },
   },
   additionalProperties: false,
@@ -25150,11 +28160,29 @@ This is a typed reference that replaces large payloads in workflow context.
 Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
 } as const
 
-export const $OrClause = {
+export const $OrClause_Input = {
   properties: {
     or: {
       items: {
-        $ref: "#/components/schemas/Filter",
+        $ref: "#/components/schemas/Filter-Input",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Or",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["or"],
+  title: "OrClause",
+  description: "A disjunction of one or more filters.",
+} as const
+
+export const $OrClause_Output = {
+  properties: {
+    or: {
+      items: {
+        $ref: "#/components/schemas/Filter-Output",
       },
       type: "array",
       minItems: 1,
@@ -26188,6 +29216,113 @@ export const $OutputType = {
   ],
 } as const
 
+export const $PackageRegistryRequirement = {
+  properties: {
+    origin: {
+      type: "string",
+      minLength: 1,
+      title: "Origin",
+      description: "Registry repository origin.",
+    },
+    version: {
+      type: "string",
+      minLength: 1,
+      title: "Version",
+      description: "Registry version string.",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+      description: "Git commit of the registry version, if any.",
+    },
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+      description: "Fully qualified action names the package uses from it.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["origin", "version"],
+  title: "PackageRegistryRequirement",
+  description:
+    "A custom registry repository version that a package's actions need.",
+} as const
+
+export const $PackageResourceEntry = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Kind of resource.",
+    },
+    source_id: {
+      type: "string",
+      minLength: 1,
+      title: "Source Id",
+      description: "Stable Git source id.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["resource_type", "source_id"],
+  title: "PackageResourceEntry",
+  description: "One resource recorded in a managed resources package manifest.",
+} as const
+
+export const $PackageResourceStatus = {
+  type: "string",
+  enum: ["explicit", "implied", "excluded"],
+} as const
+
+export const $Page_DetachedCopyRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/DetachedCopyRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[DetachedCopyRead]",
+} as const
+
 export const $Page_ExternalGroupMappingRead_ = {
   properties: {
     items: {
@@ -26303,6 +29438,201 @@ export const $Page_GitTagInfo_ = {
   type: "object",
   required: ["items"],
   title: "Page[GitTagInfo]",
+} as const
+
+export const $Page_ManagedReferenceMatchItem_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedReferenceMatchItem",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedReferenceMatchItem]",
+} as const
+
+export const $Page_ManagedResourceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedResourceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedResourceRead]",
+} as const
+
+export const $Page_ManagedRolloutRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedRolloutRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedRolloutRead]",
+} as const
+
+export const $Page_ManagedTargetRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedTargetRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedTargetRead]",
+} as const
+
+export const $Page_ManagedWorkspaceRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ManagedWorkspaceRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ManagedWorkspaceRead]",
 } as const
 
 export const $Page_SecretStoreRead_ = {
@@ -26800,6 +30130,45 @@ export const $PlatformAuditSettingsUpdate = {
   type: "object",
   title: "PlatformAuditSettingsUpdate",
   description: "Update platform audit settings.",
+} as const
+
+export const $PlatformBuildInfo = {
+  properties: {
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    edition: {
+      $ref: "#/components/schemas/BuildEdition",
+    },
+    commit: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit",
+    },
+    built_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Built At",
+    },
+  },
+  type: "object",
+  required: ["version", "edition"],
+  title: "PlatformBuildInfo",
+  description: "Version and build details of the running deployment.",
 } as const
 
 export const $PlatformMCPCatalogListResponse = {
@@ -27803,6 +31172,13 @@ export const $PullResult = {
       type: "array",
       title: "Library Skill Installs",
     },
+    skipped_managed: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Skipped Managed",
+    },
     catalog_mapping_requirements: {
       anyOf: [
         {
@@ -28502,6 +31878,11 @@ export const $RegistryArtifactsBackfillStartResponse = {
   description: "Response after scheduling an artifact backfill workflow.",
 } as const
 
+export const $RegistryInstallAction = {
+  type: "string",
+  enum: ["install", "present", "blocked"],
+} as const
+
 export const $RegistryLock = {
   properties: {
     origins: {
@@ -28938,6 +32319,36 @@ export const $RegistryStatusResponse = {
   required: ["total_repositories", "last_sync_at", "repositories"],
   title: "RegistryStatusResponse",
   description: "Registry health status.",
+} as const
+
+export const $RelativeTimeUnit = {
+  type: "string",
+  enum: ["hour", "day", "week", "month"],
+  title: "RelativeTimeUnit",
+  description: "Calendar units a relative time window can count back in.",
+} as const
+
+export const $RelativeTimeWindow = {
+  properties: {
+    amount: {
+      type: "integer",
+      maximum: 1000,
+      minimum: 1,
+      title: "Amount",
+    },
+    unit: {
+      $ref: "#/components/schemas/RelativeTimeUnit",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["amount", "unit"],
+  title: "RelativeTimeWindow",
+  description: `A time range that ends now, such as "the last 30 days".
+
+The database resolves the start each time a query runs, so a saved view
+keeps meaning "the last 30 days" instead of a fixed date. Months use
+calendar arithmetic: one month before 31 March is 28 or 29 February.`,
 } as const
 
 export const $ReopenedEventRead = {
@@ -29805,6 +33216,251 @@ export const $RoleUpdate = {
   description: "Update schema for a role.",
 } as const
 
+export const $RolloutChange = {
+  properties: {
+    change: {
+      $ref: "#/components/schemas/RolloutChangeKind",
+    },
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["change", "resource_type", "source_id", "name"],
+  title: "RolloutChange",
+  description:
+    "One resource a rollout adds, modifies or deletes in the target.",
+} as const
+
+export const $RolloutChangeKind = {
+  type: "string",
+  enum: ["added", "modified", "deleted"],
+} as const
+
+export const $RolloutConflict = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The name both resources share.",
+    },
+    existing_local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Existing Local Id",
+      description: "The customer's resource.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name", "existing_local_id"],
+  title: "RolloutConflict",
+  description:
+    "An incoming managed resource whose name a customer resource already uses.",
+} as const
+
+export const $RolloutDeleteWarning = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    table_rows: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Table Rows",
+      description: "Rows in a deleted table.",
+    },
+    cases_using: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cases Using",
+      description:
+        "Cases using a deleted case tag or dropdown. For a deleted case field, the number of cases in the workspace whose value is erased.",
+    },
+    has_customer_values: {
+      type: "boolean",
+      title: "Has Customer Values",
+      description: "A deleted secret or variable holds values.",
+      default: false,
+    },
+    referenced_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Referenced By",
+      description: "Customer workflows and presets that mention it by name.",
+    },
+  },
+  type: "object",
+  required: ["resource_type", "source_id", "name"],
+  title: "RolloutDeleteWarning",
+  description: "Customer data a delete destroys, shown before the FDE applies.",
+} as const
+
+export const $RolloutDroppedSkill = {
+  properties: {
+    preset: {
+      type: "string",
+      title: "Preset",
+    },
+    skill: {
+      type: "string",
+      title: "Skill",
+    },
+  },
+  type: "object",
+  required: ["preset", "skill"],
+  title: "RolloutDroppedSkill",
+  description:
+    "A customer skill binding dropped because the package now binds it.",
+} as const
+
+export const $RolloutPreview = {
+  properties: {
+    changes: {
+      items: {
+        $ref: "#/components/schemas/RolloutChange",
+      },
+      type: "array",
+      title: "Changes",
+    },
+    conflicts: {
+      items: {
+        $ref: "#/components/schemas/RolloutConflict",
+      },
+      type: "array",
+      title: "Conflicts",
+    },
+    references: {
+      items: {
+        $ref: "#/components/schemas/RolloutReference",
+      },
+      type: "array",
+      title: "References",
+    },
+    delete_warnings: {
+      items: {
+        $ref: "#/components/schemas/RolloutDeleteWarning",
+      },
+      type: "array",
+      title: "Delete Warnings",
+    },
+    registry: {
+      items: {
+        $ref: "#/components/schemas/RolloutRegistryPlan",
+      },
+      type: "array",
+      title: "Registry",
+    },
+    dropped_customer_skills: {
+      items: {
+        $ref: "#/components/schemas/RolloutDroppedSkill",
+      },
+      type: "array",
+      title: "Dropped Customer Skills",
+    },
+    diagnostics: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+  },
+  type: "object",
+  title: "RolloutPreview",
+  description: "Everything an FDE reviews before applying a tag to one target.",
+} as const
+
+export const $RolloutReference = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/ManagedReferenceKind",
+    },
+    source_key: {
+      type: "string",
+      title: "Source Key",
+      description: "Source catalog id, integration id or store.",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+      description: "What the source calls it.",
+    },
+  },
+  type: "object",
+  required: ["kind", "source_key", "label"],
+  title: "RolloutReference",
+  description:
+    "A model, MCP integration or secret store the target must match.",
+} as const
+
+export const $RolloutRegistryPlan = {
+  properties: {
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    version: {
+      type: "string",
+      title: "Version",
+    },
+    action: {
+      $ref: "#/components/schemas/RegistryInstallAction",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["origin", "version", "action"],
+  title: "RolloutRegistryPlan",
+  description: "What a rollout does with one custom registry repository.",
+} as const
+
 export const $RunActionInput = {
   properties: {
     task: {
@@ -29992,6 +33648,7 @@ export const $RuntimeErrorKind = {
     "storage.materialization.invalid_data",
     "storage.persistence.transport_unavailable",
     "executor.activity.timed_out",
+    "executor.worker.shutdown",
     "executor.backend.initialization_failed",
     "executor.registry.lease_contention",
     "executor.registry.capacity_exhausted",
@@ -30014,6 +33671,7 @@ export const $RuntimeErrorKind = {
     "workflow.agent.input_invalid",
     "workflow.agent.preparation_failed",
     "agent.configuration.invalid",
+    "agent.provider.credentials_missing",
     "agent.preparation.failed",
     "agent.session.initialization_failed",
     "agent.llm.gateway_auth_failed",
@@ -30022,6 +33680,8 @@ export const $RuntimeErrorKind = {
     "agent.llm.rate_limited",
     "agent.llm.read_timeout",
     "agent.llm.stream_interrupted",
+    "agent.llm.provider_unavailable",
+    "agent.llm.gateway_unavailable",
     "agent.mcp.auth_failed",
     "agent.mcp.unavailable",
     "agent.execution.failed",
@@ -34610,6 +38270,252 @@ export const $SkillVersionReadMinimal = {
     "Summary response model for published skill versions in list endpoints.",
 } as const
 
+export const $SlackBotCredentialsUpdate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["provider"],
+  title: "SlackBotCredentialsUpdate",
+  description: `Slack app credentials to replace; unset fields keep their stored value.
+
+No bot token: only OAuth sets one, together with the install it belongs to.`,
+} as const
+
+export const $SlackBotDetails = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    provider_enterprise_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Enterprise Id",
+    },
+    provider_bot_user_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Bot User Id",
+    },
+    granted_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Granted Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+      description:
+        "Required scopes the install did not grant; reinstall to add them.",
+    },
+    update_needed: {
+      type: "boolean",
+      title: "Update Needed",
+    },
+    manifest_version: {
+      type: "integer",
+      title: "Manifest Version",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    has_bot_token: {
+      type: "boolean",
+      title: "Has Bot Token",
+    },
+    has_signing_secret: {
+      type: "boolean",
+      title: "Has Signing Secret",
+    },
+    has_client_secret: {
+      type: "boolean",
+      title: "Has Client Secret",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "transport",
+    "provider_enterprise_id",
+    "provider_bot_user_id",
+    "granted_scopes",
+    "missing_scopes",
+    "update_needed",
+    "manifest_version",
+    "client_id",
+    "has_bot_token",
+    "has_signing_secret",
+    "has_client_secret",
+    "oauth_redirect_url",
+  ],
+  title: "SlackBotDetails",
+  description: "Secrets are reported only as present or not.",
+} as const
+
+export const $SlackBotInstall = {
+  properties: {
+    bot_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bot Id",
+      description:
+        "Bot to install into; it must already target agent_preset_id. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    provider: {
+      type: "string",
+      const: "slack",
+      title: "Provider",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+    },
+    signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^(xoxe\\.)?xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode; rejected otherwise.",
+    },
+    app_refresh_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xoxe-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Refresh Token",
+      description:
+        "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: [
+    "agent_preset_id",
+    "provider",
+    "client_id",
+    "client_secret",
+    "signing_secret",
+    "return_url",
+  ],
+  title: "SlackBotInstall",
+  description: "Install a workspace-owned Slack app over OAuth.",
+} as const
+
 export const $SlackChannelTokenConfig = {
   properties: {
     slack_bot_token: {
@@ -34729,6 +38635,180 @@ export const $SlackOAuthStartResponse = {
   required: ["authorization_url", "token"],
   title: "SlackOAuthStartResponse",
   description: "Response schema for Slack OAuth start.",
+} as const
+
+export const $SlackPlatformAppRead = {
+  properties: {
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret_set: {
+      type: "boolean",
+      title: "Client Secret Set",
+    },
+    signing_secret_set: {
+      type: "boolean",
+      title: "Signing Secret Set",
+    },
+    app_token_set: {
+      type: "boolean",
+      title: "App Token Set",
+    },
+    icon_uploaded: {
+      type: "boolean",
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      type: "boolean",
+      title: "Distribution Enabled",
+    },
+    unreadable: {
+      type: "boolean",
+      title: "Unreadable",
+    },
+    setup: {
+      $ref: "#/components/schemas/ChannelBotPlatformAppSetup",
+    },
+  },
+  type: "object",
+  required: [
+    "app_id",
+    "client_id",
+    "client_secret_set",
+    "signing_secret_set",
+    "app_token_set",
+    "icon_uploaded",
+    "distribution_enabled",
+    "unreadable",
+    "setup",
+  ],
+  title: "SlackPlatformAppRead",
+  description:
+    "The registration without its secrets, and what to paste into Slack.",
+} as const
+
+export const $SlackPlatformAppSetupStepsUpdate = {
+  properties: {
+    icon_uploaded: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Uploaded",
+    },
+    distribution_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Distribution Enabled",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "SlackPlatformAppSetupStepsUpdate",
+  description:
+    "Mark the Slack-only setup steps done or not done; an omitted step keeps its value.",
+} as const
+
+export const $SlackPlatformAppUpdate = {
+  properties: {
+    app_id: {
+      type: "string",
+      minLength: 1,
+      title: "App Id",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+    signing_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signing Secret",
+    },
+    app_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^(xoxe\\.)?xapp-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Token",
+      description:
+        "App-level token (`xapp-`, or rotating `xoxe.xapp-`) with connections:write. Required when the deployment receives Slack events over Socket Mode.",
+    },
+    app_refresh_token: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "^xoxe-.+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Refresh Token",
+      description:
+        "The refresh token Slack shows once beside a rotating `xoxe.xapp-` app-level token. Required with one; rejected otherwise.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["app_id", "client_id"],
+  title: "SlackPlatformAppUpdate",
+  description: `Register or change the app. An omitted secret keeps its stored value while the
+app ID stays the same.`,
 } as const
 
 export const $SourceDocumentUIPart = {
@@ -34894,6 +38974,10 @@ export const $StepStartUIPart = {
   required: ["type"],
   title: "StepStartUIPart",
   description: "A step boundary part of a message.",
+} as const
+
+export const $StoredCaseQuery = {
+  $ref: "#/components/schemas/CaseCriteria-Input",
 } as const
 
 export const $StreamEvent = {
@@ -35733,11 +39817,224 @@ export const $TableCreate = {
       title: "Columns",
       description: "The columns of the table",
     },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+      description:
+        "Folder to create the table in. Defaults to the workspace root.",
+    },
   },
   type: "object",
   required: ["name"],
   title: "TableCreate",
   description: "Create model for a table.",
+} as const
+
+export const $TableDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "table",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "name", "folder_id", "created_at", "updated_at"],
+  title: "TableDirectoryItem",
+  description: "Table as a directory item.",
+} as const
+
+export const $TableFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "TableFolderCreate",
+} as const
+
+export const $TableFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "TableFolderDelete",
+} as const
+
+export const $TableFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "TableFolderDirectoryItem",
+} as const
+
+export const $TableFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "TableFolderMove",
+} as const
+
+export const $TableFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "TableFolderRead",
+} as const
+
+export const $TableFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "TableFolderUpdate",
 } as const
 
 export const $TableImportResponse = {
@@ -35761,6 +40058,26 @@ export const $TableImportResponse = {
   required: ["table", "rows_inserted", "column_mapping"],
   title: "TableImportResponse",
   description: "Response model for importing a table from CSV.",
+} as const
+
+export const $TableMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "TableMoveToFolder",
+  description:
+    "Payload for moving a table into a folder or the workspace root.",
 } as const
 
 export const $TableRead = {
@@ -35798,6 +40115,18 @@ export const $TableReadMinimal = {
     name: {
       type: "string",
       title: "Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
     },
     created_at: {
       type: "string",
@@ -44851,6 +49180,19 @@ export const $WorkspaceAgentModelCandidate = {
       ],
       title: "Custom Provider Name",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -44860,6 +49202,7 @@ export const $WorkspaceAgentModelCandidate = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "WorkspaceAgentModelCandidate",
   description:
@@ -44983,6 +49326,19 @@ export const $WorkspaceAgentModelRead = {
       ],
       title: "Custom Provider Base Url",
     },
+    lifecycle: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ModelLifecycleRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Deprecation of a platform model; ``None`` while it is current.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -44992,6 +49348,7 @@ export const $WorkspaceAgentModelRead = {
     "model_provider",
     "model_name",
     "model_metadata",
+    "lifecycle",
   ],
   title: "WorkspaceAgentModelRead",
   description:
@@ -45118,6 +49475,150 @@ export const $WorkspaceMembershipRead = {
   type: "object",
   required: ["user_id", "workspace_id"],
   title: "WorkspaceMembershipRead",
+} as const
+
+export const $WorkspacePackageManifest = {
+  properties: {
+    explicit: {
+      items: {
+        $ref: "#/components/schemas/PackageResourceEntry",
+      },
+      type: "array",
+      title: "Explicit",
+      description: "Resources matched by the include file.",
+    },
+    implied: {
+      items: {
+        $ref: "#/components/schemas/PackageResourceEntry",
+      },
+      type: "array",
+      title: "Implied",
+      description:
+        "Dependencies of explicit resources, included automatically.",
+    },
+    registry: {
+      items: {
+        $ref: "#/components/schemas/PackageRegistryRequirement",
+      },
+      type: "array",
+      title: "Registry",
+      description: "Custom registry versions the packaged actions resolve to.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkspacePackageManifest",
+  description: "What a managed resources package export contains and needs.",
+} as const
+
+export const $WorkspacePackageRead = {
+  properties: {
+    is_source: {
+      type: "boolean",
+      title: "Is Source",
+      description: "Whether this workspace is the managed resources source.",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+      description: "Branch the include file was read from.",
+    },
+    patterns: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Patterns",
+      description: "Include file patterns in file order.",
+    },
+    resources: {
+      items: {
+        $ref: "#/components/schemas/WorkspacePackageResource",
+      },
+      type: "array",
+      title: "Resources",
+      description: "Every syncable resource with its package status.",
+    },
+    warnings: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Warnings",
+      description: "Include file problems worth fixing.",
+    },
+  },
+  type: "object",
+  required: ["is_source"],
+  title: "WorkspacePackageRead",
+  description:
+    "The managed resources package selection of the source workspace.",
+} as const
+
+export const $WorkspacePackageResource = {
+  properties: {
+    resource_type: {
+      $ref: "#/components/schemas/SyncResourceType",
+      description: "Kind of resource.",
+    },
+    source_id: {
+      type: "string",
+      title: "Source Id",
+      description: "Stable Git source id.",
+    },
+    local_id: {
+      type: "string",
+      format: "uuid",
+      title: "Local Id",
+      description: "Workspace-local resource id.",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable resource name.",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+      description: "Primary repository path of the resource.",
+    },
+    pattern: {
+      type: "string",
+      title: "Pattern",
+      description: "Include pattern that selects the resource.",
+    },
+    status: {
+      $ref: "#/components/schemas/PackageResourceStatus",
+      description: `\`\`explicit\`\` when a pattern selects it, \`\`implied\`\` when only a dependency, \`\`excluded\`\` otherwise.`,
+    },
+    implied_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Implied By",
+      description: "Names of the explicit resources that need an implied one.",
+    },
+  },
+  type: "object",
+  required: [
+    "resource_type",
+    "source_id",
+    "local_id",
+    "name",
+    "path",
+    "pattern",
+    "status",
+  ],
+  title: "WorkspacePackageResource",
+  description: "One source workspace resource as the package picker shows it.",
 } as const
 
 export const $WorkspaceRead = {
@@ -45313,6 +49814,17 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -45437,6 +49949,19 @@ export const $WorkspaceSettingsUpdate = {
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     },
+    close_sub_cases_with_parent: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Sub Cases With Parent",
+      description:
+        "Whether closing or resolving a parent case also closes its open sub-cases and fills their empty required-on-closure fields and dropdowns from the parent. Defaults to true.",
+    },
   },
   type: "object",
   title: "WorkspaceSettingsUpdate",
@@ -45550,6 +50075,22 @@ export const $WorkspaceSyncExportPreviewRequest = {
       description:
         "Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.",
     },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to preview for a managed resources package export. ``None`` uses the include file at ``compare_ref``.",
+    },
   },
   type: "object",
   title: "WorkspaceSyncExportPreviewRequest",
@@ -45608,6 +50149,22 @@ export const $WorkspaceSyncExportRequest_Input = {
       title: "Include Schedules",
       description: "Whether to include workflow schedules in the export.",
       default: false,
+    },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.",
     },
   },
   type: "object",
@@ -45668,6 +50225,22 @@ export const $WorkspaceSyncExportRequest_Output = {
       title: "Include Schedules",
       description: "Whether to include workflow schedules in the export.",
       default: false,
+    },
+    package_include: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Package Include",
+      description:
+        "Include file patterns to write with a managed resources package export. Only valid for the package source workspace; ``None`` keeps the include file already in the repository.",
     },
   },
   type: "object",

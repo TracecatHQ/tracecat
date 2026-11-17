@@ -1,0 +1,21 @@
+diff --git a/nstun/tcp.cc b/nstun/tcp.cc
+--- a/nstun/tcp.cc
++++ b/nstun/tcp.cc
+@@ -523,6 +523,17 @@ bool flush_to_host(Context* ctx, TcpFlow* flow) {
+ 			flow->rx_sent_offset = 0;
+ 		}
+
++		/* Partial write: keep EPOLLOUT armed so the remainder is flushed even
++		 * if the guest sends nothing more (e.g. the tail of a request body). */
++		if (flow->c_tcp_rx_len > 0 && !flow->epoll_out_registered) {
++			flow->epoll_out_registered = true;
++			if (!tcp_update_host_mask(flow)) {
++				PLOG_E("tcp_update_host_mask() failed");
++				tcp_rst_and_destroy(ctx, flow);
++				return true;
++			}
++		}
++
+ 		/* We made progress, remove EPOLLOUT if empty */
+ 		if (flow->c_tcp_rx_len == 0 && flow->epoll_out_registered) {
+ 			flow->epoll_out_registered = false;

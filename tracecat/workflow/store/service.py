@@ -22,7 +22,7 @@ class WorkflowStoreService(BaseWorkspaceService):
     service_name = "workflow_store"
 
     @require_scope("workflow:update")
-    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
+    @require_scope("workspace_sync:push")
     async def publish_workflow_dsl(
         self,
         *,

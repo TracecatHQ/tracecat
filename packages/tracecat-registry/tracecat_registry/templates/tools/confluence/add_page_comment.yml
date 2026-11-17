@@ -7,8 +7,13 @@ definition:
   namespace: tools.confluence
   name: add_page_comment
   secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
     - name: confluence
       keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
   expects:
     page_id:
       type: str
@@ -22,7 +27,10 @@ definition:
       default: storage
     base_url:
       type: str | None
-      description: Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+      description: >-
+        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
+        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
+        Do not append /rest/api.
       default: null
   steps:
     - ref: build_payload
@@ -48,9 +56,7 @@ definition:
         url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}/child/comment
         method: POST
         headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
           Content-Type: application/json
-        auth:
-          username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
-          password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.add_comment.result.data }}

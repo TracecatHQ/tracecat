@@ -41,7 +41,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 LOADTEST_COMPOSE_FILE="${REPO_ROOT}/packages/tracecat-benchmark/docker-compose.loadtest.yml"
 LITE_COMPOSE_FILE="${REPO_ROOT}/docker-compose.lite.yml"
-LITE_PROFILES=(agents mcp workspace-sync)
+LITE_PROFILES=(agents mcp)
 
 # Default profile
 PROFILE="dev"
@@ -579,11 +579,10 @@ Sandbox mode:
 
 Lite stack (dev profile default):
   The dev profile layers docker-compose.lite.yml: Temporal dev server, memory
-  caps, and the agent, MCP, and workspace-sync services left off.
+  caps, and the agent and MCP services left off.
   --with <list>                   Also start optional services, comma-separated:
                                   agents (litellm, agent-worker,
-                                  agent-executor), mcp, workspace-sync
-                                  (background-worker). COMPOSE_PROFILES works too.
+                                  agent-executor), mcp. COMPOSE_PROFILES works too.
   --full                          Run every service (the pre-lite dev stack).
                                   Load tests always run the full stack.
 
@@ -1471,7 +1470,7 @@ apply_compose_profiles
 if [[ "$COMMAND" == "up" ]]; then
     echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"
     if [[ "$CLUSTER_LITE" == "true" ]]; then
-        echo "Lite stack (profiles: ${COMPOSE_PROFILES:-none}). Use --with agents,mcp,workspace-sync or --full for more."
+        echo "Lite stack (profiles: ${COMPOSE_PROFILES:-none}). Use --with agents,mcp or --full for more."
     fi
 fi
 

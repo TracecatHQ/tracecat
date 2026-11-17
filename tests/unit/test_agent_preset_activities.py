@@ -16,9 +16,14 @@ from tracecat_ee.agent.workflows.durable import _agent_activity_classification
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.preset.activities import (
+    AgentPresetRef,
+    ResolveAgentConfigActivityInput,
     ResolveAgentPresetConfigActivityInput,
     ResolveAgentsConfigActivityInput,
+    resolve_agent_config_activity,
     resolve_agent_preset_config_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
@@ -37,6 +42,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import (
+    AgentProviderCredentialsNotFoundError,
     ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -143,6 +149,43 @@ async def test_resolve_agent_preset_config_classifies_user_input_errors(
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_preset_config_classifies_missing_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing provider credentials are the org's to fix and never retried."""
+    message = (
+        "No credentials found for provider 'example'. "
+        "An organization admin can add them in organization settings under "
+        "Agent > Configuration."
+    )
+    error = AgentProviderCredentialsNotFoundError(message)
+    service = SimpleNamespace(
+        with_preset_config=lambda **_: _FailingAsyncContext(error)
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_agent_preset_config_activity(
+            ResolveAgentPresetConfigActivityInput(
+                role=_role(),
+                preset_slug="example-preset",
+            )
+        )
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.message == message
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.message == message
 
 
 @pytest.mark.anyio
@@ -501,6 +544,90 @@ async def test_resolve_agents_config_follows_current_preset_head(
     )
     assert result.subagents[0].binding.preset_version_id == current_version_id
     assert result.subagents[0].binding.preset_version == 4
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_config_activity_moves_inline_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    retired_catalog_id = uuid.uuid4()
+    replacement = ModelReplacement(
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        catalog_id=uuid.uuid4(),
+    )
+    resolve = AsyncMock(return_value=replacement)
+    monkeypatch.setattr(AgentCatalogService, "resolve_model_replacement", resolve)
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(SimpleNamespace(session=None)),
+    )
+    inline = AgentConfigPayload(
+        model_name="claude-opus-4-1",
+        model_provider="anthropic",
+        catalog_id=retired_catalog_id,
+        instructions="keep me",
+        retries=3,
+    )
+
+    result = await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(role=role, source=inline)
+    )
+
+    resolve.assert_awaited_once_with(
+        role=role,
+        model_provider="anthropic",
+        model_name="claude-opus-4-1",
+        catalog_id=retired_catalog_id,
+    )
+    assert (result.model_name, result.catalog_id) == (
+        "claude-opus-4-8",
+        replacement.catalog_id,
+    )
+    assert result.instructions == "keep me"
+
+
+@pytest.mark.anyio
+async def test_resolve_agent_config_activity_returns_resolved_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_config = AgentConfig(model_name="gpt-5.6-sol", model_provider="openai")
+    with_preset_config = Mock(return_value=_AsyncContext(preset_config))
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(
+            SimpleNamespace(with_preset_config=with_preset_config)
+        ),
+    )
+
+    result = await resolve_agent_config_activity(
+        ResolveAgentConfigActivityInput(
+            role=_role(), source=AgentPresetRef(preset_slug="analyst")
+        )
+    )
+
+    # The workflow prunes tool tunnels after its own action overrides.
+    assert with_preset_config.call_args.kwargs["prune_tool_tunnels"] is False
+    assert result.model_name == "gpt-5.6-sol"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ({"preset_slug": "analyst"}, AgentPresetRef),
+        ({"model_name": "m", "model_provider": "p", "retries": 3}, AgentConfigPayload),
+    ],
+    ids=["preset", "inline"],
+)
+def test_resolve_agent_config_input_decodes_each_source(
+    source: dict[str, Any], expected: type
+) -> None:
+    decoded = ResolveAgentConfigActivityInput.model_validate(
+        {"role": _role(), "source": source}
+    )
+
+    assert type(decoded.source) is expected
 
 
 @pytest.mark.anyio

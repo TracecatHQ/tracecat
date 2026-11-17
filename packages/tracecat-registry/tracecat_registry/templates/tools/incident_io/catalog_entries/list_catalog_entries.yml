@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: List catalog entries
+  description: >-
+    List entries for a catalog type. Calls GET /v3/catalog_entries directly. Requires API key
+    scope: catalog_entries.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/catalog-entries-v3/list-entries
+  namespace: tools.incident_io
+  name: list_catalog_entries
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    catalog_type_id:
+      type: str | None
+      description: ID of this catalog type
+      default: null
+    page_size:
+      type: int | None
+      description: The integer number of records to return. Maximum 250.
+      default: null
+    after:
+      type: str | None
+      description: >-
+        An record's ID. This endpoint will return a list of records after this ID in relation to
+        the API response order.
+      default: null
+    identifier:
+      type: str | None
+      description: |-
+        If specified, only entries with this identifier will be returned. This will search by ID, external ID, and aliases.
+
+        If 'use name as identifier' is enabled for the catalog type, this will also match on name.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v3/catalog_entries
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          catalog_type_id: ${{ inputs.catalog_type_id }}
+          page_size: ${{ inputs.page_size }}
+          after: ${{ inputs.after }}
+          identifier: ${{ inputs.identifier }}
+  returns: ${{ steps.request.result }}

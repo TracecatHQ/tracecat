@@ -15,6 +15,7 @@ import dynamic from "next/dynamic"
 import { type ChangeEvent, useMemo, useRef, useState } from "react"
 import type { SkillDraftFileRead, SkillDraftRead, SkillRead } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ReadOnlyFieldset } from "@/components/managed/read-only-fieldset"
 import { SkillFileTree } from "@/components/skills/file-tree"
 import { RenameDialog } from "@/components/skills/rename-dialog"
 import { SkillFileIcon } from "@/components/skills/skill-file-icon"
@@ -52,6 +53,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useIsAtLeastWidth } from "@/hooks/use-is-at-least-width"
+import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   composeMarkdownFrontmatter,
   splitMarkdownFrontmatter,
@@ -168,6 +170,9 @@ export function EditorPanel({
     [visibleFiles]
   )
   const replaceInputRef = useRef<HTMLInputElement>(null)
+  // Managed skills are read-only: no file edits, creates, moves or deletes.
+  const { isManaged } = useManagedResources()
+  const readOnly = isManaged("skill", skill?.id)
   const splitFrontmatter =
     selectedFile !== null &&
     isMarkdownPath(selectedFile.path) &&
@@ -225,7 +230,10 @@ export function EditorPanel({
 
   const editorBody = (
     <div className="h-full min-h-0 flex-1 overflow-auto">
-      <div className="flex min-h-full flex-col p-4">
+      <ReadOnlyFieldset
+        readOnly={readOnly}
+        className="flex min-h-full flex-col p-4"
+      >
         {!selectedFile ? (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             Select a file to start editing.
@@ -292,6 +300,7 @@ export function EditorPanel({
                 {selectedFile.path === SKILL_MD_PATH ? (
                   <SkillFrontmatterEditor
                     value={splitFrontmatter.frontmatter}
+                    readOnly={readOnly}
                     onChange={(nextFrontmatter) =>
                       onEditorChange(
                         composeMarkdownFrontmatter(
@@ -304,6 +313,7 @@ export function EditorPanel({
                 ) : (
                   <CodeEditor
                     value={splitFrontmatter.frontmatter}
+                    readOnly={readOnly}
                     onChange={(nextFrontmatter) =>
                       onEditorChange(
                         composeMarkdownFrontmatter(
@@ -327,6 +337,7 @@ export function EditorPanel({
                 </div>
                 <SimpleEditor
                   value={splitFrontmatter.body}
+                  editable={!readOnly}
                   onChange={(nextBody) =>
                     onEditorChange(
                       composeMarkdownFrontmatter(
@@ -335,7 +346,7 @@ export function EditorPanel({
                       )
                     )
                   }
-                  onSave={() => void onSaveWorkingCopy()}
+                  onSave={readOnly ? undefined : () => void onSaveWorkingCopy()}
                   onFocus={() => {
                     markdownEditorActivatedRef.current = true
                   }}
@@ -347,8 +358,9 @@ export function EditorPanel({
             <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
               <SimpleEditor
                 value={currentTextValue}
+                editable={!readOnly}
                 onChange={onEditorChange}
-                onSave={() => void onSaveWorkingCopy()}
+                onSave={readOnly ? undefined : () => void onSaveWorkingCopy()}
                 onFocus={() => {
                   markdownEditorActivatedRef.current = true
                 }}
@@ -358,6 +370,7 @@ export function EditorPanel({
           ) : (
             <CodeEditor
               value={currentTextValue}
+              readOnly={readOnly}
               onChange={onEditorChange}
               language={getLanguageForPath(selectedFile.path)}
               className="flex-1"
@@ -374,7 +387,14 @@ export function EditorPanel({
                   it, delete it, or download the current blob.
                 </p>
                 {draftFile?.kind === "download" && draftFile.download_url ? (
-                  <Button asChild size="sm" variant="outline">
+                  // Downloading does not edit, so it stays usable on a
+                  // managed skill's locked fieldset.
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="pointer-events-auto"
+                  >
                     <a
                       href={draftFile.download_url}
                       target="_blank"
@@ -389,7 +409,7 @@ export function EditorPanel({
             </Alert>
           </div>
         )}
-      </div>
+      </ReadOnlyFieldset>
     </div>
   )
 
@@ -412,11 +432,14 @@ export function EditorPanel({
               variant="ghost"
               className="size-6 text-muted-foreground hover:text-foreground"
               onClick={onBeginCreate}
+              disabled={readOnly}
               aria-label="New file"
             >
               <FilePlus2 className="size-3.5" />
             </Button>
-            {selectedFile && selectedFile.path !== SKILL_MD_PATH ? (
+            {!readOnly &&
+            selectedFile &&
+            selectedFile.path !== SKILL_MD_PATH ? (
               <>
                 <Button
                   size="icon"
@@ -445,15 +468,19 @@ export function EditorPanel({
                 nodes={fileTree}
                 selectedPath={selectedPath}
                 onSelectPath={onSelectPath}
-                pendingCreate={pendingCreate}
+                // Managed skills get no tree mutations: create, move or
+                // folder rename.
+                pendingCreate={!readOnly && pendingCreate}
                 pendingCreateError={pendingCreateError}
-                onSubmitCreate={onSubmitCreate}
+                onSubmitCreate={readOnly ? undefined : onSubmitCreate}
                 onCancelCreate={onCancelCreate}
                 onChangeCreatePath={onChangeCreatePath}
-                moveSource={moveSource}
+                moveSource={readOnly ? null : moveSource}
                 onCancelMove={onCancelMove}
-                onCommitMove={onCommitMove}
-                onBeginRenameFolder={(path) => onBeginRename(path, true)}
+                onCommitMove={readOnly ? undefined : onCommitMove}
+                onBeginRenameFolder={
+                  readOnly ? undefined : (path) => onBeginRename(path, true)
+                }
               />
             </div>
           </ScrollArea>
@@ -479,7 +506,7 @@ export function EditorPanel({
               </span>
             </div>
             <div className="flex items-center gap-1">
-              {selectedFile?.change ? (
+              {!readOnly && selectedFile?.change ? (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -490,7 +517,7 @@ export function EditorPanel({
                   Reset
                 </Button>
               ) : null}
-              {selectedFile ? (
+              {!readOnly && selectedFile ? (
                 <>
                   <input
                     ref={replaceInputRef}
@@ -537,11 +564,13 @@ export function EditorPanel({
                   className={cn(toolsBeside && "min-w-[280px]")}
                 >
                   <div className="h-full overflow-auto px-4 pb-4 [--tool-list-inset:1rem]">
-                    <SkillToolsPanel
-                      workspaceId={skill.workspace_id}
-                      frontmatter={splitFrontmatter.frontmatter}
-                      onChange={handleToolsChange}
-                    />
+                    <ReadOnlyFieldset readOnly={readOnly}>
+                      <SkillToolsPanel
+                        workspaceId={skill.workspace_id}
+                        frontmatter={splitFrontmatter.frontmatter}
+                        onChange={handleToolsChange}
+                      />
+                    </ReadOnlyFieldset>
                   </div>
                 </ResizablePanel>
               </ResizablePanelGroup>

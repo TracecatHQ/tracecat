@@ -44,6 +44,7 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ActivityError, ApplicationError, TimeoutType
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import (
     ExecuteWorkflowInput,
@@ -67,6 +68,7 @@ from tracecat.api.common import (
     auth_pool_exhausted_exception_handler,
     database_exception_handler,
     generic_exception_handler,
+    temporal_rpc_exception_handler,
 )
 from tracecat.auth.credentials import _authenticate_executor
 from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -1274,6 +1276,62 @@ def test_unexpected_database_failures_capture_once_with_safe_request_metadata(
         recovered = pool.connect()
         recovered.close()
         pool.dispose()
+
+
+@pytest.mark.parametrize("component", ["api", "action_gateway"])
+@pytest.mark.parametrize(
+    ("rpc_status", "expected_status", "expected_priority"),
+    [
+        (RPCStatusCode.DEADLINE_EXCEEDED, 503, AlertPriority.LOW),
+        (RPCStatusCode.UNAVAILABLE, 503, AlertPriority.URGENT),
+        (RPCStatusCode.RESOURCE_EXHAUSTED, 503, AlertPriority.URGENT),
+        (RPCStatusCode.INTERNAL, 500, AlertPriority.URGENT),
+    ],
+)
+def test_temporal_rpc_errors_page_unless_deadline_exceeded(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+    rpc_status: RPCStatusCode,
+    expected_status: int,
+    expected_priority: AlertPriority,
+) -> None:
+    events: list[Event] = request.getfixturevalue(
+        "api_sentry_events" if component == "api" else "executor_sentry_events"
+    )
+    if component == "api":
+        app = FastAPI()
+        app.add_exception_handler(Exception, generic_exception_handler)
+        app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+    else:
+        monkeypatch.setattr(
+            gateway_module, "_include_internal_routers", lambda app: None
+        )
+        app = gateway_module.create_app()
+        app.dependency_overrides[gateway_module.enforce_agent_script_gateway_access] = (
+            lambda: None
+        )
+
+    async def list_executions() -> None:
+        raise RPCError(_SENSITIVE_VALUE, rpc_status, b"")
+
+    app.add_api_route("/executions", list_executions)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/executions")
+    sentry_sdk.flush()
+
+    assert response.status_code == expected_status
+    [event] = events
+    assert "tags" in event
+    assert event["tags"][SentryTag.ALERT_PRIORITY.value] == expected_priority
+    assert event["tags"][SentryTag.COMPONENT.value] == component
+    assert "tracecat.api_capture" not in event["tags"]
+    assert event.get("level") == (
+        "warning" if expected_priority is AlertPriority.LOW else "error"
+    )
+    is_triage = event.get("fingerprint") == ["tracecat-api-triage-v1", "{{ default }}"]
+    assert is_triage is (expected_priority is AlertPriority.LOW)
+    assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
 @pytest.mark.parametrize("component", ["api", "action_gateway"])

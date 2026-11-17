@@ -5,6 +5,7 @@ Implements the canonical graph API with optimistic concurrency.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -22,8 +23,10 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.managed_resources.guard import ensure_unmanaged
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.management.layout import (
+    GeneratedWorkflowLayout,
     WorkflowActionLayoutInput,
     auto_generate_layout,
 )
@@ -39,6 +42,7 @@ from tracecat.workflow.management.schemas import (
     UpdateTriggerPositionPayload,
     UpdateViewportPayload,
 )
+from tracecat.workspace_sync.enums import SyncResourceType
 
 type EdgeSourceType = Literal["trigger", "udf"]
 type EdgeHandle = Literal["success", "error"]
@@ -151,6 +155,42 @@ class WorkflowGraphService(BaseWorkspaceService):
             },
         )
 
+    async def preview_auto_layout(
+        self, workflow_id: WorkflowID
+    ) -> GraphResponse | None:
+        """Return the graph with auto-layout positions applied, without saving.
+
+        Lets users without ``workflow:update`` tidy the canvas in their own view.
+        """
+        graph = await self.get_graph(workflow_id)
+        if graph is None:
+            return None
+
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        result = await self.session.execute(
+            select(Action).where(
+                Action.workspace_id == self.workspace_id,
+                Action.workflow_id == workflow_uuid,
+            )
+        )
+        layout = self._generate_layout(result.scalars().all())
+        positions = {
+            str(position["ref"]): {"x": position["x"], "y": position["y"]}
+            for position in layout["actions"]
+        }
+        trigger_position = {
+            "x": layout["trigger"]["x"],
+            "y": layout["trigger"]["y"],
+        }
+        nodes: list[dict[str, Any]] = []
+        for node in graph.nodes:
+            if node.get("type") == "trigger":
+                position = trigger_position
+            else:
+                position = positions.get(str(node["id"]))
+            nodes.append({**node, "position": position} if position else node)
+        return graph.model_copy(update={"nodes": nodes})
+
     @audit_log(
         resource_type="workflow",
         action="update",
@@ -202,6 +242,12 @@ class WorkflowGraphService(BaseWorkspaceService):
         an independent audit event. The caller owns the workflow lock and the
         surrounding operation's audit lifecycle.
         """
+        await ensure_unmanaged(
+            self.session,
+            workspace_id=self.workspace_id,
+            resource_type=SyncResourceType.WORKFLOW,
+            local_id=workflow.id,
+        )
 
         # Check version for optimistic concurrency
         if workflow.graph_version != base_version:
@@ -569,6 +615,10 @@ class WorkflowGraphService(BaseWorkspaceService):
                 depends_on.append(source_id)
         return {"ref": str(action.id), "depends_on": depends_on}
 
+    @classmethod
+    def _generate_layout(cls, actions: Sequence[Action]) -> GeneratedWorkflowLayout:
+        return auto_generate_layout([cls._layout_input(action) for action in actions])
+
     async def _auto_layout(self, workflow: Workflow) -> None:
         """Re-position the trigger and every action with the shared auto-layout.
 
@@ -586,9 +636,7 @@ class WorkflowGraphService(BaseWorkspaceService):
         )
         actions = result.scalars().all()
         actions_by_id = {str(action.id): action for action in actions}
-        layout = auto_generate_layout(
-            [self._layout_input(action) for action in actions]
-        )
+        layout = self._generate_layout(actions)
         for position in layout["actions"]:
             action = actions_by_id[position["ref"]]
             action.position_x = position["x"]

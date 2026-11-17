@@ -14,6 +14,8 @@ excluded_actions:
   - core.workflow.run
   - core.workflow.update_case_trigger
   - core.workflow.update_webhook
+  # Workspace administration actions without a docs page yet.
+  - core.workflow.delete_workflow_tag
 
 pages:
   - slug: request-actions/http
@@ -447,6 +449,17 @@ pages:
       - id: core.cases.search_cases
         examples:
           - cases-search
+      - id: core.cases.list_case_views
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+          Returns the read-only built-in `assigned_to_me` view, unless
+          `include_builtins` is `false`, followed by shared saved views.
+          Workflows run without a signed-in user, so they can run shared views
+          only, and a view that filters on `me` fails. See
+          [Case views](/automations/cases/views).
+        examples:
+          - cases-list-views
       - id: core.cases.aggregate_cases
         info: |
           The example counts `new` and `in_progress` cases by priority and day.
@@ -476,9 +489,28 @@ pages:
       - id: core.cases.remove_case_tag
         examples:
           - cases-remove-tag
+      - id: core.cases.delete_case_tag
+        examples:
+          - cases-delete-tag
       - id: core.cases.delete_case
         examples:
           - cases-delete
+      - id: core.cases.add_sub_cases
+        info: |
+          The result has one item per case with `success` and `error`, plus
+          `succeeded` and `failed` counts. A case that fails does not stop the others.
+          An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
+          If `case_ids` includes the parent case, that one item fails with
+          "A case cannot be its own parent" and the other cases are still grouped.
+        examples:
+          - cases-add-sub-cases
+      - id: core.cases.remove_sub_cases
+        info: |
+          The result has one item per case with `success` and `error`, plus
+          `succeeded` and `failed` counts. A case that fails does not stop the others.
+          An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
+        examples:
+          - cases-remove-sub-cases
       - id: core.cases.get_case_metrics
         examples:
           - cases-metrics
@@ -495,6 +527,9 @@ pages:
       - id: core.cases.update_comment
         examples:
           - cases-update-comment
+      - id: core.cases.delete_comment
+        examples:
+          - cases-delete-comment
       - id: core.cases.list_comments
         examples:
           - cases-list-comments
@@ -545,6 +580,9 @@ pages:
       - id: core.cases.update_task
         examples:
           - cases-update-task
+      - id: core.cases.run_task
+        examples:
+          - cases-run-task
       - id: core.cases.delete_task
         examples:
           - cases-delete-task
@@ -579,8 +617,6 @@ pages:
         examples:
           - cases-get-linked-rows
       - id: core.cases.list_cases_by_row
-        info: |
-          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-list-cases-by-row
 
@@ -754,6 +790,19 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+      - id: core.table.search
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+          Searches the TEXT columns that have vector search enabled. It needs
+          the semantic search entitlement and a configured embedding provider.
+          Use `core.table.search_rows` for literal text search.
+
+          By default the search fails while the table's index is still being
+          built. Set `allow_partial` to `true` to search the rows that are
+          already indexed.
+        examples:
+          - tables-semantic-search
       - id: core.table.aggregate_rows
         info: |
           The example groups alerts by source and hour, then calculates the

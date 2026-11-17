@@ -7,12 +7,10 @@ to prevent race conditions when multiple API processes start simultaneously.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from uuid import UUID
 
 import tracecat_registry
-from packaging.version import InvalidVersion, Version
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +24,6 @@ from tracecat.db.locks import (
     hold_pg_advisory_xact_lock,
     require_lock_holder_on_commit,
 )
-from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -36,21 +33,6 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
-_RELEASE_TAG_PATTERN = re.compile(
-    r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
-    r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
-    r"(?:-(?P<sub_stage>alpha|a|beta|b|rc|dev|post)\.(?P<sub_number>\d+))?)?$"
-)
-_STAGE_RANK = {
-    "dev": 0,
-    "alpha": 1,
-    "a": 1,
-    "beta": 2,
-    "b": 2,
-    "rc": 3,
-    "final": 4,
-    "post": 5,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,49 +42,6 @@ class _ArtifactBuildRequest:
     target_version: str
     promote_version_id: UUID | None = None
     expected_current_version_id: UUID | None = None
-
-
-def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
-    """Return a sortable key for Tracecat release/image tag versions."""
-    match = _RELEASE_TAG_PATTERN.fullmatch(version)
-    if match is None:
-        raise InvalidVersion(f"Invalid Tracecat release tag: {version!r}")
-
-    stage = match.group("stage") or "final"
-    number = int(match.group("number") or 0)
-    sub_stage = match.group("sub_stage") or "final"
-    sub_number = int(match.group("sub_number") or 0)
-
-    return (
-        int(match.group("major")),
-        int(match.group("minor")),
-        int(match.group("patch")),
-        _STAGE_RANK[stage],
-        number,
-        _STAGE_RANK[sub_stage],
-        sub_number,
-    )
-
-
-def _normalize_alpha_hotfix(version: str) -> str:
-    """Express alpha hotfix tags as post-releases for both version parsers."""
-    return re.sub(
-        r"^(\d+\.\d+\.\d+-alpha\.\d+)\.(\d+)$",
-        r"\1-post.\2",
-        version,
-    )
-
-
-def _is_downgrade(current_version: PlatformRegistryVersion | None, target: str) -> bool:
-    """Check if target version would be a downgrade from current."""
-    if current_version is None:
-        return False
-    target = _normalize_alpha_hotfix(target)
-    current = _normalize_alpha_hotfix(current_version.version)
-    try:
-        return Version(target) < Version(current)
-    except InvalidVersion:
-        return _release_tag_key(target) < _release_tag_key(current)
 
 
 async def sync_platform_registry_on_startup() -> None:
@@ -124,8 +63,8 @@ async def sync_platform_registry_on_startup() -> None:
     target_version = tracecat_registry.__version__
     logger.info("Attempting platform registry sync", target_version=target_version)
 
+    artifact_build: _ArtifactBuildRequest | None = None
     try:
-        artifact_build: _ArtifactBuildRequest | None = None
         # Leader election: try to acquire lock (non-blocking). The sync commits
         # several times, so the lock is held on its own connection.
         async with hold_pg_advisory_xact_lock(
@@ -153,10 +92,16 @@ async def sync_platform_registry_on_startup() -> None:
             )
 
     except Exception as e:
-        logger.warning(
+        # Nothing retries this; a failed build or promotion leaves executors on
+        # the previous registry version until the next API start.
+        logger.exception(
             "Platform registry sync failed",
             error=str(e),
+            error_type=type(e).__name__,
             target_version=target_version,
+            promote_version_id=str(artifact_build.promote_version_id)
+            if artifact_build and artifact_build.promote_version_id
+            else None,
         )
         # Don't re-raise - API should continue
 
@@ -218,38 +163,16 @@ async def _sync_as_leader(
         )
         return
 
-    # No-downgrade guard: check before attempting sync
-    if _is_downgrade(repo.current_version, target_version):
-        if repo.current_version is None:
-            raise RuntimeError(
-                "current_version is None but _is_downgrade returned True"
-            )
-        logger.warning(
-            "Refusing to downgrade platform registry",
-            current=repo.current_version.version,
-            target=target_version,
-        )
-        return
-
-    # Version doesn't exist - need to sync (with retries)
+    # Version doesn't exist - sync it (with retries). Fresh installs promote during
+    # sync; existing installs promote after the artifact build. Versions are not
+    # ordered: a never-seen version is promoted even if it sorts lower than the
+    # current one (e.g. a main build stamped 1.0.0.post<...> after a 1.5.0-alpha).
     sync_service = PlatformRegistrySyncService(session)
 
     for attempt in range(1, MAX_SYNC_RETRIES + 1):
         try:
-            # Re-check downgrade guard in case another process updated during retries
+            # Reload the current pointer; a failed attempt rolled the session back
             await session.refresh(repo, ["current_version"])
-            if _is_downgrade(repo.current_version, target_version):
-                if repo.current_version is None:
-                    raise RuntimeError(
-                        "current_version is None but _is_downgrade returned True"
-                    )
-                logger.warning(
-                    "Refusing to downgrade platform registry (detected during retry)",
-                    current=repo.current_version.version,
-                    target=target_version,
-                )
-                return
-
             expected_current_version_id = repo.current_version_id
             result = await sync_service.sync_repository_v2(
                 repo,
@@ -322,26 +245,30 @@ async def _build_platform_registry_artifact(
     promote_version_id: UUID | None = None,
     expected_current_version_id: UUID | None = None,
 ) -> None:
+    # The build only uses blob storage and can take minutes. Give it an unbound
+    # session so no connection or transaction sits idle across it: a pooler or
+    # server timeout would close that connection and promotion would fail on it.
+    sync_service = PlatformRegistrySyncService(AsyncSession())
+    result = await sync_service._build_and_upload_artifacts(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version_string=target_version,
+        commit_sha=None,
+    )
+    logger.info(
+        "Platform registry artifact build completed",
+        target_version=target_version,
+        artifact_uri=result.artifact_uri,
+    )
+    if promote_version_id is None:
+        return
     async with get_async_session_bypass_rls_context_manager() as session:
-        sync_service = PlatformRegistrySyncService(session)
-        result = await sync_service._build_and_upload_artifacts(
-            origin=DEFAULT_REGISTRY_ORIGIN,
-            version_string=target_version,
-            commit_sha=None,
-        )
-        logger.info(
-            "Platform registry artifact build completed",
+        await _promote_platform_registry_version_after_artifact_build(
+            session,
             target_version=target_version,
+            version_id=promote_version_id,
             artifact_uri=result.artifact_uri,
+            expected_current_version_id=expected_current_version_id,
         )
-        if promote_version_id is not None:
-            await _promote_platform_registry_version_after_artifact_build(
-                session,
-                target_version=target_version,
-                version_id=promote_version_id,
-                artifact_uri=result.artifact_uri,
-                expected_current_version_id=expected_current_version_id,
-            )
 
 
 async def _promote_platform_registry_version_after_artifact_build(

@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get threat feed filter definition
+  description: >-
+    Retrieve supported filter keys and values for Trend Threat Intelligence Feed queries.
+    Returns a list of supported filter keys and their corresponding values that can be used to
+    construct filters in the `TMV1-Contextual-Filter` parameter of the `GET
+    /v3.0/threatintel/feeds` API. These filters help tailor threat intelligence queries by
+    allowing users to specify targeted subsets of data based on context such as geographical
+    location and industry sector. Calls GET /v3.0/threatintel/feeds/filterDefinition.
+  display_group: Trend Micro (Vision One)
+  doc_url: https://automation.trendmicro.com/xdr/api-v3/#tag/Trend-Threat-Intelligence-Feed/paths/~1v3.0~1threatintel~1feeds~1filterDefinition/get
+  namespace: tools.trend_vision_one
+  name: get_feed_filter_definition
+  secrets:
+    - name: trend_vision_one
+      keys: ["TREND_VISION_ONE_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Trend Vision One regional API base URL. Defaults to https://api.xdr.trendmicro.com
+        (United States). Other regions: https://api.eu.xdr.trendmicro.com,
+        https://api.sg.xdr.trendmicro.com, https://api.au.xdr.trendmicro.com,
+        https://api.in.xdr.trendmicro.com, https://api.xdr.trendmicro.co.jp,
+        https://api.mea.xdr.trendmicro.com, https://api.uk.xdr.trendmicro.com,
+        https://api.ca.xdr.trendmicro.com, and https://api.usgov.xdr.trendmicro.com
+        (FedRAMP).
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.trend_vision_one.base_url || "https://api.xdr.trendmicro.com" }}/v3.0/threatintel/feeds/filterDefinition
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.trend_vision_one.TREND_VISION_ONE_API_KEY }}
+  returns: ${{ steps.request.result }}

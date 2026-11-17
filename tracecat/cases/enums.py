@@ -163,3 +163,12 @@ class CaseCommentAgentInvocationStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+
+
+class CaseViewVisibility(StrEnum):
+    """Who can see a saved case view."""
+
+    PERSONAL = "personal"
+    """Only the view's owner."""
+    WORKSPACE = "workspace"
+    """Everyone in the workspace."""

@@ -33,6 +33,7 @@ class WorkspaceSyncWorkflow:
             )
         except ActivityError as exc:
             reason = "transient"
+            message = None
             if isinstance(exc.cause, ApplicationError):
                 if exc.cause.type == "StaleSyncPreviewError":
                     reason = "stale"
@@ -40,9 +41,11 @@ class WorkspaceSyncWorkflow:
                     reason = "authorization"
                 elif exc.cause.non_retryable:
                     reason = "validation"
+                    if exc.cause.type == "SyncValidationError":
+                        message = exc.cause.message
             reconcile_pending = await workflow.execute_activity(
                 "workspace_sync_fail",
-                SyncFailure(ref, reason),
+                SyncFailure(ref, reason, message),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=1)),
                 result_type=bool,

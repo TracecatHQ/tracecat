@@ -46,6 +46,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="parent_case_id" type="string | null">
+
+The ID or short ID (e.g. CASE-0042) of a top-level case to create this case under as a sub-case. Requires the case add-ons entitlement.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="payload" type="object | null">
 
 Payload for the case.
@@ -262,6 +270,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="include_payload" type="boolean">
+
+Return the full payload when both payload selectors are omitted or empty.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="limit" type="integer">
 
 Maximum number of cases to return.
@@ -272,7 +288,7 @@ Default: `100`.
 
 <ParamField path="order_by" type="string | null">
 
-The field to order the cases by.
+The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last.
 
 Default: `null`.
 
@@ -283,6 +299,22 @@ Default: `null`.
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
+
+</ParamField>
+
+<ParamField path="payload_fields" type="array[string] | null">
+
+Return only these top-level payload keys, e.g. ['alert_id', 'score']. Automatically includes the subset regardless of include_payload. Dots are literal; selected objects are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload_paths" type="array[array[string]] | null">
+
+Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path contains 1 to 32 literal keys. Preserves nesting and combines with payload_fields, including the subset automatically. Selected parents include their whole value; missing paths are omitted and nulls preserved. Arrays are selected whole, without index traversal. An empty list is omitted.
+
+Default: `null`.
 
 </ParamField>
 
@@ -329,6 +361,30 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="case_id" type="string | null">
+
+Exact case UUID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_by" type="array[string] | null">
+
+Users who created the case, as user IDs. 'me' needs a signed-in user, so it fails in workflows.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_within" type="object | null">
+
+Cases created in a window ending now, e.g. &#123;'amount': 30, 'unit': 'day'&#125;. Units: hour, day, week, month. Cannot be combined with start_time/end_time.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="cursor" type="string | null">
 
 Pagination cursor used to fetch a specific page when paginate=true.
@@ -353,6 +409,64 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="field_ids" type="array[string] | null">
+
+Include requested custom field values.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filters" type="object | null">
+
+Shared AND/OR/NOT JSON filter tree. Tags use in/contains/is_null; scalar exclusions omit unset values unless ORed with is_null. Payload equality: &#123;'field': 'payload.metadata.product.vendor_name', 'op': 'eq', 'value': 'Microsoft'&#125;. Payload paths support only eq/ne/is_null. Use dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Combine with and/or/not; JSON scalar types are preserved. is_null matches missing paths, not explicit JSON null.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="hierarchy" type="string">
+
+Case hierarchy scope.
+
+Default: `"all"`.
+
+Allowed values: `all`, `top_level`.
+
+</ParamField>
+
+<ParamField path="include_count" type="boolean">
+
+Include exact total_estimate.
+
+Default: `true`.
+
+</ParamField>
+
+<ParamField path="include_durations" type="boolean">
+
+Include duration values.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_payload" type="boolean">
+
+Return the full payload when both payload selectors are omitted or empty.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_rows" type="boolean">
+
+Include linked table rows.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="limit" type="integer">
 
 Maximum number of cases to return.
@@ -363,7 +477,7 @@ Default: `100`.
 
 <ParamField path="order_by" type="string | null">
 
-The field to order the cases by.
+The field to order by. Relevance requires search_mode='full_text' and descending sort. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last.
 
 Default: `null`.
 
@@ -374,6 +488,30 @@ Default: `null`.
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
+
+</ParamField>
+
+<ParamField path="parent_id" type="string | null">
+
+Return sub-cases of this parent UUID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload_fields" type="array[string] | null">
+
+Return only these top-level payload keys, e.g. ['alert_id', 'score']. Automatically includes the subset regardless of include_payload. Dots are literal; selected objects are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="payload_paths" type="array[array[string]] | null">
+
+Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path contains 1 to 32 literal keys. Preserves nesting and combines with payload_fields, including the subset automatically. Selected parents include their whole value; missing paths are omitted and nulls preserved. Arrays are selected whole, without index traversal. An empty list is omitted.
+
+Default: `null`.
 
 </ParamField>
 
@@ -393,6 +531,22 @@ Default: `false`.
 
 </ParamField>
 
+<ParamField path="search_columns" type="array[string] | null">
+
+Search selected text fields; requires an explicit search_mode. Omitted searches both.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search_mode" type="string | null">
+
+Explicit words/phrases or escaped substring. Omitted preserves legacy matching.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="search_term" type="string | null">
 
 Text to search for in case summary and description.
@@ -404,6 +558,14 @@ Default: `null`.
 <ParamField path="severity" type="string | array[string] | null">
 
 Filter by case severity.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="short_id" type="string | null">
+
+Exact short ID, such as CASE-0042 or 42.
 
 Default: `null`.
 
@@ -457,6 +619,22 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="updated_within" type="object | null">
+
+Cases updated in a window ending now, e.g. &#123;'amount': 7, 'unit': 'day'&#125;. Cannot be combined with updated_after/updated_before.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="view_id" type="string | null">
+
+Run a saved case view (its UUID) or the built-in assigned_to_me view. The view replaces the matching criteria: `filters` is ANDed with it and other matching inputs are rejected. Pass order_by to replace the view's saved order; without it the view's order applies and sort only sets the direction. Paging and result options still apply. A workflow has no signed-in user, so it can run shared views only, and views that use 'me', such as assigned_to_me, fail there.
+
+Default: `null`.
+
+</ParamField>
+
 ### Examples
 
 **Search cases**
@@ -469,6 +647,52 @@ Default: `null`.
     status:
       - new
       - in_progress
+    limit: 25
+```
+
+## `core.cases.list_case_views`
+
+List built-in and shared saved case views.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Returns the read-only built-in `assigned_to_me` view, unless
+`include_builtins` is `false`, followed by shared saved views.
+Workflows run without a signed-in user, so they can run shared views
+only, and a view that filters on `me` fails. See
+[Case views](/automations/cases/views).
+
+### Inputs
+
+<ParamField path="include_builtins" type="boolean">
+
+Include built-in views, such as Assigned to me.
+
+Default: `true`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer">
+
+Maximum number of saved views to return.
+
+Default: `100`.
+
+</ParamField>
+
+### Examples
+
+**Run a shared case view**
+
+```yaml
+- ref: list_case_views
+  action: core.cases.list_case_views
+  args:
+    include_builtins: false
+- ref: search_view
+  action: core.cases.search_cases
+  args:
+    view_id: ${{ ACTIONS.list_case_views.result[0].id }}
     limit: 25
 ```
 
@@ -800,6 +1024,29 @@ The tag identifier (ID or ref) to remove from the case.
     tag: needs-triage
 ```
 
+## `core.cases.delete_case_tag`
+
+Delete a case tag from the workspace by tag ID or ref. This also removes the tag from every case.
+
+### Inputs
+
+<ParamField path="tag" type="string" required>
+
+The tag identifier (ID or ref) to delete.
+
+</ParamField>
+
+### Examples
+
+**Delete a case tag**
+
+```yaml
+- ref: delete_case_tag
+  action: core.cases.delete_case_tag
+  args:
+    tag: needs-triage
+```
+
 ## `core.cases.delete_case`
 
 Delete a case.
@@ -821,6 +1068,75 @@ The ID or short ID (e.g. CASE-0042) of the case to delete.
   action: core.cases.delete_case
   args:
     case_id: ${{ TRIGGER.case_id }}
+```
+
+## `core.cases.add_sub_cases`
+
+Group cases as sub-cases of a top-level parent case, e.g. to collect duplicates under one primary case. Returns a result for each case.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+The result has one item per case with `success` and `error`, plus
+`succeeded` and `failed` counts. A case that fails does not stop the others.
+An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
+If `case_ids` includes the parent case, that one item fails with
+"A case cannot be its own parent" and the other cases are still grouped.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+IDs or short IDs of the cases to group under the parent (max 1000). An empty list does nothing. Cases under another parent are moved. Cases with their own sub-cases fail and are reported in the results.
+
+</ParamField>
+
+<ParamField path="parent_case_id" type="string" required>
+
+The ID or short ID (e.g. CASE-0042) of the parent case. It must not be a sub-case itself.
+
+</ParamField>
+
+### Examples
+
+**Group duplicate cases under a primary case**
+
+```yaml
+- ref: group_duplicates
+  action: core.cases.add_sub_cases
+  args:
+    parent_case_id: ${{ TRIGGER.case_id }}
+    case_ids: ${{ ACTIONS.find_duplicates.result[*].id }}
+```
+
+## `core.cases.remove_sub_cases`
+
+Remove cases from their parent case, returning them to the top level. Returns a result for each case.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+The result has one item per case with `success` and `error`, plus
+`succeeded` and `failed` counts. A case that fails does not stop the others.
+An invalid ID, or a short ID that matches no case, fails the whole request before any case changes.
+
+### Inputs
+
+<ParamField path="case_ids" type="array[string]" required>
+
+IDs or short IDs of the sub-cases to remove from their parent (max 1000). An empty list does nothing.
+
+</ParamField>
+
+### Examples
+
+**Remove cases from their parent case**
+
+```yaml
+- ref: ungroup_cases
+  action: core.cases.remove_sub_cases
+  args:
+    case_ids:
+      - CASE-0042
+      - CASE-0043
 ```
 
 ## `core.cases.get_case_metrics`

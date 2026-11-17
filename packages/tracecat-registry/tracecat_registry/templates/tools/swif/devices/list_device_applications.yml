@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: List device applications
+  description: >-
+    List applications detected on a managed device, for software inventory, vulnerable or
+    unauthorized software, and shadow IT investigations. Calls GET
+    /restful/organization/devices/{deviceId}/applications.
+  display_group: Swif.ai (UEM)
+  doc_url: https://help.swif.ai/en/articles/16290808-public-apis-device-application-retrieval
+  namespace: tools.swif
+  name: list_device_applications
+  secrets:
+    - name: swif
+      keys: ["SWIF_API_KEY"]
+  expects:
+    deviceId:
+      type: str
+      description: Swif device ID.
+    q:
+      type: str | None
+      description: >-
+        Case-insensitive fuzzy search across application name, bundle name, version, and
+        status.
+      default: null
+    offset:
+      type: int | None
+      description: Number of application records to skip.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of application records to return.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Swif API base URL. Defaults to https://api.swifteam.com (global tenants). Use
+        https://api.eu.swifteam.com for EU tenants.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.swif.base_url || "https://api.swifteam.com" }}/restful/organization/devices/${{ FN.url_encode(inputs.deviceId) }}/applications
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.swif.SWIF_API_KEY }}
+        params:
+          q: ${{ inputs.q }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.request.result }}

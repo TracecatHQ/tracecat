@@ -9,6 +9,16 @@ import {
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { GitBranchInfo, PullResourceDiff, VcsProvider } from "@/client"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -35,11 +45,20 @@ import {
   GitSyncPreviewEmpty,
 } from "@/components/workspace-sync/git-sync-change-list"
 import {
+  PackageSummary,
+  usePackageSelection,
+} from "@/components/workspace-sync/package-picker"
+import { PackagePublishSummary } from "@/components/workspace-sync/package-publish-overview"
+import {
   getReviewRequestAbbreviation,
   getReviewRequestLabel,
   getWorkspaceSyncPushOutcome,
   type WorkspaceSyncPushMode,
 } from "@/components/workspace-sync/push-target-policy"
+import {
+  useWorkspacePackage,
+  WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
+} from "@/components/workspace-sync/use-workspace-package"
 import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import {
@@ -94,6 +113,25 @@ export function GitSyncPushTab({
   const targetBranch = branch.trim()
   // A new branch does not exist yet, so compare against the base branch.
   const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
+  // The managed resources source pushes its package. Its include file is read
+  // from the same ref the push compares against.
+  const {
+    workspacePackage,
+    isSource,
+    workspacePackageIsFetching,
+    workspacePackageError,
+  } = useWorkspacePackage(workspaceId, {
+    ref: compareRef,
+    enabled: Boolean(compareRef),
+  })
+  const sourcePackage = isSource ? workspacePackage : undefined
+  const {
+    selected: packageSelection,
+    setSelected: setPackageSelection,
+    isChanged: packageIsChanged,
+    packageInclude,
+  } = usePackageSelection(sourcePackage)
+  const packageIncludeKey = JSON.stringify(packageInclude)
   const outcome = getWorkspaceSyncPushOutcome({
     mode,
     targetBranch,
@@ -114,6 +152,8 @@ export function GitSyncPushTab({
       create_pr: outcome.createPr,
       pr_base_branch: baseBranch,
       include_schedules: false,
+      // `null` keeps the include file already on the branch.
+      ...(isSource ? { package_include: packageInclude } : {}),
     },
     compareRef,
     provider,
@@ -128,7 +168,7 @@ export function GitSyncPushTab({
   const reviewRequest = getReviewRequestLabel(provider)
   const reviewRequestShort = getReviewRequestAbbreviation(provider)
   const visiblePreview = previewRequested ? preview : undefined
-  const changeCount = visiblePreview ? previewDiffCount : 0
+  const [confirmOpen, setConfirmOpen] = useState(false)
   // Pushes to the repository default are blocked by name, so stay off until
   // the branch list says which branch that is.
   const defaultKnown = repoBranches?.some((candidate) => candidate.is_default)
@@ -136,6 +176,8 @@ export function GitSyncPushTab({
     !previewOperationId ||
     !previewRequested ||
     previewIsLoading ||
+    // Wait for background package refetches so the push uses fresh data.
+    workspacePackageIsFetching ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     !baseBranch ||
@@ -157,9 +199,16 @@ export function GitSyncPushTab({
     targetBranch,
     mode,
     message,
+    packageIncludeKey,
   ])
   function handlePreview() {
-    if (!compareRef || targetBranch === "" || message.trim() === "") return
+    if (
+      !compareRef ||
+      workspacePackageIsFetching ||
+      targetBranch === "" ||
+      message.trim() === ""
+    )
+      return
     setPreviewRequested(true)
     refetchPreview()
   }
@@ -180,15 +229,21 @@ export function GitSyncPushTab({
         "workflow-sync-branches",
         "repository_commits",
         "workspace-sync-export-preview",
+        WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
       ]) {
         void queryClient.invalidateQueries({ queryKey: [key, workspaceId] })
       }
       const prUrl = result.commit.pr_url
       toast({
-        title: prUrl
-          ? `${reviewRequestShort} ready`
-          : `Pushed to ${targetBranch}`,
-        description: result.commit.message ?? result.commit.sha ?? undefined,
+        title: getPushToastTitle({
+          isPackage: Boolean(sourcePackage),
+          hasPr: Boolean(prUrl),
+          targetBranch,
+          reviewRequestShort,
+        }),
+        description: sourcePackage
+          ? "No customer workspace changed. Merge it, then cut a release and deploy it from Admin, Managed Workspaces."
+          : (result.commit.message ?? result.commit.sha ?? undefined),
         action: prUrl ? (
           <ToastAction
             asChild
@@ -218,8 +273,33 @@ export function GitSyncPushTab({
     <>
       <div className="flex flex-1 flex-col">
         <div className="px-4 py-3">
-          <WorkspacePushExplanation />
+          {sourcePackage ? (
+            <PackageSummary
+              workspacePackage={sourcePackage}
+              selected={packageSelection}
+              isChanged={packageIsChanged}
+              disabled={exportWorkspaceIsPending}
+              onApply={setPackageSelection}
+            />
+          ) : (
+            <WorkspacePushExplanation />
+          )}
         </div>
+        {workspacePackageError && (
+          <GitSyncNotice tone="error">
+            Could not read the managed resources package:{" "}
+            <ExportErrorMessage
+              announce={false}
+              error={workspacePackageError}
+              workspaceId={workspaceId}
+            />
+          </GitSyncNotice>
+        )}
+        {sourcePackage?.warnings?.map((warning) => (
+          <GitSyncNotice key={warning} tone="warning">
+            {warning}
+          </GitSyncNotice>
+        ))}
         {isBlocked && (
           <GitSyncNotice tone="warning">
             Pushing to {blockedBranch} directly is off. Pick or create another
@@ -235,6 +315,12 @@ export function GitSyncPushTab({
               workspaceId={workspaceId}
             />
           </GitSyncNotice>
+        )}
+        {visiblePreview && sourcePackage && (
+          <PackagePublishSummary
+            diffs={visiblePreview.resource_diffs ?? []}
+            compareRef={compareRef}
+          />
         )}
         {visiblePreview ? (
           <GitSyncChangeList
@@ -256,9 +342,13 @@ export function GitSyncPushTab({
           />
         ) : (
           <GitSyncPreviewEmpty
-            description={`Preview to skim what this push includes, compared with ${compareRef ?? "the branch"}.`}
+            description={
+              sourcePackage
+                ? `Preview to see what the package adds and removes, compared with ${compareRef ?? "the branch"}.`
+                : `Preview to skim what this push includes, compared with ${compareRef ?? "the branch"}.`
+            }
             isLoading={previewIsLoading}
-            disabled={!compareRef}
+            disabled={!compareRef || workspacePackageIsFetching}
             onPreview={() => void handlePreview()}
           />
         )}
@@ -290,16 +380,16 @@ export function GitSyncPushTab({
           <GitSyncPreviewButton
             hasPreview
             isLoading={previewIsLoading}
-            disabled={!compareRef}
+            disabled={!compareRef || workspacePackageIsFetching}
             onPreview={() => void handlePreview()}
           />
         )}
         <PushSplitButton
           label={getPushButtonLabel({
+            isPackage: Boolean(sourcePackage),
             isBlocked,
             isPending: exportWorkspaceIsPending,
             createPr: outcome.createPr,
-            changeCount,
             targetBranch,
             reviewRequestShort,
           })}
@@ -310,9 +400,42 @@ export function GitSyncPushTab({
           menuDisabled={isBlocked || exportWorkspaceIsPending}
           reviewRequest={reviewRequest}
           reviewRequestShort={reviewRequestShort}
-          onPush={() => void handlePush()}
+          onPush={() => setConfirmOpen(true)}
         />
       </GitSyncActionBar>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {getPushConfirmation({
+                isPackage: Boolean(sourcePackage),
+                createPr: outcome.createPr,
+                fileCount: previewDiffCount,
+                targetBranch,
+                baseBranch,
+                reviewRequest,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pushDisabled}
+              onClick={() => void handlePush()}
+            >
+              {getPushButtonLabel({
+                isPackage: Boolean(sourcePackage),
+                isBlocked,
+                isPending: false,
+                createPr: outcome.createPr,
+                targetBranch,
+                reviewRequestShort,
+              })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -439,31 +562,79 @@ function getBlockedPushBranch({
 }
 
 function getPushButtonLabel({
+  isPackage,
   isBlocked,
   isPending,
   createPr,
-  changeCount,
   targetBranch,
   reviewRequestShort,
 }: {
+  isPackage: boolean
   isBlocked: boolean
   isPending: boolean
   createPr: boolean
-  changeCount: number
   targetBranch: string
   reviewRequestShort: string
 }): string {
   if (isPending) {
-    return "Pushing..."
+    return isPackage ? "Publishing..." : "Pushing..."
   }
   if (isBlocked) {
     return "Pick another branch"
   }
-  const push = changeCount > 0 ? `Push ${changeCount}` : "Push"
+  // Keep the label stable; the preview above already shows what changes.
+  const push = isPackage ? "Publish package" : "Push"
   if (createPr) {
     return `${push} and open ${reviewRequestShort}`
   }
   return `${push} to ${targetBranch}`
+}
+
+function getPushConfirmation({
+  isPackage,
+  createPr,
+  fileCount,
+  targetBranch,
+  baseBranch,
+  reviewRequest,
+}: {
+  isPackage: boolean
+  createPr: boolean
+  fileCount: number
+  targetBranch: string
+  baseBranch: string | undefined
+  reviewRequest: string
+}): string {
+  const files = `${fileCount} changed ${fileCount === 1 ? "file" : "files"}`
+  const subject = isPackage ? `the package (${files})` : files
+  const commit = `This commits ${subject} to ${targetBranch}`
+  if (createPr) {
+    return `${commit} and opens a ${reviewRequest} into ${baseBranch ?? "the base branch"}.`
+  }
+  return `${commit} without a ${reviewRequest}.`
+}
+
+function getPushToastTitle({
+  isPackage,
+  hasPr,
+  targetBranch,
+  reviewRequestShort,
+}: {
+  isPackage: boolean
+  hasPr: boolean
+  targetBranch: string
+  reviewRequestShort: string
+}): string {
+  if (isPackage && hasPr) {
+    return `Package ${reviewRequestShort} ready`
+  }
+  if (isPackage) {
+    return `Package published to ${targetBranch}`
+  }
+  if (hasPr) {
+    return `${reviewRequestShort} ready`
+  }
+  return `Pushed to ${targetBranch}`
 }
 
 function getPushPreviewSummary(

@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List IOCs
+  description: >-
+    Search custom IOCs and return the full indicator records. Requires the IOC
+    Management: Read API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/ioc/#indicatorcombinedv1
+  namespace: tools.crowdstrike
+  name: list_iocs
+  expects:
+    filter:
+      type: str | None
+      description: FQL filter, for example `type:'domain'+action:'detect'`.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of indicators to return.
+      default: null
+    offset:
+      type: int | None
+      description: Offset to start from. Mutually exclusive with `after`; use `after` beyond 10,000 results.
+      default: null
+    after:
+      type: str | None
+      description: Pagination token from the previous response's `meta.pagination.after`.
+      default: null
+    sort:
+      type: str | None
+      description: Property to sort by, for example `modified_on.desc`.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: list_iocs
+      action: tools.falconpy.call_command
+      args:
+        operation_id: indicator_combined_v1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          after: ${{ inputs.after }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.list_iocs.result }}

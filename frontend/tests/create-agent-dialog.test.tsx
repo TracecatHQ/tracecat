@@ -79,6 +79,7 @@ const catalogModels = [
     model_provider: "custom",
     model_name: "custom-fast",
     model_metadata: {},
+    lifecycle: null,
     custom_provider_name: "Custom",
     custom_provider_base_url: "https://models.example.com/v1",
   },
@@ -89,6 +90,7 @@ const catalogModels = [
     model_provider: "openai",
     model_name: "gpt-5.5",
     model_metadata: {},
+    lifecycle: null,
   },
 ]
 

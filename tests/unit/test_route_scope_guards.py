@@ -34,6 +34,7 @@ from tracecat.organization import router as organization_router
 from tracecat.registry.actions import router as registry_actions_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
+from tracecat.tables.folders import router as table_folder_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.store import router as workflow_store_router
@@ -219,6 +220,25 @@ async def test_agent_preset_scope_guards(
     ],
 )
 async def test_agent_folder_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (table_folder_router.get_directory, "table:read"),
+        (table_folder_router.list_folders, "table:read"),
+        (table_folder_router.create_folder, "table:create"),
+        (table_folder_router.update_folder, "table:update"),
+        (table_folder_router.move_folder, "table:update"),
+        (table_folder_router.delete_folder, "table:delete"),
+        (tables_router.move_table, "table:update"),
+    ],
+)
+async def test_table_folder_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
@@ -577,7 +597,7 @@ async def test_invitations_scope_guards(
     [
         (
             workflow_store_router.publish_workflow,
-            ("workflow:update", "workspace_sync:sync"),
+            ("workflow:update", "workspace_sync:push"),
         ),
         (workflow_store_router.list_workflow_repositories, "workspace:update"),
     ],
@@ -594,27 +614,47 @@ async def test_workflow_store_scope_guards(
     [
         workflow_store_router.list_workflow_commits,
         workflow_store_router.list_workflow_branches,
-        workflow_store_router.pull_workflows,
     ],
 )
-async def test_workflow_sync_endpoints_accept_legacy_or_workspace_sync_scope(
+async def test_workflow_sync_read_endpoints_accept_push_or_pull_scope(
     endpoint: AsyncEndpoint,
 ) -> None:
     await _assert_endpoint_requires_any_scope(
         endpoint,
-        allowed_scopes=("workflow:sync", "workspace_sync:sync"),
+        allowed_scopes=("workspace_sync:pull", "workspace_sync:push"),
     )
 
 
 @pytest.mark.anyio
-async def test_publish_workflow_accepts_legacy_or_workspace_sync_scope() -> None:
+async def test_pull_workflows_requires_pull_scope() -> None:
+    await _assert_endpoint_requires_scope(
+        workflow_store_router.pull_workflows, "workspace_sync:pull"
+    )
+    endpoint = cast(AsyncEndpoint, workflow_store_router.pull_workflows)
+    token = ctx_role.set(
+        Role(
+            type="user",
+            service_id="tracecat-api",
+            scopes=frozenset({"workspace_sync:push"}),
+        )
+    )
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_requires_push_scope() -> None:
     endpoint = cast(AsyncEndpoint, workflow_store_router.publish_workflow)
 
     for denied_scopes in [
         frozenset(),
         frozenset({"workflow:update"}),
-        frozenset({"workflow:sync"}),
-        frozenset({"workspace_sync:sync"}),
+        frozenset({"workspace_sync:pull"}),
+        frozenset({"workspace_sync:push"}),
+        frozenset({"workflow:update", "workspace_sync:pull"}),
     ]:
         token = ctx_role.set(
             Role(
@@ -630,8 +670,7 @@ async def test_publish_workflow_accepts_legacy_or_workspace_sync_scope() -> None
             ctx_role.reset(token)
 
     for allowed_scopes in [
-        frozenset({"workflow:update", "workflow:sync"}),
-        frozenset({"workflow:update", "workspace_sync:sync"}),
+        frozenset({"workflow:update", "workspace_sync:push"}),
     ]:
         token = ctx_role.set(
             Role(

@@ -17,7 +17,8 @@ import { GitSyncConnectionPanel } from "@/components/workspace-sync/git-sync-con
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { GitSyncPushTab } from "@/components/workspace-sync/git-sync-push"
 import { GitSyncRepoStatus } from "@/components/workspace-sync/git-sync-repo-status"
-import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation-history"
+import { SyncOperationStatus } from "@/components/workspace-sync/sync-operation-status"
+import { WORKSPACE_SYNC_PACKAGE_QUERY_KEY } from "@/components/workspace-sync/use-workspace-package"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -33,11 +34,13 @@ const SYNC_QUERY_KEYS = [
   "repository_commits",
   "workspace-sync-export-preview",
   "workspace-sync-pull-preview",
+  WORKSPACE_SYNC_PACKAGE_QUERY_KEY,
 ]
 
 interface GitSyncViewProps {
   workspace: WorkspaceRead
-  canSync: boolean
+  canPush: boolean
+  canPull: boolean
   canManageConnection: boolean
 }
 
@@ -47,20 +50,22 @@ interface GitSyncViewProps {
  */
 export function GitSyncView({
   workspace,
-  canSync,
+  canPush,
+  canPull,
   canManageConnection,
 }: GitSyncViewProps) {
+  const canSync = canPush || canPull
   const gitRepoUrl = workspace.settings?.git_repo_url || undefined
   if (!gitRepoUrl || !canSync) {
     return (
       <div className="flex h-full flex-col">
         <GitSyncHeader workspaceName={workspace.name} />
+        {canSync && <SyncOperationStatus workspaceId={workspace.id} />}
         {canManageConnection ? (
           <GitSyncConnectionPanel workspace={workspace} canSync={canSync} />
         ) : (
           <GitSyncConnectionEmptyState />
         )}
-        {canSync && <SyncOperationHistory workspaceId={workspace.id} />}
       </div>
     )
   }
@@ -69,6 +74,8 @@ export function GitSyncView({
       workspace={workspace}
       gitRepoUrl={gitRepoUrl}
       provider={workspace.settings?.git_provider ?? "github"}
+      canPush={canPush}
+      canPull={canPull}
       canManageConnection={canManageConnection}
     />
   )
@@ -78,16 +85,22 @@ function GitSyncConnectedView({
   workspace,
   gitRepoUrl,
   provider,
+  canPush,
+  canPull,
   canManageConnection,
 }: {
   workspace: WorkspaceRead
   gitRepoUrl: string
   provider: VcsProvider
+  canPush: boolean
+  canPull: boolean
   canManageConnection: boolean
 }) {
   const workspaceId = workspace.id
   const queryClient = useQueryClient()
-  const [direction, setDirection] = useState<SyncDirection>("push")
+  const [direction, setDirection] = useState<SyncDirection>(
+    canPush ? "push" : "pull"
+  )
   const [showConnection, setShowConnection] = useState(false)
   const [localPullRevision, setLocalPullRevision] = useState(0)
   const { data: previewRevision } = useQuery({
@@ -150,26 +163,34 @@ function GitSyncConnectedView({
             />
             <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
             <TabsList className="h-7 shrink-0 gap-0 overflow-hidden rounded-md border bg-transparent p-0">
-              <TabsTrigger
-                value="push"
-                disableUnderline
-                className={DIRECTION_TAB_CLASS_NAME}
-              >
-                <ArrowUpIcon className="size-3.5" />
-                Push
-              </TabsTrigger>
-              <TabsTrigger
-                value="pull"
-                disableUnderline
-                className={cn(DIRECTION_TAB_CLASS_NAME, "border-l")}
-              >
-                <ArrowDownIcon className="size-3.5" />
-                Pull
-              </TabsTrigger>
+              {canPush && (
+                <TabsTrigger
+                  value="push"
+                  disableUnderline
+                  className={DIRECTION_TAB_CLASS_NAME}
+                >
+                  <ArrowUpIcon className="size-3.5" />
+                  Push
+                </TabsTrigger>
+              )}
+              {canPull && (
+                <TabsTrigger
+                  value="pull"
+                  disableUnderline
+                  className={cn(
+                    DIRECTION_TAB_CLASS_NAME,
+                    canPush && "border-l"
+                  )}
+                >
+                  <ArrowDownIcon className="size-3.5" />
+                  Pull
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
         )}
       </GitSyncHeader>
+      <SyncOperationStatus workspaceId={workspaceId} />
       {showConnection && (
         <GitSyncConnectionPanel
           workspace={workspace}
@@ -185,45 +206,54 @@ function GitSyncConnectedView({
         )}
       >
         {/* Both tabs stay mounted so each keeps its form state. */}
-        <TabsContent
-          value="push"
-          forceMount
-          hidden={direction !== "push"}
-          className="mt-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
-        >
-          <GitSyncPushTab
-            key={connectionKey}
-            workspaceId={workspaceId}
-            persistedGitUrl={gitRepoUrl}
-            provider={provider}
-            repoBranches={branches}
-            baseBranch={baseBranch}
-            branchesIsLoading={branchesIsLoading}
-            branchesError={branchesError}
-            syncRevision={localPullRevision + previewRevision}
-          />
-        </TabsContent>
-        <TabsContent
-          value="pull"
-          forceMount
-          hidden={direction !== "pull"}
-          className="mt-0 min-w-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
-        >
-          <GitSyncPullTab
-            key={connectionKey}
-            workspaceId={workspaceId}
-            workspaceName={workspace.name}
-            provider={provider}
-            baseBranch={baseBranch}
-            commits={commits}
-            commitsIsLoading={commitsIsLoading}
-            commitsError={commitsError}
-            isActive={direction === "pull" && !showConnection}
-            onPulled={() => setLocalPullRevision((count) => count + 1)}
-          />
-        </TabsContent>
+        {canPush && (
+          <TabsContent
+            value="push"
+            forceMount
+            hidden={direction !== "push"}
+            className="mt-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
+          >
+            <GitSyncPushTab
+              key={connectionKey}
+              workspaceId={workspaceId}
+              persistedGitUrl={gitRepoUrl}
+              provider={provider}
+              repoBranches={branches}
+              baseBranch={baseBranch}
+              branchesIsLoading={branchesIsLoading}
+              branchesError={branchesError}
+              syncRevision={localPullRevision + previewRevision}
+            />
+          </TabsContent>
+        )}
+        {canPull && (
+          <TabsContent
+            value="pull"
+            forceMount
+            hidden={direction !== "pull"}
+            className="mt-0 min-w-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
+          >
+            <GitSyncPullTab
+              key={connectionKey}
+              workspaceId={workspaceId}
+              workspaceName={workspace.name}
+              provider={provider}
+              baseBranch={baseBranch}
+              commits={commits}
+              commitsIsLoading={commitsIsLoading}
+              commitsError={commitsError}
+              isActive={direction === "pull" && !showConnection}
+              onPulled={() => {
+                setLocalPullRevision((count) => count + 1)
+                // A pull can add or remove resources the package picker lists.
+                void queryClient.invalidateQueries({
+                  queryKey: [WORKSPACE_SYNC_PACKAGE_QUERY_KEY, workspaceId],
+                })
+              }}
+            />
+          </TabsContent>
+        )}
       </div>
-      <SyncOperationHistory workspaceId={workspaceId} />
     </Tabs>
   )
 }

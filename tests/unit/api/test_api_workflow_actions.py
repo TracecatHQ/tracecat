@@ -7,11 +7,20 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.workflow.actions.service import WorkflowActionService
 
 _WORKFLOW_ID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
 _MISSING_ACTION_ID = "00000000-0000-4000-8000-000000000000"
+
+
+@pytest.fixture(autouse=True)
+def no_managed_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use mocked sessions, which cannot answer managed lookups."""
+    monkeypatch.setattr(
+        "tracecat.managed_resources.guard.is_managed",
+        AsyncMock(return_value=False),
+    )
 
 
 @pytest.mark.anyio
@@ -31,6 +40,19 @@ _MISSING_ACTION_ID = "00000000-0000-4000-8000-000000000000"
             TracecatValidationError("ref exists"),
             status.HTTP_409_CONFLICT,
             id="create-conflict",
+        ),
+        pytest.param(
+            "POST",
+            "/actions",
+            {
+                "workflow_id": _WORKFLOW_ID,
+                "type": "core.http_request",
+                "title": "Test Action",
+            },
+            "create_action",
+            TracecatNotFoundError("Workflow not found"),
+            status.HTTP_404_NOT_FOUND,
+            id="create-missing-workflow",
         ),
         pytest.param(
             "GET",

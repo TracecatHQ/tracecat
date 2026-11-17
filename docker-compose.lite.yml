@@ -9,7 +9,7 @@
 #   just cluster up -d --with agents,mcp   (or COMPOSE_PROFILES=agents,mcp)
 #     agents          litellm, agent-worker, agent-executor
 #     mcp             mcp
-#     workspace-sync  background-worker
+#   The background worker always runs: Git sync and semantic-search indexing.
 # - Healthchecks probe every 1-2s while starting, then every 30s.
 # - Memory caps per service, and MALLOC_ARENA_MAX=2 for Python services.
 #
@@ -94,8 +94,8 @@ services:
     environment: *python-env
 
   background-worker:
-    profiles: [workspace-sync]
     environment: *python-env
+    mem_limit: 1g
 
   api:
     environment: *python-env

@@ -40,6 +40,7 @@ class TurnDispatchClient(ServiceClient):
         self.commit_attempted = False
         self.committed = False
         self.rejected = False
+        self.already_started = False
 
     @property
     def worker_service_client(self):
@@ -89,4 +90,5 @@ class TurnDispatchClient(ServiceClient):
             )
         except RPCError as exc:
             self.rejected = exc.status in _REJECTED_START_STATUSES
+            self.already_started = exc.status == RPCStatusCode.ALREADY_EXISTS
             raise

@@ -16,7 +16,7 @@ from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
 from tracecat.expressions.jsonpath import find_with_secret_masks
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.validator.validator import BaseExprValidator
+from tracecat.expressions.validator.base import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
 from tracecat.secrets.masking import SecretMaskCollector

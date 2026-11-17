@@ -3,6 +3,17 @@ import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-refer
 
 const mockCreateReference = jest.fn()
 
+// No resource is managed by Tracecat in these tests.
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: () => false,
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-synthetic",
 }))

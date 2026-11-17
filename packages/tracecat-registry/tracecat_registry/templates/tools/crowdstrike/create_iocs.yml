@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Create IOCs
+  description: >-
+    Create custom IOCs. Requires the IOC Management: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/ioc/#indicatorcreatev1
+  namespace: tools.crowdstrike
+  name: create_iocs
+  expects:
+    indicators:
+      type: list[dict[str, Any]]
+      description: >-
+        Indicators to create. Documented fields: type (sha256, md5, domain, ipv4, ipv6),
+        value, action (no_action, allow, prevent_no_ui, detect, prevent), severity,
+        platforms, applied_globally, host_groups, description, expiration, tags, source,
+        mobile_action, metadata.
+    retrodetects:
+      type: bool | None
+      description: Whether to submit the indicators to retrodetects.
+      default: null
+    ignore_warnings:
+      type: bool | None
+      description: Set to true to ignore warnings and add all IOCs.
+      default: null
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: create_iocs
+      action: tools.falconpy.call_command
+      args:
+        operation_id: indicator_create_v1
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          retrodetects: ${{ inputs.retrodetects }}
+          ignore_warnings: ${{ inputs.ignore_warnings }}
+          body:
+            indicators: ${{ inputs.indicators }}
+  returns: ${{ steps.create_iocs.result }}

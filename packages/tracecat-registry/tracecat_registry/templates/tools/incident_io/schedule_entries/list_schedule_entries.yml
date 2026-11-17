@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List schedule entries
+  description: >-
+    List the schedule entries for a schedule over a window of time. Calls GET /v2/schedule_entries
+    directly. Requires API key scope: schedules.view.
+  display_group: incident.io
+  doc_url: https://docs.incident.io/api-reference/schedule-entries-v2/list
+  namespace: tools.incident_io
+  name: list_schedule_entries
+  secrets:
+    - name: incident_io
+      keys: ["INCIDENT_IO_API_KEY"]
+  expects:
+    schedule_id:
+      type: str | None
+      description: The ID of the schedule to get entries for.
+      default: null
+    entry_window_start:
+      type: str | None
+      description: >-
+        The start of the window to get entries for. May also carry an opaque pagination cursor
+        previously returned in `pagination_meta.after` — pass it back here unchanged to fetch the
+        next page (leave `entry_window_end` unchanged from the original request).
+      default: null
+    entry_window_end:
+      type: str | None
+      description: The end of the window to get entries for.
+      default: null
+    base_url:
+      type: str | None
+      description: incident.io API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.incident_io.base_url || "https://api.incident.io" }}/v2/schedule_entries
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.incident_io.INCIDENT_IO_API_KEY }}
+        params:
+          schedule_id: ${{ inputs.schedule_id }}
+          entry_window_start: ${{ inputs.entry_window_start }}
+          entry_window_end: ${{ inputs.entry_window_end }}
+  returns: ${{ steps.request.result }}

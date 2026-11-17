@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Create case
+  description: >-
+    Create a Falcon case. Requires the Cases: Write API scope.
+  display_group: CrowdStrike
+  doc_url: https://developer.crowdstrike.com/api-reference/collections/case-management/#entitiescasesputv2
+  namespace: tools.crowdstrike
+  name: create_case
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: >-
+        API-native case body, passed through unchanged because optional fields may not
+        accept null. Documented fields: name, severity, description, description_format,
+        status (new, in_progress), assigned_to_user_uuid, tags, template (`{"id": ...}`),
+        evidence (`{"alerts": [{"id": ...}], "events": [{"id": ...}]}`), access_tags.
+    member_cid:
+      type: str | None
+      description: CrowdStrike child CID to act on, for Flight Control (MSSP) parent tenants.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Falcon API base URL. Defaults to the `crowdstrike.base_url` workspace variable,
+        then FalconPy's US-1 default.
+      default: null
+  steps:
+    - ref: create_case
+      action: tools.falconpy.call_command
+      args:
+        operation_id: entities_cases_put_v2
+        member_cid: ${{ inputs.member_cid }}
+        base_url: ${{ inputs.base_url }}
+        params:
+          body: ${{ inputs.payload }}
+  returns: ${{ steps.create_case.result }}

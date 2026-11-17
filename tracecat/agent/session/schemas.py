@@ -47,7 +47,6 @@ class AgentSessionCreate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Extra tools added to this session alongside entity defaults",
-        max_length=50,
     )
     mcp_integrations: list[str] | None = Field(
         default=None,
@@ -91,7 +90,6 @@ class AgentSessionUpdate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="Extra tools added to this session alongside entity defaults",
-        max_length=50,
     )
     mcp_integrations: list[str] | None = Field(
         default=None,
@@ -168,6 +166,10 @@ class AgentSessionRead(BaseModel):
     is_readonly: bool = Field(
         default=False,
         description="Whether the requesting actor can modify this session",
+    )
+    can_decide_approvals: bool = Field(
+        default=True,
+        description="Whether the requesting actor can approve or deny this session's tool calls",
     )
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID

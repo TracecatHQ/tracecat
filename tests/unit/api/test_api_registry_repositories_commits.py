@@ -75,3 +75,45 @@ async def test_list_repository_commits_without_ssh_key_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "No registry SSH key configured"
+
+
+@pytest.mark.anyio
+async def test_list_repository_commits_rejects_unconfigured_origin_without_secret_read(
+    client: TestClient, mock_role_acl_dependency: AsyncMock
+) -> None:
+    registry_role = Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=uuid4(),
+        user_id=uuid4(),
+        scopes=frozenset({"org:registry:read"}),
+    )
+    mock_role_acl_dependency.return_value = registry_role
+    repository_id = uuid4()
+    repository = SimpleNamespace(
+        id=repository_id,
+        origin="git+ssh://git@github.com/acme/other-registry.git",
+    )
+    ssh_context = AsyncMock()
+
+    with (
+        patch.object(repos_router_module, "RegistryReposService") as MockReposService,
+        patch.object(
+            repos_router_module, "get_setting", new_callable=AsyncMock
+        ) as mock_get_setting,
+        patch(
+            "tracecat.registry.repositories.service.get_setting",
+            new_callable=AsyncMock,
+            return_value="git+ssh://git@github.com/acme/custom-registry.git",
+        ),
+        patch.object(repos_router_module, "ssh_context", ssh_context),
+    ):
+        mock_repos_service = AsyncMock()
+        mock_repos_service.get_repository_by_id.return_value = repository
+        MockReposService.return_value = mock_repos_service
+        mock_get_setting.return_value = {"github.com"}
+
+        response = client.get(f"/registry/repos/{repository_id}/commits")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    ssh_context.assert_not_called()

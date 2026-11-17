@@ -7,6 +7,7 @@ import pytest
 from fastmcp import FastMCP
 from starlette.testclient import TestClient
 
+from tracecat.db.roles import UnsafeDatabaseLoginError
 from tracecat.mcp import __main__ as mcp_main
 
 
@@ -132,3 +133,28 @@ def test_main_stops_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> No
     mcp_main.main()
 
     assert len(attempts) == 1
+
+
+def test_main_fails_fast_on_unsafe_database_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unsafe enforce-mode login is misconfiguration: no retries, no server."""
+    calls: list[str] = []
+
+    async def _refuse() -> None:
+        calls.append("verify")
+        raise UnsafeDatabaseLoginError("superuser")
+
+    def _run_mcp_server() -> None:
+        calls.append("run")
+
+    monkeypatch.setattr(mcp_main, "verify_rls_enforceable_login", _refuse)
+    monkeypatch.setattr(mcp_main, "_run_mcp_server", _run_mcp_server)
+    monkeypatch.setattr(mcp_main, "TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(mcp_main.time, "sleep", lambda _: None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        mcp_main.main()
+
+    assert exc_info.value.code == 1
+    assert calls == ["verify"]

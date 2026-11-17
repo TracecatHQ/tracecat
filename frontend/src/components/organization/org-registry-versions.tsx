@@ -15,6 +15,7 @@ import type {
   tracecat__registry__repositories__schemas__RegistryVersionRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   OrgRegistryVersionsTable,
@@ -367,6 +368,16 @@ export function OrgRegistryVersions() {
           </span>
           <span aria-hidden="true">·</span>
           <span>Last synced {lastSyncedLabel}</span>
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1.5">
+            Repository ID
+            <span className="font-mono text-xs text-foreground">{repo.id}</span>
+            <CopyButton
+              value={repo.id}
+              toastMessage="Copied repository ID to clipboard"
+              tooltipMessage="Copy repository ID"
+            />
+          </span>
         </div>
 
         {commitsError && (

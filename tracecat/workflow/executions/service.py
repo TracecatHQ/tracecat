@@ -1602,6 +1602,9 @@ class WorkflowExecutionsService:
         tombstone settles it: if the tombstone starts, the lost start can never
         run; if the ID is taken, the run started. The tombstone needs no worker
         and is terminated at once. Agent turns settle lost starts the same way.
+
+        Settling the same ID again is safe: an ID held by an earlier tombstone
+        still reports ``"not_started"``.
         """
         try:
             tombstone = await self._client.start_workflow(
@@ -1613,7 +1616,7 @@ class WorkflowExecutionsService:
                 rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT,
             )
         except WorkflowAlreadyStartedError:
-            return "started"
+            return await self._settled_outcome_of_taken_id(wf_exec_id)
         except Exception as e:
             self.logger.warning(
                 "Failed to settle a lost workflow start",
@@ -1634,6 +1637,24 @@ class WorkflowExecutionsService:
                 error_type=type(e).__name__,
             )
         return "not_started"
+
+    async def _settled_outcome_of_taken_id(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> StartOutcome:
+        try:
+            description = await self._client.get_workflow_handle(wf_exec_id).describe(
+                rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT
+            )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to describe a settled workflow start",
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+            )
+            return "unknown"
+        if description.workflow_type == _START_TOMBSTONE_WORKFLOW:
+            return "not_started"
+        return "started"
 
     def create_draft_workflow_execution_nowait(
         self,

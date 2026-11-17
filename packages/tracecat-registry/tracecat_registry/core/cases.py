@@ -12,6 +12,7 @@ from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
+from tracecat_registry.sdk.types import UNSET
 
 
 PriorityType = Literal[
@@ -289,6 +290,13 @@ async def create_case(
         bool,
         Doc("If true, create any tags that do not already exist."),
     ] = False,
+    parent_case_id: Annotated[
+        str | None,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of a top-level case to create "
+            "this case under as a sub-case. Requires the case add-ons entitlement."
+        ),
+    ] = None,
 ) -> types.Case:
     params: dict[str, Any] = {}
     if summary is not None:
@@ -311,6 +319,8 @@ async def create_case(
         params["tags"] = tags
     if create_missing_tags:
         params["create_missing_tags"] = create_missing_tags
+    if parent_case_id is not None:
+        params["parent_case_id"] = parent_case_id
     return await ctx.cases.aio.create_case_simple(**params)
 
 
@@ -487,6 +497,32 @@ async def update_comment(
         comment_id,
         content=content,
     )
+
+
+@registry.register(
+    default_title="Delete case comment",
+    display_group="Cases",
+    description=(
+        "Delete a case comment. Workspace admins and workflows can delete any "
+        "comment, not just their own."
+    ),
+    namespace="core.cases",
+)
+async def delete_comment(
+    case_id: Annotated[
+        str,
+        Doc("The ID or short ID (e.g. CASE-0042) of the case containing the comment."),
+    ],
+    comment_id: Annotated[
+        str,
+        Doc("The ID of the comment to delete."),
+    ],
+) -> None:
+    """Delete a case comment.
+
+    The comment is soft-deleted: hidden from the thread but kept as a case event.
+    """
+    await ctx.cases.aio.delete_comment(case_id, comment_id)
 
 
 @registry.register(
@@ -699,6 +735,18 @@ async def list_cases(
     namespace="core.cases",
 )
 async def search_cases(
+    view_id: Annotated[
+        str | None,
+        Doc(
+            "Run a saved case view (its UUID) or the built-in assigned_to_me view. "
+            "The view replaces the matching criteria: `filters` is ANDed with it and "
+            "other matching inputs are rejected. Pass order_by to replace the view's "
+            "saved order; without it the view's order applies and sort only sets the "
+            "direction. Paging and result options still apply. A workflow has no "
+            "signed-in user, so it can run shared views only, and views that use "
+            "'me', such as assigned_to_me, fail there."
+        ),
+    ] = None,
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
@@ -754,6 +802,27 @@ async def search_cases(
     updated_after: Annotated[
         datetime | str | None,
         Doc("Filter cases updated after this time."),
+    ] = None,
+    created_by: Annotated[
+        list[str] | None,
+        Doc(
+            "Users who created the case, as user IDs. 'me' needs a signed-in "
+            "user, so it fails in workflows."
+        ),
+    ] = None,
+    created_within: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Cases created in a window ending now, e.g. {'amount': 30, 'unit': 'day'}. "
+            "Units: hour, day, week, month. Cannot be combined with start_time/end_time."
+        ),
+    ] = None,
+    updated_within: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Cases updated in a window ending now, e.g. {'amount': 7, 'unit': 'day'}. "
+            "Cannot be combined with updated_after/updated_before."
+        ),
     ] = None,
     limit: Annotated[
         int,
@@ -854,6 +923,8 @@ async def search_cases(
         params["cursor"] = cursor
     if paginate and reverse:
         params["reverse"] = reverse
+    if view_id is not None:
+        params["view_id"] = view_id
     if search_term is not None:
         params["search_term"] = search_term
     if status is not None:
@@ -900,6 +971,9 @@ async def search_cases(
         ("short_id", short_id),
         ("case_id", case_id),
         ("filters", filters),
+        ("created_by", created_by),
+        ("created_within", created_within),
+        ("updated_within", updated_within),
         ("parent_id", parent_id),
         ("field_ids", field_ids),
     ):
@@ -909,6 +983,103 @@ async def search_cases(
     if paginate:
         return response
     return response["items"]
+
+
+@registry.register(
+    default_title="List case views",
+    display_group="Cases",
+    description=(
+        "List built-in and shared saved case views. Pass a view's ID to "
+        "Search cases to run it."
+    ),
+    namespace="core.cases",
+)
+async def list_case_views(
+    include_builtins: Annotated[
+        bool, Doc("Include built-in views, such as Assigned to me.")
+    ] = True,
+    limit: Annotated[int, Doc("Maximum number of saved views to return.")] = 100,
+) -> list[types.CaseViewRead]:
+    """List built-in and shared saved case views."""
+    if limit < 1 or limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+        raise TracecatValidationError(
+            detail=f"Limit must be between 1 and {config.TRACECAT__LIMIT_CURSOR_MAX}"
+        )
+    views = await ctx.cases.aio.list_builtin_views() if include_builtins else []
+    # Follow the cursor so up to `limit` saved views are returned, not just the
+    # first page.
+    saved: list[types.CaseViewRead] = []
+    cursor: str | None = None
+    while len(saved) < limit:
+        page = await ctx.cases.aio.list_views(
+            limit=limit - len(saved), cursor=cursor or UNSET
+        )
+        saved.extend(page["items"])
+        cursor = page.get("next_cursor")
+        if not page.get("has_more") or not cursor:
+            break
+    return [*views, *saved]
+
+
+@registry.register(
+    default_title="Add sub-cases",
+    display_group="Cases",
+    description=(
+        "Group cases as sub-cases of a top-level parent case, e.g. to collect "
+        "duplicates under one primary case. Returns a result for each case."
+    ),
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def add_sub_cases(
+    parent_case_id: Annotated[
+        str,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the parent case. "
+            "It must not be a sub-case itself."
+        ),
+    ],
+    case_ids: Annotated[
+        list[str],
+        Doc(
+            "IDs or short IDs of the cases to group under the parent (max 1000). "
+            "An empty list does nothing. "
+            "Cases under another parent are moved. Cases with their own "
+            "sub-cases fail and are reported in the results."
+        ),
+    ],
+) -> types.CaseBatchResponse:
+    # A dedup search that finds nothing yields []; the API requires at least one ID.
+    if not case_ids:
+        return {"results": [], "succeeded": 0, "failed": 0}
+    return await ctx.cases.aio.batch_set_parent(
+        case_ids=case_ids, parent_case_id=parent_case_id
+    )
+
+
+@registry.register(
+    default_title="Remove sub-cases",
+    display_group="Cases",
+    description=(
+        "Remove cases from their parent case, returning them to the top level. "
+        "Returns a result for each case."
+    ),
+    namespace="core.cases",
+    required_entitlements=["case_addons"],
+)
+async def remove_sub_cases(
+    case_ids: Annotated[
+        list[str],
+        Doc(
+            "IDs or short IDs of the sub-cases to remove from their parent "
+            "(max 1000). An empty list does nothing."
+        ),
+    ],
+) -> types.CaseBatchResponse:
+    # The API requires at least one ID; an empty list is a no-op here.
+    if not case_ids:
+        return {"results": [], "succeeded": 0, "failed": 0}
+    return await ctx.cases.aio.batch_clear_parent(case_ids=case_ids)
 
 
 @registry.register(
@@ -1076,6 +1247,24 @@ async def remove_case_tag(
     ],
 ) -> None:
     await ctx.cases.aio.remove_tag(case_id, tag_id=tag)
+
+
+@registry.register(
+    default_title="Delete case tag",
+    display_group="Cases",
+    description=(
+        "Delete a case tag from the workspace by tag ID or ref. "
+        "This also removes the tag from every case."
+    ),
+    namespace="core.cases",
+)
+async def delete_case_tag(
+    tag: Annotated[
+        str,
+        Doc("The tag identifier (ID or ref) to delete."),
+    ],
+) -> None:
+    await ctx.cases.aio.delete_case_tag(tag)
 
 
 async def _upload_attachment(

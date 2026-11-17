@@ -14,8 +14,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -34,7 +35,7 @@ The ID of the page to comment on.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -58,8 +59,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-ad
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -78,7 +80,7 @@ The ID of the page to label.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -102,8 +104,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -128,7 +131,7 @@ Title of the new page.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -160,8 +163,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -174,7 +178,7 @@ The ID of the page to delete.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -190,8 +194,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -204,7 +209,7 @@ The ID of the parent page whose children you want to retrieve.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -252,8 +257,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -266,7 +272,7 @@ Confluence page ID (numeric). In URLs like https://example.atlassian.net/wiki/sp
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -290,8 +296,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -310,7 +317,7 @@ Exact page title to retrieve.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -334,8 +341,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -348,7 +356,7 @@ Confluence page ID to fetch comments for.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -396,8 +404,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-ge
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -410,7 +419,7 @@ The ID of the page to fetch labels for.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -426,8 +435,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-s
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -440,7 +450,7 @@ Search query in CQL. Examples: 'type=page AND space=DEV', 'title~"Runbook"', or 
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 
@@ -472,8 +482,9 @@ Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
 
 ### Input fields
@@ -498,7 +509,7 @@ New title for the page.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g., https://example.atlassian.net/wiki). Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
 
 Default: `null`.
 

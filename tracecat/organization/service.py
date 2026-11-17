@@ -31,7 +31,6 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import (
-    drop_workspace_membership_mirror,
     lock_role_changes,
 )
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
@@ -213,12 +212,6 @@ class OrgService(BaseOrgService):
         await lock_mcp_refresh_token_users(self.session, [user.id])
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
-        )
-        workspace_ids = select(Workspace.id).where(
-            Workspace.organization_id == self.organization_id
-        )
-        await drop_workspace_membership_mirror(
-            self.session, user_id=user.id, workspace_ids=workspace_ids
         )
         # Rows written by older app versions carry no organization_id, so the
         # composite-FK cascade below cannot reach them.

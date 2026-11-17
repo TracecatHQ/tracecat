@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Protocol
 
+import uvicorn
+
 from tracecat.logger import logger
 
 # Keep this path off volumes: Kubernetes container replacement must clear it.
@@ -24,6 +26,20 @@ async def worker_readiness(path: Path = WORKER_READY_FILE) -> AsyncIterator[None
         yield
     finally:
         path.unlink(missing_ok=True)
+
+
+class WorkerOwnedUvicornServer(uvicorn.Server):
+    """Uvicorn server embedded in a worker that owns process signal handling.
+
+    ``uvicorn.Server.serve()`` installs its own SIGINT/SIGTERM handlers, which
+    close the server as soon as the pod is told to stop, while the worker is
+    still draining the activities that depend on it. Use this class for any
+    uvicorn server run inside a worker process, and stop it after the drain.
+    """
+
+    @contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        yield
 
 
 class SignalHandlingLoop(Protocol):

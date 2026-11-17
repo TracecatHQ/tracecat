@@ -17,6 +17,11 @@ from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat import config
 from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.backends.schemas import ChildAgentTurn
+from tracecat.agent.error_policy import (
+    agent_preparation_failed,
+    agent_provider_credentials_missing,
+)
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -45,12 +50,24 @@ from tracecat.db.models import (
     CaseCommentMention,
 )
 from tracecat.dsl._converter import get_data_converter
+from tracecat.exceptions import AgentProviderCredentialsNotFoundError
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.temporal.errors import (
+    extract_error_classification,
+    raise_application_error_from_classification,
+)
 
 pytestmark = pytest.mark.temporal
 _EVENTS: list[str] = []
 _CHILD_WAITING = asyncio.Event()
 _RELEASE_CHILD = asyncio.Event()
 _FAILURES: list[schemas.FailCommentAgentInvocationInput] = []
+_PREPARE_ATTEMPTS: list[int] = []
+_MISSING_CREDENTIALS_MESSAGE = (
+    "No credentials found for provider 'example'. "
+    "An organization admin can add them in organization settings under "
+    "Agent > Configuration."
+)
 
 
 @activity.defn(name=schemas.PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY)
@@ -102,6 +119,27 @@ async def fail_prepare_turn(
     input: schemas.PrepareCommentAgentInvocationInput,
 ) -> schemas.PrepareCommentAgentInvocationResult:
     raise ApplicationError("preparation exploded", non_retryable=True)
+
+
+@activity.defn(name=schemas.PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY)
+async def missing_credentials_prepare_turn(
+    input: schemas.PrepareCommentAgentInvocationInput,
+) -> schemas.PrepareCommentAgentInvocationResult:
+    _PREPARE_ATTEMPTS.append(activity.info().attempt)
+    raise_application_error_from_classification(
+        agent_provider_credentials_missing(
+            AgentProviderCredentialsNotFoundError(_MISSING_CREDENTIALS_MESSAGE)
+        )
+    )
+
+
+@activity.defn(name=schemas.PREPARE_COMMENT_AGENT_INVOCATION_ACTIVITY)
+async def platform_failure_prepare_turn(
+    input: schemas.PrepareCommentAgentInvocationInput,
+) -> schemas.PrepareCommentAgentInvocationResult:
+    raise_application_error_from_classification(
+        agent_preparation_failed(retryable=False)
+    )
 
 
 @activity.defn(name=schemas.COMPLETE_COMMENT_AGENT_INVOCATION_ACTIVITY)
@@ -198,7 +236,7 @@ def _backend_turn_preparer(queue: str):
         _EVENTS.append("prepare")
         run_id = input.invocation_id
         return schemas.PrepareCommentAgentInvocationResult(
-            turn=schemas.CommentAgentTurn(
+            turn=ChildAgentTurn(
                 backend_id="external",
                 session_id=uuid.uuid4(),
                 run_id=run_id,
@@ -383,6 +421,78 @@ async def test_parent_routes_failure_stage_and_preserves_error(
 
 
 @pytest.mark.anyio
+async def test_parent_fails_once_with_actionable_message_without_credentials() -> None:
+    """Missing credentials fail the comment once, showing the user what to fix."""
+    _FAILURES.clear()
+    _PREPARE_ATTEMPTS.clear()
+    invocation_id = uuid.uuid4()
+    queue = f"comment-agent-missing-credentials-{invocation_id}"
+    role = Role(type="service", service_id="tracecat-api")
+
+    async with await WorkflowEnvironment.start_time_skipping(
+        data_converter=get_data_converter()
+    ) as env:
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            activities=[missing_credentials_prepare_turn, record_failure],
+            workflows=[invocation_workflows.CaseCommentAgentInvocationWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await env.client.execute_workflow(
+                    invocation_workflows.CaseCommentAgentInvocationWorkflow.run,
+                    schemas.CaseCommentAgentInvocationWorkflowInput(
+                        role=role, invocation_id=invocation_id
+                    ),
+                    id=f"parent/{invocation_id}",
+                    task_queue=queue,
+                )
+
+    assert _PREPARE_ATTEMPTS == [1]
+    assert len(_FAILURES) == 1
+    assert _FAILURES[0].kind == "preparation"
+    assert _FAILURES[0].error == _MISSING_CREDENTIALS_MESSAGE
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_PROVIDER_CREDENTIALS_MISSING
+
+
+@pytest.mark.anyio
+async def test_parent_keeps_platform_diagnostics_out_of_the_comment() -> None:
+    """A platform-owned failure records Temporal's wrapper text, not its message."""
+    _FAILURES.clear()
+    invocation_id = uuid.uuid4()
+    queue = f"comment-agent-platform-failure-{invocation_id}"
+    role = Role(type="service", service_id="tracecat-api")
+
+    async with await WorkflowEnvironment.start_time_skipping(
+        data_converter=get_data_converter()
+    ) as env:
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            activities=[platform_failure_prepare_turn, record_failure],
+            workflows=[invocation_workflows.CaseCommentAgentInvocationWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    invocation_workflows.CaseCommentAgentInvocationWorkflow.run,
+                    schemas.CaseCommentAgentInvocationWorkflowInput(
+                        role=role, invocation_id=invocation_id
+                    ),
+                    id=f"parent/{invocation_id}",
+                    task_queue=queue,
+                )
+
+    assert len(_FAILURES) == 1
+    assert _FAILURES[0].kind == "preparation"
+    assert _FAILURES[0].error == "Activity task failed"
+
+
+@pytest.mark.anyio
 async def test_parent_never_runs_a_turn_whose_workflow_id_was_tombstoned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -562,7 +672,6 @@ async def test_comment_mention_runs_agent_and_posts_reply(
         "get_workspace_runtime_provider_credentials",
         AsyncMock(return_value={"OPENAI_API_KEY": "test-key"}),
     )
-    monkeypatch.setattr("tracecat.cases.events.publish_case_event_payload", AsyncMock())
     monkeypatch.setattr(
         "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
         Mock(),

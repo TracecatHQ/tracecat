@@ -17,8 +17,12 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useResourceCategories } from "@/hooks/use-resource-categories"
-import { getCategoryScopes, type PermissionLevel } from "@/lib/rbac"
+import {
+  getCategoryScopes,
+  type PermissionLevel,
+  RESOURCE_CATEGORIES,
+  withoutDeprecatedScopes,
+} from "@/lib/rbac"
 
 export interface RoleFormDialogProps {
   title: string
@@ -46,7 +50,6 @@ export function RoleFormDialog({
   onOpenChange,
   categoryFilter,
 }: RoleFormDialogProps) {
-  const resourceCategories = useResourceCategories()
   const [name, setName] = useState(initialData?.name ?? "")
   const [roleDescription, setRoleDescription] = useState(
     initialData?.description ?? ""
@@ -55,22 +58,25 @@ export function RoleFormDialog({
     new Set(initialData?.scopes?.map((s) => s.id) ?? [])
   )
 
-  const toggleScope = useCallback((scopeId: string, checked: boolean) => {
-    setSelectedScopeIds((prev) => {
-      const next = new Set(prev)
-      if (checked) {
-        next.add(scopeId)
-      } else {
-        next.delete(scopeId)
-      }
-      return next
-    })
-  }, [])
+  const toggleScope = useCallback(
+    (scopeId: string, checked: boolean) => {
+      setSelectedScopeIds((prev) => {
+        const next = withoutDeprecatedScopes(prev, scopes)
+        if (checked) {
+          next.add(scopeId)
+        } else {
+          next.delete(scopeId)
+        }
+        return next
+      })
+    },
+    [scopes]
+  )
 
   const handleLevelChange = useCallback(
     (categoryResources: string[], level: PermissionLevel) => {
       setSelectedScopeIds((prev) => {
-        const next = new Set(prev)
+        const next = withoutDeprecatedScopes(prev, scopes)
         // Get all scopes for this category
         const categoryScopes = getCategoryScopes(categoryResources, scopes)
         // Remove all scopes from this category
@@ -106,11 +112,11 @@ export function RoleFormDialog({
 
   // Filter categories if a filter is provided
   const filteredCategories = useMemo(() => {
-    if (!categoryFilter) return resourceCategories
+    if (!categoryFilter) return RESOURCE_CATEGORIES
     return Object.fromEntries(
-      Object.entries(resourceCategories).filter(([key]) => categoryFilter(key))
+      Object.entries(RESOURCE_CATEGORIES).filter(([key]) => categoryFilter(key))
     )
-  }, [categoryFilter, resourceCategories])
+  }, [categoryFilter])
 
   // Count scopes by category for the summary
   const scopeCounts = useMemo(() => {

@@ -12,6 +12,7 @@ import shutil
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -44,6 +45,7 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat import config
+from tracecat.agent.channel_notifier import TURN_STARTED_PUSH_BUDGET, TurnStarted
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.exceptions import (
     AgentToolLimitExceededError,
@@ -73,6 +75,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.mcp import user_client
+from tracecat.agent.metrics import TurnOutcome
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
 from tracecat.agent.otel_delivery import OtelDeliveryPool
 from tracecat.agent.preset.service import AgentPresetService
@@ -91,6 +94,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.feed import SessionFeedEventType
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
@@ -1326,6 +1330,63 @@ class TestCreateSessionActivity:
         session_service.session.add.assert_called_once_with(mock_agent_session)
         session_service.session.commit.assert_awaited_once()
 
+    @pytest.mark.anyio
+    async def test_announces_the_run_once_the_workflow_owns_it(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+    ):
+        """Runs started without the API, like case comments, reach open tabs."""
+        assert mock_role.workspace_id is not None
+        workspace_id = mock_role.workspace_id
+        run_id, stream_id = uuid.uuid4(), uuid.uuid4()
+        mock_agent_session = _agent_session(
+            id=mock_session_id, workspace_id=workspace_id, active_stream_id=stream_id
+        )
+        session_service.get_or_create_session.return_value = (
+            mock_agent_session,
+            False,
+        )
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
+        stream = MagicMock()
+        stream.clear_buffer = AsyncMock()
+        publish = AsyncMock()
+        calls = MagicMock()
+        calls.attach_mock(session_service.session.commit, "commit")
+        calls.attach_mock(stream.clear_buffer, "clear_buffer")
+        calls.attach_mock(publish, "publish")
+
+        with (
+            patch(
+                "tracecat.agent.session.activities.AgentStream.new",
+                AsyncMock(return_value=stream),
+            ),
+            patch("tracecat.agent.session.activities.publish_session_event", publish),
+        ):
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    entity_type=AgentSessionEntity.AGENT_PRESET,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                )
+            )
+
+        assert result.success is True
+        publish.assert_awaited_once_with(
+            workspace_id=workspace_id,
+            session_id=mock_session_id,
+            type=SessionFeedEventType.RUN_STARTED,
+            run_id=run_id,
+            stream_id=stream_id,
+        )
+        # Announced only once the row is committed and the old buffer is gone.
+        order = [name for name, *_ in calls.mock_calls if not name.startswith("_")]
+        assert order == ["commit", "clear_buffer", "publish"]
+
     @pytest.mark.parametrize(
         (
             "incoming_agents_binding",
@@ -1496,6 +1557,51 @@ class TestCreateSessionActivity:
         assert result.success is True
         session_service.get_session.assert_awaited_once_with(mock_session_id)
         session_service.get_or_create_session.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("linked", [True, False])
+    async def test_announces_the_run_to_a_linked_thread(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        linked: bool,
+    ):
+        run_id = uuid.uuid4()
+        session_service.get_session.return_value = _agent_session()
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
+        push = AsyncMock(return_value=[None])
+        with (
+            patch(
+                "tracecat.agent.session.activities.publish_session_event", AsyncMock()
+            ),
+            patch(
+                "tracecat.agent.session.activities.is_channel_linked",
+                AsyncMock(return_value=linked),
+            ),
+            patch("tracecat.agent.session.activities.push_updates", push),
+        ):
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    require_existing=True,
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                )
+            )
+
+        assert result.channel_linked is linked
+        if linked:
+            push.assert_awaited_once_with(
+                mock_role,
+                [TurnStarted(session_id=mock_session_id, run_id=run_id)],
+                budget=TURN_STARTED_PUSH_BUDGET,
+            )
+        else:
+            push.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_fails_when_required_session_is_missing(
@@ -1853,6 +1959,84 @@ class TestRunAgentActivity:
         assert runtime_span.attributes["tracecat.agent.outcome"] == expected_outcome
         assert runtime_span.status.status_code is expected_status
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("error", "timed_out", "expected"),
+        [
+            (asyncio.CancelledError(), False, TurnOutcome.CANCELLED),
+            (asyncio.CancelledError(), True, TurnOutcome.UNSETTLED),
+            (RuntimeError("synthetic"), False, TurnOutcome.FAILED),
+        ],
+    )
+    async def test_turn_metrics_count_turns_that_raise(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        error: BaseException,
+        timed_out: bool,
+        expected: TurnOutcome,
+    ) -> None:
+        """A turn cancelled or failed before any result still counts once."""
+        outcomes: list[TurnOutcome] = []
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity._hydrate_sdk_session_history",
+                AsyncMock(side_effect=error),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.record_turn",
+                side_effect=lambda **kwargs: outcomes.append(kwargs["outcome"]),
+            ),
+        ):
+            mock_activity.cancellation_details.return_value = SimpleNamespace(
+                timed_out=timed_out
+            )
+            with pytest.raises(type(error)):
+                await run_agent_activity(
+                    mock_executor_input.model_copy(
+                        update={"turn_started_at": datetime.now(UTC)}
+                    )
+                )
+
+        assert outcomes == [expected]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("timed_out", "expected"),
+        [(False, TurnOutcome.CANCELLED), (True, TurnOutcome.UNSETTLED)],
+    )
+    async def test_turn_metrics_split_returned_cancellations_by_cause(
+        self,
+        mock_executor_input: AgentExecutorInput,
+        timed_out: bool,
+        expected: TurnOutcome,
+    ) -> None:
+        """The executor returns a cancelled result for a Temporal timeout too."""
+        outcomes: list[TurnOutcome] = []
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.record_turn",
+                side_effect=lambda **kwargs: outcomes.append(kwargs["outcome"]),
+            ),
+        ):
+            mock_activity.cancellation_details.return_value = SimpleNamespace(
+                timed_out=timed_out
+            )
+            mock_executor_cls.return_value.run = AsyncMock(
+                return_value=AgentExecutorResult(success=True, cancelled=True)
+            )
+            await run_agent_activity(
+                mock_executor_input.model_copy(
+                    update={"turn_started_at": datetime.now(UTC)}
+                )
+            )
+
+        assert outcomes == [expected]
+
 
 def _loopback_handler(executor: SandboxedAgentExecutor) -> LoopbackHandler:
     return LoopbackHandler(
@@ -1984,8 +2168,11 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
         concurrent: bool = False,
         cancel_fails: bool = False,
+        first_token_at: datetime | None = None,
     ) -> AgentExecutorResult:
         handler = _loopback_handler(executor)
+        # Model output the runtime streamed before the turn failed.
+        handler._result.first_token_at = first_token_at
         monkeypatch.setattr(
             handler,
             "emit_terminal_error",
@@ -2186,11 +2373,13 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input, timeout_seconds=0)
+        first_token_at = datetime.now(UTC)
 
         result = await self._run_broker_leaf(
             executor=executor,
             monkeypatch=monkeypatch,
             tmp_path=tmp_path,
+            first_token_at=first_token_at,
         )
 
         assert result.classification is not None
@@ -2198,6 +2387,8 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
+        # Output streamed before the deadline still counts toward first-token time.
+        assert result.first_token_at == first_token_at
 
     @pytest.mark.anyio
     async def test_concurrent_turn_is_platform_unavailable(

@@ -44,6 +44,8 @@ interface CatalogHeaderProps<TPillValue extends string = string> {
   selectFilters?: Array<CatalogHeaderSelectFilter>
   displayCount?: number
   countLabel?: ReactNode
+  /** Controls rendered at the right of the search row, e.g. a sort select. */
+  actions?: ReactNode
 }
 
 const filterButtonClassName =
@@ -59,6 +61,7 @@ export function CatalogHeader<TPillValue extends string = string>({
   selectFilters = [],
   displayCount,
   countLabel,
+  actions,
 }: CatalogHeaderProps<TPillValue>) {
   const hasFilterRow = pillFilters.length > 0 || selectFilters.length > 0
 
@@ -76,11 +79,14 @@ export function CatalogHeader<TPillValue extends string = string>({
           onChange={(event) => onSearchChange(event.target.value)}
         />
 
-        {displayCount !== undefined && countLabel ? (
+        {actions || (displayCount !== undefined && countLabel) ? (
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {displayCount} {countLabel}
-            </span>
+            {actions}
+            {displayCount !== undefined && countLabel ? (
+              <span className="text-xs text-muted-foreground">
+                {displayCount} {countLabel}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </header>

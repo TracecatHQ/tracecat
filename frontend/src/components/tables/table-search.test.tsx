@@ -27,6 +27,19 @@ import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts
 import { searchPollInterval, tableSearchKey } from "@/hooks/use-table-search"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
+// Tables are unmanaged unless a test marks one as managed by Tracecat.
+let managedTableIds: Set<string>
+jest.mock("@/hooks/use-managed-resources", () => ({
+  useManagedResources: () => ({
+    managedResources: [],
+    detachedCopies: [],
+    isLoading: false,
+    isManaged: (resourceType: string, id?: string | null) =>
+      resourceType === "table" && Boolean(id) && managedTableIds.has(id ?? ""),
+    getManaged: () => undefined,
+    getDetachedCopy: () => undefined,
+  }),
+}))
 jest.mock("@/client", () => ({
   searchGetEmbeddingConfiguration: jest.fn(),
   tablesGetTableSearch: jest.fn(),
@@ -147,6 +160,7 @@ function openDetails() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  managedTableIds = new Set()
   mockHasEntitlement.mockImplementation((key) => key === "semantic_search")
   permissions = new Set([
     "workspace:read",
@@ -201,6 +215,19 @@ test("read permissions gate all authenticated status requests", async () => {
   openMenu()
   await screen.findByText("Delete unique index")
   expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
+})
+
+test("a managed table's column menu hides schema changes", async () => {
+  managedTableIds.add("table-synthetic")
+  setup(menus())
+  openMenu()
+  await screen.findByRole("menuitem", { name: "Copy ID" })
+  expect(screen.getByRole("menuitem", { name: "Copy name" })).toBeVisible()
+  expect(screen.queryByText("Delete unique index")).not.toBeInTheDocument()
+  expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("menuitem", { name: "Delete" })
+  ).not.toBeInTheDocument()
 })
 
 test("without the entitlement the badge opens the Enterprise only dialog", async () => {

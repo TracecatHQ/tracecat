@@ -274,6 +274,7 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
+    expected_workspace_id = workspace_id
     case_id = uuid.uuid4()
     fake_session = MagicMock()
     fake_session.commit = AsyncMock()
@@ -285,11 +286,12 @@ async def test_shared_sync_case_duration_uses_transaction_scoped_lock(
     lock_mock = AsyncMock(return_value=True)
 
     @contextlib.asynccontextmanager
-    async def fake_session_context():
+    async def fake_session_context(*, workspace_id: uuid.UUID):
+        assert workspace_id == expected_workspace_id
         yield fake_session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.materialization.get_async_session_bypass_rls_context_manager",
+        "tracecat.cases.durations.materialization.get_async_session_tenant_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(
@@ -343,11 +345,12 @@ async def test_consumer_skips_backfill_fanout_without_entitlement(
     publish_mock = AsyncMock()
 
     @contextlib.asynccontextmanager
-    async def fake_session_context():
+    async def fake_session_context(*, workspace_id: uuid.UUID):
+        assert workspace_id == job.workspace_id
         yield session
 
     monkeypatch.setattr(
-        "tracecat.cases.durations.consumer.get_async_session_bypass_rls_context_manager",
+        "tracecat.cases.durations.consumer.get_async_session_tenant_context_manager",
         fake_session_context,
     )
     monkeypatch.setattr(

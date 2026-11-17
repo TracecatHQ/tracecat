@@ -814,7 +814,7 @@ describe("case search modes", () => {
           search_mode: "literal",
           search_term: "CASE-0042",
           promote_exact_match: true,
-          start_time: expect.any(String),
+          created_within: { amount: 1, unit: "month" },
           hierarchy: "all",
         }),
       })

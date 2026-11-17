@@ -9,13 +9,31 @@ from temporalio.worker import Worker
 
 from tracecat import config
 from tracecat.background.sandbox import new_sandbox_runner
+from tracecat.cases.triggers.dispatcher import (
+    CaseTriggerDispatcher,
+    case_trigger_dispatcher_lifespan,
+    dispatch_case_trigger_outbox_batch,
+    wait_for_case_trigger_outbox,
+)
+from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
+from tracecat.managed_resources.workflows import (
+    ManagedRolloutWorkflow,
+    managed_rollout_fail,
+    managed_rollout_run,
+)
 from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
 )
 from tracecat.observability.sentry import initialize_worker_sentry_from_environment
+from tracecat.search.indexing_schedule import search_schedule_lifespan
+from tracecat.search.indexing_workflow import (
+    SearchIndexDispatcher,
+    discover_search_collections,
+    index_search_collection,
+)
 from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 from tracecat.workspace_sync.operations.activities import (
@@ -40,29 +58,46 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     shutdown_event = shutdown_event or asyncio.Event()
     initialize_platform_tracing("tracecat-background-worker")
     initialize_worker_sentry_from_environment()
+    await verify_rls_enforceable_login()
     async with AsyncExitStack() as cleanup:
         cleanup.callback(shutdown_platform_tracing)
         cleanup.push_async_callback(close_storage_client_cache)
         client = await get_temporal_client()
-        async with Worker(
-            client,
-            task_queue=config.TRACECAT__BACKGROUND_QUEUE,
-            workflows=[WorkspaceSyncWorkflow, WorkspaceSyncLifecycleWorkflow],
-            workflow_runner=new_sandbox_runner(),
-            activities=[
-                workspace_sync_prepare,
-                workspace_sync_apply,
-                workspace_sync_fail,
-                workspace_sync_initialize,
-                workspace_sync_prepare_lifecycle,
-                workspace_sync_apply_lifecycle,
-                workspace_sync_committed_lifecycle,
-                workspace_sync_finish_lifecycle,
-                workspace_sync_project,
-            ],
-            max_concurrent_activities=config.TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES,
-            disable_eager_activity_execution=True,
-            graceful_shutdown_timeout=timedelta(seconds=30),
+        async with (
+            Worker(
+                client,
+                task_queue=config.TRACECAT__BACKGROUND_QUEUE,
+                workflows=[
+                    WorkspaceSyncWorkflow,
+                    WorkspaceSyncLifecycleWorkflow,
+                    ManagedRolloutWorkflow,
+                    SearchIndexDispatcher,
+                    CaseTriggerDispatcher,
+                ],
+                workflow_runner=new_sandbox_runner(),
+                activities=[
+                    workspace_sync_prepare,
+                    workspace_sync_apply,
+                    workspace_sync_fail,
+                    workspace_sync_initialize,
+                    workspace_sync_prepare_lifecycle,
+                    workspace_sync_apply_lifecycle,
+                    workspace_sync_committed_lifecycle,
+                    workspace_sync_finish_lifecycle,
+                    workspace_sync_project,
+                    managed_rollout_run,
+                    managed_rollout_fail,
+                    discover_search_collections,
+                    index_search_collection,
+                    wait_for_case_trigger_outbox,
+                    dispatch_case_trigger_outbox_batch,
+                ],
+                max_concurrent_activities=config.TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES,
+                disable_eager_activity_execution=True,
+                graceful_shutdown_timeout=timedelta(seconds=30),
+            ),
+            search_schedule_lifespan(client, config.TRACECAT__BACKGROUND_QUEUE),
+            case_trigger_dispatcher_lifespan(client, config.TRACECAT__BACKGROUND_QUEUE),
         ):
             logger.info("Background worker started")
             await shutdown_event.wait()

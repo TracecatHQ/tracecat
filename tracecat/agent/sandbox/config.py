@@ -52,6 +52,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_WORK_DIR,
     job_uv_state_dir,
 )
+from tracecat.process_env import LOADER_ENV_VAR_ERROR, is_loader_env_var
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -557,7 +558,10 @@ def build_agent_nsjail_config(
             "",
             f'cwd: "{JAILED_AGENT_JOB_DIR}"',
             "# Execution - standalone shim script",
-            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
+            # The shim is stdlib-only. Isolated mode (-I -S) keeps PYTHONPATH and
+            # the persistent home's user site-packages from running code before
+            # its process cap; -B and -u replace the PYTHON* variables -I ignores.
+            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-I" arg: "-S" arg: "-B" arg: "-u" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
         ]
     )
 
@@ -587,6 +591,8 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
     for key, value in config.env_vars.items():
         _validate_env_key(key)
         _validate_env_value(key, value)
+        if is_loader_env_var(key):
+            raise AgentSandboxValidationError(LOADER_ENV_VAR_ERROR)
         if key in AGENT_SANDBOX_BASE_ENV or key in AGENT_RUNTIME_PROTECTED_ENV_VARS:
             raise AgentSandboxValidationError(
                 f"Cannot override protected env var: {key}"

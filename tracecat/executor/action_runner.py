@@ -17,6 +17,7 @@ Key features:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import os
 import shutil
@@ -51,6 +52,7 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, record_platform_span
 from tracecat.outbound import TUNNEL_PROXY_ENV
 from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import (
@@ -229,7 +231,11 @@ class ActionRunner:
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction
         # cannot delete a directory the subprocess is still importing from.
-        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
+        async with contextlib.AsyncExitStack() as lease_scope:
+            with platform_span("tracecat.action.registry_lease"):
+                registry_paths = await lease_scope.enter_async_context(
+                    self.registry_artifacts.lease(artifact_uris)
+                )
             logger.debug(
                 "Using sandbox execution",
                 use_sandbox=use_sandbox,
@@ -292,95 +298,100 @@ class ActionRunner:
         job_dir = Path(tempfile.mkdtemp(prefix="tracecat_action_"))
 
         try:
-            # Build payload with resolved_context
-            payload: dict[str, Any] = {
-                "input": input,
-                "role": role,
-                "resolved_context": resolved_context,
-                "secret_env": secret_projection.env,
-                "secret_mask_values": sorted(masks.values)
-                if (masks := ctx_secret_masks.get())
-                else [],
-                "timeout_seconds": timeout,
-            }
-            # The runner times the function call; the jail only backstops
-            # startup and serialization around it.
-            hard_timeout = timeout + config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE
-
-            # Write input JSON to job directory
-            input_json = to_json(payload)
-            input_path = job_dir / "input.json"
-            input_path.write_bytes(input_json)
-
-            # Copy minimal_runner.py to job directory
-            from tracecat.executor import minimal_runner as minimal_runner_module
-
-            minimal_runner_src = Path(minimal_runner_module.__file__)
-            minimal_runner_dst = job_dir / "minimal_runner.py"
-            shutil.copy2(minimal_runner_src, minimal_runner_dst)
-
-            # Build environment variables for sandbox (untrusted mode only)
-            # NOTE: DB credentials are intentionally NOT passed
-            sandbox_env: dict[str, str] = {}
-            if env_vars:
-                sandbox_env.update(env_vars)
-            # Only the executor may route an action through a tunnel.
-            sandbox_env.pop(TUNNEL_PROXY_ENV, None)
-
-            # SDK context for any registry SDK operations
-            sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
-            sandbox_env["TRACECAT__WORKSPACE_ID"] = (
-                str(role.workspace_id) if role.workspace_id else ""
-            )
-            sandbox_env["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
-            sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
-            sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
-            sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
-            action_gateway_socket = action_gateway_socket_path()
-            sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
-                ACTION_GATEWAY_SANDBOX_SOCKET
-            )
-
-            # Preserve the signed execution provenance from the service boundary.
-            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
-
-            network = SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
-            if route := _tunnel_route(input, resolved_context):
-                proxy_url, gateway_ip, gateway_port = route
-                sandbox_env.update(tunnel_proxy_env(proxy_url))
-                network = SandboxNetworkRequest(
-                    SandboxNetworkPurpose.ACTION,
-                    policy=gateway_only_network_policy(gateway_ip, gateway_port),
+            with platform_span("tracecat.action.sandbox.prepare"):
+                # Build payload with resolved_context
+                payload: dict[str, Any] = {
+                    "input": input,
+                    "role": role,
+                    "resolved_context": resolved_context,
+                    "secret_env": secret_projection.env,
+                    "secret_mask_values": sorted(masks.values)
+                    if (masks := ctx_secret_masks.get())
+                    else [],
+                    "timeout_seconds": timeout,
+                }
+                # The runner times the function call; the jail only backstops
+                # startup and serialization around it.
+                hard_timeout = (
+                    timeout + config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE
                 )
 
-            logger.debug(
-                "Using untrusted mode - no DB credentials passed to sandbox",
-                action=input.task.action,
-            )
+                # Write input JSON to job directory
+                input_json = to_json(payload)
+                input_path = job_dir / "input.json"
+                input_path.write_bytes(input_json)
 
-            # Configure sandbox
-            sandbox_config = ActionSandboxConfig(
-                registry_paths=registry_paths,
-                tracecat_app_dir=_get_tracecat_app_dir(),
-                site_packages_dir=_get_site_packages_dir(),
-                env_vars=sandbox_env,
-                network=network,
-                action_gateway_socket=action_gateway_socket,
-                action_gateway_socket_mount_path=ACTION_GATEWAY_SANDBOX_SOCKET,
-                resources=ResourceLimits(
-                    memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
-                    address_space_mb=config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
-                    timeout_seconds=math.ceil(hard_timeout),
-                ),
-                timeout_seconds=hard_timeout,
-            )
+                # Copy minimal_runner.py to job directory
+                from tracecat.executor import minimal_runner as minimal_runner_module
 
-            logger.debug(
-                "Executing action in nsjail sandbox",
-                action=input.task.action,
-                job_dir=str(job_dir),
-                registry_paths_count=len(registry_paths),
-            )
+                minimal_runner_src = Path(minimal_runner_module.__file__)
+                minimal_runner_dst = job_dir / "minimal_runner.py"
+                shutil.copy2(minimal_runner_src, minimal_runner_dst)
+
+                # Build environment variables for sandbox (untrusted mode only)
+                # NOTE: DB credentials are intentionally NOT passed
+                sandbox_env: dict[str, str] = {}
+                if env_vars:
+                    sandbox_env.update(env_vars)
+                # Only the executor may route an action through a tunnel.
+                sandbox_env.pop(TUNNEL_PROXY_ENV, None)
+
+                # SDK context for any registry SDK operations
+                sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
+                sandbox_env["TRACECAT__WORKSPACE_ID"] = (
+                    str(role.workspace_id) if role.workspace_id else ""
+                )
+                sandbox_env["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
+                sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
+                sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
+                sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
+                action_gateway_socket = action_gateway_socket_path()
+                sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
+                    ACTION_GATEWAY_SANDBOX_SOCKET
+                )
+
+                # Preserve the signed execution provenance from the service boundary.
+                sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = (
+                    resolved_context.executor_token
+                )
+
+                network = SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
+                if route := _tunnel_route(input, resolved_context):
+                    proxy_url, gateway_ip, gateway_port = route
+                    sandbox_env.update(tunnel_proxy_env(proxy_url))
+                    network = SandboxNetworkRequest(
+                        SandboxNetworkPurpose.ACTION,
+                        policy=gateway_only_network_policy(gateway_ip, gateway_port),
+                    )
+
+                logger.debug(
+                    "Using untrusted mode - no DB credentials passed to sandbox",
+                    action=input.task.action,
+                )
+
+                # Configure sandbox
+                sandbox_config = ActionSandboxConfig(
+                    registry_paths=registry_paths,
+                    tracecat_app_dir=_get_tracecat_app_dir(),
+                    site_packages_dir=_get_site_packages_dir(),
+                    env_vars=sandbox_env,
+                    network=network,
+                    action_gateway_socket=action_gateway_socket,
+                    action_gateway_socket_mount_path=ACTION_GATEWAY_SANDBOX_SOCKET,
+                    resources=ResourceLimits(
+                        memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                        address_space_mb=config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
+                        timeout_seconds=math.ceil(hard_timeout),
+                    ),
+                    timeout_seconds=hard_timeout,
+                )
+
+                logger.debug(
+                    "Executing action in nsjail sandbox",
+                    action=input.task.action,
+                    job_dir=str(job_dir),
+                    registry_paths_count=len(registry_paths),
+                )
 
             # Execute in sandbox
             start_time = time.monotonic()
@@ -433,8 +444,15 @@ class ActionRunner:
             )
 
         finally:
-            # Cleanup job directory
+            # Delete before tracing: input.json holds resolved secrets, so its
+            # removal must never depend on the telemetry path.
+            cleanup_started_ns = time.time_ns()
             shutil.rmtree(job_dir, ignore_errors=True)
+            record_platform_span(
+                "tracecat.action.sandbox.cleanup",
+                start_time_ns=cleanup_started_ns,
+                end_time_ns=time.time_ns(),
+            )
 
     async def _execute_direct(
         self,

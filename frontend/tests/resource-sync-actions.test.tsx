@@ -34,6 +34,12 @@ const preview: WorkspaceSyncExportPreview = {
   resource_diffs: [],
 }
 
+jest.mock("@/components/workspace-sync/use-workspace-package", () => ({
+  useWorkspacePackage: () => ({
+    isSource: false,
+    workspacePackageIsLoading: false,
+  }),
+}))
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
