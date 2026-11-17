@@ -1457,6 +1457,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
         environment = _resolve_environment(
             task.environment, input.default_environment, materialized
         )
+        # A None environment would read the variables from every environment
+        if not environment:
+            raise UserError("The action environment must not be empty")
         materialized["VARS"] = await get_workspace_variables(
             collected.variables, environment=environment, role=input.role
         )

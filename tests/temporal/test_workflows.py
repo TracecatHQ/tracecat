@@ -1402,7 +1402,7 @@ async def test_child_workflow_trigger_inputs_resolve_workspace_variables(
         await service.create_variable(
             VariableCreate(
                 name=var_name,
-                values={"alias": alias, "token": "default-token"},
+                values={"alias": alias, "token": "default-token", "retries": 3},
                 environment="default",
             )
         )
