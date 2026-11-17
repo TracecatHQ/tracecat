@@ -236,6 +236,27 @@ async def test_case_trigger_resolves_tag_names_to_existing_refs(
 
 
 @pytest.mark.anyio
+async def test_case_trigger_rejects_invalid_new_tag_name(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Invalid Tag",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    config = CaseTriggerConfig(status="offline", event_types=[], tag_filters=["x" * 51])
+    with pytest.raises(TracecatValidationError):
+        await service.upsert_case_trigger(
+            WorkflowUUID.new(workflow.id), config, create_missing_tags=True
+        )
+
+
+@pytest.mark.anyio
 async def test_case_trigger_rejects_unknown_tags(session: AsyncSession, svc_role):
     workflow = Workflow(
         title="Case Trigger Tags",

@@ -353,4 +353,6 @@ class CaseTriggersService(BaseWorkspaceService):
             )
         except NoResultFound as exc:
             raise TracecatNotFoundError(str(exc)) from exc
+        except ValidationError as exc:
+            raise TracecatValidationError(f"Invalid case tag filter: {exc}") from exc
         return list(dict.fromkeys(tag.ref for tag in tags))
