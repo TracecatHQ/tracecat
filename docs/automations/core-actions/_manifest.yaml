@@ -450,6 +450,14 @@ pages:
         examples:
           - cases-search
       - id: core.cases.list_case_views
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+          Returns the read-only built-in `assigned_to_me` view, unless
+          `include_builtins` is `false`, followed by shared saved views.
+          Workflows run without a signed-in user, so they can run shared views
+          only, and a view that filters on `me` fails. See
+          [Case views](/automations/cases/views).
         examples:
           - cases-list-views
       - id: core.cases.aggregate_cases
@@ -609,8 +617,6 @@ pages:
         examples:
           - cases-get-linked-rows
       - id: core.cases.list_cases_by_row
-        info: |
-          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-list-cases-by-row
 
@@ -784,6 +790,19 @@ pages:
       - id: core.table.search_rows
         examples:
           - tables-search
+      - id: core.table.search
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+          Searches the TEXT columns that have vector search enabled. It needs
+          the semantic search entitlement and a configured embedding provider.
+          Use `core.table.search_rows` for literal text search.
+
+          By default the search fails while the table's index is still being
+          built. Set `allow_partial` to `true` to search the rows that are
+          already indexed.
+        examples:
+          - tables-semantic-search
       - id: core.table.aggregate_rows
         info: |
           The example groups alerts by source and hour, then calculates the

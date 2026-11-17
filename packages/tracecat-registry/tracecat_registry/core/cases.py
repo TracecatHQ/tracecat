@@ -740,9 +740,11 @@ async def search_cases(
         Doc(
             "Run a saved case view (its UUID) or the built-in assigned_to_me view. "
             "The view replaces the matching criteria: `filters` is ANDed with it and "
-            "other matching inputs are rejected, while paging, order_by/sort, and "
-            "result options still apply. Views that use 'me', such as assigned_to_me, fail in workflows "
-            "because a workflow has no signed-in user."
+            "other matching inputs are rejected. Pass order_by to replace the view's "
+            "saved order; without it the view's order applies and sort only sets the "
+            "direction. Paging and result options still apply. A workflow has no "
+            "signed-in user, so it can run shared views only, and views that use "
+            "'me', such as assigned_to_me, fail there."
         ),
     ] = None,
     search_term: Annotated[

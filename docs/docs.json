@@ -117,7 +117,8 @@
               "automations/cases/tasks",
               "automations/cases/agent-mentions",
               "automations/cases/correlations",
-              "automations/cases/workflow-triggers"
+              "automations/cases/workflow-triggers",
+              "automations/cases/views"
             ]
           }
         ]
