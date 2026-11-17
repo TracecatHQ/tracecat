@@ -159,24 +159,37 @@ function handleKeyDown(event: KeyboardEvent): void {
   if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
     return
   }
-  // Printable characters only. Whitespace keeps its native meaning (space
-  // activates buttons and scrolls the page), and no message starts with it.
-  if (event.key.length !== 1 || /\s/.test(event.key)) {
-    return
-  }
   const eventTarget = event.target
   if (isEditableTarget(eventTarget)) {
     return
   }
   const key = event.key
+  if (heldKey && (key === " " || key === "Backspace")) {
+    // The held tap started a message, not a shortcut: keep the space after
+    // it, or let Backspace take it back.
+    event.preventDefault()
+    const held = takeHeldKey()
+    if (key === " ") {
+      window.setTimeout(() => routeText(`${held} `, eventTarget), 0)
+    }
+    return
+  }
+  // Printable characters only. Whitespace keeps its native meaning (space
+  // activates buttons and scrolls the page), and no message starts with it.
+  if (key.length !== 1 || /\s/.test(key)) {
+    return
+  }
   // Page shortcuts such as the case panel digits also listen on `window`.
   // Wait for the dispatch to finish so any handler that claims the key with
   // `preventDefault` wins over typing into the chat.
   window.setTimeout(() => {
     const held = takeHeldKey()
     if (event.defaultPrevented) {
-      // A shortcut claimed this key. If it was the second tap of a
-      // double-tap shortcut, the held first tap belonged to it as well.
+      // A shortcut claimed this key. The held tap belonged to it only if
+      // this was its second tap; otherwise it is still text.
+      if (held && held !== key) {
+        routeText(held, eventTarget)
+      }
       return
     }
     const doubleTap = doubleTapKeys.find((entry) => entry.key === key)
@@ -203,6 +216,13 @@ function handleFocusIn(event: FocusEvent): void {
   if (target) {
     priorityCounter += 1
     target.priority = priorityCounter
+  }
+  // Focus moved before the held tap resolved. Type it now if the user
+  // clicked into a composer, so it stays ahead of what they type next.
+  const held = takeHeldKey()
+  const field = target?.ref.current ?? null
+  if (held && isEligible(field)) {
+    insertText(field, held)
   }
 }
 

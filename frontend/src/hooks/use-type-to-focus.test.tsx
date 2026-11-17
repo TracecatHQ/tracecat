@@ -180,6 +180,63 @@ describe("useTypeToFocus", () => {
       expect(textarea.value).toBe("ca")
     })
 
+    it("keeps a space typed after the held key", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("c")
+      typeOnBody(" ")
+      typeOnBody("i")
+
+      expect(textarea.value).toBe("c i")
+    })
+
+    it("lets Backspace take back the held key", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("c")
+      typeOnBody("Backspace")
+      act(() => {
+        jest.advanceTimersByTime(2000)
+      })
+
+      expect(textarea.value).toBe("")
+    })
+
+    it("types the held key when another shortcut claims the next key", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+      function claimDigit(event: KeyboardEvent) {
+        if (event.key === "1") {
+          event.preventDefault()
+        }
+      }
+      window.addEventListener("keydown", claimDigit)
+
+      typeOnBody("c")
+      typeOnBody("1")
+
+      window.removeEventListener("keydown", claimDigit)
+      expect(textarea.value).toBe("c")
+    })
+
+    it("types the held key when the composer is focused by hand", () => {
+      render(<Composer label="chat" />)
+      const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
+
+      typeOnBody("c")
+      act(() => {
+        textarea.focus()
+      })
+      expect(textarea.value).toBe("c")
+
+      act(() => {
+        jest.advanceTimersByTime(2000)
+      })
+      expect(textarea.value).toBe("c")
+    })
+
     it("types a lone held key once the window passes", () => {
       render(<Composer label="chat" />)
       const textarea = screen.getByLabelText<HTMLTextAreaElement>("chat")
