@@ -180,15 +180,20 @@ def auth_pool_exhausted_exception_handler(
 
 
 async def temporal_rpc_exception_handler(request: Request, exc: Exception) -> Response:
-    """Return a retryable 503 for transient Temporal faults without paging.
+    """Return a retryable 503 for transient Temporal faults.
 
-    Other RPC failures re-raise to the generic handler and stay urgent.
+    A deadline is a slow call and goes to triage. Unreachable or rate-limited
+    Temporal is an outage and stays urgent. Other RPC failures re-raise to the
+    generic 500 handler.
     """
     if not (
         isinstance(exc, RPCError) and exc.status in _TRANSIENT_TEMPORAL_RPC_STATUSES
     ):
         raise exc
-    capture_api_exception(exc, priority=AlertPriority.LOW, level="warning")
+    if exc.status == RPCStatusCode.DEADLINE_EXCEEDED:
+        capture_api_exception(exc, priority=AlertPriority.LOW, level="warning")
+    else:
+        capture_api_exception(exc, priority=AlertPriority.URGENT, level="error")
     # Log the route template: webhook paths carry a credential.
     route = request.scope.get("route")
     logger.warning(

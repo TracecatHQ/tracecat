@@ -1283,11 +1283,12 @@ def test_unexpected_database_failures_capture_once_with_safe_request_metadata(
     ("rpc_status", "expected_status", "expected_priority"),
     [
         (RPCStatusCode.DEADLINE_EXCEEDED, 503, AlertPriority.LOW),
-        (RPCStatusCode.UNAVAILABLE, 503, AlertPriority.LOW),
+        (RPCStatusCode.UNAVAILABLE, 503, AlertPriority.URGENT),
+        (RPCStatusCode.RESOURCE_EXHAUSTED, 503, AlertPriority.URGENT),
         (RPCStatusCode.INTERNAL, 500, AlertPriority.URGENT),
     ],
 )
-def test_transient_temporal_rpc_errors_route_to_triage(
+def test_temporal_rpc_errors_page_unless_deadline_exceeded(
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     component: str,
@@ -1328,6 +1329,8 @@ def test_transient_temporal_rpc_errors_route_to_triage(
     assert event.get("level") == (
         "warning" if expected_priority is AlertPriority.LOW else "error"
     )
+    is_triage = event.get("fingerprint") == ["tracecat-api-triage-v1", "{{ default }}"]
+    assert is_triage is (expected_priority is AlertPriority.LOW)
     assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
