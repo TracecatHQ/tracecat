@@ -6,7 +6,7 @@ icon: "lock"
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Your organization needs the Agent Channels preview entitlement (`agent_channels_preview`) to [add Tracecat to Slack](/agents/ai-slackbot) or connect a custom Slack app.
+Your organization needs the Agent Channels preview entitlement (`agent_channels_preview`) to [add Tracecat to Slack](/agents/ai-slackbot) or use the custom app setup below. Organizations with only `agent_channels` use the [earlier setup flow](#earlier-setup-flow). To change routes or connect an app, you need `agent:update` in the workspace.
 
 ## Capabilities
 
@@ -21,7 +21,7 @@ Your organization needs the Agent Channels preview entitlement (`agent_channels_
 In `Agents → # (Channels)`, the `Default agent` answers direct messages and channels without a route. Add a route for any channel that needs a different agent.
 
 1. Select `Pick a channel`. Search by name or paste the channel ID from Slack.
-2. Choose the agent and click `Add`. In Slack, run `/invite @Tracecat` in that channel.
+2. Choose the agent and click `Add`. In Slack, run `/invite @Tracecat` in that channel, then mention `@Tracecat` to start a thread.
 
 ![Default agent and channel routes](/img/agents/slack-channel-routing.png)
 
@@ -40,7 +40,7 @@ Each custom app has its own bot name and icon and counts toward [Slack's install
 1. Open the preset's `Channels` tab. Under `Custom Slack app`, click `Connect`.
 2. Choose a bot name, click `Create in Slack`, and create the app.
 3. From Slack's `Basic Information → App Credentials`, copy the client ID, client secret, and signing secret into Tracecat.
-4. Click `Connect to Slack` and approve. Invite the bot by name with `/invite`.
+4. Click `Connect to Slack` and approve. In Slack, invite the bot by name with `/invite`, then mention it to start a thread.
 
 <Accordion title="Socket Mode tokens and manual app setup">
   For Socket Mode, generate an app-level token with `connections:write` and enter its access and refresh tokens.
