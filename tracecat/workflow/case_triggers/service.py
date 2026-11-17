@@ -388,7 +388,8 @@ class CaseTriggersService(BaseWorkspaceService):
             .values(
                 [
                     {"workspace_id": self.workspace_id, "name": ref, "ref": ref}
-                    for ref in refs
+                    # Insert in a fixed order so concurrent imports can't deadlock.
+                    for ref in sorted(refs)
                 ]
             )
             .on_conflict_do_nothing()
