@@ -1635,6 +1635,10 @@ with engine.connect() as c:
     # Child tables with no tenant column of their own -> (foreign key, parent table,
     # parent column holding the tenant). One parent is enough to attribute a row;
     # parents keyed by organization admit every workspace in that organization.
+    # Limit: rows are attributed through this one parent only, so the probe does
+    # not exercise a policy's other parent checks (a second tag, file, scope or
+    # option). tests/unit/test_parent_scoped_rls.py rejects writes through each
+    # of those parents.
     PARENTS = {
         "service_account_api_key": ("service_account_id", "service_account", "workspace_id"),
         "service_account_scope": ("service_account_id", "service_account", "workspace_id"),

@@ -214,6 +214,20 @@ async def tenant_b(session: AsyncSession, svc_role: Role) -> Tenant:
 
 
 @pytest.fixture
+async def tenant_a_sibling(session: AsyncSession, svc_role: Role) -> Tenant:
+    """Another workspace in tenant A's organization."""
+    workspace = Workspace(
+        name="rls-probe-sibling", organization_id=svc_role.organization_id
+    )
+    session.add(workspace)
+    await session.commit()
+    role = svc_role.model_copy(
+        update={"workspace_id": workspace.id, "user_id": uuid.uuid4()}
+    )
+    return await _seed_tenant(session, role)
+
+
+@pytest.fixture
 async def enforced_db_role(
     session: AsyncSession, tenant_a: Tenant, tenant_b: Tenant
 ) -> str:
@@ -273,6 +287,8 @@ TENANT_MARKERS: dict[str, tuple[str, Callable[[Tenant], uuid.UUID]]] = {
     "role_scope": ("role_id", lambda t: t.db_role_id),
     "ownership": ("owner_id", lambda t: t.org_id),
 }
+
+ORG_SCOPED_PARENT_TABLES = frozenset({"role_scope", "ownership"})
 
 # Writes as tenant A that reference at least one of tenant B's parent rows.
 CROSS_TENANT_INSERTS: dict[
@@ -342,6 +358,32 @@ class TestParentScopedIsolation:
             async with _as_tenant(session, enforced_db_role, reader):
                 rows = (await session.execute(query)).scalars().all()
             assert rows == [marker(reader)]
+
+    @pytest.mark.parametrize("table", sorted(PARENT_SCOPED_TABLES))
+    async def test_sibling_workspace_in_same_org_reads_only_its_own_rows(
+        self,
+        session: AsyncSession,
+        tenant_a: Tenant,
+        tenant_a_sibling: Tenant,
+        enforced_db_role: str,
+        table: str,
+    ) -> None:
+        column, marker = TENANT_MARKERS[table]
+        query = text(
+            f'SELECT {column} FROM "{table}" WHERE {column} IN (:a, :b)'
+        ).bindparams(a=marker(tenant_a), b=marker(tenant_a_sibling))
+        org_scoped = table in ORG_SCOPED_PARENT_TABLES
+
+        for reader in (tenant_a, tenant_a_sibling):
+            async with _as_tenant(session, enforced_db_role, reader):
+                rows = (await session.execute(query)).scalars().all()
+            # Org-keyed rows are shared by every workspace in the organization.
+            expected = (
+                {marker(tenant_a), marker(tenant_a_sibling)}
+                if org_scoped
+                else {marker(reader)}
+            )
+            assert set(rows) == expected
 
     @pytest.mark.parametrize("table", sorted(PARENT_SCOPED_TABLES))
     async def test_tenant_cannot_write_rows_pointing_at_another_tenant(
