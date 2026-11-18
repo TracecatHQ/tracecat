@@ -371,6 +371,19 @@ class BaseTablesService(BaseWorkspaceService):
             conditions.append(col == param)
         return conditions
 
+    async def _lock_batch_writes(self, table: Table) -> None:
+        """Run multi-row writes to existing rows of one table one at a time.
+
+        Row writers share the workspace lock, so two multi-row writes that
+        touch the same rows in a different order would deadlock on them.
+        Batch upserts, updates and deletes take this lock after the table is
+        resolved in the caller's workspace; single-row writes don't need it.
+        """
+        await pg_advisory_xact_lock(
+            self.session,
+            derive_lock_key_from_parts("tracecat.tables.batch_write", str(table.id)),
+        )
+
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
         ws_id = workspace_id or self.ws_uuid
@@ -1477,6 +1490,7 @@ class BaseTablesService(BaseWorkspaceService):
         """
         collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
+        await self._lock_batch_writes(table)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
@@ -1504,6 +1518,7 @@ class BaseTablesService(BaseWorkspaceService):
         """
         collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
+        await self._lock_batch_writes(table)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -2043,16 +2058,9 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
         collection = await self.search.for_table(table.id, row_write=True)
-        if upsert:
-            # Two upserts that share keys in a different order would deadlock on
-            # the source rows, so batch upserts to one table run one at a time.
-            await pg_advisory_xact_lock(
-                self.session,
-                derive_lock_key_from_parts(
-                    "tracecat.tables.batch_upsert", str(table.id)
-                ),
-            )
         table = await self.search.table(table.id)
+        if upsert:
+            await self._lock_batch_writes(table)
         schema_name = self._get_schema_name()
 
         sanitized_table_name = self._sanitize_identifier(table.name)

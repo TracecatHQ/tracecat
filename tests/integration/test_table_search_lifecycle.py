@@ -510,7 +510,7 @@ async def test_indexed_row_writers_wait_only_for_the_same_table(
         await engine.dispose()
 
 
-async def test_batch_upserts_to_one_table_run_one_at_a_time(
+async def test_batch_writes_to_one_table_run_one_at_a_time(
     tables: TablesService, table: Table
 ):
     other = await tables.create_table(
@@ -527,8 +527,13 @@ async def test_batch_upserts_to_one_table_run_one_at_a_time(
     await tables.batch_insert_rows(table, [{"key": "a"}, {"key": "b"}])
     engine = create_async_engine(TEST_DB_CONFIG.test_url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
-    upsert_key = derive_lock_key_from_parts(
-        "tracecat.tables.batch_upsert", str(table.id)
+    batch_key = derive_lock_key_from_parts("tracecat.tables.batch_write", str(table.id))
+    row_ids = list(
+        (
+            await tables.session.scalars(
+                sa.text(f'SELECT id FROM "{tables._get_schema_name()}"."{table.name}"')
+            )
+        ).all()
     )
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -550,7 +555,13 @@ async def test_batch_upserts_to_one_table_run_one_at_a_time(
                 live, TableRowInsert(data={"key": "c", "body": "single"})
             )
 
-    async def upsert_waiters() -> int:
+    async def update_counts() -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table.id)
+            await service.batch_update_rows(live, row_ids, {"count": 9})
+
+    async def batch_waiters() -> int:
         async with engine.connect() as connection:
             return (
                 await connection.execute(
@@ -559,7 +570,7 @@ async def test_batch_upserts_to_one_table_run_one_at_a_time(
                         " AND NOT granted AND objsubid = 1"
                         " AND classid = :high AND objid = :low"
                     ),
-                    {"high": upsert_key >> 32, "low": upsert_key & 0xFFFFFFFF},
+                    {"high": batch_key >> 32, "low": batch_key & 0xFFFFFFFF},
                 )
             ).scalar_one()
 
@@ -572,27 +583,31 @@ async def test_batch_upserts_to_one_table_run_one_at_a_time(
         reverse = asyncio.create_task(
             upsert(table.id, [{"key": "b", "body": "y"}, {"key": "a", "count": 2}])
         )
-        await asyncio.sleep(0.05)
-        assert not reverse.done()
-        # It queues on the table's upsert lock, before touching any source row.
-        assert await upsert_waiters() == 1
+        # A batch update of the same rows is just as deadlock-prone.
+        update = asyncio.create_task(update_counts())
+        # Both queue on the table's batch-write lock, before touching any row.
+        async with asyncio.timeout(5):
+            while await batch_waiters() != 2:
+                await asyncio.sleep(0.02)
+        assert not reverse.done() and not update.done()
         await asyncio.wait_for(insert_single(), 5)
         await asyncio.wait_for(upsert(other.id, [{"key": "a", "body": "z"}]), 5)
         release.set()
         await asyncio.wait_for(held, 5)
         await asyncio.wait_for(reverse, 5)
+        await asyncio.wait_for(update, 5)
         rows = (
             await tables.session.execute(
                 sa.text(
-                    f'SELECT key, body, count FROM "{tables._get_schema_name()}"'
+                    f'SELECT key, body FROM "{tables._get_schema_name()}"'
                     f'."{table.name}" ORDER BY key'
                 )
             )
         ).all()
         assert [tuple(row) for row in rows] == [
-            ("a", "x", 2),
-            ("b", "y", 1),
-            ("c", "single", None),
+            ("a", "x"),
+            ("b", "y"),
+            ("c", "single"),
         ]
     finally:
         release.set()
