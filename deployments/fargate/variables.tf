@@ -260,7 +260,7 @@ variable "ee_multi_tenant" {
 
 variable "extra_environment" {
   type        = map(string)
-  description = "Extra environment variables for every backend service. Overrides module-set values with the same name."
+  description = "Extra plaintext environment variables for every backend service. Overrides module-set values with the same name. Values are stored in plaintext in the ECS task definitions and Terraform state; do not pass secrets here."
   default     = {}
 }
 

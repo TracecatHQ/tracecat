@@ -296,7 +296,7 @@ resource "aws_vpc_endpoint" "s3" {
         Effect    = "Allow"
         Principal = "*"
         Action    = ["s3:GetObject"]
-        Resource  = ["arn:aws:s3:::prod-${var.aws_region}-starport-layer-bucket/*"]
+        Resource  = ["arn:${data.aws_partition.current.partition}:s3:::prod-${var.aws_region}-starport-layer-bucket/*"]
       }
     ]
   })
