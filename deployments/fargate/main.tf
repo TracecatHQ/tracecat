@@ -79,6 +79,7 @@ module "ecs" {
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant
+  extra_environment                             = var.extra_environment
   slack_ingress_mode                            = var.slack_ingress_mode
   context_compression_enabled                   = var.context_compression_enabled
   context_compression_threshold_kb              = var.context_compression_threshold_kb

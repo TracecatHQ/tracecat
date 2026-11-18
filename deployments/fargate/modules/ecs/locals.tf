@@ -40,7 +40,7 @@ locals {
     TRACECAT__DB_POOL_SIZE    = var.db_pool_size_executor
   }
 
-  tracecat_common_env = {
+  tracecat_common_env = merge({
     TRACECAT__BACKGROUND_QUEUE                        = var.background_queue
     LOG_LEVEL                                         = var.log_level
     TEMPORAL__CLUSTER_NAMESPACE                       = local.temporal_namespace
@@ -66,7 +66,7 @@ locals {
     # Audit client-IP attribution: both api and mcp resolve X-Forwarded-For,
     # so it rides the common env. Empty uses the built-in private-range default.
     TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = var.audit_trusted_proxy_cidrs
-  }
+  }, var.extra_environment)
 
   tracecat_temporal_payload_encryption_env = {
     TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED           = var.temporal_payload_encryption_enabled
