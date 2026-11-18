@@ -1985,7 +1985,8 @@ class CaseFieldsService(CustomFieldsService):
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
-        await self._ensure_schema_ready()
+        if not await self._schema_exists():
+            return None
         table = self._table_definition()
         row_id = await self.session.scalar(
             sa.select(table.c.id).where(table.c.case_id == case.id)
@@ -2002,16 +2003,20 @@ class CaseFieldsService(CustomFieldsService):
         """
         if not field_ids:
             return {}
-        await self._ensure_schema_ready()
 
         # Validate requested fields against reflected columns so stale or missing
-        # schema metadata does not hide real columns.
-        available_fields = {
-            column_name
-            for column in await self.editor.get_columns()
-            if isinstance((column_name := column.get("name")), str)
-            and column_name not in self._reserved_columns
-        }
+        # schema metadata does not hide real columns. A missing table has no
+        # values, and a read must not create it.
+        available_fields = (
+            {
+                column_name
+                for column in await self.editor.get_columns()
+                if isinstance((column_name := column.get("name")), str)
+                and column_name not in self._reserved_columns
+            }
+            if await self._schema_exists()
+            else set()
+        )
         requested_field_ids: list[str] = []
         for field_id in dict.fromkeys(field_ids):
             self._assert_user_field_name_allowed(field_id)

@@ -406,6 +406,65 @@ async def test_enablement_waits_for_unconfigured_writer(
         await engine.dispose()
 
 
+async def test_row_writers_in_one_workspace_do_not_wait_on_each_other(
+    tables: TablesService, table: Table
+):
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
+        )
+    )
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    table_id, other_id = table.id, other.id
+    await tables.session.commit()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    async def write(table_id: UUID) -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "concurrent"}))
+            await service.batch_insert_rows(live, [{"body": "a"}, {"body": "b"}])
+            row = await service.insert_row(
+                live, TableRowInsert(data={"body": "changed"})
+            )
+            await service.update_row(live, row["id"], {"body": "updated"})
+            await service.delete_row(live, row["id"])
+
+    async def configure():
+        async with sessions.begin() as session:
+            await TableSearchService(session, tables.search.scope).lock_scope()
+
+    try:
+        task = asyncio.create_task(open_writer())
+        await asyncio.wait_for(entered.wait(), 5)
+        # Writers to other tables, and to the same unindexed table, proceed
+        # while the first writer's transaction is still open.
+        await asyncio.wait_for(write(other_id), 5)
+        await asyncio.wait_for(write(table_id), 5)
+        # Search lifecycle work still waits for the open writer.
+        lifecycle = asyncio.create_task(configure())
+        await asyncio.sleep(0.05)
+        assert not lifecycle.done()
+        release.set()
+        await asyncio.wait_for(task, 5)
+        await asyncio.wait_for(lifecycle, 5)
+    finally:
+        release.set()
+        await engine.dispose()
+
+
 async def test_progress_retry_and_stale_generation(tables: TablesService, table: Table):
     collection = await enable(tables, table, provider=True)
     await tables.batch_insert_rows(table, [{"body": "one"}, {"body": "two"}])

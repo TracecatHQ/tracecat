@@ -43,10 +43,16 @@ from tracecat.tables.search.schemas import (
 class TableSearchService(SearchStorage):
     """Small source hooks shared by public, internal, import and sync writers."""
 
-    async def for_table(self, table_id: UUID) -> SearchCollection | None:
-        """Lock before inspecting even an absent selection, then refresh metadata."""
-        await self.lock_scope()
-        return await self.session.scalar(
+    async def for_table(
+        self, table_id: UUID, *, row_write: bool = False
+    ) -> SearchCollection | None:
+        """Lock before inspecting even an absent selection, then refresh metadata.
+
+        A row write shares the workspace lock and locks the table's collection
+        row instead, so writes to one indexed table still run one at a time.
+        """
+        await self.lock_scope(shared=row_write)
+        stmt = (
             sa.select(SearchCollection)
             .where(
                 self._scope(SearchCollection),
@@ -55,6 +61,9 @@ class TableSearchService(SearchStorage):
             )
             .execution_options(populate_existing=True)
         )
+        if row_write:
+            stmt = stmt.with_for_update()
+        return await self.session.scalar(stmt)
 
     async def table(self, table_id: UUID) -> Table:
         """Resolve live source metadata in the trusted workspace."""
@@ -126,7 +135,9 @@ class TableSearchService(SearchStorage):
             or not row_ids
         ):
             return
-        await self.touch_documents(collection.id, row_ids, deleted=deleted)
+        # The collection came from for_table(row_write=True), which holds the
+        # locks; taking the workspace lock exclusive here could deadlock writers.
+        await self._upsert_documents(collection, row_ids, deleted=deleted)
 
     @staticmethod
     def selected_names(collection: SearchCollection | None, table: Table) -> set[str]:

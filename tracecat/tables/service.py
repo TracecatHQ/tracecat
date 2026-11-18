@@ -1303,7 +1303,7 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If conflict keys are specified but not present in the data
             DBAPIError: If there's no unique index on the specified conflict keys
         """
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
@@ -1402,7 +1402,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TableRowError(
                 "empty_update", "Row update must include at least one column."
             )
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
@@ -1451,7 +1451,7 @@ class BaseTablesService(BaseWorkspaceService):
 
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1474,7 +1474,7 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows deleted
         """
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1501,7 +1501,7 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows updated
         """
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
@@ -2041,7 +2041,7 @@ class BaseTablesService(BaseWorkspaceService):
         if len(rows) > chunk_size:
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
 
