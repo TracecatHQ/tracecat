@@ -1,12 +1,12 @@
 import uuid
 from collections.abc import Iterator
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.engine.interfaces import ReflectedColumn
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -23,6 +23,7 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
 )
 from tracecat.cases.service import CaseFieldsService
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.tables.enums import SqlType
@@ -86,23 +87,15 @@ class TestCaseFieldsService:
         [
             pytest.param(
                 "last_seen_at",
-                sa.types.TIMESTAMP(timezone=True),
+                "timestamp with time zone",
                 None,
                 CaseFieldReadType.TIMESTAMPTZ,
                 False,
-                id="timestamptz-type",
-            ),
-            pytest.param(
-                "custom_tz_field",
-                "TIMESTAMP WITH TIME ZONE",
-                None,
-                CaseFieldReadType.TIMESTAMPTZ,
-                False,
-                id="timestamptz-string",
+                id="timestamptz",
             ),
             pytest.param(
                 "case_id",
-                sa.types.UUID(),
+                "uuid",
                 None,
                 CaseFieldReadType.UUID,
                 True,
@@ -110,7 +103,7 @@ class TestCaseFieldsService:
             ),
             pytest.param(
                 "severity_band",
-                sa.types.String(),
+                "text",
                 {"severity_band": {"type": "SELECT", "options": ["low", "high"]}},
                 CaseFieldReadType.SELECT,
                 False,
@@ -121,12 +114,12 @@ class TestCaseFieldsService:
     async def test_case_field_read_type(
         self,
         name: str,
-        column_type: Any,
+        column_type: str,
         field_schema: dict[str, Any] | None,
         expected_type: CaseFieldReadType,
         reserved: bool,
     ) -> None:
-        column = ReflectedColumn(
+        column = CustomFieldColumn(
             name=name,
             type=column_type,
             nullable=True,
@@ -134,7 +127,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        field = CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
         assert field.type is expected_type
         assert field.reserved is reserved
         if field_schema is not None:
@@ -145,7 +138,7 @@ class TestCaseFieldsService:
         [
             (
                 "analyst_verdict",
-                sa.types.Text(),
+                "text",
                 {
                     "analyst_verdict": {
                         "type": "TEXT",
@@ -156,23 +149,23 @@ class TestCaseFieldsService:
             ),
             (
                 "analyst_verdict",
-                sa.types.Text(),
+                "text",
                 {"analyst_verdict": {"type": "TEXT"}},
                 "analyst_verdict",
             ),
-            ("analyst_verdict", sa.types.Text(), None, "analyst_verdict"),
-            ("case_id", sa.types.UUID(), None, "case_id"),
+            ("analyst_verdict", "text", None, "analyst_verdict"),
+            ("case_id", "uuid", None, "case_id"),
         ],
     )
     async def test_case_field_read_display_name(
         self,
         field_id: str,
-        field_type: Any,
+        field_type: str,
         field_schema: dict[str, Any] | None,
         expected_display_name: str,
     ) -> None:
         """Read display names from metadata and fall back to the field ID."""
-        column = ReflectedColumn(
+        column = CustomFieldColumn(
             name=field_id,
             type=field_type,
             nullable=True,
@@ -180,7 +173,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        field = CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
 
         assert field.id == field_id
         assert field.display_name == expected_display_name
@@ -351,14 +344,13 @@ class TestCaseFieldsService:
         CaseFields.schema JSONB, update_field silently skipped the schema
         write because field_type resolved to None.
         """
-        reflected_column: ReflectedColumn = {
-            "name": "my_field",
-            "type": sa.Text(),
-            "nullable": True,
-            "default": None,
-            "comment": None,
-            "autoincrement": False,
-        }
+        reflected_column = CustomFieldColumn(
+            name="my_field",
+            type="text",
+            nullable=True,
+            default=None,
+            comment=None,
+        )
 
         with (
             patch.object(
@@ -371,7 +363,7 @@ class TestCaseFieldsService:
                 "update_column",
             ),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=[reflected_column],
             ),
@@ -570,27 +562,209 @@ class TestCaseFieldsService:
         session: AsyncSession,
     ) -> None:
         """Test getting fields for a case with field values."""
-        # Initialize workspace schema and ensure a row exists for the case
-        await case_fields_service.initialize_workspace_schema()
-        row_id = await case_fields_service.ensure_workspace_row(test_case.id)
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field2", type=SqlType.INTEGER)
+        )
+        assert await case_fields_service.get_fields(test_case) is None
 
-        # Mock the editor.get_row method to return a response
-        mock_fields_data = {
-            "id": row_id,
-            "case_id": test_case.id,
-            "custom_field1": "test value",
-            "custom_field2": 123,
+        await case_fields_service.upsert_field_values(
+            test_case, {"custom_field1": "test value", "custom_field2": 123}
+        )
+        fields = await case_fields_service.get_fields(test_case)
+
+        assert fields is not None
+        assert fields["case_id"] == test_case.id
+        assert fields["custom_field1"] == "test value"
+        assert fields["custom_field2"] == 123
+
+    async def test_list_fields_does_not_create_missing_table(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """A read on a workspace without the table returns nothing and runs no DDL."""
+        assert await case_fields_service.list_fields() == []
+        assert await case_fields_service.get_columns() is None
+
+    async def test_columns_follow_ddl_and_rollback(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """Columns read by a new service reflect DDL and rollbacks from others."""
+        await CaseFieldsService(session, svc_role).create_field(
+            CaseFieldCreate(name="first", type=SqlType.TEXT)
+        )
+
+        async def names() -> set[str]:
+            columns = await CaseFieldsService(session, svc_role).list_fields()
+            return {column["name"] for column in columns}
+
+        assert "first" in await names()
+        await CaseFieldsService(session, svc_role).create_field(
+            CaseFieldCreate(name="second", type=SqlType.TEXT)
+        )
+        assert {"first", "second"} <= await names()
+
+        # Uncommitted DDL is visible in its transaction and gone after rollback.
+        await CaseFieldsService(session, svc_role).editor.create_column(
+            CaseFieldCreate(name="rolled_back", type=SqlType.TEXT)
+        )
+        assert "rolled_back" in await names()
+        await session.rollback()
+        assert "rolled_back" not in await names()
+
+        await CaseFieldsService(session, svc_role).delete_field("second")
+        assert "second" not in await names()
+
+    async def test_columns_match_sqlalchemy_reflection(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """Definitions read from the catalog match the old reflection path.
+
+        Covers every field type with a default, the reserved columns, and a
+        legacy column with a type modifier, NOT NULL and no schema entry.
+        """
+        service = CaseFieldsService(session, svc_role)
+        defaults: dict[SqlType, Any] = {
+            SqlType.TEXT: "it's here",
+            SqlType.INTEGER: 7,
+            SqlType.NUMERIC: Decimal("1.5"),
+            SqlType.DATE: "2026-01-02",
+            SqlType.BOOLEAN: True,
+            SqlType.TIMESTAMPTZ: "2026-01-02T03:04:05+00:00",
+            SqlType.JSONB: {"a": 1},
+            SqlType.SELECT: "high",
+            SqlType.MULTI_SELECT: ["high"],
+        }
+        for sql_type, default in defaults.items():
+            options = (
+                ["low", "high"]
+                if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT)
+                else None
+            )
+            await service.create_field(
+                CaseFieldCreate(
+                    name=f"f_{sql_type.value.lower()}",
+                    type=sql_type,
+                    default=default,
+                    options=options,
+                )
+            )
+        await session.execute(
+            sa.text(
+                f"ALTER TABLE {service._full_table_name()} ADD COLUMN legacy_seen_at"
+                " timestamp(3) with time zone NOT NULL DEFAULT now()"
+            )
+        )
+
+        field_schema = await service.get_field_schema()
+        reflected = await service.editor.get_columns()
+        columns = await CaseFieldsService(session, svc_role).get_columns()
+
+        assert columns is not None
+        assert [column["name"] for column in columns] == [
+            column["name"] for column in reflected
+        ]
+        # With and without the schema: without it, the type comes from the
+        # catalog for every column, not only legacy and reserved ones.
+        for schema in (field_schema, None):
+            assert [
+                CaseFieldReadMinimal.from_column(column, field_schema=schema)
+                for column in columns
+            ] == [
+                CaseFieldReadMinimal.from_column(
+                    cast(CustomFieldColumn, column), field_schema=schema
+                )
+                for column in reflected
+            ]
+        physical_types = {
+            column["name"]: CaseFieldReadMinimal.from_column(column).type
+            for column in columns
+        }
+        assert {
+            name: physical_types[name]
+            for name in physical_types
+            if name.startswith("f_")
+        } == {
+            "f_text": CaseFieldReadType.TEXT,
+            "f_integer": CaseFieldReadType.INTEGER,
+            "f_numeric": CaseFieldReadType.NUMERIC,
+            "f_date": CaseFieldReadType.DATE,
+            "f_boolean": CaseFieldReadType.BOOLEAN,
+            "f_timestamptz": CaseFieldReadType.TIMESTAMPTZ,
+            "f_jsonb": CaseFieldReadType.JSONB,
+            "f_select": CaseFieldReadType.TEXT,
+            "f_multi_select": CaseFieldReadType.JSONB,
+        }
+        definitions = {
+            definition.id: definition
+            for definition in await service.list_field_definitions()
+        }
+        assert definitions["legacy_seen_at"].type is CaseFieldReadType.TIMESTAMPTZ
+        assert definitions["legacy_seen_at"].nullable is False
+        assert {"id", "case_id", "created_at", "updated_at"} <= {
+            field_id for field_id, d in definitions.items() if d.reserved
         }
 
-        with patch.object(case_fields_service.editor, "get_row") as mock_get_row:
-            mock_get_row.return_value = mock_fields_data
+    async def test_read_fields_reads_the_catalog_once(
+        self,
+        session: AsyncSession,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """A case read runs one catalog statement and no SQLAlchemy reflection."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="verdict", type=SqlType.TEXT)
+        )
+        await case_fields_service.upsert_field_values(test_case, {"verdict": "benign"})
+        await session.commit()
 
-            # Get fields for the case
-            fields = await case_fields_service.get_fields(test_case)
+        statements: list[str] = []
 
-            # Verify the fields were returned correctly
-            assert fields == mock_fields_data
-            mock_get_row.assert_called_once_with(row_id)
+        def record(*args: Any) -> None:
+            statements.append(args[2])
+
+        connection = (await session.connection()).sync_connection
+        assert connection is not None
+        event.listen(connection, "before_cursor_execute", record)
+        try:
+            fields = await CaseFieldsService(
+                session, case_fields_service.role
+            ).read_fields(test_case)
+        finally:
+            event.remove(connection, "before_cursor_execute", record)
+
+        assert {field.id: field.value for field in fields}["verdict"] == "benign"
+        # to_regclass, the column read, the value row, the field schema.
+        assert len(statements) == 4
+        assert sum("pg_attribute" in statement for statement in statements) == 1
+        assert not any("pg_enum" in statement for statement in statements)
+
+    async def test_same_service_sees_its_own_uncommitted_rename(
+        self, case_fields_service: CaseFieldsService, test_case: Case
+    ) -> None:
+        """Columns are read per call, so DDL earlier in the transaction is seen."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="before", type=SqlType.TEXT)
+        )
+        await case_fields_service.upsert_field_values(test_case, {"before": "kept"})
+        assert "before" in {
+            field.id for field in await case_fields_service.read_fields(test_case)
+        }
+
+        await case_fields_service.update_field(
+            "before", CaseFieldUpdate(name="after"), commit=False
+        )
+
+        values = {
+            field.id: field.value
+            for field in await case_fields_service.read_fields(test_case)
+        }
+        assert values["after"] == "kept"
+        assert "before" not in values
+        assert await case_fields_service.batch_get_fields(
+            [test_case.id], ["after"]
+        ) == {test_case.id: {"after": "kept"}}
 
     async def test_batch_get_fields_selects_only_requested_columns(
         self,
@@ -652,7 +826,7 @@ class TestCaseFieldsService:
         with (
             patch.object(case_fields_service, "get_field_schema", return_value={}),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=reflected_columns,
             ),
@@ -746,7 +920,7 @@ class TestCaseFieldsService:
                 return_value={"numeric_field": {"type": "NUMERIC"}},
             ),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
             ),
@@ -774,7 +948,7 @@ class TestCaseFieldsService:
                 return_value={"numeric_field": {"type": "TEXT"}},
             ),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
             ),

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from typing import ClassVar
 
 import sqlalchemy as sa
@@ -10,6 +9,7 @@ from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
@@ -26,6 +26,33 @@ from tracecat.tables.service import (
     sanitize_identifier,
     validate_identifier,
 )
+
+
+def _columns_sql(full_table_name: str) -> sa.TextClause:
+    """Read a table's columns from the catalog, in table order.
+
+    The statement also reads from the table itself (zero rows), so Postgres
+    takes the ACCESS SHARE lock a SELECT takes before the catalog read runs.
+    Column DDL needs ACCESS EXCLUSIVE, so the columns returned stay current
+    until the caller's transaction ends, and a statement that waited behind
+    DDL sees the committed result.
+    """
+    return sa.text(
+        f"""
+        SELECT a.attname AS name,
+            format_type(a.atttypid, NULL) AS type,
+            NOT a.attnotnull AS nullable,
+            pg_get_expr(d.adbin, d.adrelid) AS column_default,
+            col_description(a.attrelid, a.attnum) AS comment
+        FROM pg_attribute AS a
+        LEFT JOIN pg_attrdef AS d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        LEFT JOIN (SELECT 1 FROM {full_table_name} LIMIT 0) AS table_lock ON true
+        WHERE a.attrelid = CAST(:table_name AS regclass)
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+        ORDER BY a.attnum
+        """
+    )
 
 
 class CustomFieldsService(BaseWorkspaceService, ABC):
@@ -176,11 +203,41 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         )
         self._schema_initialized = False
 
-    async def list_fields(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """List all custom fields for the workspace."""
+    async def get_columns(self) -> list[CustomFieldColumn] | None:
+        """Return the table's user-visible columns, or None if it is missing.
 
-        await self._ensure_schema_ready()
-        return await self.editor.get_columns()
+        One catalog statement that also locks the table (see `_columns_sql`),
+        so a later query in this transaction built from the returned names
+        sees the same columns while the lock is held: until the transaction
+        ends, unless it changes the columns itself or rolls back a savepoint
+        that this read ran in (which releases the lock).
+        """
+
+        if not await self._schema_exists():
+            return None
+        table_name = self._full_table_name()
+        result = await self.session.execute(
+            _columns_sql(table_name), {"table_name": table_name}
+        )
+        return [
+            CustomFieldColumn(
+                name=row["name"],
+                type=row["type"],
+                nullable=row["nullable"],
+                default=row["column_default"],
+                comment=row["comment"],
+            )
+            for row in result.mappings()
+            if not is_internal_column_name(row["name"])
+        ]
+
+    async def list_fields(self) -> list[CustomFieldColumn]:
+        """List all custom fields for the workspace.
+
+        A missing table has no fields; a read does not create it.
+        """
+
+        return await self.get_columns() or []
 
     async def create_field(self, params: CustomFieldCreate) -> None:
         """Create a new custom field column."""

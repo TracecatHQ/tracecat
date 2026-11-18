@@ -48,7 +48,8 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CaseViewVisibility
+from tracecat.cases.enums import CaseFieldReadType, CaseViewVisibility
+from tracecat.cases.schemas import CaseFieldRead
 from tracecat.cases.search_schemas import CaseCriteria, CaseQuery, CaseSearchRequest
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
@@ -4494,28 +4495,21 @@ async def test_get_case(monkeypatch):
     async def _get_case(parsed_id, **kwargs):
         return case
 
-    async def _get_fields(c):
-        return {"my_field": "hello"}
-
-    async def _list_fields():
+    async def _read_fields(c):
         return [
-            {
-                "name": "my_field",
-                "type": "TEXT",
-                "nullable": True,
-                "default": None,
-                "comment": None,
-            }
+            CaseFieldRead(
+                id="my_field",
+                display_name="my_field",
+                type=CaseFieldReadType.TEXT,
+                description="",
+                nullable=True,
+                default=None,
+                reserved=False,
+                value="hello",
+            )
         ]
 
-    async def _get_field_schema():
-        return {"my_field": {"type": "TEXT"}}
-
-    fields_svc = SimpleNamespace(
-        get_fields=_get_fields,
-        list_fields=_list_fields,
-        get_field_schema=_get_field_schema,
-    )
+    fields_svc = SimpleNamespace(read_fields=_read_fields)
 
     async def _has_entitlement(_ent):
         return False
@@ -4587,10 +4581,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
     async def _get_case(_case_id, **_kwargs):
         return case
 
-    async def _empty_dict(*_args):
-        return {}
-
-    async def _empty_list():
+    async def _empty_list(*_args):
         return []
 
     async def _get_hierarchy(cases):
@@ -4608,11 +4599,7 @@ async def test_get_case_includes_hierarchy(monkeypatch):
 
     cases_service = SimpleNamespace(
         get_case=_get_case,
-        fields=SimpleNamespace(
-            get_fields=_empty_dict,
-            list_fields=_empty_list,
-            get_field_schema=_empty_dict,
-        ),
+        fields=SimpleNamespace(read_fields=_empty_list),
         session=SimpleNamespace(),
         hierarchy=SimpleNamespace(get_hierarchy=_get_hierarchy),
     )

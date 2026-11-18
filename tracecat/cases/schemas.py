@@ -6,7 +6,6 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-import sqlalchemy as sa
 from pydantic import (
     AfterValidator,
     Field,
@@ -40,6 +39,7 @@ from tracecat.custom_fields.schemas import (
     CustomFieldCreate,
     CustomFieldUpdate,
 )
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.identifiers.workflow import (
     AnyWorkflowID,
     WorkflowIDShort,
@@ -326,16 +326,16 @@ class CaseFieldReadMinimal(Schema):
     required_on_closure: bool = Field(default=False)
 
     @classmethod
-    def from_sa(
+    def from_column(
         cls,
-        column: sa.engine.interfaces.ReflectedColumn,
+        column: CustomFieldColumn,
         *,
         field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
-        """Create a CaseFieldReadMinimal from a SQLAlchemy reflected column.
+        """Create a CaseFieldReadMinimal from a custom fields table column.
 
         Args:
-            column: The reflected column metadata from SQLAlchemy.
+            column: The column metadata read from the catalog.
             field_schema: Optional schema metadata for the field.
 
         Returns:

@@ -97,6 +97,8 @@ from tracecat.cases.schemas import (
     CaseCommentWorkflowStatus,
     CaseCreate,
     CaseFieldCreate,
+    CaseFieldRead,
+    CaseFieldReadMinimal,
     CaseFieldUpdate,
     CaseHierarchyFilter,
     CaseReadMinimal,
@@ -126,6 +128,7 @@ from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.db.models import (
     AgentPreset,
     Case,
@@ -182,6 +185,7 @@ from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
     TablesService,
     validate_identifier,
+    visible_column_clauses,
 )
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -1713,7 +1717,7 @@ class CaseFieldsService(CustomFieldsService):
 
         schema = await self.get_field_schema()
         reflected_types: dict[str, SqlType] = {}
-        for column in await self.editor.get_columns():
+        for column in await self.get_columns() or []:
             column_name = column.get("name")
             if (
                 isinstance(column_name, str)
@@ -1849,7 +1853,7 @@ class CaseFieldsService(CustomFieldsService):
         # metadata-only updates (e.g. required_on_closure) are not silently
         # dropped.
         if field_type is None:
-            for col in await self.editor.get_columns():
+            for col in await self.get_columns() or []:
                 if col["name"] == new_field_id:
                     field_type = _normalize_case_field_read_type(col["type"]).value
                     break
@@ -1985,13 +1989,48 @@ class CaseFieldsService(CustomFieldsService):
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
-        if not await self._schema_exists():
+        columns = await self.get_columns()
+        if columns is None:
             return None
-        table = self._table_definition()
-        row_id = await self.session.scalar(
-            sa.select(table.c.id).where(table.c.case_id == case.id)
+        return await self._read_values(case, columns)
+
+    async def _read_values(
+        self, case: Case, columns: Sequence[CustomFieldColumn]
+    ) -> dict[str, Any] | None:
+        conn = await self.session.connection()
+        stmt = (
+            sa.select(*visible_column_clauses([column["name"] for column in columns]))
+            .select_from(sa.table(self.sanitized_table_name, schema=self.schema_name))
+            .where(sa.column("case_id") == case.id)
         )
-        return await self.editor.get_row(row_id) if row_id else None
+        row = (await conn.execute(stmt)).mappings().first()
+        return dict(row) if row else None
+
+    async def _definitions(
+        self, columns: Sequence[CustomFieldColumn]
+    ) -> list[CaseFieldReadMinimal]:
+        # Read after the columns: their read locks the table, so a field rename
+        # (column DDL plus schema update, one transaction) cannot commit between.
+        field_schema = await self.get_field_schema()
+        return [
+            CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
+            for column in columns
+        ]
+
+    async def list_field_definitions(self) -> list[CaseFieldReadMinimal]:
+        """Return the workspace's case field definitions, in table order."""
+        return await self._definitions(await self.list_fields())
+
+    async def read_fields(self, case: Case) -> list[CaseFieldRead]:
+        """Return every case field definition with this case's value."""
+        columns = await self.get_columns()
+        if columns is None:
+            return []
+        values = await self._read_values(case, columns) or {}
+        return [
+            CaseFieldRead(**definition.model_dump(), value=values.get(definition.id))
+            for definition in await self._definitions(columns)
+        ]
 
     async def batch_get_fields(
         self, case_ids: list[uuid.UUID], field_ids: Sequence[str]
@@ -2004,29 +2043,32 @@ class CaseFieldsService(CustomFieldsService):
         if not field_ids:
             return {}
 
-        # Validate requested fields against reflected columns so stale or missing
-        # schema metadata does not hide real columns. A missing table has no
-        # values, and a read must not create it.
-        available_fields = (
-            {
-                column_name
-                for column in await self.editor.get_columns()
-                if isinstance((column_name := column.get("name")), str)
-                and column_name not in self._reserved_columns
-            }
-            if await self._schema_exists()
-            else set()
-        )
-        requested_field_ids: list[str] = []
+        normalized_field_ids: list[str] = []
         for field_id in dict.fromkeys(field_ids):
             self._assert_user_field_name_allowed(field_id)
             normalized_field_id = validate_identifier(field_id)
             if normalized_field_id in self._reserved_columns:
                 raise ValueError(f"Field {field_id} is a reserved field")
-            if normalized_field_id in available_fields:
-                requested_field_ids.append(normalized_field_id)
+            normalized_field_ids.append(normalized_field_id)
 
-        if not case_ids or not requested_field_ids:
+        if not case_ids:
+            return {}
+
+        # Keep only fields that exist in the reflected columns, so stale or
+        # missing schema metadata does not hide real columns. A missing table
+        # has no values, and a read must not create it.
+        available_fields = {
+            column_name
+            for column in await self.get_columns() or []
+            if isinstance((column_name := column.get("name")), str)
+            and column_name not in self._reserved_columns
+        }
+        requested_field_ids = [
+            field_id
+            for field_id in normalized_field_ids
+            if field_id in available_fields
+        ]
+        if not requested_field_ids:
             return {}
 
         conn = await self.session.connection()

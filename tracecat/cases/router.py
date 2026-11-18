@@ -53,7 +53,6 @@ from tracecat.cases.schemas import (
     CaseCommentUpdate,
     CaseCreate,
     CaseFieldCreate,
-    CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
     CaseHierarchyFilter,
@@ -134,18 +133,7 @@ async def _build_case_read(
     include_rows: bool,
 ) -> CaseRead:
     """Assemble the full case representation returned by read and write routes."""
-    fields = await service.fields.get_fields(case) or {}
-    field_definitions = await service.fields.list_fields()
-    field_schema = await service.fields.get_field_schema()
-    final_fields: list[CaseFieldRead] = []
-    for defn in field_definitions:
-        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-        final_fields.append(
-            CaseFieldRead(
-                **f.model_dump(),
-                value=fields.get(f.id),
-            )
-        )
+    final_fields = await service.fields.read_fields(case)
 
     # Tags are already loaded via selectinload
     tag_reads = [
@@ -194,10 +182,11 @@ async def _read_case_field(
     service: CaseFieldsService, field_id: str
 ) -> CaseFieldReadMinimal:
     """Load a single case field definition by its column name."""
+    columns = await service.list_fields()
     field_schema = await service.get_field_schema()
-    for column in await service.list_fields():
+    for column in columns:
         if column["name"] == field_id:
-            return CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+            return CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
     raise HTTPException(
         status_code=HTTP_404_NOT_FOUND,
         detail=f"Case field with ID {field_id} not found",
@@ -1001,7 +990,7 @@ async def list_fields(
     columns = await service.list_fields()
     field_schema = await service.get_field_schema()
     return [
-        CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
         for column in columns
     ]
 
