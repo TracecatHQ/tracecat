@@ -182,8 +182,9 @@ async def _read_case_field(
     service: CaseFieldsService, field_id: str
 ) -> CaseFieldReadMinimal:
     """Load a single case field definition by its column name."""
+    columns = await service.list_fields()
     field_schema = await service.get_field_schema()
-    for column in await service.list_fields():
+    for column in columns:
         if column["name"] == field_id:
             return CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
     raise HTTPException(

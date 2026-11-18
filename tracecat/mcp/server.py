@@ -8651,13 +8651,8 @@ async def list_case_fields(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with CaseFieldsService.with_session(role=role) as svc:
-            columns = await svc.list_fields()
-            field_schema = await svc.get_field_schema()
             page = _paginate_items(
-                [
-                    CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
-                    for column in columns
-                ],
+                await svc.list_field_definitions(),
                 tool_name="list_case_fields",
                 limit=_normalize_limit(
                     limit,

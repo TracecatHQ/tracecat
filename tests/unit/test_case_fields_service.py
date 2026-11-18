@@ -665,15 +665,37 @@ class TestCaseFieldsService:
         assert [column["name"] for column in columns] == [
             column["name"] for column in reflected
         ]
-        assert [
-            CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
+        # With and without the schema: without it, the type comes from the
+        # catalog for every column, not only legacy and reserved ones.
+        for schema in (field_schema, None):
+            assert [
+                CaseFieldReadMinimal.from_column(column, field_schema=schema)
+                for column in columns
+            ] == [
+                CaseFieldReadMinimal.from_column(
+                    cast(CustomFieldColumn, column), field_schema=schema
+                )
+                for column in reflected
+            ]
+        physical_types = {
+            column["name"]: CaseFieldReadMinimal.from_column(column).type
             for column in columns
-        ] == [
-            CaseFieldReadMinimal.from_column(
-                cast(CustomFieldColumn, column), field_schema=field_schema
-            )
-            for column in reflected
-        ]
+        }
+        assert {
+            name: physical_types[name]
+            for name in physical_types
+            if name.startswith("f_")
+        } == {
+            "f_text": CaseFieldReadType.TEXT,
+            "f_integer": CaseFieldReadType.INTEGER,
+            "f_numeric": CaseFieldReadType.NUMERIC,
+            "f_date": CaseFieldReadType.DATE,
+            "f_boolean": CaseFieldReadType.BOOLEAN,
+            "f_timestamptz": CaseFieldReadType.TIMESTAMPTZ,
+            "f_jsonb": CaseFieldReadType.JSONB,
+            "f_select": CaseFieldReadType.TEXT,
+            "f_multi_select": CaseFieldReadType.JSONB,
+        }
         definitions = {
             definition.id: definition
             for definition in await service.list_field_definitions()
@@ -717,6 +739,32 @@ class TestCaseFieldsService:
         assert len(statements) == 4
         assert sum("pg_attribute" in statement for statement in statements) == 1
         assert not any("pg_enum" in statement for statement in statements)
+
+    async def test_same_service_sees_its_own_uncommitted_rename(
+        self, case_fields_service: CaseFieldsService, test_case: Case
+    ) -> None:
+        """Columns are read per call, so DDL earlier in the transaction is seen."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="before", type=SqlType.TEXT)
+        )
+        await case_fields_service.upsert_field_values(test_case, {"before": "kept"})
+        assert "before" in {
+            field.id for field in await case_fields_service.read_fields(test_case)
+        }
+
+        await case_fields_service.update_field(
+            "before", CaseFieldUpdate(name="after"), commit=False
+        )
+
+        values = {
+            field.id: field.value
+            for field in await case_fields_service.read_fields(test_case)
+        }
+        assert values["after"] == "kept"
+        assert "before" not in values
+        assert await case_fields_service.batch_get_fields(
+            [test_case.id], ["after"]
+        ) == {test_case.id: {"after": "kept"}}
 
     async def test_batch_get_fields_selects_only_requested_columns(
         self,

@@ -5,7 +5,6 @@ from typing import ClassVar
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import SessionTransaction
 from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
@@ -77,7 +76,6 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         self._workspace_uuid = WorkspaceUUID.new(self.workspace_id)
         self.schema_name = self._get_schema_name()
         self._schema_initialized = False
-        self._columns: tuple[SessionTransaction, list[CustomFieldColumn]] | None = None
         self.sanitized_table_name = sanitize_identifier(self._table)
         self.editor = TableEditorService(
             self.session,
@@ -209,23 +207,17 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """Return the table's user-visible columns, or None if it is missing.
 
         One catalog statement that also locks the table (see `_columns_sql`),
-        so any later query in this transaction built from the returned names
-        sees the same columns. The result is reused until the transaction
-        ends, except inside a savepoint, whose rollback would release the lock.
+        so a later query in this transaction built from the returned names
+        sees the same columns, unless this transaction changes them itself.
         """
 
         if not await self._schema_exists():
             return None
-        if self._columns is not None:
-            transaction, columns = self._columns
-            if transaction is self.session.sync_session.get_transaction():
-                return list(columns)
-
         table_name = self._full_table_name()
         result = await self.session.execute(
             _columns_sql(table_name), {"table_name": table_name}
         )
-        columns = [
+        return [
             CustomFieldColumn(
                 name=row["name"],
                 type=row["type"],
@@ -236,10 +228,6 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
             for row in result.mappings()
             if not is_internal_column_name(row["name"])
         ]
-        transaction = self.session.sync_session.get_transaction()
-        if transaction is not None and not self.session.in_nested_transaction():
-            self._columns = (transaction, columns)
-        return list(columns)
 
     async def list_fields(self) -> list[CustomFieldColumn]:
         """List all custom fields for the workspace.

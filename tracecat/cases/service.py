@@ -128,6 +128,7 @@ from tracecat.cases.versions.service import CaseVersionsService
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
 from tracecat.custom_fields.schemas import CustomFieldUpdate
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.db.models import (
     AgentPreset,
     Case,
@@ -1991,6 +1992,11 @@ class CaseFieldsService(CustomFieldsService):
         columns = await self.get_columns()
         if columns is None:
             return None
+        return await self._read_values(case, columns)
+
+    async def _read_values(
+        self, case: Case, columns: Sequence[CustomFieldColumn]
+    ) -> dict[str, Any] | None:
         conn = await self.session.connection()
         stmt = (
             sa.select(*visible_column_clauses([column["name"] for column in columns]))
@@ -2000,20 +2006,30 @@ class CaseFieldsService(CustomFieldsService):
         row = (await conn.execute(stmt)).mappings().first()
         return dict(row) if row else None
 
-    async def list_field_definitions(self) -> list[CaseFieldReadMinimal]:
-        """Return the workspace's case field definitions, in table order."""
+    async def _definitions(
+        self, columns: Sequence[CustomFieldColumn]
+    ) -> list[CaseFieldReadMinimal]:
+        # Read after the columns: their read locks the table, so a field rename
+        # (column DDL plus schema update, one transaction) cannot commit between.
         field_schema = await self.get_field_schema()
         return [
             CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
-            for column in await self.list_fields()
+            for column in columns
         ]
+
+    async def list_field_definitions(self) -> list[CaseFieldReadMinimal]:
+        """Return the workspace's case field definitions, in table order."""
+        return await self._definitions(await self.list_fields())
 
     async def read_fields(self, case: Case) -> list[CaseFieldRead]:
         """Return every case field definition with this case's value."""
-        values = await self.get_fields(case) or {}
+        columns = await self.get_columns()
+        if columns is None:
+            return []
+        values = await self._read_values(case, columns) or {}
         return [
             CaseFieldRead(**definition.model_dump(), value=values.get(definition.id))
-            for definition in await self.list_field_definitions()
+            for definition in await self._definitions(columns)
         ]
 
     async def batch_get_fields(
