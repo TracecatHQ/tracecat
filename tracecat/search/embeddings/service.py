@@ -10,6 +10,7 @@ from tracecat.search.embeddings.schemas import (
 )
 from tracecat.search.embeddings.storage import (
     EmbeddingSettingsStorage,
+    SettingsOutOfSyncError,
     configuration_matches,
 )
 from tracecat.search.embeddings.types import (
@@ -17,6 +18,7 @@ from tracecat.search.embeddings.types import (
     EmbeddingError,
     EmbeddingErrorCode,
     PinnedConfiguration,
+    ResolvedCredential,
 )
 from tracecat.search.types import EmbeddingRequest, SearchScope, SearchState
 
@@ -56,6 +58,27 @@ class WorkspaceEmbeddingService:
             )
 
 
+async def _synchronize(
+    scope: SearchScope,
+) -> tuple[tuple[PinnedConfiguration, ResolvedCredential] | None, bool]:
+    """Return the pinned selection and whether search is active.
+
+    Checks under the shared workspace lock first, so unchanged settings do not
+    queue table row writers. Only a needed write retakes the lock exclusively,
+    in a new transaction.
+    """
+    try:
+        async with EmbeddingSettingsStorage.with_session(scope=scope) as store:
+            selected = await store.synchronize(shared=True)
+            workspace, _ = await store.current()
+    except SettingsOutOfSyncError:
+        async with EmbeddingSettingsStorage.with_session(scope=scope) as store:
+            selected = await store.synchronize()
+            workspace, _ = await store.current()
+            await store.session.commit()
+    return selected, workspace is not None and workspace.state == SearchState.ACTIVE
+
+
 async def resolve_embedding_configuration(
     scope: SearchScope,
 ) -> PinnedConfiguration | None:
@@ -64,10 +87,8 @@ async def resolve_embedding_configuration(
     Call only after source/query authorization, outside the source-write path.
     None means skip embedding work. No network call is needed for selection.
     """
-    async with EmbeddingSettingsStorage.with_session(scope=scope) as store:
-        selected = await store.synchronize()
-        await store.session.commit()
-        return selected[0] if selected else None
+    selected, _ = await _synchronize(scope)
+    return selected[0] if selected else None
 
 
 async def embed_current(
@@ -78,22 +99,14 @@ async def embed_current(
     Provider failures propagate as typed errors. Never retry against another model.
     Publication/ranking must also check the version in their own transaction.
     """
-    async with EmbeddingSettingsStorage.with_session(scope=request.scope) as store:
-        selected = await store.synchronize()
-        workspace, _ = await store.current()
-        active = workspace is not None and workspace.state == SearchState.ACTIVE
-        await store.session.commit()
+    selected, active = await _synchronize(request.scope)
     if selected is None or not active:
         raise EmbeddingError(EmbeddingErrorCode.NOT_CONFIGURED)
     current, credential = selected
     if current.version != request.config_version:
         raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_CHANGED)
     result = await client.embed(current, credential, request)
-    async with EmbeddingSettingsStorage.with_session(scope=request.scope) as store:
-        selected = await store.synchronize()
-        workspace, _ = await store.current()
-        active = workspace is not None and workspace.state == SearchState.ACTIVE
-        await store.session.commit()
+    selected, active = await _synchronize(request.scope)
     if selected is None or selected[0].version != request.config_version or not active:
         raise EmbeddingError(EmbeddingErrorCode.CONFIGURATION_CHANGED)
     return result
