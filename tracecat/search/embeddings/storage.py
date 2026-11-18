@@ -44,6 +44,29 @@ def configuration_matches(
     )
 
 
+def settings_in_sync(
+    workspace: SearchWorkspaceState | None,
+    saved: SearchEmbeddingConfig | None,
+    selected: tuple[PinnedConfiguration, ResolvedCredential] | None,
+) -> bool:
+    """True when synchronize() would write nothing for this selection."""
+    if selected is None:
+        return saved is None
+    candidate = selected[0]
+    return (
+        saved is not None
+        and workspace is not None
+        and configuration_matches(saved, candidate)
+        and saved.credential_id == candidate.credential_id
+        and saved.credential_environment == candidate.credential_environment
+        and workspace.state in (SearchState.ACTIVE, SearchState.PAUSED)
+    )
+
+
+class SettingsOutOfSyncError(Exception):
+    """A shared-lock check found saved settings that need an exclusive write."""
+
+
 class EmbeddingSettingsStorage(SearchStorage):
     """Internal boundary for trusted indexing/query scopes, never caller-picked secrets."""
 
@@ -132,12 +155,25 @@ class EmbeddingSettingsStorage(SearchStorage):
         ]
 
     async def synchronize(
-        self,
+        self, *, shared: bool = False
     ) -> tuple[PinnedConfiguration, ResolvedCredential] | None:
-        """Pin automatic selection before work; callers commit before provider I/O."""
-        await self.lock_scope()
+        """Pin automatic selection before work; callers commit before provider I/O.
+
+        With shared=True the workspace lock is taken shared and nothing is
+        written. A shared lock cannot be upgraded in the same transaction, so a
+        needed write raises SettingsOutOfSyncError and the caller retries with
+        shared=False in a new transaction.
+        """
+        await self.lock_scope(shared=shared)
         selected = await self.available()
         workspace, saved = await self.current()
+        if shared:
+            if not settings_in_sync(workspace, saved, selected):
+                raise SettingsOutOfSyncError
+            if selected is None:
+                return None
+            assert saved is not None
+            return replace(selected[0], version=saved.version), selected[1]
         paused = workspace is not None and workspace.state == SearchState.PAUSED
         if selected is None:
             if saved is not None:

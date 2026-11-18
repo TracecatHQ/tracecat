@@ -41,6 +41,7 @@ from tracecat.search.embeddings.service import (
     resolve_embedding_configuration,
 )
 from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
+from tracecat.search.service import SearchStorage
 from tracecat.search.types import (
     EmbeddingRequest,
     SearchScope,
@@ -470,6 +471,38 @@ async def test_changes_during_provider_call_reject_stale_results(case, change):
     with pytest.raises(EmbeddingError) as caught:
         await task
     assert caught.value.code == EmbeddingErrorCode.CONFIGURATION_CHANGED
+
+
+async def test_unchanged_settings_do_not_wait_for_row_writers(case):
+    """Matching settings are checked under the shared lock, beside row writers."""
+    await case.connect()
+    request = await case.request()
+    async with case.sessions() as writer:
+        # Source row writers hold the workspace lock shared until they commit.
+        await SearchStorage(writer, case.scope()).lock_scope(shared=True)
+        selected = await asyncio.wait_for(
+            resolve_embedding_configuration(case.scope()), 2
+        )
+        assert selected is not None
+        assert selected.version == request.config_version
+        await asyncio.wait_for(embed_current(request, case.client), 2)
+
+
+async def test_changed_settings_wait_for_row_writers_then_save(case):
+    """A needed save still takes the lock exclusively and waits for writers."""
+    await case.connect()
+    request = await case.request()
+    gemini, _ = await case.connect("gemini")
+    await case.prefer(gemini)
+    async with case.sessions() as writer:
+        await SearchStorage(writer, case.scope()).lock_scope(shared=True)
+        task = asyncio.create_task(resolve_embedding_configuration(case.scope()))
+        done, _ = await asyncio.wait({task}, timeout=0.5)
+        assert not done
+    selected = await asyncio.wait_for(task, 2)
+    assert selected is not None
+    assert selected.spec.provider == "gemini"
+    assert selected.version > request.config_version
 
 
 async def test_invalid_preferred_credential_does_not_fall_back(case):
