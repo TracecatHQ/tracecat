@@ -1104,7 +1104,15 @@ def test_typo_score_comes_from_the_stored_word_list(
     """A listed typo match scores 1.0 for the term itself, else the threshold."""
     with search_database.begin() as conn:
         # "invoice" is only inside a file-name token, so it is a typo-tier
-        # match, and the term itself is a complete word of the field.
+        # match, and the term itself is a complete word of the field. The
+        # parser keeps "invoice-17.pdf" as one host token, so there is no
+        # exact full-text match to take the native rank path instead.
+        assert not conn.scalar(
+            sa.text(
+                "SELECT to_tsvector('pg_catalog.simple', 'see invoice-17.pdf now')"
+                " @@ to_tsquery('pg_catalog.simple', 'invoice')"
+            )
+        )
         file_name = seed_case(conn, 1, "synthetic one", "see invoice-17.pdf now")
         # "invoices" is a typo-distance word, not the term.
         plural = seed_case(conn, 2, "synthetic two", "several invoices were sent")
