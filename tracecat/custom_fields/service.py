@@ -208,7 +208,9 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
 
         One catalog statement that also locks the table (see `_columns_sql`),
         so a later query in this transaction built from the returned names
-        sees the same columns, unless this transaction changes them itself.
+        sees the same columns while the lock is held: until the transaction
+        ends, unless it changes the columns itself or rolls back a savepoint
+        that this read ran in (which releases the lock).
         """
 
         if not await self._schema_exists():
