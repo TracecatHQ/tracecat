@@ -25,6 +25,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import CaseFieldsService
 from tracecat.custom_fields import service as custom_fields_module
+from tracecat.custom_fields.types import ColumnsCacheEntry, ColumnsCacheKey
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.tables.enums import SqlType
@@ -632,10 +633,7 @@ class TestCaseFieldsService:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A full cache drops only the table read longest ago."""
-        cache: OrderedDict[
-            custom_fields_module.ColumnsCacheKey,
-            custom_fields_module.ColumnsCacheEntry,
-        ] = OrderedDict()
+        cache: OrderedDict[ColumnsCacheKey, ColumnsCacheEntry] = OrderedDict()
         monkeypatch.setattr(custom_fields_module, "_columns_cache", cache)
         monkeypatch.setattr(custom_fields_module, "_COLUMNS_CACHE_MAX_ENTRIES", 2)
         monkeypatch.setattr(

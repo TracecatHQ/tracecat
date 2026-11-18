@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import ClassVar
 
 import sqlalchemy as sa
@@ -13,6 +12,7 @@ from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
+from tracecat.custom_fields.types import ColumnsCacheEntry, ColumnsCacheKey
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
@@ -48,24 +48,6 @@ _COLUMNS_FINGERPRINT_SQL = sa.text(
     ) END
     """
 )
-
-# (schema, table)
-type ColumnsCacheKey = tuple[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class ColumnsCacheEntry:
-    """Reflected user-visible columns and the catalog fingerprint they match.
-
-    The fingerprint is the catalog content itself, so a hit is right for any
-    transaction that sees that content: DDL from another process or a
-    rolled-back transaction changes the fingerprint instead of needing an
-    invalidation.
-    """
-
-    fingerprint: str
-    columns: tuple[ReflectedColumn, ...]
-
 
 # Least recently used first. Bounds memory across many workspaces.
 _columns_cache: OrderedDict[ColumnsCacheKey, ColumnsCacheEntry] = OrderedDict()
