@@ -1,0 +1,77 @@
+type: action
+definition:
+  title: Run search query
+  description: "Run a Search Query and stream the matching events as newline-delimited JSON (NDJSON) (Cribl.Cloud only). Provide exactly one of queryId, jobId, or query together with earliest and latest. Calls GET /search/query."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-search/#operations-Queries-getSearchQuery
+  namespace: tools.cribl
+  name: run_search_query
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    queryId:
+      type: str | None
+      description: "The id of a Saved Query to run. Provide this instead of query or jobId."
+      default: null
+    jobId:
+      type: str | None
+      description: "The id of an existing Search Job whose results to stream. Provide this instead of query or queryId."
+      default: null
+    query:
+      type: str | None
+      description: "The Search Query string to run. Requires earliest and latest."
+      default: null
+    earliest:
+      type: str | float | None
+      description: "Beginning of the query time range, inclusive, as a relative time string or Unix time in seconds."
+      default: null
+    latest:
+      type: str | float | None
+      description: "End of the query time range, exclusive, as a relative time string or Unix time in seconds."
+      default: null
+    sampleRate:
+      type: float | None
+      description: "Sampling probability between 0 and 1 applied to events during the search."
+      default: null
+    timezone:
+      type: str | None
+      description: "IANA timezone used to interpret relative time bounds and timestamps."
+      default: null
+    wait:
+      type: str | int | None
+      description: "Time, in milliseconds, to wait after creating a new Search Job before streaming results back to the client."
+      default: null
+    offset:
+      type: int | None
+      description: "Starting point from which to retrieve results for this request. Use with limit to paginate the response into manageable batches."
+      default: null
+    limit:
+      type: int | None
+      description: "Maximum number of events to return in the response for this request. Use with offset to paginate the response into manageable batches."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/default_search/search/query
+        method: GET
+        params:
+          queryId: ${{ inputs.queryId }}
+          jobId: ${{ inputs.jobId }}
+          query: ${{ inputs.query }}
+          earliest: ${{ inputs.earliest }}
+          latest: ${{ inputs.latest }}
+          sampleRate: ${{ inputs.sampleRate }}
+          timezone: ${{ inputs.timezone }}
+          wait: ${{ inputs.wait }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

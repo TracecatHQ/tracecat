@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Update lookup content
+  description: "Apply row-level patch operations to the specified Lookup file content. Use this endpoint to add, replace, or remove rows in CSV Lookup files. Database Lookup files cannot be modified through this endpoint. Calls PATCH /system/lookups/{id}/content."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Lookups-updateLookupFileContentById
+  namespace: tools.cribl
+  name: update_lookup_content
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    id:
+      type: str
+      description: "The id of the Lookup whose file content to update."
+    patches:
+      type: list[dict[str, Any]]
+      description: "LookupFilePatchList: patch operations to apply. Each item has op (add, replace, or remove), value (list of row column values), and rowId (row index)."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/lookups/${{ FN.url_encode(inputs.id) }}/content
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload: ${{ inputs.patches }}
+  returns: ${{ steps.request.result }}

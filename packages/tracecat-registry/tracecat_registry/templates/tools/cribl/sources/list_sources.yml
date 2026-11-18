@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: List sources
+  description: "Get a list of all Sources. Calls GET /system/inputs."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Sources-getInput
+  namespace: tools.cribl
+  name: list_sources
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    type:
+      type: str | None
+      description: "Type of Source to include in the results. Each request can include only one type parameter; multiple parameters per request are not supported."
+      default: null
+    offset:
+      type: int | None
+      description: "Pagination offset."
+      default: null
+    limit:
+      type: int | None
+      description: "Maximum number of items to return."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/inputs
+        method: GET
+        params:
+          type: ${{ inputs.type }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

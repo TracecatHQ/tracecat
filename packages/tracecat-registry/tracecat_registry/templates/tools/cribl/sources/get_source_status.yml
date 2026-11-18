@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Get source status
+  description: "Get the status and optional metrics for the specified Source. Calls GET /system/status/inputs/{id}."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Sources-getInputStatusById
+  namespace: tools.cribl
+  name: get_source_status
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    id:
+      type: str
+      description: "The id of the Source to get the status for."
+    metrics:
+      type: bool | None
+      description: "Set to true to include metrics for each Source. Otherwise, false (default)."
+      default: null
+    type:
+      type: bool | None
+      description: "Set to true to prefix the Source id with the Source type. Otherwise, false (default)."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/status/inputs/${{ FN.url_encode(inputs.id) }}
+        method: GET
+        params:
+          metrics: ${{ inputs.metrics }}
+          type: ${{ inputs.type }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

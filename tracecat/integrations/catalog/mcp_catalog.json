@@ -451,6 +451,13 @@
       "description": "Check dependency security scores, alerts, and threat feed data with Socket",
       "category": "AppSec",
       "icon": "https://socket.dev/apple-touch-icon.png"
+    },
+    {
+      "slug": "cribl-mcp",
+      "name": "Cribl",
+      "description": "Query Cribl Search, inspect Stream pipelines, Sources, and Destinations, and check system health",
+      "category": "SIEM / Datalake",
+      "icon": "https://www.google.com/s2/favicons?domain=cribl.io&sz=128"
     }
   ]
 }

@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: List jobs
+  description: "Get a list of all jobs. Calls GET /jobs."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Jobs-getJobs
+  namespace: tools.cribl
+  name: list_jobs
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    offset:
+      type: int | None
+      description: "Starting point from which to retrieve results for this request. Use with limit to paginate the response into manageable batches."
+      default: null
+    limit:
+      type: int | None
+      description: "Maximum number of items to return in the response for this request. Use with offset to paginate the response into manageable batches."
+      default: null
+    runType:
+      type: str | None
+      description: "The job run type to limit the response to."
+      default: null
+    state:
+      type: str | None
+      description: "The current job state to limit the response to."
+      default: null
+    id:
+      type: list[str] | None
+      description: "The id of the job to limit the response to. Repeat for multiple values."
+      default: null
+    collectorId:
+      type: str | None
+      description: "The id of the Collector to limit the response to."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/jobs
+        method: GET
+        params:
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+          runType: ${{ inputs.runType }}
+          state: ${{ inputs.state }}
+          id: ${{ inputs.id }}
+          collectorId: ${{ inputs.collectorId }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

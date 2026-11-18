@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: List search job results
+  description: "List search results, when lower/upper bound is provided, offset is relative to the time range (Cribl.Cloud only). Calls GET /search/jobs/{id}/results."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-search/#operations-Jobs-getSearchJobsResultsById
+  namespace: tools.cribl
+  name: list_search_job_results
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    id:
+      type: str
+      description: "The id of the search job to get results for."
+    limit:
+      type: int | None
+      description: "Maximum number of events returned."
+      default: null
+    offset:
+      type: int | None
+      description: "Starting offset of the events."
+      default: null
+    lowerBound:
+      type: float | None
+      description: "Lower bound of the time range, inclusive."
+      default: null
+    upperBound:
+      type: float | None
+      description: "Upper bound of the time range, exclusive."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/default_search/search/jobs/${{ FN.url_encode(inputs.id) }}/results
+        method: GET
+        params:
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          lowerBound: ${{ inputs.lowerBound }}
+          upperBound: ${{ inputs.upperBound }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List notebooks
+  description: "Get a list of all Notebooks. Calls GET /search/notebooks."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-search/#operations-Notebooks-getNotebook
+  namespace: tools.cribl
+  name: list_notebooks
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    datasetIds:
+      type: list[str] | None
+      description: "List of id values for Datasets (maximum of 10). Limits the response to only Notebooks that reference the specified Datasets."
+      default: null
+    output:
+      type: str | None
+      description: "Pass short to receive a compact response containing only id, summary info fields, and sectionCount."
+      default: null
+    offset:
+      type: int | None
+      description: "Pagination offset."
+      default: null
+    limit:
+      type: int | None
+      description: "Maximum number of items to return."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/default_search/search/notebooks
+        method: GET
+        params:
+          datasetIds: ${{ inputs.datasetIds }}
+          output: ${{ inputs.output }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}
