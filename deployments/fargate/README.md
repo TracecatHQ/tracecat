@@ -112,6 +112,24 @@ and tag as the application. Set these optional variables to decouple it:
 For app-only rollbacks, keep the migrations image on a version that understands
 the current Alembic database revision while rolling back the app images.
 
+## Images from ECR
+
+Tasks can pull `tracecat_image` and `tracecat_ui_image` from an ECR repository
+in the deployment's account. The S3 VPC endpoint allows ECR's layer bucket
+(`prod-<region>-starport-layer-bucket`). Each task's execution role still needs
+ECR pull permissions for the repository.
+
+## Extra environment variables
+
+`extra_environment` (map of strings, default `{}`) adds environment variables to
+every backend service: api, worker, agent-worker, executor, agent-executor,
+background-worker, litellm and mcp. It is not passed to the migrations init
+container or the UI. It is merged last, so a key that the module already sets,
+including service-specific ones, is overridden. Use it only for settings the
+module has no input for, for example `TRACECAT__AGENT_RUNTIME_ENABLED = "false"`.
+Values are plaintext in the task definitions and Terraform state, so don't put
+secrets here.
+
 ## Useful outputs
 
 - `public_app_url`

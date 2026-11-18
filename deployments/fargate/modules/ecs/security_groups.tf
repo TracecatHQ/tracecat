@@ -289,6 +289,14 @@ resource "aws_vpc_endpoint" "s3" {
         Resource = [
           aws_s3_bucket.workflow.arn
         ]
+      },
+      {
+        # ECR serves image layers from this AWS-owned bucket; without it,
+        # tasks in private subnets cannot pull images from ECR.
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = ["s3:GetObject"]
+        Resource  = ["arn:${data.aws_partition.current.partition}:s3:::prod-${var.aws_region}-starport-layer-bucket/*"]
       }
     ]
   })

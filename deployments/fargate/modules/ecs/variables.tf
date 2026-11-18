@@ -288,6 +288,12 @@ variable "ee_multi_tenant" {
   default     = false
 }
 
+variable "extra_environment" {
+  type        = map(string)
+  description = "Extra plaintext environment variables for every backend service. Overrides module-set values with the same name. Values are stored in plaintext in the ECS task definitions and Terraform state; do not pass secrets here."
+  default     = {}
+}
+
 variable "slack_ingress_mode" {
   type        = string
   description = "Slack event delivery mode for the API (Enterprise). Leave as the default unless the enterprise docs say otherwise."

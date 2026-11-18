@@ -127,7 +127,8 @@ locals {
         # Break-glass recovery for a platform admin IP allowlist lockout.
         TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = var.platform_admin_ip_allowlist_bypass
         TRACECAT__PLATFORM_ADMIN_MFA_BYPASS          = var.platform_admin_mfa_bypass
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
@@ -151,18 +152,23 @@ locals {
         TEMPORAL__THREADPOOL_MAX_WORKERS        = var.worker_threadpool_max_workers
         TEMPORAL__MAX_CONCURRENT_ACTIVITIES     = var.worker_max_concurrent_activities
         TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS = var.worker_max_concurrent_workflow_tasks
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
 
-  background_worker_env = concat(
-    [for item in local.worker_env : item if item.name != "TRACECAT__SERVICE_NAME"],
-    [
-      { name = "TRACECAT__SERVICE_NAME", value = "background-worker" },
-      { name = "TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES", value = tostring(var.background_worker_max_concurrent_activities) }
-    ]
-  )
+  background_worker_env = [
+    for k, v in merge(
+      { for item in local.worker_env : item.name => item.value },
+      {
+        TRACECAT__SERVICE_NAME                         = "background-worker"
+        TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES = var.background_worker_max_concurrent_activities
+      },
+      var.extra_environment
+    ) :
+    { name = k, value = tostring(v) }
+  ]
 
   agent_worker_env = [
     for k, v in merge(
@@ -183,7 +189,8 @@ locals {
         TRACECAT__EXECUTOR_QUEUE                  = var.executor_queue
         TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES = var.agent_worker_max_concurrent_activities
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
@@ -211,7 +218,8 @@ locals {
         TRACECAT__SANDBOX_NSJAIL_PATH                = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                  = "/var/lib/tracecat/sandbox-cache"
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
@@ -251,7 +259,8 @@ locals {
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
@@ -274,7 +283,8 @@ locals {
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
         # Drain budget D: gateway drain logs flag requests still open after it.
         GRACEFUL_SHUTDOWN_TIMEOUT = local.litellm_drain_timeout_seconds
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
@@ -300,7 +310,8 @@ locals {
         TRACECAT_MCP__STARTUP_MAX_ATTEMPTS        = var.mcp_startup_max_attempts
         TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS = var.mcp_startup_retry_delay_seconds
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
-      }
+      },
+      var.extra_environment
     ) :
     { name = k, value = tostring(v) } if v != null
   ]
