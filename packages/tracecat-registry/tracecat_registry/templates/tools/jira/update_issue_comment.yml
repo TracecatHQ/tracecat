@@ -55,22 +55,22 @@ definition:
         script: |
           import json
 
-                    def adf(value):
-                        if value is None or isinstance(value, dict):
-                            return value
-                        try:
-                            parsed = json.loads(value)
-                        except (TypeError, ValueError):
-                            parsed = None
-                        if isinstance(parsed, dict):
-                            return parsed
-                        return {
-                            "version": 1,
-                            "type": "doc",
-                            "content": [
-                                {"type": "paragraph", "content": [{"type": "text", "text": value}]}
-                            ],
-                        }
+          def adf(value):
+              if value is None or isinstance(value, dict):
+                  return value
+              try:
+                  parsed = json.loads(value)
+              except (TypeError, ValueError):
+                  parsed = None
+              if isinstance(parsed, dict):
+                  return parsed
+              return {
+                  "version": 1,
+                  "type": "doc",
+                  "content": [
+                      {"type": "paragraph", "content": [{"type": "text", "text": value}]}
+                  ],
+              }
 
           def main(body):
               return {"body": adf(body)}
