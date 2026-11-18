@@ -32,6 +32,15 @@ batch yields its lease and moves behind other waiting documents. Large rows
 never block the completion of a short row until their whole body is indexed.
 The separate orphan sweep handles deleted tables/workspaces in bounded batches.
 
+Indexer steps take the same locks as a table row writer: the workspace search
+lock shared, then the collection row `FOR UPDATE`. A step therefore waits only
+for writers to its own table, and writers to other tables never wait for it.
+Reconfiguring a collection for a new provider binding, and clearing the
+workspace's `reconciliation_required` flag, still take the workspace lock
+exclusively. An unlocked pre-check runs that short transaction only when it is
+needed. Table DDL also stays exclusive, so source columns cannot change under a
+step.
+
 The full chunker checkpoint is stored directly in the existing `enumeration_cursor`
 JSON column, with one copy of each position. It includes build identity,
 configuration hash, overlap, covered offsets and pending prefix search. Earlier
@@ -84,7 +93,7 @@ OpenTelemetry instruments under `search.indexing.*` report batch outcomes,
 prepared/embedded/cleaned chunk counts, known provider token usage, pending and
 failed row samples, and queue wait since the selected row's last progress. The
 `pending_rows_sample` and `failed_rows_sample` histograms count at most 100 live
-documents per collection after the claim transaction releases its workspace lock.
+documents per collection after the claim transaction releases its locks.
 They are bounded samples, not full-collection totals. Queue
 wait measures scheduler delay, not a promised total time for a large document.
 A cleanup count at its limit indicates more cleanup may remain. No source text,

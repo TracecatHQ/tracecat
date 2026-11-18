@@ -62,6 +62,7 @@ from tracecat.search.types import (
     SearchState,
 )
 from tracecat.tables.schemas import TableRowInsert
+from tracecat.tables.search.source import TableSearchSource
 from tracecat.tables.service import TablesService
 
 pytestmark = pytest.mark.anyio
@@ -265,6 +266,50 @@ async def test_no_provider_and_pause_preserve_work(
     await tables.search.set_state(SearchState.ACTIVE)
     await tables.session.commit()
     assert (await index_collection(work, pinned, embed)).outcome == "published"
+
+
+async def test_only_turns_that_reconcile_wait_for_row_writers(
+    tables: TablesService, table: Table, indexing
+):
+    """A turn takes the workspace lock exclusively only to rebind its collection.
+
+    An unlocked pre-check decides. Other turns share the lock with writers to
+    other tables. Same-table serialization is covered by
+    test_indexer_steps_wait_only_for_writers_to_the_same_table.
+    """
+    work, pinned, embed = indexing
+    await tables.insert_row(table, TableRowInsert(data={"body": "first"}))
+    assert (await index_collection(work, pinned, embed)).outcome == "published"
+
+    async with TableSearchSource.with_session(scope=work.scope) as writer:
+        # Stands in for an open row write to another table: the workspace
+        # lock shared, but not this collection's row.
+        await writer.lock_scope(shared=True)
+        await asyncio.wait_for(index_collection(work, pinned, embed), 5)
+
+    await tables.search.save_configuration(
+        provider="synthetic",
+        model="synthetic",
+        endpoint=None,
+        credential_id=pinned.credential_id,
+        credential_environment="default",
+        dimensions=3,
+        input_token_limit=1024,
+    )
+    await tables.session.commit()
+    rebound = replace(pinned, version=pinned.version + 1)
+    async with TableSearchSource.with_session(scope=work.scope) as writer:
+        await writer.lock_scope(shared=True)
+        turn = asyncio.create_task(index_collection(work, rebound, embed))
+        done, _ = await asyncio.wait({turn}, timeout=0.5)
+        assert not done
+    await asyncio.wait_for(turn, 5)
+    collection = await tables.search.collection(work.collection_id, shared=True)
+    state = await tables.search._state()
+    assert collection.config_version == rebound.version
+    assert state.current_version == rebound.version
+    assert not state.reconciliation_required
+    await tables.session.commit()
 
 
 async def test_distributed_capacity_reserves_foreground(tables: TablesService):
