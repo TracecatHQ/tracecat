@@ -38,10 +38,21 @@ def test_search_predicates_escape_literal_metacharacters(
         *case_identity_predicates(CaseQuery(search_term=term)),
     )
     compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    patterns = [value for value in compiled.params.values() if isinstance(value, str)]
 
-    assert str(compiled).count("ILIKE") == 3
-    assert str(compiled).count("ESCAPE") == 3
-    assert list(compiled.params.values()).count(escaped_term) == 3
+    # No metacharacter can occur in a CASE-0042 style ID, so the formatted
+    # short ID is not searched. Every LIKE/ILIKE has an ESCAPE clause.
+    assert "concat(" not in sql
+    assert sql.count("ESCAPE") == sql.count(" LIKE ") + sql.count(" ILIKE ")
+    if len(term) < 3:
+        # No trigrams to look up: ILIKE on summary and description.
+        assert sql.count("ILIKE") == 2
+        assert patterns.count(escaped_term) == 2
+    else:
+        # The trigram-indexed substring predicate binds one pattern per field.
+        assert "ILIKE" not in sql
+        assert patterns.count(f"%{escaped_term}%") == 2
     assert search_role.workspace_id in compiled.params.values()
 
 
