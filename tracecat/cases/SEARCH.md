@@ -191,11 +191,15 @@ cannot see the keyword (a broad legacy search took 0.97 s instead of 0.31 s).
 lets broad searches finish instead of failing, but it bounds each statement,
 not the request: a search runs its page, match-detail and excerpt queries, and
 the UI requests status counts in parallel. When the client aborts a
-superseded search, the API cancels it: `CancelOnDisconnectMiddleware` cancels the request handler for
-`POST .../cases/search` and `.../cases/search/aggregate`, and the routes call
-`pg_cancel_backend` for the request's backend before the cancellation unwinds,
-so the statement stops in PostgreSQL and its connection returns to the pool.
-The UI also skips its 120 s auto-refresh while a search is applied. Workflow,
+superseded search, the API cancels it. `CancelOnDisconnectMiddleware` cancels
+the request handler for `POST .../cases/search` and `.../cases/search/aggregate`,
+and the routes call `pg_cancel_backend` for the request's backend before the
+cancellation unwinds. The call uses its own unpooled connection, so it works
+when the pool is exhausted, and it repeats every second until the search ends,
+since a cancel that lands between two statements has no effect. When it
+succeeds the statement stops in PostgreSQL and the connection returns to the
+pool; if it cannot connect, the statement budget is the fallback. The UI also
+skips its 120 s auto-refresh while a search is applied. Workflow,
 API and MCP callers that do not disconnect still run each statement to its
 budget, and many concurrent slow searches can exhaust the API's connection
 pool; lower the budget if that happens. A timeout returns the shared

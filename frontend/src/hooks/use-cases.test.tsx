@@ -576,9 +576,11 @@ describe("auto-refresh", () => {
     const { result } = setup(undefined, { autoRefresh: true })
     await advance()
     const listCalls = searchCases.mock.calls.length
+    const listCountCalls = searchAggregates.mock.calls.length
     await advance(120_000)
-    // The plain case list refreshes on the interval.
+    // The plain case list and its counts refresh on the interval.
     expect(searchCases.mock.calls.length).toBeGreaterThan(listCalls)
+    expect(searchAggregates.mock.calls.length).toBeGreaterThan(listCountCalls)
 
     act(() => result.current.setSearchQuery("powershell"))
     await advance(301)

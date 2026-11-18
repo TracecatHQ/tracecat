@@ -341,11 +341,16 @@ async def list_case_filter_fields(
 
 
 # Search and status counts the UI aborts when a newer search supersedes them.
-# The API cancels these requests when their client disconnects.
-CASE_SEARCH_PATH_SUFFIXES = ("/cases/search", "/cases/search/aggregate")
+# The API cancels these POST requests when their client disconnects.
+_SEARCH_PATH = "/search"
+_SEARCH_AGGREGATE_PATH = "/search/aggregate"
+CASE_SEARCH_PATH_SUFFIXES = (
+    cases_router.prefix + _SEARCH_PATH,
+    cases_router.prefix + _SEARCH_AGGREGATE_PATH,
+)
 
 
-@cases_router.post("/search", responses=CASE_SEARCH_ERROR_RESPONSES)
+@cases_router.post(_SEARCH_PATH, responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_cases(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseSearchRequest
@@ -355,7 +360,7 @@ async def query_cases(
         # A superseded search is cancelled when its client disconnects
         # (CancelOnDisconnectMiddleware); stop its statement too.
         return await cancel_statement_on_cancellation(
-            session, CasesService(session, role).query_cases(params)
+            session, lambda: CasesService(session, role).query_cases(params)
         )
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
@@ -363,7 +368,7 @@ async def query_cases(
         raise case_http_error(exc) from exc
 
 
-@cases_router.post("/search/aggregate", responses=CASE_SEARCH_ERROR_RESPONSES)
+@cases_router.post(_SEARCH_AGGREGATE_PATH, responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_case_aggregates(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: CaseQuery
@@ -371,7 +376,7 @@ async def query_case_aggregates(
     """Count the same typed matching conditions as search."""
     try:
         return await cancel_statement_on_cancellation(
-            session, CasesService(session, role).query_case_aggregates(params)
+            session, lambda: CasesService(session, role).query_case_aggregates(params)
         )
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc

@@ -21,9 +21,13 @@ def test_api_installs_disconnect_cancellation_outside_http_middleware() -> None:
     assert position < classes.index(CORSMiddleware)
     options = app.user_middleware[position].kwargs
     assert options["path_suffixes"] == CASE_SEARCH_PATH_SUFFIXES
-    paths = set(app.openapi()["paths"])
+    # GET routes share these paths, so require the POST operation itself.
+    paths = app.openapi()["paths"]
     for suffix in CASE_SEARCH_PATH_SUFFIXES:
-        assert any(path.endswith(suffix) for path in paths), suffix
+        assert any(
+            path.endswith(suffix) and "post" in operations
+            for path, operations in paths.items()
+        ), suffix
 
 
 def _scope(path: str, method: str = "POST") -> dict[str, Any]:

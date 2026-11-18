@@ -29,21 +29,15 @@ class CancelOnDisconnectMiddleware:
     and cancels nothing, so after-response work such as logging still runs.
     """
 
-    def __init__(
-        self,
-        app: ASGIApp,
-        *,
-        path_suffixes: Collection[str],
-        methods: Collection[str] = frozenset({"POST"}),
-    ) -> None:
+    def __init__(self, app: ASGIApp, *, path_suffixes: Collection[str]) -> None:
         self.app = app
         self._path_suffixes = tuple(path_suffixes)
-        self._methods = frozenset(methods)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Only POST requests: they carry the search body.
         if (
             scope["type"] != "http"
-            or scope["method"] not in self._methods
+            or scope["method"] != "POST"
             or not scope["path"].endswith(self._path_suffixes)
         ):
             await self.app(scope, receive, send)

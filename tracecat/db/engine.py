@@ -50,6 +50,9 @@ _async_engine: AsyncEngine | None = None
 # pool or acquire a second auth connection. Without a cycle there is no
 # hold-and-wait deadlock.
 _async_auth_engine: AsyncEngine | None = None
+# Unpooled engine for pg_cancel_backend. A request abandoned under load must be
+# able to stop its statement even when the main pool has no free connection.
+_async_cancel_engine: AsyncEngine | None = None
 _ctx_auth_pool_session: ContextVar[AsyncSession | None] = ContextVar(
     "auth_pool_session",
     default=None,
@@ -420,14 +423,31 @@ def get_async_auth_engine() -> AsyncEngine:
     return _async_auth_engine
 
 
+def get_async_cancel_engine() -> AsyncEngine:
+    """Get the unpooled engine used to cancel another backend's statement.
+
+    Each connect opens a fresh connection with the main engine's URI and login,
+    so cancelling never waits on the main pool.
+    """
+    global _async_cancel_engine
+    if _async_cancel_engine is None:
+        _async_cancel_engine = create_async_engine(
+            _get_db_uri(driver="asyncpg"),
+            poolclass=NullPool,
+            connect_args=_connect_args(f"{config.TRACECAT__SERVICE_NAME}-cancel"),
+        )
+    return _async_cancel_engine
+
+
 def reset_async_engine() -> None:
     """Reset the global async engines.
 
     This should only be used in tests to ensure clean state between tests.
     """
-    global _async_engine, _async_auth_engine
+    global _async_engine, _async_auth_engine, _async_cancel_engine
     _async_engine = None
     _async_auth_engine = None
+    _async_cancel_engine = None
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
