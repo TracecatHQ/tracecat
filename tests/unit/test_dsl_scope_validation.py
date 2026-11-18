@@ -1158,3 +1158,33 @@ class TestScopeValidation:
         )
 
         assert validate_dsl_acyclic(dsl) == []
+
+
+def test_unparseable_expression_names_the_action() -> None:
+    """A parse error becomes a DSL error that names the action and field."""
+    with pytest.raises(
+        TracecatDSLError,
+        match="Action 'build_payload' has an expression in field 'inputs' that could not be parsed",
+    ) as exc_info:
+        DSLInput(
+            title="Nested template",
+            description="An expression nested inside another expression",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="upload",
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="build_payload",
+                    action="core.transform.reshape",
+                    args={
+                        "value": '${{ FN.merge([ACTIONS.upload.result, {"key": "${{ ACTIONS.upload.result }}"}]) }}'
+                    },
+                    depends_on=["upload"],
+                ),
+            ],
+        )
+    assert exc_info.value.ref == "build_payload"
+    assert "ACTIONS.upload" not in str(exc_info.value)

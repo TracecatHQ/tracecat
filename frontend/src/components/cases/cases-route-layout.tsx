@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation"
 import type React from "react"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
+import { CaseViewHeaderSlotProvider } from "@/components/cases/case-view-header-slot"
 import { WorkspaceCollectionRouteLayout } from "@/components/workspaces/workspace-collection-route-layout"
 
 export function CasesRouteLayout({ children }: { children: React.ReactNode }) {
@@ -12,7 +13,9 @@ export function CasesRouteLayout({ children }: { children: React.ReactNode }) {
     <WorkspaceCollectionRouteLayout
       detailId={params?.caseId}
       wrapMainContent={(content) => (
-        <CaseSelectionProvider>{content}</CaseSelectionProvider>
+        <CaseSelectionProvider>
+          <CaseViewHeaderSlotProvider>{content}</CaseViewHeaderSlotProvider>
+        </CaseSelectionProvider>
       )}
     >
       {children}

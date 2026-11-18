@@ -174,6 +174,7 @@ locals {
         TRACECAT__API_ROOT_PATH                   = "/api"
         TRACECAT__API_URL                         = local.internal_api_url
         TRACECAT__PUBLIC_API_URL                  = local.public_api_url
+        TRACECAT__PUBLIC_APP_URL                  = local.public_app_url
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
         TRACECAT__SERVICE_NAME                    = "agent-worker"
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT         = var.executor_client_timeout

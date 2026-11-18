@@ -48,11 +48,13 @@ from tracecat.workspace_sync.transport import (
     VcsTreeSnapshot,
 )
 
-SOURCE_REPOSITORY_SCOPES: frozenset[str] = frozenset({"workspace_sync:sync"})
-"""The only scope granted when reading the source repository.
+SOURCE_REPOSITORY_SCOPES: frozenset[str] = frozenset(
+    {"workspace_sync:push", "workspace_sync:pull"}
+)
+"""The only scopes granted when reading or tagging the source repository.
 
-It is the scope the org VCS credential getters and the workspace sync read
-methods require, and it grants nothing else.
+Reads need either Git sync scope; cutting a release writes a tag, so the role
+holds both. They grant nothing outside Git sync.
 """
 
 

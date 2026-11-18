@@ -13,9 +13,9 @@ Use Git sync to export workspace configuration to a repository you own as a pull
 
 ## Permissions
 
-Organization admins configure providers. Workspace admins connect or change a workspace repository. Workspace editors can push and pull from an existing connection; viewers cannot sync.
+Organization admins configure providers. Workspace admins connect or change a workspace repository. Workspace editors can push from an existing connection, and workspace admins can also pull; viewers cannot sync.
 
-For custom roles, provider setup requires `org:settings:update`, changing the workspace connection requires `workspace:update`, and the workspace Git sync page requires `workspace_sync:sync` to push and pull.
+For custom roles, provider setup requires `org:settings:update`, changing the workspace connection requires `workspace:update`, and the workspace Git sync page requires `workspace_sync:push` to push and `workspace_sync:pull` to pull. `workspace-editor` can push but not pull; `workspace-admin`, `organization-admin`, and `organization-owner` can do both.
 
 ## Connect a provider
 

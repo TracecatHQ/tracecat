@@ -1027,11 +1027,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         except TracecatValidationError as e:
             return WorkflowPublishResult(
                 version=None,
-                errors=[
-                    ValidationResult.new(
-                        DSLValidationResult(status="error", msg=str(e), detail=e.detail)
-                    )
-                ],
+                errors=[ValidationResult.from_dsl_error(e)],
             )
         except ValidationError as e:
             return WorkflowPublishResult(

@@ -16,6 +16,7 @@ from sqlalchemy.orm import aliased, raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
+from tracecat_ee.cases.views.service import CaseViewsService
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
@@ -410,7 +411,14 @@ class CasesService(BaseWorkspaceService):
     async def query_cases(
         self, request: CaseSearchRequest
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Execute the canonical validated search contract."""
+        """Execute the canonical validated search contract.
+
+        A ``view_id`` runs that saved view: its criteria and sort replace the
+        request's, and the request's ``filters`` narrow it further.
+        """
+        request = await CaseViewsService(self.session, self.role).apply_to_query(
+            request
+        )
         return await self._search_service().query_cases(
             request,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
@@ -419,6 +427,7 @@ class CasesService(BaseWorkspaceService):
     @require_scope("case:read")
     async def query_case_aggregates(self, query: CaseQuery) -> CaseSearchAggregateRead:
         """Count the same authorized population as canonical search."""
+        query = await CaseViewsService(self.session, self.role).apply_to_query(query)
         return await self._search_service().query_aggregates(
             query,
             case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
@@ -1976,7 +1985,8 @@ class CaseFieldsService(CustomFieldsService):
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
-        await self._ensure_schema_ready()
+        if not await self._schema_exists():
+            return None
         table = self._table_definition()
         row_id = await self.session.scalar(
             sa.select(table.c.id).where(table.c.case_id == case.id)
@@ -1993,16 +2003,20 @@ class CaseFieldsService(CustomFieldsService):
         """
         if not field_ids:
             return {}
-        await self._ensure_schema_ready()
 
         # Validate requested fields against reflected columns so stale or missing
-        # schema metadata does not hide real columns.
-        available_fields = {
-            column_name
-            for column in await self.editor.get_columns()
-            if isinstance((column_name := column.get("name")), str)
-            and column_name not in self._reserved_columns
-        }
+        # schema metadata does not hide real columns. A missing table has no
+        # values, and a read must not create it.
+        available_fields = (
+            {
+                column_name
+                for column in await self.editor.get_columns()
+                if isinstance((column_name := column.get("name")), str)
+                and column_name not in self._reserved_columns
+            }
+            if await self._schema_exists()
+            else set()
+        )
         requested_field_ids: list[str] = []
         for field_id in dict.fromkeys(field_ids):
             self._assert_user_field_name_allowed(field_id)

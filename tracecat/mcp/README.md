@@ -156,6 +156,22 @@ Notes:
 - `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` on every case.
 - Sub-cases are one level deep. Closing a parent case does not change its sub-cases.
 
+## Case view tools
+
+Case views are an enterprise feature: these tools, and `search_cases(view_id=...)`, need the case add-ons entitlement.
+
+- `list_case_views(workspace_id, limit=..., cursor=None, pinned=False, include_builtins=True)` lists the built-in views separately from a page of saved views
+- `search_cases(workspace_id, view_id=...)` runs a saved or built-in view. The view supplies the matching criteria: a `filters` tree narrows it further, and any other matching argument (such as `status` or `tags`) is rejected. Paging and result options still apply, and `order_by`/`sort` override the view's saved order
+- `create_case_view(workspace_id, name, query=None, visibility="personal", order_by=None, sort=None, columns=None)` saves a case search as a view
+- `update_case_view(workspace_id, view_id, changes)` renames, re-queries, shares, or unshares a view you can edit
+- `pin_case_view(workspace_id, view_id, position=None)` and `unpin_case_view(workspace_id, view_id)` change your own sidebar. Saved and built-in views can both be pinned, and share one pin order
+
+Notes:
+
+- Personal views are visible only to their owner. Sharing a view with the workspace requires `case:update`.
+- Built-in views, such as `assigned_to_me`, cannot be changed or deleted. They appear in the sidebar only once pinned.
+- A view's `query` takes the same matching fields as `search_cases`, including relative windows (`created_within`) and `"me"`.
+
 ## Case tag tools
 
 - `list_case_tags(workspace_id, limit=20, cursor=None)`

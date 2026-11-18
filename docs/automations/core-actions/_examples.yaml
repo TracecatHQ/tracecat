@@ -445,6 +445,20 @@ examples:
             - in_progress
           limit: 25
 
+  cases-list-views:
+    title: Run a shared case view
+    language: yaml
+    code: |
+      - ref: list_case_views
+        action: core.cases.list_case_views
+        args:
+          include_builtins: false
+      - ref: search_view
+        action: core.cases.search_cases
+        args:
+          view_id: ${{ ACTIONS.list_case_views.result[0].id }}
+          limit: 25
+
   cases-aggregate:
     title: Count open cases by priority and day
     language: yaml
@@ -983,6 +997,17 @@ examples:
           search_term: database
           limit: 50
           paginate: true
+
+  tables-semantic-search:
+    title: Search table rows by meaning
+    language: yaml
+    code: |
+      - ref: find_similar_incidents
+        action: core.table.search
+        args:
+          table: incident_notes
+          query: credential theft from a phishing link
+          limit: 10
 
   tables-aggregate:
     title: Sum bytes by source and hour

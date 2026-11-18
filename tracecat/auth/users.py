@@ -37,6 +37,7 @@ from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDataba
 from pydantic import EmailStr
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from tracecat import config
 from tracecat.audit.service import AuditService
@@ -78,10 +79,18 @@ from tracecat.settings.service import get_setting_from_bypass_session
 
 
 class InvalidEmailException(FastAPIUsersException):
-    """Exception raised on registration with an invalid email."""
+    """Exception raised on registration with an invalid email.
+
+    The message is deliberately generic and also covers duplicate accounts:
+    revealing that an email is already registered would enable account
+    enumeration.
+    """
 
     def __init__(self) -> None:
-        super().__init__("Please enter a valid email address.")
+        super().__init__(
+            "Please enter a valid email address. "
+            "If you already have an account, sign in instead."
+        )
 
 
 class PermissionsException(FastAPIUsersException):
@@ -702,6 +711,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # The user delete cascades to refresh tokens and memberships; lock
         # first so a concurrent MCP token rotation cannot deadlock with it.
         await lock_mcp_refresh_token_users(self._user_db.session, [user.id])
+        await delete_personal_case_views(self._user_db.session, user.id)
 
     async def saml_callback(
         self,

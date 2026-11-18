@@ -70,6 +70,7 @@ import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
+import { CaseViewHeaderSlot } from "@/components/cases/case-view-header-slot"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -186,6 +187,7 @@ import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
+import { holdDoubleTapKey } from "@/hooks/use-type-to-focus"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getFormErrorDetail } from "@/lib/forms/errors"
 import {
@@ -2784,6 +2786,11 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
     }
     const DOUBLE_TAP_WINDOW_MS = 1200
     let pendingAt: number | null = null
+    // Keep the first tap out of a visible chat composer so `cc` still works.
+    const releaseToggleKey = holdDoubleTapKey(
+      CHAT_TOGGLE_KEY,
+      DOUBLE_TAP_WINDOW_MS
+    )
 
     const isEditableTarget = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) {
@@ -2831,7 +2838,10 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
     }
 
     window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      releaseToggleKey()
+    }
   }, [onToggleChat])
 
   if (!pageConfig) {
@@ -2868,6 +2878,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         ) : (
           titleContent
         )}
+        {isCasesListPage && <CaseViewHeaderSlot />}
       </div>
 
       {/* Middle section: bulk selection actions */}

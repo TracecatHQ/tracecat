@@ -24,6 +24,8 @@ from tracecat.agent.backends.types import (
     SessionWorkflowContext,
     TurnResult,
 )
+from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
+from tracecat.agent.mcp.stdio_runner import StdioMCPServer
 from tracecat.agent.session.service import AGENT_SESSION_EXECUTION_SCOPES
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
@@ -82,6 +84,11 @@ class InstalledBackend(AgentBackend[dict[str, Any], dict[str, Any]]):
 
     async def prepare_fork(self, context: SessionForkContext) -> None:
         pass
+
+    async def register_stdio_mcp_server(
+        self, server: StdioMCPServer, env: dict[str, str] | None
+    ) -> StdioMCPProbeResult:
+        raise NotImplementedError
 
     def workflow_id(self, run_id: uuid.UUID) -> str:
         return f"installed/{run_id}"

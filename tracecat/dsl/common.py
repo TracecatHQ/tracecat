@@ -274,11 +274,20 @@ class DSLInput(BaseModel):
         """Validate that all action expressions are valid."""
         for action in self.actions:
             for key, value in action.model_dump().items():
-                expr_ctxs = extract_expressions(value)
+                try:
+                    expr_ctxs = extract_expressions(value)
+                except TracecatExpressionError as e:
+                    # The parser's diagnostic quotes the expression source, which
+                    # can hold literal credentials, so name only the action+field.
+                    raise TracecatDSLError(
+                        f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that could not be parsed",
+                        ref=action.ref,
+                    ) from e
                 for dep in expr_ctxs[ExprContext.ACTIONS]:
                     if dep not in valid_action_refs:
                         raise TracecatDSLError(
-                            f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references unknown action '{dep}'"
+                            f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references unknown action '{dep}'",
+                            ref=action.ref,
                         )
 
     def _validate_scatter_gather_scopes(self) -> None:

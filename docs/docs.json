@@ -83,6 +83,7 @@
               "agents/secrets-variables",
               "agents/human-in-the-loop",
               "agents/timeouts",
+              "agents/ai-slackbot",
               "agents/channels"
             ]
           }
@@ -117,7 +118,8 @@
               "automations/cases/tasks",
               "automations/cases/agent-mentions",
               "automations/cases/correlations",
-              "automations/cases/workflow-triggers"
+              "automations/cases/workflow-triggers",
+              "automations/cases/views"
             ]
           }
         ]
@@ -404,7 +406,8 @@
               "manage-platform/ip-allowlist",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
-              "manage-platform/tunnels"
+              "manage-platform/tunnels",
+              "manage-platform/slack-app"
             ]
           },
           {

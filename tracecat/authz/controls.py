@@ -7,6 +7,7 @@ from fnmatch import fnmatch
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import DEPRECATED_SYNC_SCOPES, SYNC_REPLACEMENT_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 from tracecat.logger import logger
@@ -146,6 +147,20 @@ def has_any_scope(user_scopes: frozenset[str], required_scopes: set[str]) -> boo
     return any(has_scope(user_scopes, scope) for scope in required_scopes)
 
 
+def can_grant_scope(caller_scopes: frozenset[str], scope_name: str) -> bool:
+    """Return whether a caller holding ``caller_scopes`` may grant ``scope_name``.
+
+    A deprecated Git sync scope counts as held when the caller holds both scopes
+    that replaced it, so admins can assign migrated roles without handing out
+    access they lack.
+    """
+    if has_scope(caller_scopes, scope_name):
+        return True
+    return scope_name in DEPRECATED_SYNC_SCOPES and all(
+        has_scope(caller_scopes, replacement) for replacement in SYNC_REPLACEMENT_SCOPES
+    )
+
+
 def ensure_can_grant_scopes(
     caller_scopes: frozenset[str], scope_names: Iterable[str]
 ) -> None:
@@ -161,7 +176,7 @@ def ensure_can_grant_scopes(
         TracecatAuthorizationError: If any scope is outside the caller's ceiling.
     """
     denied = sorted(
-        {name for name in scope_names if not has_scope(caller_scopes, name)}
+        {name for name in scope_names if not can_grant_scope(caller_scopes, name)}
     )
     if denied:
         raise TracecatAuthorizationError(

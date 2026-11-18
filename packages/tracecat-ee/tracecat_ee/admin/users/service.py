@@ -25,6 +25,7 @@ from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
 )
 from tracecat.service import BasePlatformService
+from tracecat_ee.cases.views.ownership import delete_personal_case_views
 
 from .schemas import AdminUserCreate, AdminUserRead
 
@@ -65,7 +66,7 @@ class AdminUserService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            if not is_unique_violation(e, "ix_user_email"):
+            if not is_unique_violation(e, "ix_user_email", "ix_user_email_lower"):
                 raise
             raise ValueError(f"User with email {params.email} already exists") from e
 
@@ -197,6 +198,7 @@ class AdminUserService(BasePlatformService):
             .where(Approval.approved_by == user_id)
             .values(approved_by=None)
         )
+        await delete_personal_case_views(self.session, user_id)
 
         await self.session.delete(user)
         try:

@@ -5,7 +5,7 @@ import type {
   CaseRead,
   CaseSearchAggregateRead,
   CasesQueryCasesResponse,
-  Filter,
+  Filter_Input as Filter,
   WorkspacesListWorkspacesResponse,
 } from "@/client"
 

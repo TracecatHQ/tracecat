@@ -20,14 +20,16 @@ export default function WorkspaceGitSyncPage() {
     hasEntitlementData,
     isLoading: entitlementsLoading,
   } = useEntitlements()
-  const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
+  const canPush = useScopeCheck("workspace_sync:push")
+  const canPull = useScopeCheck("workspace_sync:pull")
   // Matches the connection's former settings gate and the workspace update API.
   const canManageConnection = useScopeCheck("workspace:update")
 
   if (
     workspaceLoading ||
     entitlementsLoading ||
-    canSyncWorkspace === undefined ||
+    canPush === undefined ||
+    canPull === undefined ||
     canManageConnection === undefined
   ) {
     return <CenteredSpinner />
@@ -93,7 +95,7 @@ export default function WorkspaceGitSyncPage() {
       </div>
     )
   }
-  if (!canSyncWorkspace && !canManageConnection) {
+  if (!canPush && !canPull && !canManageConnection) {
     return (
       <div className="flex h-full flex-col">
         <GitSyncHeader workspaceName={workspace.name} />
@@ -106,7 +108,8 @@ export default function WorkspaceGitSyncPage() {
   return (
     <GitSyncView
       workspace={workspace}
-      canSync={canSyncWorkspace}
+      canPush={canPush}
+      canPull={canPull}
       canManageConnection={canManageConnection}
     />
   )
