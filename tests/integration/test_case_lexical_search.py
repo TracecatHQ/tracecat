@@ -435,6 +435,48 @@ async def test_legacy_matching_and_detail_count_projection_are_preserved(
     assert [expected.id] in excerpt_parameters[0]
 
 
+async def test_legacy_substring_search_matches_ilike_through_indexes(
+    lexical_service: CasesService,
+) -> None:
+    """Omitted-mode search keeps case-insensitive substring semantics."""
+    cases = [
+        await text_case(lexical_service, "Lateral MOVEMENT detected"),
+        # Over the 8,192-byte budget, so only the fallback index finds it.
+        # Two-byte characters fit the ORM's 5,000-character column.
+        await text_case(
+            lexical_service, "synthetic long", "é" * 4200 + " late MovementX token"
+        ),
+        await text_case(lexical_service, "100% done_ok"),
+        await text_case(lexical_service, "short"),
+    ]
+    terms = [
+        "movement",
+        "MOVE",
+        "ve",
+        "0% d",
+        "_o",
+        "e_o",
+        "ase-00",
+        cases[0].short_id,
+        cases[0].short_id[-2:],
+        "zebra",
+    ]
+    for term in terms:
+        page = await lexical_service.query_cases(
+            CaseSearchRequest(search_term=term, include_count=True, limit=100)
+        )
+        expected = {
+            case.id
+            for case in cases
+            if any(
+                term.lower() in text.lower()
+                for text in (case.summary, case.description, case.short_id)
+            )
+        }
+        assert {item.id for item in page.items} == expected, term
+        assert page.total_estimate == len(expected), term
+
+
 @pytest.mark.parametrize(
     "options",
     [
