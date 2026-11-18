@@ -17,7 +17,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.secrets.stores.backends import get_backend
+from tracecat_ee.secrets.runtime import resolve_external_references
 from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
@@ -681,7 +681,7 @@ class AgentManagementService(BaseOrgService):
             reference = build_external_secret_reference(secret)
             # Release the DB connection before the remote call.
             await self.session.commit()
-            values = await get_backend(reference.provider).resolve([reference])
+            values = await resolve_external_references([reference])
             return values.get(secret_name)
         decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
         return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}

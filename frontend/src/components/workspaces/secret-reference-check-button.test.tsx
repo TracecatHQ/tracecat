@@ -1,35 +1,33 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import {
-  AwsSecretReferenceCheckButton,
-  AwsSecretReferenceCheckHint,
-  AwsSecretReferenceCheckScope,
-} from "@/components/workspaces/aws-secret-reference-check-button"
+  SecretReferenceCheckButton,
+  SecretReferenceCheckHint,
+  SecretReferenceCheckScope,
+} from "@/components/workspaces/secret-reference-check-button"
 
 const mockCheckReference = jest.fn()
 
 jest.mock("@/hooks/use-secret-stores", () => ({
   describeApiError: () => "API error",
-  useAwsSecretReferences: () => ({
+  useSecretReferences: () => ({
     checkReference: mockCheckReference,
   }),
 }))
 
 function renderCheck() {
   render(
-    <AwsSecretReferenceCheckScope
+    <SecretReferenceCheckScope
       workspaceId="workspace-synthetic"
       secretId="secret-synthetic"
+      source="aws_secrets_manager"
     >
       {(check) => (
         <>
-          <AwsSecretReferenceCheckButton
-            state={check.state}
-            onCheck={check.run}
-          />
-          <AwsSecretReferenceCheckHint state={check.state} />
+          <SecretReferenceCheckButton state={check.state} onCheck={check.run} />
+          <SecretReferenceCheckHint state={check.state} />
         </>
       )}
-    </AwsSecretReferenceCheckScope>
+    </SecretReferenceCheckScope>
   )
 }
 
@@ -37,7 +35,7 @@ beforeEach(() => {
   mockCheckReference.mockReset()
 })
 
-describe("AwsSecretReferenceCheckButton", () => {
+describe("SecretReferenceCheckButton", () => {
   it("shows the failure on the button and the fix inline", async () => {
     mockCheckReference.mockResolvedValue({
       ok: false,

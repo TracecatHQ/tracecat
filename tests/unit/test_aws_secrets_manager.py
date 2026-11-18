@@ -21,14 +21,14 @@ from tracecat_ee.secrets.providers.aws_secrets_manager import (
 )
 
 from tracecat.secrets.enums import (
-    AwsSecretMappingMode,
-    AwsSecretResolutionErrorCode,
+    SecretMappingMode,
+    SecretResolutionErrorCode,
     SecretStoreProvider,
 )
 from tracecat.secrets.schemas import (
-    AwsSecretJsonField,
-    AwsSecretKeyMapping,
     AwsSecretsManagerStoreConfig,
+    SecretJsonField,
+    SecretKeyMapping,
 )
 from tracecat.secrets.types import CheckResult, ExternalSecretReference
 
@@ -44,9 +44,9 @@ STORE_ID = uuid.uuid4()
 def make_reference(
     *,
     alias: str = "api",
-    mode: AwsSecretMappingMode = AwsSecretMappingMode.WHOLE_STRING,
+    mode: SecretMappingMode = SecretMappingMode.WHOLE_STRING,
     whole_string_key: str = "TOKEN",
-    fields: tuple[AwsSecretJsonField, ...] = (),
+    fields: tuple[SecretJsonField, ...] = (),
     secret_arn: str = SECRET_ARN,
     region: str = REGION,
     store_enabled: bool = True,
@@ -64,11 +64,9 @@ def make_reference(
             role_arn=role_arn, region=region, external_id=external_id
         ),
         key=secret_arn,
-        mapping=AwsSecretKeyMapping(
+        mapping=SecretKeyMapping(
             mode=mode,
-            keys=[whole_string_key]
-            if mode == AwsSecretMappingMode.WHOLE_STRING
-            else [],
+            keys=[whole_string_key] if mode == SecretMappingMode.WHOLE_STRING else [],
             fields=list(fields),
         ),
     )
@@ -174,10 +172,10 @@ async def test_json_mapping_selects_declared_fields(
         "SecretString": '{"username": "u", "password": "p", "extra": 1}'
     }
     ref = make_reference(
-        mode=AwsSecretMappingMode.JSON,
+        mode=SecretMappingMode.JSON,
         fields=(
-            AwsSecretJsonField(key="USER", field="username"),
-            AwsSecretJsonField(key="PASS", field="password"),
+            SecretJsonField(key="USER", field="username"),
+            SecretJsonField(key="PASS", field="password"),
         ),
     )
 
@@ -189,18 +187,18 @@ async def test_json_mapping_selects_declared_fields(
 @pytest.mark.parametrize(
     ("secret_string", "expected"),
     [
-        ("not json", AwsSecretResolutionErrorCode.MALFORMED_JSON),
-        ("[1, 2]", AwsSecretResolutionErrorCode.MALFORMED_JSON),
-        ('{"other": "x"}', AwsSecretResolutionErrorCode.MISSING_FIELD),
-        ('{"username": 42}', AwsSecretResolutionErrorCode.NON_STRING_FIELD),
+        ("not json", SecretResolutionErrorCode.MALFORMED_JSON),
+        ("[1, 2]", SecretResolutionErrorCode.MALFORMED_JSON),
+        ('{"other": "x"}', SecretResolutionErrorCode.MISSING_FIELD),
+        ('{"username": 42}', SecretResolutionErrorCode.NON_STRING_FIELD),
     ],
 )
 def test_json_projection_failures(
-    secret_string: str, expected: AwsSecretResolutionErrorCode
+    secret_string: str, expected: SecretResolutionErrorCode
 ) -> None:
     ref = make_reference(
-        mode=AwsSecretMappingMode.JSON,
-        fields=(AwsSecretJsonField(key="USER", field="username"),),
+        mode=SecretMappingMode.JSON,
+        fields=(SecretJsonField(key="USER", field="username"),),
     )
     assert project_secret_string(ref, secret_string) == expected
 
@@ -214,7 +212,7 @@ async def test_binary_value_rejected(fake_aws: type[_FakeSession]) -> None:
     fake_aws.sm_response = {"SecretBinary": b"\x00\x01"}
     with pytest.raises(AwsSecretResolutionError) as exc_info:
         await resolve_aws_secret_references([make_reference()])
-    assert exc_info.value.code == AwsSecretResolutionErrorCode.BINARY_VALUE
+    assert exc_info.value.code == SecretResolutionErrorCode.BINARY_VALUE
 
 
 async def test_disabled_incomplete_store_and_region_mismatch_skip_network(
@@ -222,15 +220,15 @@ async def test_disabled_incomplete_store_and_region_mismatch_skip_network(
 ) -> None:
     with pytest.raises(AwsSecretResolutionError) as disabled:
         await resolve_aws_secret_references([make_reference(store_enabled=False)])
-    assert disabled.value.code == AwsSecretResolutionErrorCode.STORE_DISABLED
+    assert disabled.value.code == SecretResolutionErrorCode.STORE_DISABLED
 
     with pytest.raises(AwsSecretResolutionError) as incomplete:
         await resolve_aws_secret_references([make_reference(role_arn=None)])
-    assert incomplete.value.code == AwsSecretResolutionErrorCode.STORE_DISABLED
+    assert incomplete.value.code == SecretResolutionErrorCode.STORE_DISABLED
 
     with pytest.raises(AwsSecretResolutionError) as mismatch:
         await resolve_aws_secret_references([make_reference(region="eu-west-1")])
-    assert mismatch.value.code == AwsSecretResolutionErrorCode.REGION_MISMATCH
+    assert mismatch.value.code == SecretResolutionErrorCode.REGION_MISMATCH
     assert fake_aws.sts_calls == []
     assert fake_aws.sm_calls == []
 
@@ -254,43 +252,43 @@ async def test_friendly_name_reference_skips_region_check(
         (
             lambda: _client_error("AccessDenied"),
             "sts",
-            AwsSecretResolutionErrorCode.ASSUME_ROLE_FAILED,
+            SecretResolutionErrorCode.ASSUME_ROLE_FAILED,
             "AccessDenied",
         ),
         (
             lambda: _client_error("ResourceNotFoundException"),
             "sm",
-            AwsSecretResolutionErrorCode.NOT_FOUND,
+            SecretResolutionErrorCode.NOT_FOUND,
             "ResourceNotFoundException",
         ),
         (
             lambda: _client_error("AccessDeniedException"),
             "sm",
-            AwsSecretResolutionErrorCode.ACCESS_DENIED,
+            SecretResolutionErrorCode.ACCESS_DENIED,
             "AccessDeniedException",
         ),
         (
             lambda: _client_error("DecryptionFailure"),
             "sm",
-            AwsSecretResolutionErrorCode.DECRYPTION_FAILED,
+            SecretResolutionErrorCode.DECRYPTION_FAILED,
             "DecryptionFailure",
         ),
         (
             lambda: _client_error("ThrottlingException"),
             "sm",
-            AwsSecretResolutionErrorCode.THROTTLED,
+            SecretResolutionErrorCode.THROTTLED,
             "ThrottlingException",
         ),
         (
             lambda: EndpointConnectionError(endpoint_url="https://example.invalid"),
             "sm",
-            AwsSecretResolutionErrorCode.TIMEOUT,
+            SecretResolutionErrorCode.TIMEOUT,
             None,
         ),
         (
             NoCredentialsError,
             "sts",
-            AwsSecretResolutionErrorCode.ASSUME_ROLE_FAILED,
+            SecretResolutionErrorCode.ASSUME_ROLE_FAILED,
             None,
         ),
     ],
@@ -299,7 +297,7 @@ async def test_sdk_errors_are_classified_by_type_and_code(
     fake_aws: type[_FakeSession],
     make_error: Callable[[], BaseException],
     target: str,
-    expected: AwsSecretResolutionErrorCode,
+    expected: SecretResolutionErrorCode,
     aws_code: str | None,
 ) -> None:
     if target == "sts":
@@ -323,13 +321,13 @@ async def test_failure_message_never_contains_payload(
 ) -> None:
     fake_aws.sm_response = {"SecretString": "super-secret-payload"}
     ref = make_reference(
-        mode=AwsSecretMappingMode.JSON,
-        fields=(AwsSecretJsonField(key="K", field="k"),),
+        mode=SecretMappingMode.JSON,
+        fields=(SecretJsonField(key="K", field="k"),),
     )
     with pytest.raises(AwsSecretResolutionError) as exc_info:
         await resolve_aws_secret_references([ref])
     err = exc_info.value
-    assert err.code == AwsSecretResolutionErrorCode.MALFORMED_JSON
+    assert err.code == SecretResolutionErrorCode.MALFORMED_JSON
     assert "super-secret-payload" not in str(err)
     assert "super-secret-payload" not in repr(err.detail)
     assert err.__cause__ is None and err.__context__ is None
@@ -345,8 +343,8 @@ async def test_traceback_frame_locals_never_contain_payload(
     bad = make_reference(
         alias="bad",
         secret_arn=SECRET_ARN.replace("api", "creds"),
-        mode=AwsSecretMappingMode.JSON,
-        fields=(AwsSecretJsonField(key="K", field="k"),),
+        mode=SecretMappingMode.JSON,
+        fields=(SecretJsonField(key="K", field="k"),),
     )
     with pytest.raises(AwsSecretResolutionError) as exc_info:
         await resolve_aws_secret_references([ok, bad])
@@ -369,13 +367,13 @@ async def test_reads_deduplicated_per_store_and_reference(
     fake_aws.sm_response = {"SecretString": '{"a": "1", "b": "2"}'}
     first = make_reference(
         alias="alpha",
-        mode=AwsSecretMappingMode.JSON,
-        fields=(AwsSecretJsonField(key="A", field="a"),),
+        mode=SecretMappingMode.JSON,
+        fields=(SecretJsonField(key="A", field="a"),),
     )
     second = make_reference(
         alias="beta",
-        mode=AwsSecretMappingMode.JSON,
-        fields=(AwsSecretJsonField(key="B", field="b"),),
+        mode=SecretMappingMode.JSON,
+        fields=(SecretJsonField(key="B", field="b"),),
     )
     other_arn = SECRET_ARN.replace("app/api", "app/other")
     third = make_reference(alias="gamma", secret_arn=other_arn)
@@ -420,8 +418,8 @@ async def test_stores_use_their_own_region_and_external_id(
     resolved = await resolve_aws_secret_references([first, second])
     assert resolved == {"east": {"TOKEN": REGION}, "west": {"TOKEN": "eu-west-1"}}
     assert {call["ExternalId"] for call in fake_aws.sts_calls} == {
-        first.store_config.external_id,
-        second.store_config.external_id,
+        EXTERNAL_ID,
+        "tracecat-other-external-id",
     }
     assert len(fake_aws.sm_calls) == 2
 
@@ -438,8 +436,8 @@ async def test_check_reference_returns_keys_only(
 ) -> None:
     fake_aws.sm_response = {"SecretString": '{"username": "u"}'}
     ref = make_reference(
-        mode=AwsSecretMappingMode.JSON,
-        fields=(AwsSecretJsonField(key="USER", field="username"),),
+        mode=SecretMappingMode.JSON,
+        fields=(SecretJsonField(key="USER", field="username"),),
     )
     result = await check_aws_secret_reference(ref)
     assert result == CheckResult(ok=True, resolved_keys=["USER"])
@@ -448,7 +446,7 @@ async def test_check_reference_returns_keys_only(
     result = await check_aws_secret_reference(ref)
     assert result == CheckResult(
         ok=False,
-        error_code=AwsSecretResolutionErrorCode.NOT_FOUND,
+        error_code=SecretResolutionErrorCode.NOT_FOUND,
         provider_error_code="ResourceNotFoundException",
     )
 
@@ -456,16 +454,16 @@ async def test_check_reference_returns_keys_only(
     fake_aws.sm_response = {"SecretString": '{"username": 1}'}
     result = await check_aws_secret_reference(ref)
     assert result == CheckResult(
-        ok=False, error_code=AwsSecretResolutionErrorCode.NON_STRING_FIELD
+        ok=False, error_code=SecretResolutionErrorCode.NON_STRING_FIELD
     )
 
 
 def test_output_keys_are_metadata_only() -> None:
     ref = make_reference(
-        mode=AwsSecretMappingMode.JSON,
+        mode=SecretMappingMode.JSON,
         fields=(
-            AwsSecretJsonField(key="USER", field="username"),
-            AwsSecretJsonField(key="PASS", field="password"),
+            SecretJsonField(key="USER", field="username"),
+            SecretJsonField(key="PASS", field="password"),
         ),
     )
     assert ref.mapping.output_keys() == ["USER", "PASS"]

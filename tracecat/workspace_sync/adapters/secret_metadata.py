@@ -12,13 +12,14 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from tracecat_ee.secrets.references.service import SecretReferencesService
+from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 from tracecat.db.models import OrganizationSecretStore, Secret
-from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.secrets.enums import SecretSource, SecretType, is_external_source
 from tracecat.secrets.schemas import (
     EXPRESSION_SECRET_NAME_PATTERN,
-    AwsSecretKeyMapping,
+    SecretKeyMapping,
     SecretKeyValue,
 )
 from tracecat.secrets.service import (
@@ -191,7 +192,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         }
         by_store: dict[str, list[tuple[str, SecretMetadataResourceSpec]]] = {}
         for source_id, spec in sorted(secret_metadata.items()):
-            if spec.source == SecretSource.AWS_SECRETS_MANAGER and spec.store:
+            if is_external_source(spec.source) and spec.store:
                 by_store.setdefault(spec.store, []).append((source_id, spec))
 
         diagnostics = [
@@ -213,7 +214,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         external = {
             source_id: spec
             for source_id, spec in sorted(secret_metadata.items())
-            if spec.source == SecretSource.AWS_SECRETS_MANAGER
+            if is_external_source(spec.source)
         }
         if external and not await workspace_service.has_entitlement(
             Entitlement.EXTERNAL_SECRET_STORES
@@ -224,7 +225,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     workflow_title=None,
                     error_type="dependency",
                     message=(
-                        "AWS-backed secrets require the "
+                        "Externally backed secrets require the "
                         f"{Entitlement.EXTERNAL_SECRET_STORES.value!r} entitlement."
                     ),
                     details={
@@ -365,10 +366,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             if (secret := existing.get(source_id)) is None:
                 continue
             message: str | None = None
-            if spec.source == SecretSource.AWS_SECRETS_MANAGER:
+            if is_external_source(spec.source):
                 if not is_external_reference(secret):
                     message = (
-                        f"Secret {spec.name!r} is AWS-backed, but {secret.name!r} "
+                        f"Secret {spec.name!r} is externally backed, but {secret.name!r} "
                         "is stored in Tracecat in this workspace. Delete or "
                         "rename that secret first."
                     )
@@ -376,7 +377,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 if not _is_compatible_legacy_spec(spec, secret):
                     message = (
                         f"Secret {spec.name!r} is stored in Tracecat in this "
-                        f"repository, but {secret.name!r} is AWS-backed in this "
+                        f"repository, but {secret.name!r} is externally backed in this "
                         "workspace. Change its keys, type, or name in this "
                         "workspace instead."
                     )
@@ -566,10 +567,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         )
 
         references: SecretReferencesService | None = None
-        if any(
-            spec.source == SecretSource.AWS_SECRETS_MANAGER
-            for spec in secret_metadata.values()
-        ):
+        if any(is_external_source(spec.source) for spec in secret_metadata.values()):
             await check_entitlement(
                 workspace_service.session,
                 workspace_service.role,
@@ -587,10 +585,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 spec=spec,
                 swap=swap,
             )
-            if (
-                references is not None
-                and spec.source == SecretSource.AWS_SECRETS_MANAGER
-            ):
+            if references is not None and is_external_source(spec.source):
                 secret = await self._import_external_reference(
                     workspace_service,
                     references=references,
@@ -680,7 +675,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         spec: SecretMetadataResourceSpec,
         secret: Secret | None,
     ) -> Secret:
-        """Create or update an AWS-backed secret from its synced reference.
+        """Create or update an externally backed secret from its synced reference.
 
         The store is matched by name among the stores authorized for the
         target workspace. Without a match the secret keeps a store it is
@@ -694,14 +689,14 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             )
         if secret is not None and not is_external_reference(secret):
             raise ValueError(
-                f"Secret metadata sync source id {source_id!r} is AWS-backed, but "
+                f"Secret metadata sync source id {source_id!r} is externally backed, but "
                 f"{secret.name!r} is stored in Tracecat in this workspace. Delete "
                 "or rename that secret first."
             )
         if SecretType(spec.secret_type or SecretType.CUSTOM.value) != SecretType.CUSTOM:
             raise ValueError(
-                f"Secret metadata sync source id {source_id!r} is AWS-backed; "
-                "AWS-backed secrets must use the custom type."
+                f"Secret metadata sync source id {source_id!r} is externally "
+                "backed; externally backed secrets must use the custom type."
             )
         _require_reference_name(source_id, spec.name)
         store = await _authorized_store_named(references, stores_by_name, spec.store)
@@ -715,7 +710,14 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             workspace_service.session.add(secret)
             await workspace_service.session.flush()
             return secret
+        source = SecretSource(spec.source)
         if store is not None:
+            if store.provider != source:
+                raise ValueError(
+                    f"Secret metadata sync source id {source_id!r} reads from "
+                    f"{source.value}, but store {store.name!r} is a "
+                    f"{store.provider} store."
+                )
             try:
                 references.validate_reference(store, spec.remote_reference)
             except ValueError as e:
@@ -732,13 +734,14 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 environment=spec.environment,
                 tags=tags,
                 description=spec.description,
-                source=SecretSource.AWS_SECRETS_MANAGER.value,
+                source=source.value,
             )
         else:
             secret.name = spec.name
             secret.environment = spec.environment
             secret.tags = tags
             secret.description = spec.description
+            secret.source = source.value
         secret.store_id = store.id if store is not None else None
         secret.remote_reference = spec.remote_reference
         secret.remote_key_mapping = spec.key_mapping.model_dump(mode="json")
@@ -810,11 +813,17 @@ async def _authorized_store_named(
 
 def _is_usable_store(store: OrganizationSecretStore) -> bool:
     """Whether workflows can resolve references through ``store``."""
-    return store.enabled and bool((store.config or {}).get("role_arn"))
+    if not store.enabled:
+        return False
+    try:
+        return get_backend(store.provider).is_ready(parse_store_config(store))
+    except (TracecatValidationError, ValueError):
+        # Unknown provider or a config that no longer parses.
+        return False
 
 
 def _is_linked(secret: Secret) -> bool:
-    """Whether ``secret`` is an AWS reference linked to a store here."""
+    """Whether ``secret`` is an external reference linked to a store here."""
     return is_external_reference(secret) and secret.store_id is not None
 
 
@@ -822,19 +831,17 @@ class _ExternalReferenceFields(TypedDict, total=False):
     source: SecretSource
     store: str
     remote_reference: str | None
-    key_mapping: AwsSecretKeyMapping
+    key_mapping: SecretKeyMapping
 
 
 def _external_reference_fields(secret: Secret) -> _ExternalReferenceFields:
-    """Return the synced reference of an AWS-backed secret, never its values."""
+    """Return the synced reference of an externally backed secret, never its values."""
     if not is_external_reference(secret):
         return {}
     fields: _ExternalReferenceFields = {
-        "source": SecretSource.AWS_SECRETS_MANAGER,
+        "source": SecretSource(secret.source),
         "remote_reference": secret.remote_reference,
-        "key_mapping": AwsSecretKeyMapping.model_validate(
-            secret.remote_key_mapping or {}
-        ),
+        "key_mapping": SecretKeyMapping.model_validate(secret.remote_key_mapping or {}),
     }
     if secret.store is not None:
         fields["store"] = secret.store.name
@@ -844,16 +851,14 @@ def _external_reference_fields(secret: Secret) -> _ExternalReferenceFields:
 def _is_compatible_legacy_spec(
     spec: SecretMetadataResourceSpec, secret: Secret
 ) -> bool:
-    """Whether a spec without a reference can update AWS-backed ``secret``.
+    """Whether a spec without a reference can update externally backed ``secret``.
 
     Import only syncs metadata onto it, so its keys, type and name must
     already fit the reference.
     """
-    if spec.source == SecretSource.AWS_SECRETS_MANAGER or not is_external_reference(
-        secret
-    ):
+    if is_external_source(spec.source) or not is_external_reference(secret):
         return False
-    declared_keys = AwsSecretKeyMapping.model_validate(
+    declared_keys = SecretKeyMapping.model_validate(
         secret.remote_key_mapping or {}
     ).output_keys()
     spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
@@ -879,10 +884,10 @@ def _kept_reference_spec(
 
 
 def _require_reference_name(source_id: str, name: str) -> None:
-    """Reject names that AWS-backed secrets can't use."""
+    """Reject names that externally backed secrets can't use."""
     if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, name):
         raise ValueError(
             f"Secret metadata sync source id {source_id!r} names an externally "
-            f"backed secret {name!r}; AWS-backed secret names must be snake_case "
+            f"backed secret {name!r}; externally backed secret names must be snake_case "
             "and start with a letter or underscore."
         )

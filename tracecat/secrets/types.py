@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from tracecat.secrets.enums import (
-    AwsSecretResolutionErrorCode,
+    SecretResolutionErrorCode,
     SecretStoreProvider,
 )
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import InstrumentedAttribute
 
     from tracecat.config import DBEncryptionAlgorithm
-    from tracecat.secrets.schemas import AwsSecretKeyMapping, SecretStoreConfig
+    from tracecat.secrets.schemas import SecretKeyMapping, SecretStoreConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +40,7 @@ class CheckResult:
     """Outcome of a provider reference check without any remote secret values."""
 
     ok: bool
-    error_code: AwsSecretResolutionErrorCode | None = None
+    error_code: SecretResolutionErrorCode | None = None
     provider_error_code: str | None = None
     resolved_keys: list[str] = field(default_factory=list)
 
@@ -60,12 +61,57 @@ class ExternalSecretReference:
     store_enabled: bool
     store_config: SecretStoreConfig
     key: str
-    mapping: AwsSecretKeyMapping
+    mapping: SecretKeyMapping
+    encrypted_access_token: bytes | None = field(default=None, repr=False)
+    """The store's encrypted access token, if it has one. Decrypted only to fetch."""
 
     @property
     def fetch_key(self) -> tuple[UUID, str]:
         """Deduplication key for one remote read within an operation."""
         return (self.store_id, self.key)
+
+
+@dataclass(frozen=True, slots=True)
+class StoreContext:
+    """One external store as a provider sees it during a fetch.
+
+    ``access_token`` is the store's decrypted access token, ``None`` when the
+    store has none.
+    """
+
+    store_id: UUID
+    provider: SecretStoreProvider
+    enabled: bool
+    config: SecretStoreConfig
+    access_token: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class Failure:
+    """A sanitized provider failure for one remote reference.
+
+    ``vendor_code`` is a short, provider-normalized identifier (an AWS error
+    code, an HTTP status) for logs. It never carries vendor message text.
+    """
+
+    code: SecretResolutionErrorCode
+    vendor_code: str | None = None
+
+
+type FetchOutcome = str | Mapping[str, object] | Failure
+"""One fetched value: a string, a field map (KV stores), or a failure."""
+
+
+@dataclass(frozen=True, slots=True)
+class FetchResult:
+    """Outcomes of one provider fetch, keyed by remote reference.
+
+    ``release`` is an optional cleanup step (for example revoking a lease)
+    that core awaits once the operation is done, on success and failure.
+    """
+
+    outcomes: Mapping[str, FetchOutcome] = field(repr=False)
+    release: Callable[[], Awaitable[None]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

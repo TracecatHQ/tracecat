@@ -9,7 +9,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from pydantic import SecretStr
-from tracecat_ee.secrets.stores.backends import get_backend
+from tracecat_ee.secrets.runtime import resolve_external_references
 
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
@@ -19,7 +19,6 @@ from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import (
     SecretsService,
@@ -120,13 +119,9 @@ class AuthSandbox:
             for secret in secrets
             if is_external_reference(secret)
         ]
-        by_provider: dict[SecretStoreProvider, list[ExternalSecretReference]] = {}
-        for reference in self._external_references:
-            by_provider.setdefault(reference.provider, []).append(reference)
-        self._external_values = {}
-        for provider, references in by_provider.items():
-            resolved = await get_backend(provider).resolve(references)
-            self._external_values.update(resolved)
+        self._external_values = await resolve_external_references(
+            self._external_references
+        )
         return secrets
 
     async def __aexit__(

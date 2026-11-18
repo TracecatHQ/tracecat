@@ -1,68 +1,114 @@
 """Provider-pluggable interface for external secret stores.
 
-Only provider modules know provider-specific configuration fields.
+Only provider modules know provider-specific configuration fields. Core
+(:mod:`tracecat_ee.secrets.resolver`) owns deduplication, key mapping,
+sanitized errors and clearing fetched values; a provider only describes its
+settings, validates references, and fetches a batch of remote values.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Protocol
+from collections.abc import Collection, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
 
 from tracecat.db.models import OrganizationSecretStore
 from tracecat.exceptions import TracecatValidationError
 from tracecat.secrets.enums import SecretStoreProvider
-from tracecat.secrets.schemas import (
-    SecretStoreConfig,
-    SecretStoreCreateConfig,
-    SecretStoreUpdateConfig,
-)
-from tracecat.secrets.types import (
-    CheckResult,
-    ExternalSecretReference,
-)
+from tracecat.secrets.schemas import SecretStoreConfig, parse_secret_store_config
+from tracecat.secrets.types import FetchResult, StoreContext
 from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
+from tracecat_ee.secrets.providers.bitwarden_secrets_manager import (
+    BitwardenSecretsManagerBackend,
+)
+
+if TYPE_CHECKING:
+    from tracecat.secrets.enums import SecretResolutionErrorCode
+    from tracecat_ee.secrets.resolver import SecretResolutionError
 
 
-class SecretStoreBackend(Protocol):
-    """One external secret store provider."""
+class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
+    """One external secret store provider.
+
+    Generic over the provider's persisted config and its create/update
+    parameter models, so each provider is typed against its own models.
+    """
 
     provider: SecretStoreProvider
+    display_name: str
+    """Short vendor name used in sanitized error messages, e.g. ``"AWS"``."""
+    requires_access_token: bool
+    """Whether the store needs an access token before it can be enabled."""
 
-    def new_config(self, params: SecretStoreCreateConfig) -> SecretStoreConfig:
+    def new_config(self, params: CreateT) -> ConfigT:
         """Build a persisted config, generating server-owned fields."""
         ...
 
     def update_config(
-        self, config: SecretStoreConfig, params: SecretStoreUpdateConfig
-    ) -> SecretStoreConfig:
-        """Apply client-supplied updates, preserving server-owned fields."""
+        self,
+        config: ConfigT,
+        params: UpdateT,
+        *,
+        references: Collection[str],
+    ) -> ConfigT:
+        """Apply client-supplied updates, preserving server-owned fields.
+
+        ``references`` are the distinct remote references saved against the
+        store. The provider decides whether the change is allowed while they
+        exist and raises :class:`~tracecat.exceptions.TracecatConflictError`
+        when it is not.
+        """
         ...
 
-    def is_ready(self, config: SecretStoreConfig) -> bool:
+    def resolution_error(
+        self,
+        code: SecretResolutionErrorCode,
+        *,
+        alias: str,
+        environment: str,
+        vendor_code: str | None,
+    ) -> SecretResolutionError:
+        """Build the sanitized error a run raises when one reference fails.
+
+        The error's type and detail reach the run's error record, so a
+        provider keeps its own (AWS keeps ``AwsSecretResolutionError``).
+        """
+        ...
+
+    def is_ready(self, config: ConfigT) -> bool:
         """Whether the config is complete enough for the store to be enabled."""
         ...
 
-    def validate_reference(self, config: SecretStoreConfig, key: str) -> None:
-        """Raise ``ValueError`` when a remote key is invalid for this store."""
+    async def check_config(self, config: ConfigT) -> None:
+        """Raise ``ValueError`` when a config is unsafe to save (network checks)."""
         ...
 
-    async def resolve(
-        self, references: Sequence[ExternalSecretReference]
-    ) -> dict[str, dict[str, str]]:
-        """Resolve references to ``{alias: {key: value}}``."""
+    def validate_reference(self, config: ConfigT, key: str) -> None:
+        """Raise ``ValueError`` when a remote reference is malformed for this store.
+
+        Runs when a reference is saved. Checks format only; no remote call.
+        """
         ...
 
-    async def check(self, reference: ExternalSecretReference) -> CheckResult:
-        """Verify one reference resolves without returning the value."""
+    async def fetch(
+        self, store: StoreContext, references: Sequence[str]
+    ) -> FetchResult:
+        """Fetch every distinct reference of one store in one call.
+
+        Returns one outcome per reference and never raises for a remote
+        failure: failures are :class:`~tracecat.secrets.types.Failure` values.
+        """
         ...
 
 
-BACKENDS: dict[SecretStoreProvider, SecretStoreBackend] = {
+type AnyBackend = SecretStoreBackend[Any, Any, Any]
+
+BACKENDS: dict[SecretStoreProvider, AnyBackend] = {
     SecretStoreProvider.AWS_SECRETS_MANAGER: AwsSecretsManagerBackend(),
+    SecretStoreProvider.BITWARDEN_SECRETS_MANAGER: BitwardenSecretsManagerBackend(),
 }
 
 
-def get_backend(provider: SecretStoreProvider | str) -> SecretStoreBackend:
+def get_backend(provider: SecretStoreProvider | str) -> AnyBackend:
     """Look up a backend, rejecting unknown providers with a typed error."""
     try:
         return BACKENDS[SecretStoreProvider(provider)]
@@ -73,6 +119,5 @@ def get_backend(provider: SecretStoreProvider | str) -> SecretStoreBackend:
 
 
 def parse_store_config(store: OrganizationSecretStore) -> SecretStoreConfig:
-    """Validate a stored config blob through its provider's config model."""
-    get_backend(store.provider)
-    return SecretStoreConfig.model_validate(store.config)
+    """Validate a stored config blob into its provider's config model."""
+    return parse_secret_store_config(store.config)

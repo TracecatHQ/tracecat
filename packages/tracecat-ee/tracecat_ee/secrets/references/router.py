@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from datetime import timedelta
 from uuid import uuid4
 
@@ -16,19 +17,27 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.errors import is_unique_violation
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.identifiers import SecretID
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.secrets.dependencies import AnySecretIDPath
+from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import (
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
+    SecretReferenceCreate,
+    SecretReferenceUpdate,
     WorkspaceSecretStoreRead,
 )
 from tracecat.secrets.service import is_external_reference
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat_ee.secrets.references.service import SecretReferencesService
+from tracecat_ee.secrets.references.service import (
+    NOT_AWS_MESSAGE,
+    NOT_EXTERNAL_MESSAGE,
+    SecretReferencesService,
+)
 from tracecat_ee.secrets.references.workflows import SecretReferenceCheckWorkflow
 
 
@@ -78,7 +87,49 @@ async def list_authorized_secret_stores(
     )
 
 
-@router.post("/aws", status_code=status.HTTP_201_CREATED)
+_CHECK_TIMEOUT = timedelta(seconds=60)
+
+
+@router.post("/references", status_code=status.HTTP_201_CREATED)
+@require_scope("secret:create")
+async def create_secret_reference(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: SecretReferenceCreate,
+) -> None:
+    """Create a custom secret whose values live in an external secret store."""
+    service = SecretReferencesService(session, role=role)
+    await _create(service.create_secret_reference(params))
+
+
+@router.post("/references/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("secret:update")
+async def update_secret_reference(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    secret_id: AnySecretIDPath,
+    params: SecretReferenceUpdate,
+) -> None:
+    """Update the reference or key mapping of an externally backed secret."""
+    service = SecretReferencesService(session, role=role)
+    await _update(service, secret_id, params, provider=None)
+
+
+@router.post("/references/{secret_id}/check", response_model=SecretReferenceCheckResult)
+@require_scope("secret:read")
+async def check_secret_reference(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    secret_id: AnySecretIDPath,
+) -> SecretReferenceCheckResult:
+    """Verify a saved external reference resolves. Values are never returned."""
+    return await _check(role, session, secret_id, not_external=NOT_EXTERNAL_MESSAGE)
+
+
+@router.post("/aws", status_code=status.HTTP_201_CREATED, deprecated=True)
 @require_scope("secret:create")
 async def create_aws_secret_reference(
     *,
@@ -86,10 +137,63 @@ async def create_aws_secret_reference(
     session: AsyncDBSession,
     params: AwsSecretReferenceCreate,
 ) -> None:
-    """Create a custom secret whose values live in AWS Secrets Manager."""
+    """Create a custom secret whose values live in AWS Secrets Manager.
+
+    Deprecated: use ``POST /secrets/references``.
+    """
     service = SecretReferencesService(session, role=role)
+    await _create(service.create_aws_secret_reference(params))
+
+
+@router.post(
+    "/aws/{secret_id}", status_code=status.HTTP_204_NO_CONTENT, deprecated=True
+)
+@require_scope("secret:update")
+async def update_aws_secret_reference(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    secret_id: AnySecretIDPath,
+    params: AwsSecretReferenceUpdate,
+) -> None:
+    """Update the reference or key mapping of an AWS-backed secret.
+
+    Deprecated: use ``POST /secrets/references/{secret_id}``.
+    """
+    service = SecretReferencesService(session, role=role)
+    await _update(
+        service, secret_id, params, provider=SecretStoreProvider.AWS_SECRETS_MANAGER
+    )
+
+
+@router.post(
+    "/aws/{secret_id}/check",
+    response_model=SecretReferenceCheckResult,
+    deprecated=True,
+)
+@require_scope("secret:read")
+async def check_aws_secret_reference(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    secret_id: AnySecretIDPath,
+) -> SecretReferenceCheckResult:
+    """Verify a saved AWS-backed reference resolves. Values are never returned.
+
+    Deprecated: use ``POST /secrets/references/{secret_id}/check``.
+    """
+    return await _check(
+        role,
+        session,
+        secret_id,
+        not_external=NOT_AWS_MESSAGE,
+        provider=SecretStoreProvider.AWS_SECRETS_MANAGER,
+    )
+
+
+async def _create(operation: Awaitable[object]) -> None:
     try:
-        await service.create_aws_secret_reference(params)
+        await operation
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -104,20 +208,16 @@ async def create_aws_secret_reference(
         ) from e
 
 
-@router.post("/aws/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("secret:update")
-async def update_aws_secret_reference(
+async def _update(
+    service: SecretReferencesService,
+    secret_id: SecretID,
+    params: SecretReferenceUpdate,
     *,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-    secret_id: AnySecretIDPath,
-    params: AwsSecretReferenceUpdate,
+    provider: SecretStoreProvider | None,
 ) -> None:
-    """Update the reference or key mapping of an AWS-backed secret."""
-    service = SecretReferencesService(session, role=role)
     try:
         secret = await service.get_secret(secret_id)
-        await service.update_aws_secret_reference(secret, params)
+        await service.update_secret_reference(secret, params, provider=provider)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -136,20 +236,23 @@ async def update_aws_secret_reference(
         ) from e
 
 
-@router.post("/aws/{secret_id}/check", response_model=SecretReferenceCheckResult)
-@require_scope("secret:read")
-async def check_aws_secret_reference(
-    *,
+async def _check(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-    secret_id: AnySecretIDPath,
+    secret_id: SecretID,
+    *,
+    not_external: str,
+    provider: SecretStoreProvider | None = None,
 ) -> SecretReferenceCheckResult:
-    """Verify a saved AWS-backed reference resolves. Values are never returned."""
     service = SecretReferencesService(session, role=role)
     try:
         secret = await service.get_secret(secret_id)
-        if not is_external_reference(secret):
-            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+        # A provider-specific alias refuses other providers' references as it
+        # refuses local secrets.
+        if not is_external_reference(secret) or (
+            provider is not None and secret.source != provider
+        ):
+            raise ValueError(not_external)
         # Only identifiers and actor context cross Temporal; values stay on the executor.
         await session.commit()
         client = await get_temporal_client()
@@ -158,7 +261,7 @@ async def check_aws_secret_reference(
             SecretReferenceCheckRequest(role=role, secret_id=secret_id),
             id=f"secret-reference-check-{uuid4()}",
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            execution_timeout=timedelta(seconds=60),
+            execution_timeout=_CHECK_TIMEOUT,
         )
     except WorkflowFailureError as exc:
         raise HTTPException(

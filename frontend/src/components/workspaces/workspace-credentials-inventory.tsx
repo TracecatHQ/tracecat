@@ -14,10 +14,11 @@ import {
   CatalogHeader,
   type CatalogHeaderSelectFilter,
 } from "@/components/catalog/catalog-header"
-import { AwsIcon, SecretIcon } from "@/components/icons"
+import { SecretIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ManagedResourceStatus } from "@/components/managed/managed-resource-status"
 import { AlertNotification } from "@/components/notifications"
+import { providerForSource } from "@/components/organization/secret-store-providers"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,12 +40,6 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  type AwsSecretReferenceCheck,
-  AwsSecretReferenceCheckButton,
-  AwsSecretReferenceCheckHint,
-  AwsSecretReferenceCheckScope,
-} from "@/components/workspaces/aws-secret-reference-check-button"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import {
   buildCredentialGroups,
@@ -58,11 +53,17 @@ import {
   DeleteSecretAlertDialog,
   DeleteSecretAlertDialogTrigger,
 } from "@/components/workspaces/delete-workspace-secret"
-import { EditAwsSecretReferenceDialog } from "@/components/workspaces/edit-aws-secret-reference-dialog"
+import { EditSecretReferenceDialog } from "@/components/workspaces/edit-secret-reference-dialog"
 import {
   EditCredentialsDialog,
   EditCredentialsDialogTrigger,
 } from "@/components/workspaces/edit-workspace-secret"
+import {
+  type SecretReferenceCheck,
+  SecretReferenceCheckButton,
+  SecretReferenceCheckHint,
+  SecretReferenceCheckScope,
+} from "@/components/workspaces/secret-reference-check-button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
@@ -110,7 +111,7 @@ export function WorkspaceCredentialsInventory() {
   )
   const [selectedSecret, setSelectedSecret] =
     useState<WorkspaceSecretListItem | null>(null)
-  const [editingAwsSecret, setEditingAwsSecret] =
+  const [editingExternalSecret, setEditingExternalSecret] =
     useState<WorkspaceSecretListItem | null>(null)
   const [activeTemplate, setActiveTemplate] = useState<SecretDefinition | null>(
     null
@@ -371,10 +372,12 @@ export function WorkspaceCredentialsInventory() {
                           <CollapsibleContent>
                             <div className="divide-y divide-border/50">
                               {group.secrets.map((secret) => {
-                                const isAws =
-                                  secret.source === "aws_secrets_manager"
+                                const provider = providerForSource(
+                                  secret.source
+                                )
+                                const isExternal = provider !== null
                                 const renderItem = (
-                                  check: AwsSecretReferenceCheck | null
+                                  check: SecretReferenceCheck | null
                                 ) => (
                                   <Item
                                     key={secret.id}
@@ -383,11 +386,13 @@ export function WorkspaceCredentialsInventory() {
                                     className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 pl-12 text-left"
                                   >
                                     <ItemMedia className="translate-y-0 self-center">
-                                      {isAws ? (
-                                        <AwsIcon
-                                          aria-label="AWS Secrets Manager"
-                                          className="size-6 rounded"
-                                        />
+                                      {provider ? (
+                                        <span
+                                          role="img"
+                                          aria-label={provider.label}
+                                        >
+                                          <provider.Icon className="size-6 rounded" />
+                                        </span>
                                       ) : (
                                         <SecretIcon
                                           secretName={group.name}
@@ -402,7 +407,7 @@ export function WorkspaceCredentialsInventory() {
                                             secret.environment
                                           )}
                                         </span>
-                                        {isAws &&
+                                        {isExternal &&
                                           secret.keys.map((key) => (
                                             <Badge
                                               key={`${secret.id}-${key}`}
@@ -426,7 +431,7 @@ export function WorkspaceCredentialsInventory() {
                                             Reconfigure required
                                           </Badge>
                                         ) : null}
-                                        {isAws && !secret.store_id ? (
+                                        {isExternal && !secret.store_id ? (
                                           <Badge
                                             variant="secondary"
                                             className="text-[10px] text-amber-700"
@@ -435,7 +440,7 @@ export function WorkspaceCredentialsInventory() {
                                           </Badge>
                                         ) : null}
                                       </ItemTitle>
-                                      {isAws ? (
+                                      {isExternal ? (
                                         <p
                                           className="truncate text-xs text-muted-foreground"
                                           title={
@@ -468,19 +473,19 @@ export function WorkspaceCredentialsInventory() {
                                         </div>
                                       )}
                                       {check && (
-                                        <AwsSecretReferenceCheckHint
+                                        <SecretReferenceCheckHint
                                           state={check.state}
                                         />
                                       )}
                                     </ItemContent>
                                     <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 self-start pl-3">
                                       {check && (
-                                        <AwsSecretReferenceCheckButton
+                                        <SecretReferenceCheckButton
                                           state={check.state}
                                           onCheck={check.run}
                                         />
                                       )}
-                                      {isAws
+                                      {isExternal
                                         ? externalSecretStoresEnabled &&
                                           canUpdateSecrets && (
                                             <Button
@@ -489,7 +494,7 @@ export function WorkspaceCredentialsInventory() {
                                               className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
                                               onClick={(event) => {
                                                 event.stopPropagation()
-                                                setEditingAwsSecret(secret)
+                                                setEditingExternalSecret(secret)
                                               }}
                                             >
                                               Edit
@@ -535,25 +540,26 @@ export function WorkspaceCredentialsInventory() {
                                   </Item>
                                 )
                                 if (
-                                  !isAws ||
+                                  !isExternal ||
                                   !externalSecretStoresEnabled ||
                                   !secret.store_id
                                 ) {
                                   return renderItem(null)
                                 }
                                 return (
-                                  <AwsSecretReferenceCheckScope
+                                  <SecretReferenceCheckScope
                                     // Editing the reference clears a stale result.
                                     key={
-                                      editingAwsSecret?.id === secret.id
+                                      editingExternalSecret?.id === secret.id
                                         ? `${secret.id}-editing`
                                         : secret.id
                                     }
                                     workspaceId={workspaceId}
                                     secretId={secret.id}
+                                    source={secret.source}
                                   >
                                     {renderItem}
-                                  </AwsSecretReferenceCheckScope>
+                                  </SecretReferenceCheckScope>
                                 )
                               })}
                             </div>
@@ -577,11 +583,11 @@ export function WorkspaceCredentialsInventory() {
         </EditCredentialsDialog>
       </DeleteSecretAlertDialog>
 
-      {editingAwsSecret && (
-        <EditAwsSecretReferenceDialog
-          key={editingAwsSecret.id}
-          secret={editingAwsSecret}
-          onClose={() => setEditingAwsSecret(null)}
+      {editingExternalSecret && (
+        <EditSecretReferenceDialog
+          key={editingExternalSecret.id}
+          secret={editingExternalSecret}
+          onClose={() => setEditingExternalSecret(null)}
         />
       )}
       <CreateCredentialDialog

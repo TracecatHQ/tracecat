@@ -41,19 +41,19 @@ from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import (
-    SecretSource,
     SecretStoreProvider,
     SecretType,
+    is_external_source,
 )
 from tracecat.secrets.schemas import (
     EXPRESSION_SECRET_NAME_PATTERN,
-    AwsSecretKeyMapping,
     SecretCreate,
+    SecretKeyMapping,
     SecretKeyValue,
     SecretSearch,
-    SecretStoreConfig,
     SecretUpdate,
     SSHKeyTarget,
+    parse_secret_store_config,
     validate_ca_cert_values,
     validate_mtls_key_values,
     validate_ssh_key_values,
@@ -72,9 +72,7 @@ REGISTRY_SSH_KEY_SCOPES = (
 
 def is_external_reference(secret: BaseSecret) -> TypeGuard[Secret]:
     """Return True when a secret row resolves its values from an external store."""
-    return (
-        isinstance(secret, Secret) and secret.source == SecretSource.AWS_SECRETS_MANAGER
-    )
+    return isinstance(secret, Secret) and is_external_source(secret.source)
 
 
 class KeyDecryptor(Protocol):
@@ -86,11 +84,11 @@ class KeyDecryptor(Protocol):
 def secret_key_names(decryptor: KeyDecryptor, secret: BaseSecret) -> list[str]:
     """Return declared key names without contacting any remote store.
 
-    Local secrets are decrypted synchronously; AWS-backed secrets return the
-    declared output keys from their stored mapping.
+    Local secrets are decrypted synchronously; externally backed secrets return
+    the declared output keys from their stored mapping.
     """
     if is_external_reference(secret):
-        mapping = AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {})
+        mapping = SecretKeyMapping.model_validate(secret.remote_key_mapping or {})
         return mapping.output_keys()
     return [kv.key for kv in decryptor.decrypt_keys(secret.encrypted_keys)]
 
@@ -112,9 +110,10 @@ def build_external_secret_reference(secret: Secret) -> ExternalSecretReference:
         store_id=secret.store.id,
         provider=SecretStoreProvider(secret.store.provider),
         store_enabled=secret.store.enabled,
-        store_config=SecretStoreConfig.model_validate(secret.store.config),
+        store_config=parse_secret_store_config(secret.store.config),
+        encrypted_access_token=secret.store.encrypted_access_token,
         key=secret.remote_reference,
-        mapping=AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {}),
+        mapping=SecretKeyMapping.model_validate(secret.remote_key_mapping or {}),
     )
 
 
@@ -155,18 +154,18 @@ class SecretsService(BaseOrgService):
         if is_external_reference(secret):
             if params.keys is not None:
                 raise ValueError(
-                    "AWS-backed secrets do not store values in Tracecat. Update the"
+                    "Externally backed secrets do not store values in Tracecat. Update the"
                     " reference or key mapping instead."
                 )
             if params.type is not None and SecretType(params.type) != SecretType(
                 secret.type
             ):
-                raise ValueError("AWS-backed secrets cannot change type.")
+                raise ValueError("Externally backed secrets cannot change type.")
             if params.name is not None and not re.fullmatch(
                 EXPRESSION_SECRET_NAME_PATTERN, params.name
             ):
                 raise ValueError(
-                    "AWS-backed secret names must be snake_case and start with a"
+                    "Externally backed secret names must be snake_case and start with a"
                     " letter or underscore."
                 )
             for field, value in params.model_dump(exclude_unset=True).items():

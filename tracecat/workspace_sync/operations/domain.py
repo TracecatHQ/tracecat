@@ -23,7 +23,7 @@ from tracecat.db.models import (
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.managed_resources.include import PACKAGE_INCLUDE_FILENAME
-from tracecat.secrets.enums import SecretSource
+from tracecat.secrets.enums import is_external_source
 from tracecat.sync import PullResult, PushStatus, first_diff_per_resource
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.operations.catalog import catalog_target_state
@@ -98,7 +98,7 @@ class DurableSyncService(WorkspaceSyncService):
         names = {
             spec.store
             for spec in snapshot.spec.secret_metadata.values()
-            if spec.source == SecretSource.AWS_SECRETS_MANAGER and spec.store
+            if is_external_source(spec.source) and spec.store
         }
         if not names:
             return None

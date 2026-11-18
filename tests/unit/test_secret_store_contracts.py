@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets import runtime
 from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
 from tracecat_ee.secrets.references import router, workflows
 from tracecat_ee.secrets.references.service import SecretReferencesService
@@ -30,16 +31,17 @@ from tracecat.pagination import PageParams, PaginationError
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretSource
 from tracecat.secrets.schemas import (
-    AwsSecretKeyMapping,
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
     AwsSecretsManagerStoreConfig,
     AwsSecretsManagerStoreCreate,
     AwsSecretsManagerStoreUpdate,
+    SecretKeyMapping,
     SecretReferenceCheckRequest,
     SecretReferenceCheckResult,
 )
 from tracecat.secrets.service import SecretsService
+from tracecat.secrets.types import FetchResult
 from tracecat.tiers.enums import Entitlement
 
 
@@ -69,7 +71,7 @@ def test_mapping_rejects_unreferenceable_keys(mode: str, key: str) -> None:
         else {"mode": mode, "fields": [{"key": key, "field": "remote-field"}]}
     )
     with pytest.raises(ValidationError):
-        AwsSecretKeyMapping.model_validate(mapping)
+        SecretKeyMapping.model_validate(mapping)
 
 
 @pytest.mark.parametrize("key", ["TOKEN", "_TOKEN", "a9", "_"])
@@ -78,7 +80,7 @@ def test_valid_mapping_keys_parse_in_expressions(key: str) -> None:
         {"mode": "whole_string", "keys": [key]},
         {"mode": "json", "fields": [{"key": key, "field": "9-remote-field"}]},
     ):
-        assert AwsSecretKeyMapping.model_validate(mapping).output_keys() == [key]
+        assert SecretKeyMapping.model_validate(mapping).output_keys() == [key]
         parser.parse(f"SECRETS.example.{key}")
 
 
@@ -126,7 +128,7 @@ async def test_executor_reloads_reference_and_sanitizes_failures(
     expected = SecretReferenceCheckResult(ok=True, resolved_keys=["TOKEN"])
     service = MagicMock(
         get_secret=AsyncMock(return_value=secret),
-        check_aws_secret_reference=AsyncMock(
+        check_secret_reference=AsyncMock(
             side_effect=RuntimeError("synthetic-secret-value") if fails else None,
             return_value=expected,
         ),
@@ -145,7 +147,7 @@ async def test_executor_reloads_reference_and_sanitizes_failures(
     )
     entitlement.assert_awaited_once()
     service.get_secret.assert_awaited_once_with(secret.id)
-    service.check_aws_secret_reference.assert_awaited_once_with(secret)
+    service.check_secret_reference.assert_awaited_once_with(secret)
     assert result.ok is not fails
     assert "synthetic-secret-value" not in result.model_dump_json()
     assert result.resolved_keys == ([] if fails else ["TOKEN"])
@@ -286,6 +288,15 @@ def test_valid_reference_names_parse_in_expressions(name: str) -> None:
     parser.parse(f"SECRETS.{name}.TOKEN")
 
 
+def _fake_backend(outcomes: dict[str, str]) -> MagicMock:
+    """A provider whose ``fetch`` returns ``outcomes`` and records its calls."""
+    return MagicMock(
+        display_name="AWS",
+        requires_access_token=False,
+        fetch=AsyncMock(side_effect=lambda *_: FetchResult(outcomes=dict(outcomes))),
+    )
+
+
 def _external_secret(name: str) -> Secret:
     return Secret(
         id=uuid.uuid4(),
@@ -329,10 +340,8 @@ async def test_failed_sandbox_entry_clears_fetched_values(
         "_get_secrets",
         AsyncMock(return_value=[_external_secret("remote"), undecryptable]),
     )
-    backend = MagicMock(
-        resolve=AsyncMock(return_value={"remote": {"TOKEN": "synthetic-value"}})
-    )
-    monkeypatch.setattr(auth_sandbox, "get_backend", lambda _: backend)
+    backend = _fake_backend({"synthetic-key": "synthetic-value"})
+    monkeypatch.setattr(runtime, "get_backend", lambda _: backend)
 
     sandbox = auth_sandbox.AuthSandbox(role=role, secrets=["remote", "local"])
     with pytest.raises(InvalidToken):
@@ -340,7 +349,7 @@ async def test_failed_sandbox_entry_clears_fetched_values(
             await sandbox.__aenter__()
         else:
             await asyncio.to_thread(sandbox.__enter__)
-    backend.resolve.assert_awaited_once()
+    backend.fetch.assert_awaited_once()
     assert sandbox._external_values == {}
     assert sandbox.secrets == {}
 
@@ -384,12 +393,10 @@ async def test_runtime_entitlement_precedes_external_fetch(
     entitlement = AsyncMock(
         side_effect=None if entitled else EntitlementRequired("external_secret_stores")
     )
-    backend = MagicMock(
-        resolve=AsyncMock(return_value={"openai": {"TOKEN": "synthetic-value"}})
-    )
+    backend = _fake_backend({"synthetic-key": "synthetic-value"})
     module = auth_sandbox if caller == "sandbox" else agent_service
     monkeypatch.setattr(module, "check_entitlement", entitlement)
-    monkeypatch.setattr(module, "get_backend", lambda _: backend)
+    monkeypatch.setattr(runtime, "get_backend", lambda _: backend)
 
     @asynccontextmanager
     async def with_session(*, role: Role):
@@ -408,10 +415,10 @@ async def test_runtime_entitlement_precedes_external_fetch(
     if external and not entitled:
         with pytest.raises(EntitlementRequired):
             await operation
-        backend.resolve.assert_not_awaited()
+        backend.fetch.assert_not_awaited()
     else:
         await operation
-        assert backend.resolve.await_count == int(external)
+        assert backend.fetch.await_count == int(external)
     if external:
         entitlement.assert_awaited_once_with(
             session, role, Entitlement.EXTERNAL_SECRET_STORES

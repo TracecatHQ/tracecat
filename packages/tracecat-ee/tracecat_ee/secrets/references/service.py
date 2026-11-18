@@ -28,14 +28,17 @@ from tracecat.managed_resources.values import (
 )
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
-    AwsSecretResolutionErrorCode,
+    SecretResolutionErrorCode,
     SecretSource,
+    SecretStoreProvider,
     SecretType,
 )
 from tracecat.secrets.schemas import (
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
     SecretReferenceCheckResult,
+    SecretReferenceCreate,
+    SecretReferenceUpdate,
 )
 from tracecat.secrets.service import (
     SecretsService,
@@ -43,7 +46,11 @@ from tracecat.secrets.service import (
     is_external_reference,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat_ee.secrets.runtime import check_external_reference
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
+
+NOT_EXTERNAL_MESSAGE = "Secret is not backed by an external secret store."
+NOT_AWS_MESSAGE = "Secret is not backed by AWS Secrets Manager."
 
 
 class SecretReferencesService(SecretsService):
@@ -143,13 +150,18 @@ class SecretReferencesService(SecretsService):
 
     @require_scope("secret:create")
     @audit_log(resource_type="secret", action="create")
-    async def create_aws_secret_reference(
-        self, params: AwsSecretReferenceCreate
+    async def create_secret_reference(
+        self,
+        params: SecretReferenceCreate,
+        *,
+        provider: SecretStoreProvider | None = None,
     ) -> Secret:
-        """Create a custom workspace secret backed by AWS Secrets Manager.
+        """Create a custom workspace secret backed by an external store.
 
         No remote value is fetched or stored; ``encrypted_keys`` holds an
-        encrypted empty key list so the column contract is unchanged.
+        encrypted empty key list so the column contract is unchanged. The
+        row's ``source`` names the store's provider. ``provider`` restricts
+        the store to one provider, for the deprecated provider routes.
         """
         workspace_id = self._require_workspace_id()
         # Before the store lock, as rollouts order it: a rollout adopts a
@@ -157,6 +169,7 @@ class SecretReferencesService(SecretsService):
         # its conflict check and its import.
         await hold_for_customer_write(self.session, workspace_id)
         store = await self._get_authorized_store(params.store_id)
+        _require_provider(store, provider)
         self.validate_reference(store, params.remote_reference)
         secret = Secret(
             workspace_id=workspace_id,
@@ -166,7 +179,7 @@ class SecretReferencesService(SecretsService):
             tags=params.tags,
             encrypted_keys=self.encrypt_keys([]),
             environment=params.environment,
-            source=SecretSource.AWS_SECRETS_MANAGER,
+            source=SecretSource(store.provider),
             store_id=store.id,
             remote_reference=params.remote_reference,
             remote_key_mapping=params.key_mapping.model_dump(mode="json"),
@@ -174,6 +187,17 @@ class SecretReferencesService(SecretsService):
         self.session.add(secret)
         await self._commit_reference()
         return secret
+
+    async def create_aws_secret_reference(
+        self, params: AwsSecretReferenceCreate
+    ) -> Secret:
+        """Create a custom workspace secret backed by AWS Secrets Manager.
+
+        Deprecated: use :meth:`create_secret_reference`.
+        """
+        return await self.create_secret_reference(
+            params, provider=SecretStoreProvider.AWS_SECRETS_MANAGER
+        )
 
     async def _commit_reference(self) -> None:
         """Commit, mapping a lost store authorization to an authorization error."""
@@ -191,13 +215,17 @@ class SecretReferencesService(SecretsService):
 
     @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
-    async def update_aws_secret_reference(
-        self, secret: Secret, params: AwsSecretReferenceUpdate
+    async def update_secret_reference(
+        self,
+        secret: Secret,
+        params: SecretReferenceUpdate,
+        *,
+        provider: SecretStoreProvider | None = None,
     ) -> None:
-        """Update the reference or mapping of an AWS-backed workspace secret."""
+        """Update the reference or mapping of an externally backed secret."""
         await refresh_for_customer_write(self.session, self.role.workspace_id, secret)
         # On a managed secret the FDE matches the store; the customer only
-        # points it at their own ARN or secret name.
+        # points it at their own remote reference.
         await ensure_values_only_update(
             self.session,
             workspace_id=self.role.workspace_id,
@@ -217,7 +245,9 @@ class SecretReferencesService(SecretsService):
             allowed_fields={"remote_reference"},
         )
         if not is_external_reference(secret):
-            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+            raise ValueError(
+                NOT_EXTERNAL_MESSAGE if provider is None else NOT_AWS_MESSAGE
+            )
         set_fields = params.model_dump(exclude_unset=True)
         set_fields.pop("store_id", None)
         set_fields.pop("remote_reference", None)
@@ -227,12 +257,18 @@ class SecretReferencesService(SecretsService):
         if effective_store_id is None:
             raise ValueError("A secret store is required.")
         store = await self._get_authorized_store(effective_store_id)
+        _require_provider(store, provider)
         effective_reference = params.remote_reference or secret.remote_reference
         if effective_reference is None:
-            raise ValueError("A secret ARN is required.")
+            raise ValueError(
+                "A remote reference is required."
+                if provider is None
+                else "A secret ARN is required."
+            )
         self.validate_reference(store, effective_reference)
 
         secret.store_id = store.id
+        secret.source = SecretSource(store.provider)
         secret.remote_reference = effective_reference
         if params.key_mapping is not None:
             secret.remote_key_mapping = params.key_mapping.model_dump(mode="json")
@@ -241,28 +277,60 @@ class SecretReferencesService(SecretsService):
         self.session.add(secret)
         await self._commit_reference()
 
+    async def update_aws_secret_reference(
+        self, secret: Secret, params: AwsSecretReferenceUpdate
+    ) -> None:
+        """Update the reference or mapping of an AWS-backed workspace secret.
+
+        Deprecated: use :meth:`update_secret_reference`.
+        """
+        await self.update_secret_reference(
+            secret, params, provider=SecretStoreProvider.AWS_SECRETS_MANAGER
+        )
+
     @require_scope("secret:read")
-    async def check_aws_secret_reference(
-        self, secret: Secret
+    async def check_secret_reference(
+        self, secret: Secret, *, provider: SecretStoreProvider | None = None
     ) -> SecretReferenceCheckResult:
-        """Verify an AWS-backed secret resolves. Never returns the value."""
+        """Verify an externally backed secret resolves. Never returns the value."""
         if not is_external_reference(secret):
-            raise ValueError("Secret is not backed by AWS Secrets Manager.")
+            raise ValueError(
+                NOT_EXTERNAL_MESSAGE if provider is None else NOT_AWS_MESSAGE
+            )
         await self.session.refresh(secret, attribute_names=["store"])
         reference = build_external_secret_reference(secret)
-        backend = get_backend(reference.provider)
+        label = get_backend(reference.provider).display_name
         # Release the DB session before the remote call.
         await self.session.commit()
-        result = await backend.check(reference)
+        result = await check_external_reference(reference)
         message: str | None = None
         if not result.ok:
-            code = result.error_code or AwsSecretResolutionErrorCode.UNKNOWN
+            code = result.error_code or SecretResolutionErrorCode.UNKNOWN
             message = f"Reference check failed: {code.value}"
             if result.provider_error_code:
-                message += f" (AWS error code {result.provider_error_code})"
+                message += f" ({label} error code {result.provider_error_code})"
         return SecretReferenceCheckResult(
             ok=result.ok,
             error_code=result.error_code,
             message=message,
             resolved_keys=result.resolved_keys,
         )
+
+    async def check_aws_secret_reference(
+        self, secret: Secret
+    ) -> SecretReferenceCheckResult:
+        """Verify an AWS-backed secret resolves. Never returns the value.
+
+        Deprecated: use :meth:`check_secret_reference`.
+        """
+        return await self.check_secret_reference(
+            secret, provider=SecretStoreProvider.AWS_SECRETS_MANAGER
+        )
+
+
+def _require_provider(
+    store: OrganizationSecretStore, provider: SecretStoreProvider | None
+) -> None:
+    """Reject a store of another provider on a provider-specific route."""
+    if provider is not None and store.provider != provider:
+        raise ValueError(f"The selected secret store is not a {provider.value} store.")
