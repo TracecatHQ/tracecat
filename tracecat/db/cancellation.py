@@ -59,6 +59,10 @@ async def cancel_statement_on_cancellation[T](
                 with anyio.move_on_after(_CANCEL_TIMEOUT_SECONDS):
                     await _cancel_backend(pid)
                 await asyncio.wait({task}, timeout=_RECANCEL_SECONDS)
+        # The work's own error (usually the cancelled statement) is dropped in
+        # favour of the cancellation; reading it keeps asyncio from logging it.
+        if not task.cancelled():
+            task.exception()
         raise
 
 

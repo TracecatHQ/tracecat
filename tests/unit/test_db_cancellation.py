@@ -1,6 +1,7 @@
 """A cancelled request keeps stopping its statement until its work ends."""
 
 import asyncio
+import gc
 from unittest.mock import AsyncMock
 
 import pytest
@@ -58,3 +59,45 @@ async def test_work_is_not_started_when_the_backend_lookup_fails() -> None:
     with pytest.raises(RuntimeError):
         await cancellation.cancel_statement_on_cancellation(session, work)
     assert not started
+
+
+@pytest.mark.anyio
+async def test_the_cancelled_statement_error_is_not_left_unretrieved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def cancel_backend(_pid: int | None) -> None:
+        return None
+
+    monkeypatch.setattr(cancellation, "_cancel_backend", cancel_backend)
+    monkeypatch.setattr(cancellation, "_RECANCEL_SECONDS", 0.01)
+    session = AsyncMock()
+    session.scalar.return_value = 4242
+    started = asyncio.Event()
+
+    async def work() -> None:
+        started.set()
+        await asyncio.sleep(0.02)
+        raise RuntimeError("synthetic cancelled statement")
+
+    loop = asyncio.get_running_loop()
+    reported: list[dict[str, object]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: reported.append(context))
+    try:
+        request = asyncio.ensure_future(
+            cancellation.cancel_statement_on_cancellation(session, work)
+        )
+        await started.wait()
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        del request
+        gc.collect()
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous_handler)
+    assert not [
+        context
+        for context in reported
+        if "never retrieved" in str(context.get("message", ""))
+    ]
