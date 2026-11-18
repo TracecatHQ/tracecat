@@ -7,6 +7,10 @@ from types import ModuleType
 
 from tracecat.cases.text_search import _FUZZY_WORD, FUZZY_THRESHOLD
 from tracecat.cases.text_search_indexes import (
+    CASE_SEARCH_LEXEME_INDEXES,
+    CASE_SEARCH_OVERSIZED_TRIGGER,
+    CASE_SEARCH_OVERSIZED_TRIGGER_BODY_HASH,
+    CASE_SEARCH_OVERSIZED_TRIGGER_FUNCTION,
     CASE_SEARCH_TRIGGER,
     CASE_SEARCH_TRIGGER_BODY_HASH,
     CASE_SEARCH_TRIGGER_FUNCTION,
@@ -81,3 +85,44 @@ def test_stored_word_filters_cannot_drop_a_possible_typo_match() -> None:
     assert f"octet_length(source_text) <= {CASE_TEXT_DOCUMENT_BYTES}" in (
         migration._WORDS_BODY
     )
+
+
+def test_oversized_constants_match_oversized_migration() -> None:
+    migration = _load("67d28dfaff15_index_oversized_case_search_text.py")
+    assert migration._TRIGGER == CASE_SEARCH_OVERSIZED_TRIGGER
+    assert migration._TRIGGER_FUNCTION == CASE_SEARCH_OVERSIZED_TRIGGER_FUNCTION
+    assert _md5(migration._TRIGGER_BODY) == CASE_SEARCH_OVERSIZED_TRIGGER_BODY_HASH
+    assert dict(migration._INDEXES) == CASE_SEARCH_LEXEME_INDEXES
+
+
+def test_oversized_trigger_runs_after_the_triggers_it_overrides() -> None:
+    """PostgreSQL fires same-event BEFORE triggers in name order.
+
+    The over-budget trigger replaces the NULL lexemes and word list the
+    earlier triggers store for a large field, so it must sort after both.
+    """
+    assert (
+        sorted(
+            [
+                CASE_SEARCH_OVERSIZED_TRIGGER,
+                CASE_SEARCH_TRIGGER,
+                CASE_SEARCH_WORDS_TRIGGER,
+            ]
+        )[-1]
+        == CASE_SEARCH_OVERSIZED_TRIGGER
+    )
+
+
+def test_oversized_word_list_keeps_the_typo_filters() -> None:
+    """The unbounded list keeps the same word filters as the bounded one."""
+    migration = _load("67d28dfaff15_index_oversized_case_search_text.py")
+    assert "cardinality(public.show_trgm(d.word)) <= 50" in migration._WORDS_SQL
+    assert "octet_length(w.word) > 1000" in migration._WORDS_SQL
+    assert migration._DOCUMENT_BYTES == CASE_TEXT_DOCUMENT_BYTES
+
+
+def test_oversized_trigger_calls_no_helper_functions() -> None:
+    """Case writes must not need EXECUTE on any function this revision adds."""
+    migration = _load("67d28dfaff15_index_oversized_case_search_text.py")
+    assert "public.tracecat_" not in migration._TRIGGER_BODY
+    assert "CREATE FUNCTION" not in migration._TRIGGER_BODY

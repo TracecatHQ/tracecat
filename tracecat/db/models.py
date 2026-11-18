@@ -3200,6 +3200,8 @@ class Case(WorkspaceModel):
             "description_tsv",
             "summary_words",
             "description_words",
+            "summary_lexemes",
+            "description_lexemes",
         ]
     }
     __table_args__ = (
@@ -3251,6 +3253,10 @@ class Case(WorkspaceModel):
     # trg_case_search_words trigger.
     summary_words = Column(ARRAY(Text), nullable=True)
     description_words = Column(ARRAY(Text), nullable=True)
+    # Position-free words of a field over the search byte budget, maintained by
+    # the trg_case_search_words_oversized trigger (revision 67d28dfaff15).
+    summary_lexemes = Column(TSVECTOR, nullable=True)
+    description_lexemes = Column(TSVECTOR, nullable=True)
     priority: Mapped[CasePriority] = mapped_column(
         CASE_PRIORITY_ENUM,
         nullable=False,

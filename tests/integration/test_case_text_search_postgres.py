@@ -87,6 +87,16 @@ class WordMigration(Protocol):
     def downgrade(self) -> None: ...
 
 
+class OversizedMigration(Protocol):
+    _BACKFILL_BATCH: int
+    _TRIGGER_FUNCTION_SQL: str
+    _TRIGGER_SQL: str
+    _INDEXES: tuple[tuple[str, str], ...]
+
+    def upgrade(self) -> None: ...
+    def downgrade(self) -> None: ...
+
+
 def _load_revision(filename: str, name: str) -> object:
     path = Path(__file__).resolve().parents[2] / "alembic/versions" / filename
     spec = importlib.util.spec_from_file_location(name, path)
@@ -127,6 +137,17 @@ def load_word_migration() -> WordMigration:
     )
 
 
+def load_oversized_migration() -> OversizedMigration:
+    """Load the over-budget indexing revision that follows the word revision."""
+    return cast(
+        OversizedMigration,
+        _load_revision(
+            "67d28dfaff15_index_oversized_case_search_text.py",
+            "case_search_oversized_migration",
+        ),
+    )
+
+
 def apply_search_migration(
     engine: Engine, *, downgrade: bool = False, search_path: str | None = None
 ) -> None:
@@ -149,10 +170,16 @@ def apply_search_migration(
 def apply_vector_migration(
     engine: Engine, *, downgrade: bool = False, backfill_batch: int | None = None
 ) -> None:
-    """Apply only the stored-vector revision; it requires the search revision."""
+    """Apply the stored-vector revision; it requires the search revision.
+
+    Like Alembic, a downgrade first removes the later over-budget revision, and
+    an upgrade restores it once its prerequisites exist again.
+    """
     migration = load_vector_migration()
     if backfill_batch is not None:
         migration._BACKFILL_BATCH = backfill_batch
+    if downgrade:
+        apply_oversized_migration(engine, downgrade=True)
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         with context.begin_transaction(), Operations.context(context):
@@ -160,6 +187,8 @@ def apply_vector_migration(
                 migration.downgrade()
             else:
                 migration.upgrade()
+    if not downgrade:
+        _restore_oversized_migration(engine)
 
 
 def apply_word_migration(
@@ -169,10 +198,16 @@ def apply_word_migration(
     backfill_batch: int | None = None,
     search_path: str | None = None,
 ) -> None:
-    """Apply only the stored word-list revision; it requires the vector revision."""
+    """Apply the stored word-list revision; it requires the vector revision.
+
+    Like Alembic, a downgrade first removes the later over-budget revision, and
+    an upgrade restores it.
+    """
     migration = load_word_migration()
     if backfill_batch is not None:
         migration._BACKFILL_BATCH = backfill_batch
+    if downgrade:
+        apply_oversized_migration(engine, downgrade=True)
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         with context.begin_transaction(), Operations.context(context):
@@ -185,11 +220,42 @@ def apply_word_migration(
                 migration.downgrade()
             else:
                 migration.upgrade()
+    if not downgrade:
+        _restore_oversized_migration(engine)
+
+
+def _restore_oversized_migration(engine: Engine) -> None:
+    """Re-apply the over-budget revision when the revisions it needs exist."""
+    with engine.connect() as conn:
+        ready = conn.scalar(
+            sa.text("""SELECT to_regclass('public.case_search_word') IS NOT NULL
+                AND EXISTS (SELECT FROM pg_attribute WHERE attrelid = 'public.case'::regclass
+                    AND attname = 'summary_tsv' AND NOT attisdropped)""")
+        )
+    if ready:
+        apply_oversized_migration(engine)
+
+
+def apply_oversized_migration(
+    engine: Engine, *, downgrade: bool = False, backfill_batch: int | None = None
+) -> None:
+    """Apply only the over-budget indexing revision; it requires the word revision."""
+    migration = load_oversized_migration()
+    if backfill_batch is not None:
+        migration._BACKFILL_BATCH = backfill_batch
+    with engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        with context.begin_transaction(), Operations.context(context):
+            if downgrade:
+                migration.downgrade()
+            else:
+                migration.upgrade()
 
 
 def apply_case_search_migrations(engine: Engine, *, downgrade: bool = False) -> None:
     """Apply every case search revision in dependency order."""
     if downgrade:
+        apply_oversized_migration(engine, downgrade=True)
         apply_word_migration(engine, downgrade=True)
         apply_vector_migration(engine, downgrade=True)
         apply_search_migration(engine, downgrade=True)
@@ -197,6 +263,7 @@ def apply_case_search_migrations(engine: Engine, *, downgrade: bool = False) -> 
         apply_search_migration(engine)
         apply_vector_migration(engine)
         apply_word_migration(engine)
+        apply_oversized_migration(engine)
 
 
 @pytest.fixture
@@ -558,6 +625,8 @@ def test_filters_precede_pagination_and_integer_score_seeks_are_stable(
         ('"powershell"', "ix_case_summary_tsv"),
         ("powershel", "ix_case_summary_words"),
         ("literal:PowerShell", "ix_case_summary_trgm"),
+        ("powershell", "ix_case_description_lexemes"),
+        ("powershell", "ix_case_description_lexemes_fallback"),
     ],
 )
 def test_candidate_predicates_can_use_the_declared_indexes(
@@ -1135,8 +1204,11 @@ def test_typo_matching_uses_complete_words_and_over_budget_fallback(
 ) -> None:
     with search_database.begin() as conn:
         listed = seed_case(conn, 1, "synthetic alert", "ran powershel encoded")
-        # Over the byte budget, so it has no stored word list.
-        large = seed_case(conn, 2, "synthetic large", "word " * 2000 + "powershel")
+        # A 3,000-byte low-variety word could overflow an index entry, so this
+        # source has no stored word list and is split per row.
+        large = seed_case(
+            conn, 2, "synthetic large", "ab" * 1500 + " " + "word " * 1200 + "powershel"
+        )
         # Similar only across a word boundary: no complete word matches.
         seed_case(conn, 3, "synthetic split", "power shell")
         other = seed_case(
