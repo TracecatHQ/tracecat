@@ -2149,9 +2149,9 @@ ID or key of the issue to transition
 
 </ParamField>
 
-<ParamField path="additionalComment" type="string | null">
+<ParamField path="additionalComment" type="string | object | null">
 
-Comment explaining the reason for the transition.
+Comment explaining the reason for the transition. A plain string is sent as the comment body; an object (e.g. &#123;"body": "..."&#125;) is sent as is.
 
 Default: `null`.
 
