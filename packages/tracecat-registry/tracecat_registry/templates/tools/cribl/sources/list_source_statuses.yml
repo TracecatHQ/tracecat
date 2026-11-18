@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: List source statuses
+  description: "List status information and optional metrics for all configured Sources in the Worker Group or Edge Fleet. Calls GET /system/status/inputs."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Sources-getInputStatus
+  namespace: tools.cribl
+  name: list_source_statuses
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    metrics:
+      type: bool | None
+      description: "Set to true to include metrics for each Source. Otherwise, false (default)."
+      default: null
+    type:
+      type: bool | None
+      description: "Set to true to prefix the Source id with the Source type. Otherwise, false (default)."
+      default: null
+    offset:
+      type: int | None
+      description: "Starting point from which to retrieve results for this request. Use with limit to paginate the response into manageable batches."
+      default: null
+    limit:
+      type: int | None
+      description: "Maximum number of items to return in the response for this request. Use with offset to paginate the response into manageable batches."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/status/inputs
+        method: GET
+        params:
+          metrics: ${{ inputs.metrics }}
+          type: ${{ inputs.type }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

@@ -225,6 +225,7 @@
               "tools/cisa_kev",
               "tools/cloudflare_sdk",
               "tools/confluence",
+              "tools/cribl",
               "tools/crowdsec",
               "tools/crowdstrike",
               "tools/databricks",

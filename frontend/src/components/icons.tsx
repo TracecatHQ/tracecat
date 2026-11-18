@@ -626,6 +626,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     }),
     // New brand marks
     "tools.confluence": createIconRenderer(ConfluenceIcon),
+    "tools.cribl": createIconRenderer(CriblIcon),
     "tools.databricks": createIconRenderer(DatabricksIcon),
     "tools.databricks_sdk": createIconRenderer(DatabricksIcon),
     "tools.google_maps": createIconRenderer(GoogleMapsIcon),
@@ -1006,6 +1007,11 @@ export const providerIcons: Record<
   pan_strata: ({ className, ...rest }) => (
     <div className={className}>
       <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  cribl: ({ className, ...rest }) => (
+    <div className={className}>
+      <CriblIcon {...rest} />
     </div>
   ),
   proofpoint_threat_protection: ({ className, ...rest }) => (
@@ -3005,6 +3011,39 @@ export function PaloAltoIcon({ className, ...rest }: IconProps) {
       <path
         fill="#F04E23"
         d="m10.278 15.443 1.705 1.705-3.426 3.426-3.427-3.426 8.592-8.591-1.705-1.705 3.426-3.426 3.427 3.426-8.592 8.591zM0 12.017l3.426 3.426 8.591-8.59-3.426-3.427L0 12.017zm11.983 5.13 3.426 3.427L24 11.983l-3.426-3.426-8.591 8.59z"
+      />
+    </svg>
+  )
+}
+
+export function CriblIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      {...rest}
+    >
+      <title>Cribl</title>
+      <path fill="#00CCCC" d=" Product Logos" />
+      <path fill="#00CCCC" d="Vector" />
+      <path
+        fill="#00CCCC"
+        d="M2.99518 5.70585L8.75814 3.55534C8.85773 3.51856 8.86437 3.44498 8.77142 3.39146L2.9819 0.0235717C2.89227 -0.02994 2.81592 0.0135383 2.81592 0.120562V5.5821C2.81592 5.60551 2.81592 5.62892 2.8292 5.65233C2.85907 5.71253 2.93543 5.73929 2.99518 5.70919V5.70585Z"
+      />
+      <path
+        fill="#00CCCC"
+        d="M15.7726 7.46503L10.1458 4.18744C10.0395 4.13392 9.91671 4.12389 9.80052 4.15734L2.99518 6.69914C2.89227 6.74262 2.82256 6.84295 2.81592 6.95667V7.36469C2.81592 7.47172 2.90223 7.55533 3.00514 7.55533H15.7494C15.8556 7.55533 15.8656 7.51185 15.7759 7.45834L15.7726 7.46503Z"
+      />
+      <path
+        fill="#00CCCC"
+        d="M8.60872 12.4449L2.84577 10.291C2.78601 10.2609 2.70966 10.2843 2.67978 10.3479C2.66982 10.368 2.6665 10.3947 2.6665 10.4181V15.8797C2.6665 15.9867 2.73954 16.0268 2.83249 15.9766L8.62532 12.6088C8.71495 12.5552 8.71163 12.4817 8.61204 12.4449H8.60872Z"
+      />
+      <path
+        fill="#00CCCC"
+        d="M2.85573 8.43826C2.7495 8.43826 2.6665 8.52522 2.6665 8.6289V9.03692C2.67314 9.15064 2.74286 9.25097 2.84577 9.29445L9.6511 11.8363C9.76397 11.873 9.8868 11.8597 9.99635 11.8062L15.6265 8.52856C15.7162 8.47505 15.7062 8.43492 15.6 8.43492H2.85573V8.43826Z"
       />
     </svg>
   )

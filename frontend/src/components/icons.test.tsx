@@ -208,6 +208,20 @@ describe("Fortinet registry icon mappings", () => {
   })
 })
 
+describe("Cribl registry icon mappings", () => {
+  it.each(["tools.cribl", "tools.cribl.list_sources"])(
+    "renders the Cribl mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("Cribl")
+    }
+  )
+
+  it("renders the Cribl mark for the cribl provider", () => {
+    const Icon = providerIcons.cribl
+    expect(svgTitle(<Icon />)).toBe("Cribl")
+  })
+})
+
 describe("Proofpoint registry icon mappings", () => {
   it.each([
     "tools.proofpoint_tap",

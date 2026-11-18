@@ -2805,6 +2805,83 @@
           ]
         }
       }
+    },
+    {
+      "slug": "cribl-mcp",
+      "docs": "https://docs.cribl.io/copilot/cribl-mcp-server/",
+      "default_connection_option": "embedded",
+      "connection_options": [
+        {
+          "id": "embedded",
+          "label": "Embedded MCP server",
+          "description": "Connect to the MCP server hosted by your Cribl Leader at /api/v1/mcp (Cribl.Cloud, or on-prem 4.19.0+) with a Cribl Bearer token. Tool visibility and execution follow the token's Cribl permissions.",
+          "docs": "https://docs.cribl.io/copilot/cribl-mcp-server/",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "CUSTOM",
+            "server_uri": null,
+            "credentials": [
+              {
+                "key": "CRIBL_MCP_ENDPOINT",
+                "label": "Cribl MCP endpoint",
+                "description": "Embedded MCP endpoint on your Cribl Leader: https://<workspace>-<organization>.cribl.cloud/api/v1/mcp for Cribl.Cloud, or https://<hostname>:<port>/api/v1/mcp for on-prem.",
+                "required": true,
+                "secret": false,
+                "placeholder": "https://<workspace>-<organization>.cribl.cloud/api/v1/mcp",
+                "target": "server_uri"
+              },
+              {
+                "key": "Authorization",
+                "label": "Cribl Bearer token (Authorization header)",
+                "description": "Cribl API Bearer token sent as 'Bearer <token>'. Cribl.Cloud tokens come from an API Credential and expire after 24 hours; on-prem tokens come from POST /api/v1/auth/login and expire after the configured TTL (1 hour by default). Replace the token when it expires.",
+                "required": true,
+                "secret": true,
+                "placeholder": "Bearer <token>",
+                "target": "http_header"
+              }
+            ]
+          }
+        },
+        {
+          "id": "standalone",
+          "label": "Standalone MCP server",
+          "description": "Connect to a self-hosted cribl/cribl-mcp-server container, which authenticates to Cribl with its own API Credential and accepts an MCP API key.",
+          "docs": "https://docs.cribl.io/copilot/cribl-mcp-server/",
+          "connection_spec": {
+            "server_type": "http",
+            "auth_type": "CUSTOM",
+            "server_uri": null,
+            "credentials": [
+              {
+                "key": "CRIBL_MCP_SERVER_URL",
+                "label": "Standalone MCP server URL",
+                "description": "URL of your standalone Cribl MCP server's /mcp endpoint, for example http://<host>:3030/mcp.",
+                "required": true,
+                "secret": false,
+                "placeholder": "http://<host>:3030/mcp",
+                "target": "server_uri"
+              },
+              {
+                "key": "X-API-Key",
+                "label": "MCP API key (X-API-Key header)",
+                "description": "Value of the MCP_API_KEY environment variable configured on the standalone server.",
+                "required": true,
+                "secret": true,
+                "target": "http_header"
+              }
+            ]
+          }
+        }
+      ],
+      "_research": {
+        "confidence": "high",
+        "docker_only": false,
+        "notes": "Cribl documents two MCP servers. The embedded server (recommended for new setups) is hosted by the Cribl Leader at /api/v1/mcp on Cribl.Cloud and on-prem 4.19.0+, uses streamable HTTP, and takes the same Bearer token as the Cribl REST API; clients send Accept: application/json, text/event-stream. Catalog OAuth supports only the authorization code grant, while Cribl API Credentials use client credentials, so the embedded option takes a pasted Bearer token that expires after 24 hours on Cribl.Cloud (on-prem TTL is configurable, default 1 hour). The standalone server is the cribl/cribl-mcp-server Docker image on port 3030 at /mcp; it is configured with CRIBL_BASE_URL, CRIBL_CLIENT_ID, CRIBL_CLIENT_SECRET and optional MCP_API_KEY, and clients authenticate with the X-API-Key header, so its credential does not expire. Tools include cribl_getSystemMetrics, cribl_getAlerts, cribl_listWorkerGroups, cribl_getSources, cribl_getDestinations, cribl_getPipelines, cribl_getPipelineConfig, cribl_setPipelineConfig, cribl_getSearchContext, cribl_runSearchQuery, cribl_getSearchJobResults, Search Notebook tools, cribl_queryMetrics and cribl_getMonitors; visibility and execution follow the caller's Cribl RBAC.",
+        "sources": [
+          "https://docs.cribl.io/copilot/cribl-mcp-server/",
+          "https://docs.cribl.io/cribl-as-code/api-auth/"
+        ]
+      }
     }
   ]
 }

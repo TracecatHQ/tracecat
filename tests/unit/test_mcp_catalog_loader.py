@@ -712,6 +712,30 @@ def test_devin_row_uses_api_key_headers() -> None:
     assert credential.placeholder == "Bearer cog_..."
 
 
+def test_cribl_row_offers_embedded_and_standalone_header_auth() -> None:
+    """Cribl's embedded server takes a Bearer token; standalone takes X-API-Key."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "cribl-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.name == "Cribl"
+    assert entry.connection_options is not None
+    options = {option.id: option for option in entry.connection_options}
+    assert set(options) == {"embedded", "standalone"}
+    expected_headers = {"embedded": "Authorization", "standalone": "X-API-Key"}
+    for option_id, header in expected_headers.items():
+        spec = options[option_id].connection_spec
+        assert spec.kind == "http_custom"
+        assert not spec.server_uri
+        targets = {
+            credential.key: (credential.target, credential.secret)
+            for credential in spec.credentials
+        }
+        assert targets[header] == ("http_header", True)
+        assert ("server_uri", False) in targets.values()
+
+
 def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:
     """Gmail, Drive and Calendar share the SecOps missing-refresh-token bug."""
     _clear_catalog_cache()

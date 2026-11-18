@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Create search job
+  description: "Create a new search job to execute a Cribl search query (Cribl.Cloud only). Calls POST /search/jobs."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-search/#operations-Jobs-createSearchJob
+  namespace: tools.cribl
+  name: create_search_job
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    payload:
+      # Generic: optional CreateSearchJobSchema fields are not documented to accept null, and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: "CreateSearchJobSchema object. Documented fields: query (required; begin with the cribl operator, single line), earliest, latest, sampleRate (0 to 1), timezone (IANA identifier), isPrivate, setOptions, numEventsBefore, numEventsAfter, targetEventTime."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/default_search/search/jobs
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

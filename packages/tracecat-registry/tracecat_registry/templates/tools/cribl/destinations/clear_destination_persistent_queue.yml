@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Clear destination persistent queue
+  description: "Clear the persistent queue (PQ) for the specified Destination. Queued events that have not been delivered are discarded. Calls DELETE /system/outputs/{id}/pq."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-deleteOutputPqById
+  namespace: tools.cribl
+  name: clear_destination_persistent_queue
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    id:
+      type: str
+      description: "The id of the Destination to clear the PQ for."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/outputs/${{ FN.url_encode(inputs.id) }}/pq
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Create source
+  description: "Create a new Source. The system-managed provenance field (criblSourceProvenance) must be omitted from the request body. Calls POST /system/inputs."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Sources-createInput
+  namespace: tools.cribl
+  name: create_source
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    payload:
+      # Generic: the Cribl Input body is a discriminated union keyed by type, so there is no single field set to name.
+      type: dict[str, Any]
+      description: "Input object. Documented fields include id (required), type (required, the Source type such as syslog, splunk_hec, or http), and the type-specific settings of the Input schema for that Source type."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/inputs
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

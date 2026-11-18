@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Create lookup
+  description: "Create a Lookup using either inline content or by referencing a Lookup file previously uploaded with PUT /system/lookups. Calls POST /system/lookups."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Lookups-createLookupFile
+  namespace: tools.cribl
+  name: create_lookup
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    payload:
+      # Generic: the Cribl LookupFile body is a union of inline content and an uploaded fileInfo reference, so there is no single field set to name.
+      type: dict[str, Any]
+      description: "LookupFile object. Documented fields: id (required; must match the Lookup file name, including the file extension, for example ip-reputation.csv), description, tags (comma-separated), mode (memory or disk), and either content (inline file content) or fileInfo.filename (temporary file name returned by the upload operation)."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/lookups
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}
