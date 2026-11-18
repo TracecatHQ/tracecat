@@ -1,14 +1,17 @@
 import {
   buildContentSecurityPolicy,
-  buildContentSecurityPolicyFromEnv,
+  contentSecurityPolicyOptionsFromEnv,
+  generateNonce,
   parseOrigins,
 } from "@/lib/csp"
 
+const NONCE = "bm9uY2U="
+
 const BASE_POLICY =
-  "connect-src 'self'; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
+  "connect-src 'self'; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'nonce-bm9uY2U='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
 
 const POSTHOG_POLICY =
-  "connect-src 'self' https://*.posthog.com; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'unsafe-inline' https://*.posthog.com; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
+  "connect-src 'self' https://*.posthog.com; default-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; script-src 'self' 'nonce-bm9uY2U=' https://*.posthog.com; script-src-attr 'none'; style-src 'self' 'unsafe-inline'"
 
 const directiveNames = (policy: string) =>
   policy.split("; ").map((directive) => directive.split(" ")[0])
@@ -175,35 +178,32 @@ describe("parseOrigins", () => {
 })
 
 describe("buildContentSecurityPolicy", () => {
-  it("returns the base policy with no arguments", () => {
-    expect(buildContentSecurityPolicy()).toBe(BASE_POLICY)
-  })
-
-  it("returns the base policy for an empty options object", () => {
-    expect(buildContentSecurityPolicy({})).toBe(BASE_POLICY)
+  it("returns the base policy with only a nonce", () => {
+    expect(buildContentSecurityPolicy({ nonce: NONCE })).toBe(BASE_POLICY)
   })
 
   it("returns the base policy when posthog is disabled", () => {
-    expect(buildContentSecurityPolicy({ posthogEnabled: false })).toBe(
-      BASE_POLICY
-    )
+    expect(
+      buildContentSecurityPolicy({ nonce: NONCE, posthogEnabled: false })
+    ).toBe(BASE_POLICY)
   })
 
   it("adds posthog origins when posthog is enabled", () => {
-    expect(buildContentSecurityPolicy({ posthogEnabled: true })).toBe(
-      POSTHOG_POLICY
-    )
+    expect(
+      buildContentSecurityPolicy({ nonce: NONCE, posthogEnabled: true })
+    ).toBe(POSTHOG_POLICY)
   })
 
   it("returns the base policy for an empty extra list", () => {
-    expect(buildContentSecurityPolicy({ extraConnectSrc: [] })).toBe(
-      BASE_POLICY
-    )
+    expect(
+      buildContentSecurityPolicy({ nonce: NONCE, extraConnectSrc: [] })
+    ).toBe(BASE_POLICY)
   })
 
   it("appends extra origins to connect-src after the existing sources", () => {
     expect(
       buildContentSecurityPolicy({
+        nonce: NONCE,
         extraConnectSrc: [
           "https://a.s3.us-west-2.amazonaws.com",
           "https://b.s3.us-west-2.amazonaws.com",
@@ -220,6 +220,7 @@ describe("buildContentSecurityPolicy", () => {
   it("appends extra origins after the posthog origin", () => {
     expect(
       buildContentSecurityPolicy({
+        nonce: NONCE,
         posthogEnabled: true,
         extraConnectSrc: ["https://a.s3.us-west-2.amazonaws.com"],
       })
@@ -234,6 +235,7 @@ describe("buildContentSecurityPolicy", () => {
   it("puts extra origins in connect-src and in no other directive", () => {
     const extra = "https://a.s3.us-west-2.amazonaws.com"
     const policy = buildContentSecurityPolicy({
+      nonce: NONCE,
       posthogEnabled: true,
       extraConnectSrc: [extra],
     })
@@ -268,10 +270,13 @@ describe("buildContentSecurityPolicy", () => {
       "script-src-attr",
       "style-src",
     ]
-    expect(directiveNames(buildContentSecurityPolicy())).toEqual(expected)
+    expect(
+      directiveNames(buildContentSecurityPolicy({ nonce: NONCE }))
+    ).toEqual(expected)
     expect(
       directiveNames(
         buildContentSecurityPolicy({
+          nonce: NONCE,
           posthogEnabled: true,
           extraConnectSrc: ["https://a.s3.us-west-2.amazonaws.com"],
         })
@@ -280,7 +285,14 @@ describe("buildContentSecurityPolicy", () => {
   })
 })
 
-describe("buildContentSecurityPolicyFromEnv", () => {
+function buildFromEnv(env: Readonly<Record<string, string | undefined>>) {
+  return buildContentSecurityPolicy({
+    ...contentSecurityPolicyOptionsFromEnv(env),
+    nonce: NONCE,
+  })
+}
+
+describe("contentSecurityPolicyOptionsFromEnv", () => {
   let warnSpy: jest.SpyInstance
 
   beforeEach(() => {
@@ -292,17 +304,17 @@ describe("buildContentSecurityPolicyFromEnv", () => {
   })
 
   it("returns the base policy for an empty environment", () => {
-    expect(buildContentSecurityPolicyFromEnv({})).toBe(BASE_POLICY)
+    expect(buildFromEnv({})).toBe(BASE_POLICY)
   })
 
   it("returns the posthog policy when a posthog key is set", () => {
-    expect(
-      buildContentSecurityPolicyFromEnv({ NEXT_PUBLIC_POSTHOG_KEY: "phc_x" })
-    ).toBe(POSTHOG_POLICY)
+    expect(buildFromEnv({ NEXT_PUBLIC_POSTHOG_KEY: "phc_x" })).toBe(
+      POSTHOG_POLICY
+    )
   })
 
   it("adds configured origins to connect-src", () => {
-    const policy = buildContentSecurityPolicyFromEnv({
+    const policy = buildFromEnv({
       TRACECAT__CSP_CONNECT_SRC_ORIGINS: "https://a.example.com",
     })
     expect(policy).toBe(
@@ -314,7 +326,7 @@ describe("buildContentSecurityPolicyFromEnv", () => {
   })
 
   it("does not warn when every configured origin parses", () => {
-    buildContentSecurityPolicyFromEnv({
+    buildFromEnv({
       TRACECAT__CSP_CONNECT_SRC_ORIGINS: "https://a.example.com",
     })
     expect(warnSpy).not.toHaveBeenCalled()
@@ -323,7 +335,7 @@ describe("buildContentSecurityPolicyFromEnv", () => {
   it("keeps valid origins and reports only the rejected token count", () => {
     const sensitiveToken =
       "ftp://operator:password@sensitive.invalid/private-path?access_token=secret#diagnostic"
-    const policy = buildContentSecurityPolicyFromEnv({
+    const policy = buildFromEnv({
       TRACECAT__CSP_CONNECT_SRC_ORIGINS: `https://a.example.com, junk, ${sensitiveToken}`,
     })
     expect(connectSrc(policy)).toBe("connect-src 'self' https://a.example.com")
@@ -340,5 +352,25 @@ describe("buildContentSecurityPolicyFromEnv", () => {
     expect(warning).not.toContain("password")
     expect(warning).not.toContain("access_token")
     expect(warning).not.toContain("secret")
+  })
+})
+
+describe("nonce", () => {
+  it("allows inline scripts only with the nonce", () => {
+    const scriptSrc = buildContentSecurityPolicy({ nonce: NONCE })
+      .split("; ")
+      .find((directive) => directive.startsWith("script-src "))
+    expect(scriptSrc).toBe("script-src 'self' 'nonce-bm9uY2U='")
+    expect(scriptSrc).not.toContain("'unsafe-inline'")
+    expect(scriptSrc).not.toContain("'strict-dynamic'")
+  })
+
+  it("generates a 128-bit base64 nonce", () => {
+    expect(generateNonce()).toMatch(/^[A-Za-z0-9+/]{22}==$/)
+  })
+
+  it("generates a different nonce each call", () => {
+    const nonces = new Set(Array.from({ length: 100 }, generateNonce))
+    expect(nonces.size).toBe(100)
   })
 })
