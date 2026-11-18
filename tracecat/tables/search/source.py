@@ -51,12 +51,14 @@ class TableSearchSource(TableSearchService):
         """Scan identities, never text; persist discovery/checkpoint before commit.
 
         The worker calls touch_document(backfill=True) for these rows and advances
-        checkpoint_backfill in this same transaction, while the workspace lock is held.
+        checkpoint_backfill in this same transaction, while the collection row lock is
+        held. Writers to this table take the same row lock, so none commits between
+        the scan and the checkpoint.
         Normal writers capture concurrent inserts that sort behind the cursor.
         """
         if not 1 <= limit <= 1000:
             raise ValueError("Scan limit must be between 1 and 1000")
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, row_lock=True)
         await self._active(collection)
         if generation != collection.generation:
             raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
@@ -97,7 +99,7 @@ class TableSearchSource(TableSearchService):
             or identity.workspace_id != self.scope.workspace_id
         ):
             raise SearchError(SearchErrorCode.NOT_FOUND)
-        collection = await self.collection(identity.collection_id)
+        collection = await self.collection(identity.collection_id, row_lock=True)
         await self._active(collection)
         if (
             collection.generation != identity.generation
@@ -111,7 +113,8 @@ class TableSearchSource(TableSearchService):
             raise SearchError(SearchErrorCode.NOT_FOUND)
         source = self.physical_table(table, column)
         # One bounded SQL projection joins the text to the expected revision.
-        # The workspace lock also excludes source DDL until this transaction ends.
+        # The shared workspace lock also excludes source DDL until this transaction
+        # ends, because DDL takes it exclusively.
         stmt = (
             sa.select(
                 sa.func.coalesce(

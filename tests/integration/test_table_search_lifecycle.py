@@ -33,6 +33,7 @@ from tracecat.pagination import PaginationError
 from tracecat.search.chunking_types import ChunkingIdentity
 from tracecat.search.embeddings.schemas import EmbeddingConfigurationRead
 from tracecat.search.embeddings.types import ModelSpec, PinnedConfiguration
+from tracecat.search.indexing import cleanup_collection
 from tracecat.search.query import eligible_chunks
 from tracecat.search.retrieval import TableRetrievalService
 from tracecat.search.schemas import SearchRequest
@@ -648,6 +649,149 @@ async def test_search_reads_do_not_create_workspace_state(
     assert await state_rows() == 0
     await tables.search.set_state(SearchState.PAUSED)
     assert await state_rows() == 1
+
+
+async def backfill_page(
+    source: TableSearchSource, collection_id: UUID, generation: int
+) -> None:
+    """One indexer claim step: cleanup, a backfill page, and a lease."""
+    await cleanup_collection(source, collection_id)
+    before = await source.session.scalar(
+        sa.select(SearchCollection.backfill_cursor).where(
+            SearchCollection.id == collection_id
+        )
+    )
+    page = await source.scan_rows(collection_id, generation=generation, after=before)
+    await source.touch_documents(
+        collection_id, [row.row_id for row in page.rows], backfill=True
+    )
+    await source.checkpoint_backfill(
+        collection_id,
+        generation=generation,
+        before=before,
+        after=page.rows[-1].row_id if page.rows else before,
+        complete=not page.has_more,
+    )
+    await source.claim_next_due(collection_id)
+
+
+async def test_indexer_steps_wait_only_for_writers_to_the_same_table(
+    tables: TablesService, table: Table
+):
+    """An indexer step shares the workspace lock and locks its collection row.
+
+    Writers to other tables proceed while it is open. Writers to its own table
+    and lifecycle work (exclusive) wait for it to commit.
+    """
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
+        )
+    )
+    await enable(tables, other)
+    collection = await enable(tables, table, provider=True)
+    await tables.insert_row(table, TableRowInsert(data={"body": "indexed"}))
+    await tables.session.commit()
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    table_id, other_id = table.id, other.id
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def insert(table_id: UUID) -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "row"}))
+
+    async def index_step() -> None:
+        async with sessions.begin() as session:
+            source = TableSearchSource(session, tables.search.scope)
+            await backfill_page(source, collection.id, collection.generation)
+            entered.set()
+            await release.wait()
+
+    async def configure() -> None:
+        async with sessions.begin() as session:
+            await TableSearchService(session, tables.search.scope).lock_scope()
+
+    try:
+        step = asyncio.create_task(index_step())
+        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(insert(other_id), 5)
+        same = asyncio.create_task(insert(table_id))
+        lifecycle = asyncio.create_task(configure())
+        await asyncio.sleep(0.05)
+        assert not same.done()
+        assert not lifecycle.done()
+        release.set()
+        await asyncio.wait_for(step, 5)
+        await asyncio.wait_for(same, 5)
+        await asyncio.wait_for(lifecycle, 5)
+    finally:
+        release.set()
+        await engine.dispose()
+
+
+async def test_backfill_and_writes_to_the_same_table_keep_documents_current(
+    tables: TablesService, table: Table
+):
+    """Rows added or deleted during an open backfill page end up correct.
+
+    The writers wait for the page to commit, so every live row ends with a
+    current-generation document and a deleted row's document stays deleted.
+    """
+    collection = await enable(tables, table, provider=True)
+    kept = await tables.insert_row(table, TableRowInsert(data={"body": "kept"}))
+    doomed = await tables.insert_row(table, TableRowInsert(data={"body": "doomed"}))
+    await tables.session.execute(
+        sa.delete(SearchDocument).where(SearchDocument.collection_id == collection.id)
+    )
+    await tables.session.commit()
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    table_id = table.id
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def index_step() -> None:
+        async with sessions.begin() as session:
+            source = TableSearchSource(session, tables.search.scope)
+            await backfill_page(source, collection.id, collection.generation)
+            entered.set()
+            await release.wait()
+
+    async def write() -> dict[str, Any]:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.delete_row(live, doomed["id"])
+            return await service.insert_row(
+                live, TableRowInsert(data={"body": "added"})
+            )
+
+    try:
+        step = asyncio.create_task(index_step())
+        await asyncio.wait_for(entered.wait(), 5)
+        writer = asyncio.create_task(write())
+        await asyncio.sleep(0.05)
+        assert not writer.done()
+        release.set()
+        await asyncio.wait_for(step, 5)
+        added = await asyncio.wait_for(writer, 5)
+    finally:
+        release.set()
+        await engine.dispose()
+    by_row = {
+        doc.source_row_id: doc for doc in await documents(tables.session, collection)
+    }
+    for row in (kept, added):
+        doc = by_row[row["id"]]
+        assert doc.generation == collection.generation
+        assert doc.deleted_at is None
+    assert by_row[doomed["id"]].deleted_at is not None
+    assert by_row[doomed["id"]].state == "deleted"
 
 
 async def test_batch_writes_to_one_table_run_one_at_a_time(

@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import event, select, text, update
+from sqlalchemy.orm import ORMExecuteState
 
 from tests.integration import test_search_storage as storage
 from tracecat.db.models import SearchChunk, SearchDocument
@@ -97,6 +98,48 @@ async def test_finishing_yields_partial_work_and_publishes_complete_work(storage
         assert await store.finish_or_yield(next_work.claim) == "published"
         assert doc.indexed_revision == doc.desired_revision
         await store.publish(next_work.claim)  # Publication remains idempotent.
+
+
+async def test_one_transaction_takes_the_workspace_lock_once(storage_case):
+    """Repeat lock calls skip the lock statements once the transaction holds it.
+
+    A lock taken inside a savepoint does not count: rolling the savepoint back
+    releases it, so the next call takes it again.
+    """
+    case = storage_case
+    claim = await storage.prepared(case)
+    statements: list[str] = []
+
+    def record(state: ORMExecuteState) -> None:
+        if "pg_advisory_xact_lock" in str(state.statement):
+            statements.append(str(state.statement))
+
+    async with case.sessions.begin() as session:
+        event.listen(session.sync_session, "do_orm_execute", record)
+        store = case.store(session)
+        await store.write_embeddings(
+            claim, (storage.embedding(claim), storage.embedding(claim, 1))
+        )
+        assert await store.finish_or_yield(claim) == "published"
+        assert len(statements) == 1
+
+    statements.clear()
+    async with case.sessions.begin() as session:
+        event.listen(session.sync_session, "do_orm_execute", record)
+        store = case.store(session)
+        savepoint = await session.begin_nested()
+        await store.lock_scope(shared=True)
+        await savepoint.rollback()
+        await store.lock_scope(shared=True)
+        await store.lock_scope(shared=True)
+        assert len(statements) == 2
+        held = await session.scalar(
+            text(
+                "SELECT count(*) FROM pg_locks"
+                " WHERE locktype = 'advisory' AND pid = pg_backend_pid()"
+            )
+        )
+        assert held == 1
 
 
 async def test_finishing_rejects_a_noncontiguous_manifest(storage_case):

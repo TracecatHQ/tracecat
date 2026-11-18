@@ -134,41 +134,23 @@ async def record_failure(
         return
 
 
-async def _claim_next(
-    work: CollectionWork,
-    configuration: PinnedConfiguration | None,
-    progress: IndexingProgress,
-) -> BuildClaim | None:
-    """Reconcile configuration, checkpoint backfill, and lease the oldest work."""
-    async with TableSearchSource.with_session(scope=work.scope) as source:
-        collection = await source.collection(work.collection_id)
-        progress.cleaned = await cleanup_collection(source, collection.id)
-        if not collection.enabled or collection.deleted_at is not None:
-            await source.session.commit()
-            return None
-        state = await source._ensure_state()
-        if configuration is None or state.state == SearchState.PAUSED:
-            progress.outcome = (
-                IndexingOutcome.UNAVAILABLE
-                if configuration is None
-                else IndexingOutcome.PAUSED
-            )
-            await source.session.commit()
-            return None
-        if configuration.version != state.current_version:
-            raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
-        settings = await asyncio.to_thread(settings_for, configuration)
-        if (
-            collection.config_version != configuration.version
-            or collection.chunker_settings != settings.model_dump()
-        ):
-            collection = await source.configure_collection(
-                source_id=collection.source_id,
-                column_ids=tuple(collection.selected_column_ids),
-                chunker=settings,
-                expected_generation=collection.generation,
-            )
-        stale = await source.session.scalar(
+def _needs_rebind(
+    collection: SearchCollection,
+    configuration: PinnedConfiguration,
+    settings: ChunkerSettings,
+) -> bool:
+    return (
+        collection.config_version != configuration.version
+        or collection.chunker_settings != settings.model_dump()
+    )
+
+
+async def _any_stale(
+    source: TableSearchSource, configuration: PinnedConfiguration
+) -> bool:
+    """Whether any live collection in the workspace still has an old binding."""
+    return bool(
+        await source.session.scalar(
             sa.select(
                 sa.exists().where(
                     source._scope(SearchCollection),
@@ -180,8 +162,109 @@ async def _claim_next(
                 )
             )
         )
-        if not stale:
+    )
+
+
+async def _needs_reconcile(
+    source: TableSearchSource,
+    collection_id: UUID,
+    configuration: PinnedConfiguration,
+    settings: ChunkerSettings,
+) -> bool:
+    """Whether this turn must rebind the collection or clear the workspace flag."""
+    collection = await source.session.scalar(
+        sa.select(SearchCollection)
+        .execution_options(populate_existing=True)
+        .where(source._scope(SearchCollection), SearchCollection.id == collection_id)
+    )
+    if (
+        collection is None
+        or not collection.enabled
+        or collection.deleted_at is not None
+    ):
+        return False
+    state = await source._state()
+    if (
+        state.state == SearchState.PAUSED
+        or state.current_version != configuration.version
+    ):
+        return False
+    if _needs_rebind(collection, configuration, settings):
+        return True
+    return state.reconciliation_required and not await _any_stale(source, configuration)
+
+
+async def _reconcile(
+    work: CollectionWork,
+    configuration: PinnedConfiguration,
+    settings: ChunkerSettings,
+) -> None:
+    """Rebind the collection and clear the workspace flag, only when needed.
+
+    Both writes need the exclusive workspace lock. An unlocked read decides
+    first, so most turns never take it.
+    """
+    async with TableSearchSource.with_session(scope=work.scope) as source:
+        if not await _needs_reconcile(
+            source, work.collection_id, configuration, settings
+        ):
+            return
+    async with TableSearchSource.with_session(scope=work.scope) as source:
+        await source.lock_scope()
+        if not await _needs_reconcile(
+            source, work.collection_id, configuration, settings
+        ):
+            return
+        collection = await source.collection(work.collection_id)
+        if _needs_rebind(collection, configuration, settings):
+            await source.configure_collection(
+                source_id=collection.source_id,
+                column_ids=tuple(collection.selected_column_ids),
+                chunker=settings,
+                expected_generation=collection.generation,
+            )
+        if not await _any_stale(source, configuration):
+            state = await source._ensure_state()
             state.reconciliation_required = False
+        await source.session.commit()
+
+
+async def _claim_next(
+    work: CollectionWork,
+    configuration: PinnedConfiguration | None,
+    progress: IndexingProgress,
+) -> BuildClaim | None:
+    """Reconcile configuration, checkpoint backfill, and lease the oldest work.
+
+    Only the reconcile takes the workspace lock exclusively. The rest runs
+    under the collection row lock, so writers to other tables never wait.
+    """
+    settings = None
+    if configuration is not None:
+        settings = await asyncio.to_thread(settings_for, configuration)
+        await _reconcile(work, configuration, settings)
+    async with TableSearchSource.with_session(scope=work.scope) as source:
+        collection = await source.collection(work.collection_id, row_lock=True)
+        progress.cleaned = await cleanup_collection(source, collection.id)
+        if not collection.enabled or collection.deleted_at is not None:
+            await source.session.commit()
+            return None
+        state = await source._state()
+        if configuration is None or state.state == SearchState.PAUSED:
+            progress.outcome = (
+                IndexingOutcome.UNAVAILABLE
+                if configuration is None
+                else IndexingOutcome.PAUSED
+            )
+            await source.session.commit()
+            return None
+        assert settings is not None
+        if configuration.version != state.current_version or _needs_rebind(
+            collection, configuration, settings
+        ):
+            # A new configuration landed after the reconcile; the next turn
+            # rebinds it.
+            raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
         if not collection.backfill_complete:
             before = collection.backfill_cursor
             page = await source.scan_rows(
@@ -200,7 +283,7 @@ async def _claim_next(
             progress.discovered = len(page.rows)
         claimed = await source.claim_next_due(collection.id)
         await source.session.commit()
-        # Telemetry observes a bounded sample after releasing the workspace lock.
+        # Telemetry observes a bounded sample after releasing the locks.
         sample = await source.sample_backlog(collection.id)
         progress.pending, progress.failed = sample.pending, sample.failed
         if claimed is not None:

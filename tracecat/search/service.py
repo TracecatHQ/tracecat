@@ -18,6 +18,7 @@ import numpy as np
 from sqlalchemy import Select, and_, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import SessionTransaction
 
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -59,6 +60,8 @@ class SearchStorage(BaseService):
     def __init__(self, session: AsyncSession, scope: SearchScope):
         super().__init__(session)
         self.scope = scope
+        # (root transaction, shared) of the last lock taken outside a savepoint.
+        self._held: tuple[SessionTransaction, bool] | None = None
 
     @classmethod
     @asynccontextmanager
@@ -99,7 +102,18 @@ class SearchStorage(BaseService):
         they run concurrently across tables in one workspace. Everything else
         takes it exclusive, so it still waits for in-flight row writes and
         blocks new ones.
+
+        Repeat calls in one transaction skip the statements once the same or a
+        stronger mode is held. Only locks taken outside a savepoint count:
+        rolling back a savepoint releases the locks taken inside it.
         """
+        held = self._held
+        if (
+            held is not None
+            and held[0] is self.session.sync_session.get_transaction()
+            and (shared or not held[1])
+        ):
+            return
         identity = (
             f"semantic-search:{self.scope.organization_id}:{self.scope.workspace_id}"
         )
@@ -118,6 +132,10 @@ class SearchStorage(BaseService):
         )
         if live is None:
             raise SearchError(SearchErrorCode.NOT_FOUND)
+        if not self.session.in_nested_transaction():
+            transaction = self.session.sync_session.get_transaction()
+            assert transaction is not None
+            self._held = (transaction, shared)
 
     def _scope(
         self,
@@ -166,18 +184,29 @@ class SearchStorage(BaseService):
         return state
 
     async def collection(
-        self, collection_id: uuid.UUID, *, shared: bool = False
+        self,
+        collection_id: uuid.UUID,
+        *,
+        shared: bool = False,
+        row_lock: bool = False,
     ) -> SearchCollection:
         """Resolve a collection only in the explicitly trusted tenant scope.
 
         Read-only callers pass shared=True so they do not queue table row writes.
+        Indexer steps pass row_lock=True: the workspace lock shared plus the
+        collection row FOR UPDATE, the same pair a row writer takes. They then
+        exclude writers to this table only. Changes to the collection's
+        configuration and source DDL stay exclusive, so they still wait.
         """
-        await self.lock_scope(shared=shared)
-        collection = await self.session.scalar(
+        await self.lock_scope(shared=shared or row_lock)
+        stmt = (
             select(SearchCollection)
             .execution_options(populate_existing=True)
             .where(self._scope(SearchCollection), SearchCollection.id == collection_id)
         )
+        if row_lock:
+            stmt = stmt.with_for_update()
+        collection = await self.session.scalar(stmt)
         if collection is None:
             raise SearchError(SearchErrorCode.NOT_FOUND)
         return collection
@@ -330,13 +359,13 @@ class SearchStorage(BaseService):
         deleted: bool = False,
         backfill: bool = False,
     ) -> None:
-        """Invalidate source revisions in bounded batches under the scope lock.
+        """Invalidate source revisions in bounded batches under the collection lock.
 
         Backfill preserves documents already in this generation. Source adapters
         decide which rows changed; this is the canonical document reset for both
         single-row and bulk writers.
         """
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, row_lock=True)
         await self._upsert_documents(
             collection, row_ids, deleted=deleted, backfill=backfill
         )
@@ -463,7 +492,7 @@ class SearchStorage(BaseService):
         """Acquire a fresh fencing token, retaining checkpoints within a revision."""
         if not 1 <= lease_seconds <= 300:
             raise ValueError("lease_seconds must be between 1 and 300")
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, row_lock=True)
         await self._active(collection)
         document = await self._document(document_id)
         if document.collection_id != collection_id:
@@ -480,10 +509,10 @@ class SearchStorage(BaseService):
     async def claim_next_due(
         self, collection_id: uuid.UUID, *, lease_seconds: int = 120
     ) -> ClaimedDocument | None:
-        """Lease the oldest eligible document under the workspace write lock."""
+        """Lease the oldest eligible document under the collection row lock."""
         if not 1 <= lease_seconds <= 300:
             raise ValueError("lease_seconds must be between 1 and 300")
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, row_lock=True)
         await self._active(collection)
         document = await self.session.scalar(
             self._claimable_documents(collection)
@@ -528,7 +557,7 @@ class SearchStorage(BaseService):
         )
 
     async def sample_backlog(self, collection_id: uuid.UUID) -> BacklogSample:
-        """Read bounded telemetry without acquiring the workspace write lock."""
+        """Read bounded telemetry without acquiring the search locks."""
         sample = (
             select(
                 SearchDocument.state,
@@ -566,7 +595,7 @@ class SearchStorage(BaseService):
     async def _fenced(
         self, claim: BuildClaim
     ) -> tuple[SearchCollection, SearchDocument]:
-        collection = await self.collection(claim.collection_id)
+        collection = await self.collection(claim.collection_id, row_lock=True)
         await self._active(collection)
         document = await self._document(claim.document_id)
         now = await self.session.scalar(select(func.clock_timestamp()))
@@ -743,7 +772,7 @@ class SearchStorage(BaseService):
 
     async def publish(self, claim: BuildClaim) -> None:
         """Publish only a complete contiguous embedded manifest, never a counter."""
-        collection = await self.collection(claim.collection_id)
+        collection = await self.collection(claim.collection_id, row_lock=True)
         await self._active(collection)
         published = await self._document(claim.document_id)
         if (
@@ -852,7 +881,7 @@ class SearchStorage(BaseService):
         """Delete only stale/tombstoned chunks, bounded independently of row size."""
         if not 1 <= limit <= 1000:
             raise ValueError("cleanup limit must be between 1 and 1000")
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, row_lock=True)
         stale = (
             select(SearchChunk.id)
             .join(SearchDocument, SearchDocument.id == SearchChunk.document_id)
@@ -886,7 +915,7 @@ class SearchStorage(BaseService):
         complete: bool = False,
     ) -> None:
         """Advance a source keyset cursor in the same transaction as row discovery."""
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, row_lock=True)
         await self._active(collection)
         if collection.generation != generation:
             raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
