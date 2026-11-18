@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -68,6 +67,7 @@ from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, C
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.query.compiler import compile_filter
+from tracecat.query.execution import transaction_settings
 from tracecat.query.filters import Filter
 from tracecat.query.lexical_types import SearchMatchMetadata, SearchMode
 from tracecat.service import BaseWorkspaceService
@@ -99,34 +99,15 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
     )
 
 
-@asynccontextmanager
-async def _find_matches_before_ordering(
-    session: AsyncSession, *, enabled: bool
-) -> AsyncIterator[None]:
-    """Keep a keyword-filtered page on its match-then-sort plan.
-
-    Without NULLS LAST, PostgreSQL can return a column-ordered page by reading
-    ix_case_cursor_pagination backwards and stopping after one page. That is
-    what makes the plain case list fast. With a keyword filter its row
-    estimates are unreliable, and for a rare keyword it may walk the whole
-    workspace in date order looking for a few matches (0.1 s became 0.6 s at
-    100,000 cases). Turning off plain index scans for the page statement keeps
-    the plan that finds matches through the text indexes and then sorts them;
-    bitmap scans stay on, so the GIN and trigram indexes are still used.
-
-    The setting is transaction-local and restored afterwards. On an error the
-    caller's rollback restores it, as with the statement timeout.
-    """
-    if not enabled:
-        yield
-        return
-    previous = await session.scalar(sa.text("SHOW enable_indexscan"))
-    await session.execute(sa.text("SELECT set_config('enable_indexscan', 'off', true)"))
-    yield
-    await session.execute(
-        sa.text("SELECT set_config('enable_indexscan', :value, true)"),
-        {"value": previous},
-    )
+# Planner settings for a keyword page in column order (ORDER BY ... LIMIT).
+# Without them PostgreSQL may read ix_case_cursor_pagination in order and stop
+# once it has a page. Its row estimates for keyword predicates are unreliable,
+# and for a rare keyword that plan reads the whole workspace: a newest-first
+# page took 0.6 s instead of 0.1 s at 100,000 cases. Bitmap scans stay on, so
+# matches are still found through the GIN and trigram indexes and then sorted.
+# Sequential scans stay on too: for a keyword in most cases they are the best
+# plan (turning them off made such a page 0.19 s -> 0.30 s).
+TEXT_INDEX_PLAN: Mapping[str, str] = {"enable_indexscan": "off"}
 
 
 def relative_window_start(
@@ -591,9 +572,11 @@ class CaseSearchService(BaseWorkspaceService):
         if exact_match is not None:
             ordering = (sa.case((exact_match.predicate, 0), else_=1).asc(), *ordering)
 
-        async with _find_matches_before_ordering(
+        async with transaction_settings(
             self.session,
-            enabled=sort_column != "relevance" and bool(request.search_term),
+            TEXT_INDEX_PLAN
+            if sort_column != "relevance" and request.search_term
+            else {},
         ):
             case_page = await paginate(
                 self.session,

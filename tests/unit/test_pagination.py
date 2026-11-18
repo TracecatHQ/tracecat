@@ -464,6 +464,11 @@ class TestPaginate:
             "< (%(param_1)s, %(param_2)s)"
         )
 
+        # Rows never hold NULL in a NOT NULL key, so such a cursor is corrupt.
+        with pytest.raises(PaginationError) as corrupt:
+            _seek_predicate(ordering, (None, 7), boundary=_Boundary.EXCLUSIVE)
+        assert corrupt.value.code is PaginationErrorCode.INVALID_CURSOR
+
         # A nullable key keeps its NULLS placement and the OR-based seek.
         nullable = _normalize_ordering((items.c.score.desc(), items.c.id.desc()))
         assert render(nullable[0].clause()) == (
