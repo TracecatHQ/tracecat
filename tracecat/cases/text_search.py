@@ -270,14 +270,13 @@ def _native_match(
 def _literal_match(field: _SearchField, value: str) -> ColumnElement[bool]:
     pattern = sa.func.lower(_literal_pattern(value))
     indexed = _normalized(field.source).like(pattern, escape="\\")
+    # A NULL-vector source is matched on its complete text. It is written
+    # without a CASE guard so the ix_case_*_trgm_fallback partial indexes
+    # (revision 67d28dfaff15) can answer it. Below the budget the complete text
+    # is the guarded text above, so evaluating this LIKE before the NULL test
+    # costs no more than the indexed branch already does.
     fallback = _full_normalized(field.source).like(pattern, escape="\\")
-    fallback_document = field.vector.is_(None)
-    return sa.or_(
-        indexed,
-        sa.and_(
-            fallback_document, sa.case((fallback_document, fallback), else_=sa.false())
-        ),
-    )
+    return sa.or_(indexed, sa.and_(field.vector.is_(None), fallback))
 
 
 def _literal_pattern(value: str) -> str:
@@ -706,6 +705,28 @@ async def get_case_search_excerpts(
 
 
 @asynccontextmanager
+async def _without_jit(session: AsyncSession) -> AsyncIterator[None]:
+    """Turn off JIT compilation for search statements in this transaction.
+
+    Search statements are index-driven and usually finish in milliseconds, but
+    their long expressions push the planner's cost estimate over
+    jit_above_cost. Compiling them then took about 30 ms per statement, several
+    times the execution time of a selective search. The setting is
+    transaction-local and restored afterwards; on an error the caller's
+    rollback restores it.
+    """
+    previous = await session.scalar(sa.text("SHOW jit"))
+    if previous == "off":
+        yield
+        return
+    await session.execute(sa.text("SELECT set_config('jit', 'off', true)"))
+    yield
+    await session.execute(
+        sa.text("SELECT set_config('jit', :value, true)"), {"value": previous}
+    )
+
+
+@asynccontextmanager
 async def case_search_execution_context(
     session: AsyncSession,
     *,
@@ -719,9 +740,12 @@ async def case_search_execution_context(
     reading its connection-local setting.
     """
     try:
-        async with query_execution_context(
-            session,
-            statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
+        async with (
+            query_execution_context(
+                session,
+                statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
+            ),
+            _without_jit(session),
         ):
             if check_readiness:
                 await ensure_case_text_indexes(session)

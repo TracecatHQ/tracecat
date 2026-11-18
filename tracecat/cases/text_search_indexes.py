@@ -44,11 +44,13 @@ CASE_SEARCH_WORD_INDEXES = {
 CASE_SEARCH_OVERSIZED_TRIGGER = "trg_case_search_words_oversized"
 CASE_SEARCH_OVERSIZED_TRIGGER_FUNCTION = "tracecat_case_search_oversized_v1"
 CASE_SEARCH_OVERSIZED_TRIGGER_BODY_HASH = "a94312b5111ba9d371847ac29c864590"
-CASE_SEARCH_LEXEME_INDEXES = {
+CASE_SEARCH_OVERSIZED_INDEXES = {
     "ix_case_summary_lexemes": 'CREATE INDEX ix_case_summary_lexemes ON public."case" USING gin (summary_lexemes)',
     "ix_case_description_lexemes": 'CREATE INDEX ix_case_description_lexemes ON public."case" USING gin (description_lexemes)',
     "ix_case_summary_lexemes_fallback": 'CREATE INDEX ix_case_summary_lexemes_fallback ON public."case" USING btree (workspace_id, id) WHERE ((summary_tsv IS NULL) AND (summary_lexemes IS NULL))',
     "ix_case_description_lexemes_fallback": 'CREATE INDEX ix_case_description_lexemes_fallback ON public."case" USING btree (workspace_id, id) WHERE ((description_tsv IS NULL) AND (description_lexemes IS NULL))',
+    "ix_case_summary_trgm_fallback": "CREATE INDEX ix_case_summary_trgm_fallback ON public.\"case\" USING gin (lower(COALESCE((summary)::text, ''::text)) gin_trgm_ops) WHERE (summary_tsv IS NULL)",
+    "ix_case_description_trgm_fallback": "CREATE INDEX ix_case_description_trgm_fallback ON public.\"case\" USING gin (lower(COALESCE((description)::text, ''::text)) gin_trgm_ops) WHERE (description_tsv IS NULL)",
 }
 # pg_trigger.tgtype bits: ROW (1) | BEFORE (2) | INSERT (4) | UPDATE (16).
 _BEFORE_ROW_INSERT_UPDATE = 23
@@ -214,7 +216,7 @@ async def _ensure_oversized_sources(session: AsyncSession, trgm_schema: str) -> 
         CASE_SEARCH_OVERSIZED_TRIGGER_BODY_HASH,
         trgm_schema=trgm_schema,
     )
-    await _ensure_indexes(session, CASE_SEARCH_LEXEME_INDEXES, trgm_schema)
+    await _ensure_indexes(session, CASE_SEARCH_OVERSIZED_INDEXES, trgm_schema)
 
 
 async def _ensure_stored_words(session: AsyncSession, trgm_schema: str) -> None:

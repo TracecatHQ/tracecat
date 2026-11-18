@@ -30,6 +30,9 @@ mean, so the previous application version keeps working against it:
    functions are unchanged, so the previous version's readiness checks pass.
 4. Backfill existing over-budget rows in committed batches, then build GIN
    indexes and partial fallback indexes concurrently.
+5. Build partial trigram indexes over the complete lowercase text of
+   NULL-vector sources, so literal and legacy substring search stop reading
+   every long source in full.
 
 The ``summary_tsv``/``description_tsv`` columns keep their meaning: NULL still
 marks a field that literal search must read in full. A field stays on the
@@ -171,6 +174,18 @@ _INDEXES = (
         "ix_case_description_lexemes_fallback",
         'CREATE INDEX ix_case_description_lexemes_fallback ON public."case" USING btree (workspace_id, id) WHERE ((description_tsv IS NULL) AND (description_lexemes IS NULL))',
     ),
+    # Literal and legacy substring search read a NULL-vector source in full;
+    # these index its complete lowercase text, as ix_case_*_trgm does below the
+    # budget. The operator class is unqualified, as pg_get_indexdef() reports
+    # it when pg_trgm's schema is on the search_path.
+    (
+        "ix_case_summary_trgm_fallback",
+        "CREATE INDEX ix_case_summary_trgm_fallback ON public.\"case\" USING gin (lower(COALESCE((summary)::text, ''::text)) gin_trgm_ops) WHERE (summary_tsv IS NULL)",
+    ),
+    (
+        "ix_case_description_trgm_fallback",
+        "CREATE INDEX ix_case_description_trgm_fallback ON public.\"case\" USING gin (lower(COALESCE((description)::text, ''::text)) gin_trgm_ops) WHERE (description_tsv IS NULL)",
+    ),
 )
 
 
@@ -283,7 +298,7 @@ def _check_trigger() -> bool:
 type _IndexState = Literal["absent", "invalid", "ready"]
 
 
-def _index_state(name: str, definition: str) -> _IndexState:
+def _index_state(name: str, definition: str, trgm_schema: str) -> _IndexState:
     """Return this revision's index state; raise on a same-named collision."""
     row = (
         op.get_bind()
@@ -300,7 +315,8 @@ def _index_state(name: str, definition: str) -> _IndexState:
     )
     if row is None:
         return "absent"
-    if row[0] != definition:
+    # The operator class is schema-qualified when its schema is not on search_path.
+    if row[0].replace(f" {trgm_schema}.gin_trgm_ops)", " gin_trgm_ops)") != definition:
         raise RuntimeError(
             f"Index public.{name} has an incompatible existing definition ({row[0]}); "
             "preserve it and resolve the name collision before retrying."
@@ -396,7 +412,10 @@ def upgrade() -> None:
         )
     function_exists = _check_trigger_function(trgm_schema)
     trigger_exists = _check_trigger()
-    states = {name: _index_state(name, definition) for name, definition in _INDEXES}
+    states = {
+        name: _index_state(name, definition, trgm_schema)
+        for name, definition in _INDEXES
+    }
 
     # Adding nullable columns is catalog-only, but ALTER TABLE and CREATE
     # TRIGGER still take brief exclusive locks on a hot table. Fail fast rather
@@ -424,9 +443,9 @@ def upgrade() -> None:
             op.execute(
                 definition.replace(
                     "CREATE INDEX ", "CREATE INDEX CONCURRENTLY IF NOT EXISTS ", 1
-                )
+                ).replace(" gin_trgm_ops)", f" {trgm_schema}.gin_trgm_ops)")
             )
-            if _index_state(name, definition) != "ready":
+            if _index_state(name, definition, trgm_schema) != "ready":
                 raise RuntimeError(
                     f"Case search index public.{name} is not ready; retry the migration."
                 )
@@ -442,7 +461,7 @@ def downgrade() -> None:
     _check_trigger_function(trgm_schema)
     _check_trigger()
     for name, definition in _INDEXES:
-        _index_state(name, definition)
+        _index_state(name, definition, trgm_schema)
     with op.get_context().autocommit_block():
         for name, _ in reversed(_INDEXES):
             op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS public."{name}"')

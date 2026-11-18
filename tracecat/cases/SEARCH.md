@@ -145,8 +145,10 @@ over the budget only:
   adds those words to the vocabulary.
 
 Word clauses then match through the lexeme GIN indexes. A phrase uses them for
-candidates and is checked against the complete source per row. Literal search
-is unchanged and still reads NULL-vector rows in full. A source keeps the
+candidates and is checked against the complete source per row. Partial
+trigram indexes over the complete lowercase text of NULL-vector sources
+(`ix_case_*_trgm_fallback`) let literal and legacy substring search find long
+sources without reading each one in full. A source keeps the
 per-row check only if it has neither a vector nor lexemes: an unsafe token
 below the budget, or more than 1 MB of distinct word text, which
 `array_to_tsvector` would otherwise store as a silently corrupt vector. The
@@ -178,7 +180,10 @@ guards. The complete original source is still used for literal/fuzzy matching.
 Native headline selection uses required words for a field whose phrase match
 has already been proved, so large/position-saturated sources can return useful
 late context. All database work runs within an owned transaction/savepoint,
-and each statement gets its own budget.
+and each statement gets its own budget. JIT compilation is turned off for the
+same transaction: search expressions are long enough to cross
+`jit_above_cost`, and compiling them took about 30 ms per statement, several
+times the execution time of a selective search.
 `TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS` sets it (default 30 s). The budget
 lets broad searches finish instead of failing, but it bounds each statement,
 not the request: a search runs its page, match-detail and excerpt queries, and

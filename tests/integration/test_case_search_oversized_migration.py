@@ -12,12 +12,15 @@ from tests.integration.test_case_text_search_postgres import (
     OTHER_WORKSPACE,
     WORKSPACE,
     apply_oversized_migration,
+    parse_fixture_query,
     search_ids,
     seed_case,
 )
 from tests.integration.test_case_text_search_postgres import (
     search_database as _search_database,
 )
+from tracecat.cases.text_search import build_case_text_expressions
+from tracecat.db.models import Case
 
 pytestmark = pytest.mark.integration
 search_database = _search_database
@@ -225,3 +228,36 @@ def test_cleared_lexemes_keep_the_per_row_check(search_database: Engine) -> None
         assert search_ids(conn, "quoted") == [case_id]
         assert search_ids(conn, '"quoted words"') == [case_id]
         assert search_ids(conn, '"words quoted"') == []
+
+
+def test_literal_search_can_read_long_sources_through_trigrams(
+    search_database: Engine,
+) -> None:
+    """The complete text of a NULL-vector source has its own trigram index."""
+    with search_database.connect() as conn, conn.begin() as transaction:
+        large = seed_case(conn, 1, "synthetic", FILLER + "needle-42.pdf")
+        # On a tiny table the planner prefers these small B-tree indexes.
+        # Dropping them inside this rolled-back transaction leaves only the
+        # trigram index to answer the long-source branch.
+        conn.execute(
+            sa.text(
+                "DROP INDEX ix_case_summary_tsv_fallback, ix_case_description_tsv_fallback"
+            )
+        )
+        conn.execute(sa.text("SET LOCAL enable_seqscan = off"))
+        conn.execute(sa.text("SET LOCAL enable_indexscan = off"))
+        expressions = build_case_text_expressions(
+            parse_fixture_query("literal:needle-42"), WORKSPACE
+        )
+        compiled = (
+            sa.select(Case.id)
+            .where(expressions.predicate)
+            .compile(
+                dialect=search_database.dialect, compile_kwargs={"literal_binds": True}
+            )
+        )
+        sql = str(compiled).replace("%%", "%")
+        plan = "\n".join(conn.execute(sa.text(f"EXPLAIN {sql}")).scalars())
+        assert "ix_case_description_trgm_fallback" in plan
+        assert search_ids(conn, "literal:needle-42") == [large]
+        transaction.rollback()
