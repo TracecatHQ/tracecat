@@ -2009,25 +2009,32 @@ class CaseFieldsService(CustomFieldsService):
         if not field_ids:
             return {}
 
-        # Validate requested fields against reflected columns so stale or missing
-        # schema metadata does not hide real columns. A missing table has no
-        # values, and a read must not create it.
+        normalized_field_ids: list[str] = []
+        for field_id in dict.fromkeys(field_ids):
+            self._assert_user_field_name_allowed(field_id)
+            normalized_field_id = validate_identifier(field_id)
+            if normalized_field_id in self._reserved_columns:
+                raise ValueError(f"Field {field_id} is a reserved field")
+            normalized_field_ids.append(normalized_field_id)
+
+        if not case_ids:
+            return {}
+
+        # Keep only fields that exist in the reflected columns, so stale or
+        # missing schema metadata does not hide real columns. A missing table
+        # has no values, and a read must not create it.
         available_fields = {
             column_name
             for column in await self.get_columns() or []
             if isinstance((column_name := column.get("name")), str)
             and column_name not in self._reserved_columns
         }
-        requested_field_ids: list[str] = []
-        for field_id in dict.fromkeys(field_ids):
-            self._assert_user_field_name_allowed(field_id)
-            normalized_field_id = validate_identifier(field_id)
-            if normalized_field_id in self._reserved_columns:
-                raise ValueError(f"Field {field_id} is a reserved field")
-            if normalized_field_id in available_fields:
-                requested_field_ids.append(normalized_field_id)
-
-        if not case_ids or not requested_field_ids:
+        requested_field_ids = [
+            field_id
+            for field_id in normalized_field_ids
+            if field_id in available_fields
+        ]
+        if not requested_field_ids:
             return {}
 
         conn = await self.session.connection()

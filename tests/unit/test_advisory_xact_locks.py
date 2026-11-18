@@ -80,6 +80,24 @@ async def _advisory_waiters(key: int) -> int:
         return result.scalar_one()
 
 
+async def _wait_for_relation_lock_waiter(table_name: str) -> None:
+    """Return once a session is queued for a lock on the table."""
+    async with get_async_engine().connect() as connection:
+        for _ in range(100):
+            result = await connection.execute(
+                text(
+                    "SELECT count(*) FROM pg_locks"
+                    " WHERE locktype = 'relation' AND NOT granted"
+                    " AND relation = to_regclass(:table_name)"
+                ),
+                {"table_name": table_name},
+            )
+            if result.scalar_one():
+                return
+            await asyncio.sleep(0.05)
+    raise AssertionError(f"Nothing waited for a lock on {table_name}")
+
+
 async def test_held_lock_blocks_waiters_and_fails_tries() -> None:
     key = _lock_key()
     waiter_acquired = asyncio.Event()
@@ -331,7 +349,7 @@ async def test_case_field_columns_stay_valid_until_the_read_ends(
             service = CaseFieldsService(session, svc_role)
             assert "first" in {c["name"] for c in await service.list_fields()}
             renaming = asyncio.create_task(rename())
-            await asyncio.sleep(CONTENTION_WINDOW)
+            await _wait_for_relation_lock_waiter(service._full_table_name())
             assert not renaming.done()
             # The select list still names "first".
             case = Case(id=uuid.uuid4(), workspace_id=svc_role.workspace_id)
