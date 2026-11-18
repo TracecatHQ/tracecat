@@ -53,6 +53,8 @@ _COLUMNS_FINGERPRINT_SQL = sa.text(
 _columns_cache: dict[
     tuple[str, str], tuple[str, Sequence[sa.engine.interfaces.ReflectedColumn]]
 ] = {}
+# Bounds memory across many workspaces; a full cache starts over.
+_COLUMNS_CACHE_MAX_ENTRIES = 1024
 
 
 class CustomFieldsService(BaseWorkspaceService, ABC):
@@ -234,6 +236,8 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
             columns = cached[1]
         else:
             columns = await self.editor.get_columns()
+            if len(_columns_cache) >= _COLUMNS_CACHE_MAX_ENTRIES:
+                _columns_cache.clear()
             _columns_cache[key] = (fingerprint, columns)
         # Copies, so a caller cannot change the shared entry.
         return [column.copy() for column in columns]
