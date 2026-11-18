@@ -3,16 +3,18 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, get_args
+from typing import Any, Literal, cast, get_args
 from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
+import orjson
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from starlette.types import Message
 
 from tests.database import TEST_DB_CONFIG
 from tests.integration.test_case_search_reads import (
@@ -30,12 +32,13 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseStatus
-from tracecat.cases.router import cases_router
+from tracecat.cases.router import CASE_SEARCH_PATH_SUFFIXES, cases_router
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.service import CasesService
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import Case, Organization, Workspace
 from tracecat.executor.action_gateway.app import create_app
+from tracecat.middleware.disconnect import CancelOnDisconnectMiddleware
 from tracecat.pagination import PaginationError, PaginationErrorCode
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import SearchMode
@@ -889,3 +892,137 @@ async def test_promoted_reference_preserves_explicit_hierarchy(
             assert body["total_estimate"] == (
                 1 if strict or mode == SearchMode.LITERAL else 2
             )
+
+
+@pytest.mark.parametrize("path", ["/cases/search", "/cases/search/aggregate"])
+async def test_client_disconnect_cancels_the_running_search_statement(
+    lexical_client: httpx.AsyncClient, lexical_service: CasesService, path: str
+) -> None:
+    """A search the browser abandoned stops running in PostgreSQL."""
+    app = cast(Any, lexical_client._transport).app
+    marker = f"disconnect-probe-{uuid4().hex}"
+
+    async def slow_search(self: CasesService, _query: object) -> object:
+        async with self.session.begin_nested():
+            await self.session.execute(sa.text(f"SELECT pg_sleep(30) /* {marker} */"))
+        raise AssertionError("the statement should have been cancelled")
+
+    body = orjson.dumps({"search_term": "synthetic", "search_mode": "literal"})
+    body_sent = False
+    disconnect_at = asyncio.get_running_loop().time() + 0.5
+
+    async def receive() -> Message:
+        # Like uvicorn: the body first, then nothing until the client leaves,
+        # after which a disconnect is returned at once.
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        while asyncio.get_running_loop().time() < disconnect_at:
+            await asyncio.sleep(0.05)
+        return {"type": "http.disconnect"}
+
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1234),
+        "server": ("test", 80),
+    }
+    method = "query_cases" if path == "/cases/search" else "query_case_aggregates"
+    engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
+    try:
+        with patch.object(CasesService, method, slow_search):
+            started = asyncio.get_running_loop().time()
+            # The API app installs this middleware outermost; wrap the test app
+            # the same way, outside its BaseHTTPMiddleware layers.
+            guarded = CancelOnDisconnectMiddleware(
+                app, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
+            )
+            await asyncio.wait_for(guarded(scope, receive, send), timeout=10)
+            elapsed = asyncio.get_running_loop().time() - started
+        # asyncpg sends PostgreSQL's cancel request from its own task, so the
+        # statement stops shortly after the handler returns.
+        running = None
+        async with engine.connect() as observer:
+            for _ in range(30):
+                running = await observer.scalar(
+                    sa.text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE query LIKE :marker AND state = 'active' "
+                        "AND pid <> pg_backend_pid()"
+                    ),
+                    {"marker": f"%{marker} */"},
+                )
+                if running == 0:
+                    break
+                await asyncio.sleep(0.1)
+    finally:
+        await engine.dispose()
+    assert elapsed < 5
+    assert running == 0
+    assert not [message for message in sent if message["type"] == "http.response.start"]
+    # The statement was cancelled in PostgreSQL before the task, so its
+    # savepoint rolled back cleanly and the connection is still usable.
+    assert await lexical_service.session.scalar(sa.text("SELECT 1")) == 1
+
+
+async def test_disconnect_after_the_response_cancels_nothing(
+    lexical_client: httpx.AsyncClient, lexical_service: CasesService
+) -> None:
+    """A finished search returns its response; the closing disconnect is normal."""
+    await text_case(lexical_service, "synthetic disconnect target")
+    app = cast(Any, lexical_client._transport).app
+    body = orjson.dumps({"search_term": "disconnect target", "search_mode": "literal"})
+    messages = [{"type": "http.request", "body": body, "more_body": False}]
+    response_complete = asyncio.Event()
+
+    async def receive() -> Message:
+        if messages:
+            return messages.pop(0)
+        await response_complete.wait()
+        return {"type": "http.disconnect"}
+
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+        if message["type"] == "http.response.body" and not message.get("more_body"):
+            response_complete.set()
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/cases/search",
+        "raw_path": b"/cases/search",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1234),
+        "server": ("test", 80),
+    }
+    guarded = CancelOnDisconnectMiddleware(app, path_suffixes=CASE_SEARCH_PATH_SUFFIXES)
+    await asyncio.wait_for(guarded(scope, receive, send), timeout=10)
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    assert start["status"] == 200
+    payload = orjson.loads(
+        b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    )
+    assert [item["summary"] for item in payload["items"]] == [
+        "synthetic disconnect target"
+    ]

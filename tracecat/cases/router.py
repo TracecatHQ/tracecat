@@ -78,6 +78,7 @@ from tracecat.cases.service import (
     CaseTasksService,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
+from tracecat.db.cancellation import cancel_statement_on_cancellation
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.errors import is_data_error
 from tracecat.db.models import Case
@@ -339,6 +340,11 @@ async def list_case_filter_fields(
     return await CasesService(session, role).list_filter_fields()
 
 
+# Search and status counts the UI aborts when a newer search supersedes them.
+# The API cancels these requests when their client disconnects.
+CASE_SEARCH_PATH_SUFFIXES = ("/cases/search", "/cases/search/aggregate")
+
+
 @cases_router.post("/search", responses=CASE_SEARCH_ERROR_RESPONSES)
 @require_scope("case:read")
 async def query_cases(
@@ -346,7 +352,11 @@ async def query_cases(
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search with typed AND/OR/NOT filters and independent result details."""
     try:
-        return await CasesService(session, role).query_cases(params)
+        # A superseded search is cancelled when its client disconnects
+        # (CancelOnDisconnectMiddleware); stop its statement too.
+        return await cancel_statement_on_cancellation(
+            session, CasesService(session, role).query_cases(params)
+        )
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
     except CASE_REQUEST_ERRORS as exc:
@@ -360,7 +370,9 @@ async def query_case_aggregates(
 ) -> CaseSearchAggregateRead:
     """Count the same typed matching conditions as search."""
     try:
-        return await CasesService(session, role).query_case_aggregates(params)
+        return await cancel_statement_on_cancellation(
+            session, CasesService(session, role).query_case_aggregates(params)
+        )
     except LexicalSearchError as exc:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
     except CASE_REQUEST_ERRORS as exc:

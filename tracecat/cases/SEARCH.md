@@ -190,10 +190,15 @@ cannot see the keyword (a broad legacy search took 0.97 s instead of 0.31 s).
 `TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS` sets it (default 30 s). The budget
 lets broad searches finish instead of failing, but it bounds each statement,
 not the request: a search runs its page, match-detail and excerpt queries, and
-the UI requests status counts in parallel. The server does not cancel queries
-when the client aborts a superseded search, so they run until they finish or
-reach the budget. Many concurrent slow searches can therefore exhaust the API's
-connection pool; lower the budget if that happens. A timeout returns the shared
+the UI requests status counts in parallel. When the client aborts a
+superseded search, the API cancels it: `CancelOnDisconnectMiddleware` cancels the request handler for
+`POST .../cases/search` and `.../cases/search/aggregate`, and the routes call
+`pg_cancel_backend` for the request's backend before the cancellation unwinds,
+so the statement stops in PostgreSQL and its connection returns to the pool.
+The UI also skips its 120 s auto-refresh while a search is applied. Workflow,
+API and MCP callers that do not disconnect still run each statement to its
+budget, and many concurrent slow searches can exhaust the API's connection
+pool; lower the budget if that happens. A timeout returns the shared
 `query_timeout` contract and rolls back the savepoint; it does not silently
 return an incomplete result.
 

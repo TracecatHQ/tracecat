@@ -953,6 +953,13 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       return false
     }
 
+    // A keyword search can scan many cases. Re-running it every interval
+    // repeats that cost while the user reads results, so only the plain list
+    // refreshes itself.
+    if (appliedSearchQuery) {
+      return false
+    }
+
     if (
       typeof document !== "undefined" &&
       document.visibilityState === "hidden"
@@ -961,7 +968,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     return CASES_REFETCH_INTERVAL_MS
-  }, [autoRefresh])
+  }, [autoRefresh, appliedSearchQuery])
 
   const {
     data: rowsData,
