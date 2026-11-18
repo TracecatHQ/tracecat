@@ -88,14 +88,8 @@ async def _newest_matches_start(
     Returns None when no more than SEARCH_MATCH_CAP cases match. Cases created
     at the returned instant are kept too.
     """
-    # 1. Is the search broad? Read at most one match past the cap.
-    async with transaction_settings(session, _TEXT_INDEX_ONLY):
-        matches = (
-            await session.execute(
-                select(func.count()).select_from(_matches_up_to_cap(Case.id, filters))
-            )
-        ).scalar_one()
-    if matches <= SEARCH_MATCH_CAP:
+    # 1. Is the search broad?
+    if not await matches_more_than_cap(session, filters):
         return None
 
     # 2. A broad keyword usually matches a good share of recent cases. Read the
@@ -130,6 +124,19 @@ async def _newest_matches_start(
             .offset(SEARCH_MATCH_CAP - 1)
             .limit(1)
         )
+
+
+async def matches_more_than_cap(
+    session: AsyncSession, filters: Sequence[ColumnElement[bool]]
+) -> bool:
+    """Whether more than SEARCH_MATCH_CAP cases match, reading at most one more."""
+    async with transaction_settings(session, _TEXT_INDEX_ONLY):
+        matches = (
+            await session.execute(
+                select(func.count()).select_from(_matches_up_to_cap(Case.id, filters))
+            )
+        ).scalar_one()
+    return matches > SEARCH_MATCH_CAP
 
 
 async def capped_status_counts(

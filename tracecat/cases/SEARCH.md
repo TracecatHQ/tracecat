@@ -97,6 +97,13 @@ exact behavior unless they opt in. The code is in
   exact count would have to read every match to give. The UI shows
   "10,000+ cases" and loaded counts per status group.
 - `include_count`'s `total_estimate` stays exact.
+- Column-ordered keyword pages (newest first and the rest) normally turn off
+  plain index scans, so a rare keyword finds its matches through the text
+  indexes and then sorts them instead of walking the date index. When the
+  capped count shows more than 10,000 matches, the page may walk the date
+  index instead: a page fills within its first rows (newest first at one
+  million matches went from 1.4 s to 0.1 s). Planner settings are not part of
+  the cursor fingerprint, so this can change from page to page safely.
 
 The first page finds the cutoff in up to three steps:
 

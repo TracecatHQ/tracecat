@@ -49,6 +49,7 @@ from tracecat.cases.search_adapters import (
 from tracecat.cases.search_bounds import (
     aggregate_read,
     capped_status_counts,
+    matches_more_than_cap,
     ranks_newest_matches,
     relevance_window_start,
     status_count_columns,
@@ -634,12 +635,19 @@ class CaseSearchService(BaseWorkspaceService):
         if exact_match is not None:
             ordering = (sa.case((exact_match.predicate, 0), else_=1).asc(), *ordering)
 
-        async with transaction_settings(
-            self.session,
-            TEXT_INDEX_PLAN
-            if sort_column != "relevance" and request.search_term
-            else {},
-        ):
+        index_plan: Mapping[str, str] = {}
+        if sort_column != "relevance" and request.search_term:
+            index_plan = TEXT_INDEX_PLAN
+            # A search that matches more than the cap fills a page within the
+            # first rows of the date index, so it may read the index in order
+            # (1.4 s became 30 ms at one million matches).
+            if (
+                request.cap_broad_matches
+                and request.search_mode is not None
+                and await matches_more_than_cap(self.session, filters)
+            ):
+                index_plan = {}
+        async with transaction_settings(self.session, index_plan):
             case_page = await paginate(
                 self.session,
                 stmt,
