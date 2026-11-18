@@ -95,9 +95,10 @@ class SearchStorage(BaseService):
     async def lock_scope(self, *, shared: bool = False) -> None:
         """Lock even an absent collection; prevent source deletion during work.
 
-        Source row writers take the lock shared, so writes to different tables
-        in one workspace run concurrently. Everything else takes it exclusive,
-        so it still waits for in-flight row writes and blocks new ones.
+        Source row writers and read-only search paths take the lock shared, so
+        they run concurrently across tables in one workspace. Everything else
+        takes it exclusive, so it still waits for in-flight row writes and
+        blocks new ones.
         """
         identity = (
             f"semantic-search:{self.scope.organization_id}:{self.scope.workspace_id}"
@@ -132,25 +133,46 @@ class SearchStorage(BaseService):
         )
 
     async def _state(self) -> SearchWorkspaceState:
+        """Read the workspace state without writing; safe under the shared lock.
+
+        An absent row reads as an unsaved, disabled default. Callers that change
+        the state must use _ensure_state instead.
+        """
         state = await self.session.scalar(
             select(SearchWorkspaceState)
             .execution_options(populate_existing=True)
             .where(self._scope(SearchWorkspaceState))
         )
         if state is None:
-            state = SearchWorkspaceState(
+            return SearchWorkspaceState(
                 organization_id=self.scope.organization_id,
                 workspace_id=self.scope.workspace_id,
                 current_version=0,
                 state=SearchState.DISABLED,
+                reconciliation_required=False,
             )
+        return state
+
+    async def _ensure_state(self) -> SearchWorkspaceState:
+        """Return the persisted state row, inserting it if absent.
+
+        Requires the exclusive workspace lock: two shared holders could both
+        insert the row.
+        """
+        state = await self._state()
+        if state not in self.session:
             self.session.add(state)
             await self.session.flush()
         return state
 
-    async def collection(self, collection_id: uuid.UUID) -> SearchCollection:
-        """Resolve a collection only in the explicitly trusted tenant scope."""
-        await self.lock_scope()
+    async def collection(
+        self, collection_id: uuid.UUID, *, shared: bool = False
+    ) -> SearchCollection:
+        """Resolve a collection only in the explicitly trusted tenant scope.
+
+        Read-only callers pass shared=True so they do not queue table row writes.
+        """
+        await self.lock_scope(shared=shared)
         collection = await self.session.scalar(
             select(SearchCollection)
             .execution_options(populate_existing=True)
@@ -180,7 +202,7 @@ class SearchStorage(BaseService):
         if not 1 <= dimensions <= 3072 or input_token_limit <= 0:
             raise SearchError(SearchErrorCode.INVALID_VECTOR)
         await self.lock_scope()
-        state = await self._state()
+        state = await self._ensure_state()
         version = state.current_version + 1
         config = SearchEmbeddingConfig(
             organization_id=self.scope.organization_id,
@@ -204,7 +226,7 @@ class SearchStorage(BaseService):
     async def set_state(self, state: SearchState) -> None:
         """Pause preserves bookkeeping; rollback requires explicit reconstruction."""
         await self.lock_scope()
-        current = await self._state()
+        current = await self._ensure_state()
         if (
             state == SearchState.ACTIVE
             and await self._configuration(current.current_version) is None
@@ -901,7 +923,7 @@ class SearchStorage(BaseService):
 
     async def status(self, collection_id: uuid.UUID) -> SearchIndexStatus:
         """Summarize stored work; unenumerated source rows are covered by backfill."""
-        collection = await self.collection(collection_id)
+        collection = await self.collection(collection_id, shared=True)
         state = await self._state()
         current_generation = SearchDocument.generation == collection.generation
         current = current_generation & (

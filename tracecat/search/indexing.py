@@ -146,7 +146,7 @@ async def _claim_next(
         if not collection.enabled or collection.deleted_at is not None:
             await source.session.commit()
             return None
-        state = await source._state()
+        state = await source._ensure_state()
         if configuration is None or state.state == SearchState.PAUSED:
             progress.outcome = (
                 IndexingOutcome.UNAVAILABLE

@@ -24,6 +24,7 @@ from tracecat.db.models import (
     SearchChunk,
     SearchCollection,
     SearchDocument,
+    SearchWorkspaceState,
     Table,
     Workspace,
 )
@@ -31,7 +32,10 @@ from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.pagination import PaginationError
 from tracecat.search.chunking_types import ChunkingIdentity
 from tracecat.search.embeddings.schemas import EmbeddingConfigurationRead
+from tracecat.search.embeddings.types import ModelSpec, PinnedConfiguration
 from tracecat.search.query import eligible_chunks
+from tracecat.search.retrieval import TableRetrievalService
+from tracecat.search.schemas import SearchRequest
 from tracecat.search.types import (
     ChunkerSettings,
     ChunkManifest,
@@ -508,6 +512,142 @@ async def test_indexed_row_writers_wait_only_for_the_same_table(
     finally:
         release.set()
         await engine.dispose()
+
+
+async def test_search_reads_wait_only_for_writers_to_the_same_table(
+    tables: TablesService, table: Table
+):
+    """Search queries, status and progress reads share the workspace lock.
+
+    A read share-locks its table's collection row: it waits for an open writer
+    to that table and blocks new ones, so a strict search cannot see a write
+    commit between its readiness check and ranking. Reads and writes on other
+    tables proceed. Lifecycle work still waits for an open read.
+    """
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
+        )
+    )
+    selected = await enable(tables, other)
+    collection = await enable(tables, table, provider=True)
+    other_collection = await tables.search.configure_collection(
+        source_id=other.id,
+        column_ids=tuple(selected.selected_column_ids),
+        chunker=ChunkerSettings(tokenizer="synthetic"),
+        expected_generation=selected.generation,
+    )
+    await tables.insert_row(table, TableRowInsert(data={"body": "indexed"}))
+    await tables.session.commit()
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    table_id, other_id = table.id, other.id
+    generations = {
+        table_id: collection.generation,
+        other_id: other_collection.generation,
+    }
+    configuration = PinnedConfiguration(
+        1, ModelSpec(model="text-embedding-3-small", dimensions=3), uuid4(), "default"
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def insert(table_id: UUID, *, hold: bool = False) -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "row"}))
+            if hold:
+                entered.set()
+                await release.wait()
+
+    async def read(table_id: UUID, *, hold: bool = False) -> None:
+        async with sessions.begin() as session:
+            store = TableSearchSource(session, tables.search.scope)
+            await TableRetrievalService(tables.role)._collection(
+                store,
+                table_id,
+                configuration,
+                SearchRequest(query="synthetic", allow_partial=True),
+            )
+            await store.configuration(table_id)
+            await store.progress(
+                table_id,
+                params=TableSearchProgressParams(generation=generations[table_id]),
+            )
+            if hold:
+                entered.set()
+                await release.wait()
+
+    async def configure() -> None:
+        async with sessions.begin() as session:
+            await TableSearchService(session, tables.search.scope).lock_scope()
+
+    try:
+        # With a writer open, reads of another table complete; reads of the
+        # writer's table wait for it to commit.
+        writer = asyncio.create_task(insert(table_id, hold=True))
+        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(read(other_id), 5)
+        same = asyncio.create_task(read(table_id))
+        await asyncio.sleep(0.05)
+        assert not same.done()
+        release.set()
+        await asyncio.wait_for(writer, 5)
+        await asyncio.wait_for(same, 5)
+
+        # With a read open, writers to another table complete; writers to the
+        # read's table and lifecycle work wait for it.
+        entered.clear()
+        release.clear()
+        reader = asyncio.create_task(read(table_id, hold=True))
+        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(insert(other_id), 5)
+        await asyncio.wait_for(read(other_id), 5)
+        blocked = asyncio.create_task(insert(table_id))
+        lifecycle = asyncio.create_task(configure())
+        await asyncio.sleep(0.05)
+        assert not blocked.done()
+        assert not lifecycle.done()
+        release.set()
+        await asyncio.wait_for(reader, 5)
+        await asyncio.wait_for(blocked, 5)
+        await asyncio.wait_for(lifecycle, 5)
+    finally:
+        release.set()
+        await engine.dispose()
+
+
+async def test_search_reads_do_not_create_workspace_state(
+    tables: TablesService, table: Table
+):
+    """A read must not insert the state row; shared holders could race on it."""
+    collection = await enable(tables, table)
+
+    async def state_rows() -> int:
+        return len(
+            (
+                await tables.session.scalars(
+                    sa.select(SearchWorkspaceState).where(
+                        SearchWorkspaceState.workspace_id
+                        == tables.search.scope.workspace_id
+                    )
+                )
+            ).all()
+        )
+
+    assert await state_rows() == 0
+    configuration = await tables.search.configuration(table.id)
+    assert configuration.index is not None
+    assert configuration.index.state == SearchState.DISABLED
+    await tables.search.progress(
+        table.id,
+        params=TableSearchProgressParams(generation=collection.generation),
+    )
+    assert await state_rows() == 0
+    await tables.search.set_state(SearchState.PAUSED)
+    assert await state_rows() == 1
 
 
 async def test_batch_writes_to_one_table_run_one_at_a_time(

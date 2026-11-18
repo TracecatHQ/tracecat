@@ -44,14 +44,16 @@ class TableSearchService(SearchStorage):
     """Small source hooks shared by public, internal, import and sync writers."""
 
     async def for_table(
-        self, table_id: UUID, *, row_write: bool = False
+        self, table_id: UUID, *, row_write: bool = False, read: bool = False
     ) -> SearchCollection | None:
         """Lock before inspecting even an absent selection, then refresh metadata.
 
         A row write shares the workspace lock and locks the table's collection
         row instead, so writes to one indexed table still run one at a time.
+        A read shares the workspace lock and share-locks the collection row, so
+        no write to that table commits between the read's statements.
         """
-        await self.lock_scope(shared=row_write)
+        await self.lock_scope(shared=row_write or read)
         stmt = (
             sa.select(SearchCollection)
             .where(
@@ -63,6 +65,8 @@ class TableSearchService(SearchStorage):
         )
         if row_write:
             stmt = stmt.with_for_update()
+        elif read:
+            stmt = stmt.with_for_update(read=True)
         return await self.session.scalar(stmt)
 
     async def table(self, table_id: UUID) -> Table:
@@ -178,7 +182,7 @@ class TableSearchService(SearchStorage):
         provider_error: bool = False,
     ) -> TableSearchConfiguration:
         """Combine persisted progress with an optional independently read provider status."""
-        collection = await self.for_table(table_id)
+        collection = await self.for_table(table_id, read=True)
         await self.table(table_id)
         if collection is None:
             return TableSearchConfiguration()
@@ -244,7 +248,7 @@ class TableSearchService(SearchStorage):
         percentage. The final expected total is available after enumeration.
         """
         generation = params.generation
-        collection = await self.for_table(table_id)
+        collection = await self.for_table(table_id, read=True)
         await self.table(table_id)
         if collection is None or collection.generation != generation:
             raise SearchError(SearchErrorCode.CONFIGURATION_CHANGED)
