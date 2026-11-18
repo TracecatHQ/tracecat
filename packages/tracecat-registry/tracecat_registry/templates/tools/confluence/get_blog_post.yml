@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Get blog post
+  description: >-
+    Returns a specific blog post by its ID, optionally including its body in the requested format.
+  display_group: Confluence
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-blog-post/#api-blogposts-id-get
+  namespace: tools.confluence
+  name: get_blog_post
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
+  expects:
+    blog_post_id:
+      type: str
+      description: >-
+        The ID of the blog post to be returned.
+    body_format:
+      type: str | None
+      description: >-
+        The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format, view, export_view, anonymous_export_view, styled_view, editor.
+      default: null
+    get_draft:
+      type: bool | None
+      description: >-
+        Retrieve the draft version of this blog post.
+      default: null
+    status:
+      type: str | None
+      description: >-
+        Filter the results to the blog post based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, trashed, deleted, historical, draft.
+      default: null
+    version:
+      type: int | None
+      description: >-
+        Allows you to retrieve a previously published version. Specify the previous version's number to retrieve its details.
+      default: null
+    include_labels:
+      type: bool | None
+      description: >-
+        Includes labels associated with this blog post in the response. The number of results will be limited to 50.
+      default: null
+    include_properties:
+      type: bool | None
+      description: >-
+        Includes content properties associated with this blog post in the response. The number of results will be limited to 50.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
+        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}/wiki.
+        Do not append /api/v2 or /rest/api.
+      default: null
+  steps:
+    - ref: get_blog_post
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/blogposts/${{ FN.url_encode(inputs.blog_post_id) }}
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          body-format: ${{ inputs.body_format }}
+          get-draft: ${{ inputs.get_draft }}
+          status: ${{ inputs.status }}
+          version: ${{ inputs.version }}
+          include-labels: ${{ inputs.include_labels }}
+          include-properties: ${{ inputs.include_properties }}
+  returns: ${{ steps.get_blog_post.result }}

@@ -8,9 +8,9 @@ description: "Reference for the Tracecat Confluence integration: registered acti
 
 Action ID: `tools.confluence.add_page_comment`
 
-Add a comment to a Confluence page.
+Create a footer comment on a Confluence page, or reply to an existing footer comment.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/&#123;id&#125;/child-commentsOfContent](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/&#123;id&#125;/child-commentsOfContent)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-footer-comments-post](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-footer-comments-post)
 
 ### Secrets
 
@@ -23,19 +23,19 @@ Optional secrets:
 
 <ParamField path="content" type="string" required>
 
-Comment content in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+Comment body in the selected representation. Convert Markdown to Confluence storage (XHTML) before sending if needed.
 
 </ParamField>
 
 <ParamField path="page_id" type="string" required>
 
-The ID of the page to comment on.
+ID of the containing page. Ignored when replying to a comment with `parent_comment_id`.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
@@ -43,9 +43,17 @@ Default: `null`.
 
 <ParamField path="content_representation" type="string">
 
-Content representation for the comment body (storage or wiki).
+The representation of the body content. One of: storage (Confluence XHTML), wiki (wiki markup), atlas_doc_format (ADF JSON string).
 
 Default: `"storage"`.
+
+</ParamField>
+
+<ParamField path="parent_comment_id" type="string | null">
+
+ID of the parent comment, if intending to create a reply.
+
+Default: `null`.
 
 </ParamField>
 
@@ -55,7 +63,7 @@ Action ID: `tools.confluence.add_page_label`
 
 Add a label to a Confluence page.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-addLabelsToContent](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-addLabelsToContent)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content-labels/#api-wiki-rest-api-content-id-label-post](https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content-labels/#api-wiki-rest-api-content-id-label-post)
 
 ### Secrets
 
@@ -80,7 +88,7 @@ The ID of the page to label.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
@@ -98,9 +106,9 @@ Default: `"global"`.
 
 Action ID: `tools.confluence.create_page`
 
-Create a new Confluence page in a space, optionally under a parent.
+Create a Confluence page in a space, optionally nested under a parent page or folder.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-createContent](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-createContent)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-post](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-post)
 
 ### Secrets
 
@@ -113,7 +121,7 @@ Optional secrets:
 
 <ParamField path="content" type="string" required>
 
-Page body in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+Page body in the selected representation. Convert Markdown to Confluence storage (XHTML) before sending if needed.
 
 </ParamField>
 
@@ -125,13 +133,13 @@ Space key for the page (e.g., DEV, TEAM).
 
 <ParamField path="title" type="string" required>
 
-Title of the new page.
+Title of the page, required if page status is not draft.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
@@ -139,7 +147,7 @@ Default: `null`.
 
 <ParamField path="content_representation" type="string">
 
-Content representation for the body (storage or wiki).
+The representation of the body content. One of: storage (Confluence XHTML), wiki (wiki markup), atlas_doc_format (ADF JSON string).
 
 Default: `"storage"`.
 
@@ -147,7 +155,23 @@ Default: `"storage"`.
 
 <ParamField path="parent_id" type="string | null">
 
-Optional parent page ID to nest under.
+The parent content ID of the page. If not provided, the page is created under the space homepage.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="private" type="boolean | null">
+
+The page will be private. Only the user who creates this page will have permission to view and edit one.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+The status of the page, published or draft. One of: current, draft.
 
 Default: `null`.
 
@@ -157,9 +181,9 @@ Default: `null`.
 
 Action ID: `tools.confluence.delete_page`
 
-Delete a Confluence page by ID.
+Delete a page by ID. By default this moves the page to the trash, where it can be restored later.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-delete](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-delete)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-delete](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-delete)
 
 ### Secrets
 
@@ -172,25 +196,41 @@ Optional secrets:
 
 <ParamField path="page_id" type="string" required>
 
-The ID of the page to delete.
+The ID of the page to be deleted.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
 </ParamField>
 
-## Get child pages
+<ParamField path="draft" type="boolean | null">
 
-Action ID: `tools.confluence.get_page_children`
+If attempting to delete a page that is a draft.
 
-List child pages for a parent Confluence page with pagination and optional content expansion.
+Default: `null`.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/&#123;id&#125;/child-childrenOfType](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/&#123;id&#125;/child-childrenOfType)
+</ParamField>
+
+<ParamField path="purge" type="boolean | null">
+
+If attempting to purge the page. A page must be in the trash before it can be purged.
+
+Default: `null`.
+
+</ParamField>
+
+## Download attachment
+
+Action ID: `tools.confluence.download_attachment`
+
+Downloads an attachment's binary content as base64 in `data`. Uses the v1 API because the v2 API has no attachment download endpoint.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---attachments/#api-wiki-rest-api-content-id-child-attachment-attachmentid-download-get](https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---attachments/#api-wiki-rest-api-content-id-child-attachment-attachmentid-download-get)
 
 ### Secrets
 
@@ -201,49 +241,393 @@ Optional secrets:
 
 ### Input fields
 
-<ParamField path="parent_id" type="string" required>
+<ParamField path="attachment_id" type="string" required>
 
-The ID of the parent page whose children you want to retrieve.
+The ID of the attachment to download (e.g. att123456).
+
+</ParamField>
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the content that the attachment is attached to.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="expand" type="string">
+<ParamField path="version" type="integer | null">
 
-Fields to expand on each child (e.g., version, body.storage, body.view).
+The version of the attachment. If this parameter is absent, the redirect URI will download the latest version of the attachment.
 
-Default: `"version"`.
-
-</ParamField>
-
-<ParamField path="include_content" type="boolean">
-
-Whether to force body.storage expansion for child content.
-
-Default: `false`.
+Default: `null`.
 
 </ParamField>
 
-<ParamField path="limit" type="integer">
+## Get attachment
 
-Maximum number of child pages to return (1-50).
+Action ID: `tools.confluence.get_attachment`
 
-Default: `25`.
+Returns a specific attachment's metadata, including its `downloadLink`.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-attachment/#api-attachments-id-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-attachment/#api-attachments-id-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="attachment_id" type="string" required>
+
+The ID of the attachment to be returned (e.g. att123456).
 
 </ParamField>
 
-<ParamField path="start" type="integer">
+<ParamField path="base_url" type="string | null">
 
-Starting index for pagination (0-based).
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
-Default: `0`.
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_labels" type="boolean | null">
+
+Includes labels associated with this attachment in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_properties" type="boolean | null">
+
+Includes content properties associated with this attachment in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_versions" type="boolean | null">
+
+Includes versions associated with this attachment in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="version" type="integer | null">
+
+Allows you to retrieve a previously published version. Specify the previous version's number to retrieve its details.
+
+Default: `null`.
+
+</ParamField>
+
+## Get blog post
+
+Action ID: `tools.confluence.get_blog_post`
+
+Returns a specific blog post by its ID, optionally including its body in the requested format.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-blog-post/#api-blogposts-id-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-blog-post/#api-blogposts-id-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="blog_post_id" type="string" required>
+
+The ID of the blog post to be returned.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="body_format" type="string | null">
+
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format, view, export_view, anonymous_export_view, styled_view, editor.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="get_draft" type="boolean | null">
+
+Retrieve the draft version of this blog post.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_labels" type="boolean | null">
+
+Includes labels associated with this blog post in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_properties" type="boolean | null">
+
+Includes content properties associated with this blog post in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to the blog post based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, trashed, deleted, historical, draft.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="version" type="integer | null">
+
+Allows you to retrieve a previously published version. Specify the previous version's number to retrieve its details.
+
+Default: `null`.
+
+</ParamField>
+
+## Get folder
+
+Action ID: `tools.confluence.get_folder`
+
+Returns a specific folder by its ID. Folders organize pages in a space's content tree.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-folder/#api-folders-id-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-folder/#api-folders-id-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="folder_id" type="string" required>
+
+The ID of the folder to be returned.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_direct_children" type="boolean | null">
+
+Includes direct children of the folder.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_properties" type="boolean | null">
+
+Includes content properties associated with this folder in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+## Get folder children
+
+Action ID: `tools.confluence.get_folder_children`
+
+Returns all direct children (pages, folders, whiteboards, databases, and embeds) of a folder.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-children/#api-folders-id-direct-children-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-children/#api-folders-id-direct-children-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="folder_id" type="string" required>
+
+The ID of the parent folder.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of children.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of items per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: created-date, -created-date, id, -id, modified-date, -modified-date, child-position, -child-position, title, -title.
+
+Default: `null`.
+
+</ParamField>
+
+## Get page ancestors
+
+Action ID: `tools.confluence.get_page_ancestors`
+
+Returns all ancestors of a page, ordered from the top-level ancestor down to the direct parent.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-ancestors/#api-pages-id-ancestors-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-ancestors/#api-pages-id-ancestors-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the page.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of pages per result to return. If more results exist, call this endpoint with the highest ancestor's ID to fetch the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+## Get page attachments
+
+Action ID: `tools.confluence.get_page_attachments`
+
+Returns the attachments of a specific page. Each attachment includes a `downloadLink`.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-attachment/#api-pages-id-attachments-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-attachment/#api-pages-id-attachments-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the page for which attachments should be returned.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of attachments.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filename" type="string | null">
+
+Filters on the file-name of attachments. Only one may be specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of attachments per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="mediaType" type="string | null">
+
+Filters on the mediaType of attachments. Only one may be specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: created-date, -created-date, modified-date, -modified-date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to attachments based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, trashed. By default, `current` and `archived` are used.
+
+Default: `null`.
 
 </ParamField>
 
@@ -251,9 +635,9 @@ Default: `0`.
 
 Action ID: `tools.confluence.get_page`
 
-Retrieve a Confluence page by its numeric ID with optional expanded fields.
+Returns a specific page by its ID, optionally including its body in the requested format.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContentById](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContentById)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-get)
 
 ### Secrets
 
@@ -266,23 +650,79 @@ Optional secrets:
 
 <ParamField path="page_id" type="string" required>
 
-Confluence page ID (numeric). In URLs like https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title the ID is 123456789.
+The ID of the page. In URLs like https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title the ID is 123456789.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="expand" type="string">
+<ParamField path="body_format" type="string | null">
 
-Comma-separated fields to expand (e.g., body.storage, body.view, version, space, ancestors, children.attachment).
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format, view, export_view, anonymous_export_view, styled_view, editor.
 
-Default: `"body.storage,version,space"`.
+Default: `"storage"`.
+
+</ParamField>
+
+<ParamField path="get_draft" type="boolean | null">
+
+Retrieve the draft version of this page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_direct_children" type="boolean | null">
+
+Includes direct children of the page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_labels" type="boolean | null">
+
+Includes labels associated with this page in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_properties" type="boolean | null">
+
+Includes content properties associated with this page in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_versions" type="boolean | null">
+
+Includes versions associated with this page in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to the page based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, trashed, deleted, historical, draft.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="version" type="integer | null">
+
+Allows you to retrieve a previously published version. Specify the previous version's number to retrieve its details.
+
+Default: `null`.
 
 </ParamField>
 
@@ -290,9 +730,9 @@ Default: `"body.storage,version,space"`.
 
 Action ID: `tools.confluence.get_page_by_title`
 
-Find a Confluence page by title within a space.
+Find a Confluence page by exact title within a space. Returns the first matching page or null.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContent](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContent)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-spaces-id-pages-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-spaces-id-pages-get)
 
 ### Secrets
 
@@ -317,17 +757,72 @@ Exact page title to retrieve.
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="expand" type="string">
+<ParamField path="body_format" type="string | null">
 
-Comma-separated fields to expand (e.g., body.storage, body.view, version, space, ancestors, children.attachment).
+The content format types to be returned in the `body` field of the response. One of: storage, atlas_doc_format.
 
-Default: `"body.storage,version,space"`.
+Default: `"storage"`.
+
+</ParamField>
+
+## Get page children
+
+Action ID: `tools.confluence.get_page_children`
+
+Returns all direct children (pages, folders, whiteboards, databases, and embeds) of a page.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-children/#api-pages-id-direct-children-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-children/#api-pages-id-direct-children-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="parent_id" type="string" required>
+
+The ID of the parent page.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of children.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of items per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `25`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: created-date, -created-date, id, -id, modified-date, -modified-date, child-position, -child-position, title, -title.
+
+Default: `null`.
 
 </ParamField>
 
@@ -335,9 +830,9 @@ Default: `"body.storage,version,space"`.
 
 Action ID: `tools.confluence.get_page_comments`
 
-Retrieve comments for a Confluence page with pagination support. Use start/limit to iterate through all comments.
+Returns the root footer comments of a specific page.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/&#123;id&#125;/child-commentsOfContent](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/&#123;id&#125;/child-commentsOfContent)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-pages-id-footer-comments-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-pages-id-footer-comments-get)
 
 ### Secrets
 
@@ -350,47 +845,189 @@ Optional secrets:
 
 <ParamField path="page_id" type="string" required>
 
-Confluence page ID to fetch comments for.
+The ID of the page for which footer comments should be returned.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="depth" type="string">
+<ParamField path="body_format" type="string | null">
 
-Depth of comments to return (e.g., all, root).
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
 
-Default: `"all"`.
-
-</ParamField>
-
-<ParamField path="expand" type="string">
-
-Fields to expand on each comment (e.g., body.view, body.storage, version).
-
-Default: `"body.view,version"`.
+Default: `"storage"`.
 
 </ParamField>
 
-<ParamField path="limit" type="integer">
+<ParamField path="cursor" type="string | null">
 
-Maximum number of comments to return per request (1-50).
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of footer comments.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of footer comments per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
 
 Default: `25`.
 
 </ParamField>
 
-<ParamField path="start" type="integer">
+<ParamField path="sort" type="string | null">
 
-Starting index for pagination (0-based). Use _links.next from response to get next page.
+Used to sort the result by a particular field. One of: created-date, -created-date, modified-date, -modified-date.
 
-Default: `0`.
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to footer comments based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, trashed, deleted, historical, draft.
+
+Default: `null`.
+
+</ParamField>
+
+## Get page descendants
+
+Action ID: `tools.confluence.get_page_descendants`
+
+Returns descendants (pages, folders, whiteboards, databases, and embeds) of a page in the content tree.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-descendants/#api-pages-id-descendants-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-descendants/#api-pages-id-descendants-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the page.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of descendants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="depth" type="integer | null">
+
+Maximum depth of descendants to return. Maximum 10.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of items per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+## Get page inline comments
+
+Action ID: `tools.confluence.get_page_inline_comments`
+
+Returns the root inline comments of a specific page.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-pages-id-inline-comments-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-pages-id-inline-comments-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the page for which inline comments should be returned.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="body_format" type="string | null">
+
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of inline comments.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of inline comments per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resolution_status" type="string | null">
+
+Filter the inline comments being retrieved by their resolution status. Multiple values can be specified as a comma-separated list. One of: resolved, open, dangling, reopened.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: created-date, -created-date, modified-date, -modified-date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to inline comments based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, trashed, deleted, historical, draft.
+
+Default: `null`.
 
 </ParamField>
 
@@ -398,9 +1035,9 @@ Default: `0`.
 
 Action ID: `tools.confluence.get_page_labels`
 
-List labels applied to a Confluence page.
+Returns the labels of a specific page.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-getLabelsForContent](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#label-getLabelsForContent)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-label/#api-pages-id-labels-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-label/#api-pages-id-labels-get)
 
 ### Secrets
 
@@ -413,13 +1050,578 @@ Optional secrets:
 
 <ParamField path="page_id" type="string" required>
 
-The ID of the page to fetch labels for.
+The ID of the page for which labels should be returned.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of labels.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of labels per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="prefix" type="string | null">
+
+Filter the results to labels based on their prefix. One of: my, team, global, system.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: created-date, -created-date, id, -id, name, -name.
+
+Default: `null`.
+
+</ParamField>
+
+## Get page versions
+
+Action ID: `tools.confluence.get_page_versions`
+
+Returns the versions of a specific page.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-version/#api-pages-id-versions-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-version/#api-pages-id-versions-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the page to be queried for its versions.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="body_format" type="string | null">
+
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of versions.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of versions per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: modified-date, -modified-date.
+
+Default: `null`.
+
+</ParamField>
+
+## Get space
+
+Action ID: `tools.confluence.get_space`
+
+Returns a specific space by its ID.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-id-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-id-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="space_id" type="string" required>
+
+The ID of the space. Use list_spaces with `keys` to look up a space ID from its key.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description_format" type="string | null">
+
+The content format type to be returned in the `description` field of the response. One of: plain, view.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_labels" type="boolean | null">
+
+Includes labels associated with this space in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_permissions" type="boolean | null">
+
+Includes space permissions associated with this space in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="include_properties" type="boolean | null">
+
+Includes space properties associated with this space in the response. The number of results will be limited to 50.
+
+Default: `null`.
+
+</ParamField>
+
+## List blog posts
+
+Action ID: `tools.confluence.list_blog_posts`
+
+Returns all blog posts the caller can view, optionally filtered by blog post IDs, space IDs, title, or status.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-blog-post/#api-blogposts-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-blog-post/#api-blogposts-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="body_format" type="string | null">
+
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of blog posts.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+Filter the results based on blog post IDs. Multiple blog post IDs can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of blog posts per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: id, -id, created-date, -created-date, modified-date, -modified-date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Filter the results based on space IDs. Multiple space IDs can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to blog posts based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, deleted, trashed. By default, `current` is used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Filter the results to blog posts based on their title.
+
+Default: `null`.
+
+</ParamField>
+
+## List pages
+
+Action ID: `tools.confluence.list_pages`
+
+Returns all pages the caller can view, optionally filtered by page IDs, space IDs, title, or status.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="body_format" type="string | null">
+
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of pages.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+Filter the results based on page IDs. Multiple page IDs can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of pages per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: id, -id, created-date, -created-date, modified-date, -modified-date, title, -title.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Filter the results based on space IDs. Multiple space IDs can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to pages based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, deleted, trashed. By default, `current` and `archived` are used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="subtype" type="string | null">
+
+Filter the results to pages based on their subtype. One of: live, page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Filter the results to pages based on their title.
+
+Default: `null`.
+
+</ParamField>
+
+## List pages in space
+
+Action ID: `tools.confluence.list_space_pages`
+
+Returns all pages in a space, either at the root level of the space or at every depth.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-spaces-id-pages-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-spaces-id-pages-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="space_id" type="string" required>
+
+The ID of the space for which pages should be returned. Use list_spaces with `keys` to look up a space ID from its key.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="body_format" type="string | null">
+
+The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of pages.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="depth" type="string | null">
+
+Filter the results to pages at the root level of the space or to all pages in the space. One of: all, root.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of pages per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: id, -id, created-date, -created-date, modified-date, -modified-date, title, -title.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to pages based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, deleted, trashed. By default, `current` and `archived` are used.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Filter the results to pages based on their title.
+
+Default: `null`.
+
+</ParamField>
+
+## List spaces
+
+Action ID: `tools.confluence.list_spaces`
+
+Returns all spaces the caller can view. Filter by space key to resolve a space ID for other actions.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-get](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/#api-spaces-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of spaces.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description_format" type="string | null">
+
+The content format type to be returned in the `description` field of the response. One of: plain, view.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="ids" type="string | null">
+
+Filter the results to spaces based on their IDs. Multiple IDs can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="keys" type="string | null">
+
+Filter the results to spaces based on their keys. Multiple keys can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="labels" type="string | null">
+
+Filter the results to spaces based on their labels. Multiple labels can be specified as a comma-separated list.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of spaces per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+Used to sort the result by a particular field. One of: id, -id, key, -key, name, -name.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Filter the results to spaces based on their status. One of: current, archived, trashed.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Filter the results to spaces based on their type. One of: global, collaboration, knowledge_base, personal, system, onboarding, xflow_sample_space.
+
+Default: `null`.
+
+</ParamField>
+
+## Remove page label
+
+Action ID: `tools.confluence.remove_page_label`
+
+Removes a label from a page. Uses the v1 API because the v2 API has no label write endpoints.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content-labels/#api-wiki-rest-api-content-id-label-label-delete](https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content-labels/#api-wiki-rest-api-content-id-label-label-delete)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="label" type="string" required>
+
+The name of the label to be removed.
+
+</ParamField>
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the page that the label will be removed from.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
@@ -431,7 +1633,7 @@ Action ID: `tools.confluence.search_content`
 
 Search Confluence content with Confluence Query Language (CQL) and optional space filters.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-search](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-search)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-search/#api-wiki-rest-api-search-get](https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-search/#api-wiki-rest-api-search-get)
 
 ### Secrets
 
@@ -450,7 +1652,7 @@ Search query in CQL. Examples: 'type=page AND space=DEV', 'title~"Runbook"', or 
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
@@ -476,9 +1678,9 @@ Default: `null`.
 
 Action ID: `tools.confluence.update_page`
 
-Update an existing Confluence page, incrementing the version automatically.
+Update an existing Confluence page's title and body, incrementing the version automatically.
 
-Reference: [https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-update](https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-update)
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-put](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-put)
 
 ### Secrets
 
@@ -491,25 +1693,25 @@ Optional secrets:
 
 <ParamField path="content" type="string" required>
 
-Updated page body in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+Updated page body in the selected representation. Convert Markdown to Confluence storage (XHTML) before sending if needed.
 
 </ParamField>
 
 <ParamField path="page_id" type="string" required>
 
-ID of the page to update.
+The ID of the page to be updated.
 
 </ParamField>
 
 <ParamField path="title" type="string" required>
 
-New title for the page.
+Title of the page.
 
 </ParamField>
 
 <ParamField path="base_url" type="string | null">
 
-Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;. Do not append /rest/api.
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
 
 Default: `null`.
 
@@ -517,32 +1719,95 @@ Default: `null`.
 
 <ParamField path="content_representation" type="string">
 
-Content representation for the body (storage or wiki).
+The representation of the body content. One of: storage (Confluence XHTML), wiki (wiki markup), atlas_doc_format (ADF JSON string).
 
 Default: `"storage"`.
 
 </ParamField>
 
-<ParamField path="is_minor_edit" type="boolean">
-
-Whether this is a minor edit for versioning purposes.
-
-Default: `false`.
-
-</ParamField>
-
 <ParamField path="parent_id" type="string | null">
 
-Optional new parent page ID to set on update.
+ID of the parent content. This allows the page to be moved under a different parent within the same space.
 
 Default: `null`.
 
 </ParamField>
 
-<ParamField path="version_comment" type="string">
+<ParamField path="status" type="string">
 
-Optional version comment to record with the update.
+The updated status of the page. One of: current, draft.
 
-Default: `""`.
+Default: `"current"`.
+
+</ParamField>
+
+<ParamField path="version_comment" type="string | null">
+
+Optional message to record with the new version.
+
+Default: `null`.
+
+</ParamField>
+
+## Upload attachment
+
+Action ID: `tools.confluence.upload_attachment`
+
+Upload a file as an attachment to a Confluence page. Uses the v1 API because the v2 API has no attachment upload endpoint.
+
+Reference: [https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---attachments/#api-wiki-rest-api-content-id-child-attachment-post](https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---attachments/#api-wiki-rest-api-content-id-child-attachment-post)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `confluence`: required values `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base64_content" type="string" required>
+
+Base64-encoded file content.
+
+</ParamField>
+
+<ParamField path="content_type" type="string" required>
+
+MIME type of the file (e.g., "application/pdf", "image/png", "text/plain").
+
+</ParamField>
+
+<ParamField path="filename" type="string" required>
+
+Name of the file to upload (e.g., runbook.pdf).
+
+</ParamField>
+
+<ParamField path="minorEdit" type="boolean" required>
+
+If `minorEdit` is set to true, no notification email or activity stream will be generated when the attachment is added to the content.
+
+</ParamField>
+
+<ParamField path="page_id" type="string" required>
+
+The ID of the content to add the attachment to.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Confluence site base URL (e.g. https://example.atlassian.net/wiki). With Atlassian OAuth, use https://api.atlassian.com/ex/confluence/&#123;cloudId&#125;/wiki. Do not append /api/v2 or /rest/api.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+The status of the content that the attachment is being added to. One of: current, draft.
+
+Default: `null`.
 
 </ParamField>

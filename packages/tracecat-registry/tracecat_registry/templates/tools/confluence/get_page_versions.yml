@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Get page versions
+  description: >-
+    Returns the versions of a specific page.
+  display_group: Confluence
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-version/#api-pages-id-versions-get
+  namespace: tools.confluence
+  name: get_page_versions
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
+  expects:
+    page_id:
+      type: str
+      description: >-
+        The ID of the page to be queried for its versions.
+    body_format:
+      type: str | None
+      description: >-
+        The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+      default: null
+    cursor:
+      type: str | None
+      description: >-
+        Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of versions.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        Maximum number of versions per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
+      default: null
+    sort:
+      type: str | None
+      description: >-
+        Used to sort the result by a particular field. One of: modified-date, -modified-date.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
+        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}/wiki.
+        Do not append /api/v2 or /rest/api.
+      default: null
+  steps:
+    - ref: get_page_versions
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages/${{ FN.url_encode(inputs.page_id) }}/versions
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          body-format: ${{ inputs.body_format }}
+          cursor: ${{ inputs.cursor }}
+          limit: ${{ inputs.limit }}
+          sort: ${{ inputs.sort }}
+  returns: ${{ steps.get_page_versions.result }}
