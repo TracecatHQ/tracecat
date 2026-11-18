@@ -640,7 +640,7 @@ class CaseSearchService(BaseWorkspaceService):
             index_plan = TEXT_INDEX_PLAN
             # A search that matches more than the cap fills a page within the
             # first rows of the date index, so it may read the index in order
-            # (1.4 s became 30 ms at one million matches).
+            # (1.4 s became about 0.1 s at one million matches).
             if (
                 request.cap_broad_matches
                 and request.search_mode is not None
