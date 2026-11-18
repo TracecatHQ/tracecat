@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -62,6 +63,7 @@ from tracecat.cases.text_search import (
     get_case_search_excerpts,
     parse_case_text_query,
     validate_case_text_lexemes,
+    without_jit,
 )
 from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, CaseTask
 from tracecat.exceptions import TracecatValidationError
@@ -361,13 +363,18 @@ class CaseSearchService(BaseWorkspaceService):
         _require_resolved_view(request)
         lexical = self.parse_lexical_query(request)
         if lexical is None:
-            return await self._query_cases(
-                request,
-                case_addons_enabled=case_addons_enabled,
-                legacy_filters=legacy_filters,
-                linked_row=linked_row,
-                exclude_case_id=exclude_case_id,
-            )
+            # The omitted-mode substring search shares the lexical predicates'
+            # planner costs, and with them the needless JIT compilation.
+            async with (
+                without_jit(self.session) if request.search_term else nullcontext()
+            ):
+                return await self._query_cases(
+                    request,
+                    case_addons_enabled=case_addons_enabled,
+                    legacy_filters=legacy_filters,
+                    linked_row=linked_row,
+                    exclude_case_id=exclude_case_id,
+                )
         transaction = (
             self.session.begin_nested()
             if self.session.in_transaction()
@@ -859,11 +866,14 @@ class CaseSearchService(BaseWorkspaceService):
         _require_resolved_view(query)
         lexical = self.parse_lexical_query(query)
         if lexical is None:
-            return await self._query_aggregates(
-                query,
-                case_addons_enabled=case_addons_enabled,
-                legacy_filters=legacy_filters,
-            )
+            async with (
+                without_jit(self.session) if query.search_term else nullcontext()
+            ):
+                return await self._query_aggregates(
+                    query,
+                    case_addons_enabled=case_addons_enabled,
+                    legacy_filters=legacy_filters,
+                )
         transaction = (
             self.session.begin_nested()
             if self.session.in_transaction()

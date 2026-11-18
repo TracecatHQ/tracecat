@@ -705,12 +705,13 @@ async def get_case_search_excerpts(
 
 
 @asynccontextmanager
-async def _without_jit(session: AsyncSession) -> AsyncIterator[None]:
+async def without_jit(session: AsyncSession) -> AsyncIterator[None]:
     """Turn off JIT compilation for search statements in this transaction.
 
     Search statements are index-driven and usually finish in milliseconds, but
     their long expressions push the planner's cost estimate over
-    jit_above_cost. Compiling them then took about 30 ms per statement, several
+    jit_above_cost. The legacy substring search outside the lexical execution
+    context uses this too. Compiling them then took about 30 ms per statement, several
     times the execution time of a selective search. The setting is
     transaction-local and restored afterwards; on an error the caller's
     rollback restores it.
@@ -745,7 +746,7 @@ async def case_search_execution_context(
                 session,
                 statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
             ),
-            _without_jit(session),
+            without_jit(session),
         ):
             if check_readiness:
                 await ensure_case_text_indexes(session)
