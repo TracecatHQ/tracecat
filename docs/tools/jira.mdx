@@ -41,6 +41,250 @@ Default: `null`.
 
 </ParamField>
 
+## Add issue labels
+
+Action ID: `tools.jira.add_issue_labels`
+
+Add labels to a Jira issue without replacing its existing labels.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="labels" type="array[string]" required>
+
+Labels to add to the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="notifyUsers" type="boolean | null">
+
+Whether a notification email about the issue update is sent to all watchers. To disable the notification, administer Jira or administer project permissions are required. If the user doesn't have the necessary permission the request is ignored.
+
+Default: `null`.
+
+</ParamField>
+
+## Add issue watcher
+
+Action ID: `tools.jira.add_issue_watcher`
+
+Add a user as a watcher of a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-watchers/#api-rest-api-3-issue-issueidorkey-watchers-post](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-watchers/#api-rest-api-3-issue-issueidorkey-watchers-post)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="accountId" type="string" required>
+
+The account ID of the user to add as a watcher (e.g. 5b10ac8d82e05b22cc7d4ef5).
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## Add issue worklog
+
+Action ID: `tools.jira.add_issue_worklog`
+
+Add a worklog to a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-worklogs/#api-rest-api-3-issue-issueidorkey-worklog-post](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-worklogs/#api-rest-api-3-issue-issueidorkey-worklog-post)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key the issue.
+
+</ParamField>
+
+<ParamField path="started" type="string" required>
+
+The datetime on which the worklog effort was started (e.g. 2021-01-17T12:34:00.000+0000).
+
+</ParamField>
+
+<ParamField path="adjustEstimate" type="string | null">
+
+Defines how to update the issue's time estimate, the options are: `new` Sets the estimate to a specific value, defined in `newEstimate`. `leave` Leaves the estimate unchanged. `manual` Reduces the estimate by amount specified in `reduceBy`. `auto` Reduces the estimate by the value of `timeSpent` in the worklog.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="comment" type="string | object | null">
+
+A comment about the worklog in Atlassian Document Format. Plain strings are wrapped as ADF text paragraphs.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Use expand to include additional information about work logs in the response. This parameter accepts `properties`, which returns worklog properties.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="newEstimate" type="string | null">
+
+The value to set as the issue's remaining time estimate, as days (#d), hours (#h), or minutes (#m or #). For example, 2d. Required when `adjustEstimate` is `new`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="notifyUsers" type="boolean | null">
+
+Whether users watching the issue are notified by email.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reduceBy" type="string | null">
+
+The amount to reduce the issue's remaining estimate by, as days (#d), hours (#h), or minutes (#m). For example, 2d. Required when `adjustEstimate` is `manual`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeSpent" type="string | null">
+
+The time spent working on the issue as days (#d), hours (#h), or minutes (#m or #). Required if timeSpentSeconds isn't provided.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeSpentSeconds" type="integer | null">
+
+The time in seconds spent working on the issue. Required if timeSpent isn't provided.
+
+Default: `null`.
+
+</ParamField>
+
+## Add remote issue link
+
+Action ID: `tools.jira.add_remote_issue_link`
+
+Add or update a remote link on a Jira issue, for example a link back to a Tracecat case.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-remote-links/#api-rest-api-3-issue-issueidorkey-remotelink-post](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-remote-links/#api-rest-api-3-issue-issueidorkey-remotelink-post)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="object" type="object" required>
+
+Details of the item linked to. Requires url and title (e.g. &#123;"url": "https://example.com/case/1", "title": "Case 1"&#125;).
+
+</ParamField>
+
+<ParamField path="application" type="object | null">
+
+Details of the remote application the linked item is in (e.g. &#123;"name": "Tracecat", "type": "com.tracecat"&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="globalId" type="string | null">
+
+An identifier for the remote item in the remote system. If a link with this globalId already exists on the issue, it is updated.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="relationship" type="string | null">
+
+Description of the relationship between the issue and the linked item (e.g. causes).
+
+Default: `null`.
+
+</ParamField>
+
 ## Assign issue
 
 Action ID: `tools.jira.assign_issue`
@@ -67,6 +311,37 @@ Jira issue key (e.g. TC-123)
 <ParamField path="user_id" type="string" required>
 
 Jira user ID (e.g. 1234567890)
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## Bulk create issues
+
+Action ID: `tools.jira.bulk_create_issues`
+
+Create up to 50 Jira issues in one request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-bulk-post](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-bulk-post)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueUpdates" type="array[object]" required>
+
+Issues to create. Each item has the same shape as the create issue body (e.g. &#123;"fields": &#123;...&#125;&#125;). Rich-text fields must be Atlassian Document Format. Maximum 50.
 
 </ParamField>
 
@@ -153,6 +428,228 @@ Default: `[]`.
 
 </ParamField>
 
+## Delete issue
+
+Action ID: `tools.jira.delete_issue`
+
+Delete a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-delete](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-delete)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="deleteSubtasks" type="string | null">
+
+Whether the issue's subtasks are deleted when the issue is deleted ("true" or "false"). Required if the issue has subtasks.
+
+Default: `null`.
+
+</ParamField>
+
+## Delete issue comment
+
+Action ID: `tools.jira.delete_issue_comment`
+
+Delete a comment from a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-id-delete](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-id-delete)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The ID of the comment.
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## Download attachment
+
+Action ID: `tools.jira.download_attachment`
+
+Download the contents of a Jira attachment. The response data is base64 encoded.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-attachments/#api-rest-api-3-attachment-content-id-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-attachments/#api-rest-api-3-attachment-content-id-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The ID of the attachment.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## Get attachment metadata
+
+Action ID: `tools.jira.get_attachment`
+
+Get the metadata for a Jira attachment. Attachment IDs are listed in the issue's attachment field (get_issue).
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-attachments/#api-rest-api-3-attachment-id-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-attachments/#api-rest-api-3-attachment-id-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The ID of the attachment.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## Get create issue fields
+
+Action ID: `tools.jira.get_create_issue_fields`
+
+Get the fields, including required and allowed values, for creating an issue of a given type in a Jira project.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-createmeta-projectidorkey-issuetypes-issuetypeid-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-createmeta-projectidorkey-issuetypes-issuetypeid-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueTypeId" type="string" required>
+
+The issuetype ID.
+
+</ParamField>
+
+<ParamField path="projectIdOrKey" type="string" required>
+
+The ID or key of the project.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="maxResults" type="integer | null">
+
+The maximum number of items to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startAt" type="integer | null">
+
+The index of the first item to return in a page of results (page offset).
+
+Default: `null`.
+
+</ParamField>
+
+## Get edit issue metadata
+
+Action ID: `tools.jira.get_edit_issue_metadata`
+
+Get the fields that can be edited on a Jira issue, with their allowed values.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-editmeta-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-editmeta-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get fields
 
 Action ID: `tools.jira.get_fields`
@@ -214,6 +711,84 @@ Default: `null`.
 A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list of strings. Expand options include: *all, *navigable, summary, comment,-description, -comment (defaults to *all).
 
 Default: `"*all"`.
+
+</ParamField>
+
+## Get issue changelog
+
+Action ID: `tools.jira.get_issue_changelog`
+
+Get the change history of a Jira issue, one page at a time.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-changelog-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-changelog-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="maxResults" type="integer | null">
+
+The maximum number of items to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startAt" type="integer | null">
+
+The index of the first item to return in a page of results (page offset).
+
+Default: `null`.
+
+</ParamField>
+
+## Get issue watchers
+
+Action ID: `tools.jira.get_issue_watchers`
+
+Get the watchers of a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-watchers/#api-rest-api-3-issue-issueidorkey-watchers-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-watchers/#api-rest-api-3-issue-issueidorkey-watchers-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
 
 </ParamField>
 
@@ -384,6 +959,376 @@ Default: `null`.
 
 </ParamField>
 
+## Link issues
+
+Action ID: `tools.jira.link_issues`
+
+Create a link between two Jira issues, for example to mark one as a duplicate of another.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-links/#api-rest-api-3-issuelink-post](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-links/#api-rest-api-3-issuelink-post)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="inwardIssue" type="object" required>
+
+The issue on the inward side of the link, by key or ID (e.g. &#123;"key": "PROJ-1"&#125;).
+
+</ParamField>
+
+<ParamField path="outwardIssue" type="object" required>
+
+The issue on the outward side of the link, by key or ID (e.g. &#123;"key": "PROJ-2"&#125;).
+
+</ParamField>
+
+<ParamField path="type" type="object" required>
+
+The type of link, by name or ID (e.g. &#123;"name": "Duplicate"&#125;). Use list_issue_link_types to find the available types.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## List issue comments
+
+Action ID: `tools.jira.list_issue_comments`
+
+Get the comments on a Jira issue, one page at a time.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Use expand to include additional information about comments in the response. This parameter accepts `renderedBody`, which returns the comment body rendered in HTML.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="maxResults" type="integer | null">
+
+The maximum number of items to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="orderBy" type="string | null">
+
+Order the results by a field. Accepts created to sort comments by their created date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startAt" type="integer | null">
+
+The index of the first item to return in a page of results (page offset).
+
+Default: `null`.
+
+</ParamField>
+
+## List issue link types
+
+Action ID: `tools.jira.list_issue_link_types`
+
+Get the issue link types available on the Jira site.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-link-types/#api-rest-api-3-issuelinktype-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-link-types/#api-rest-api-3-issuelinktype-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+## List issue worklogs
+
+Action ID: `tools.jira.list_issue_worklogs`
+
+Get the worklogs for a Jira issue, one page at a time.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-worklogs/#api-rest-api-3-issue-issueidorkey-worklog-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-worklogs/#api-rest-api-3-issue-issueidorkey-worklog-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Use expand to include additional information about worklogs in the response. This parameter accepts`properties`, which returns worklog properties.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="maxResults" type="integer | null">
+
+The maximum number of items to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startAt" type="integer | null">
+
+The index of the first item to return in a page of results (page offset).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startedAfter" type="integer | null">
+
+The worklog start date and time, as a UNIX timestamp in milliseconds, after which worklogs are returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startedBefore" type="integer | null">
+
+The worklog start date and time, as a UNIX timestamp in milliseconds, before which worklogs are returned.
+
+Default: `null`.
+
+</ParamField>
+
+## List project issue types
+
+Action ID: `tools.jira.list_project_issue_types`
+
+Get the issue types that can be created in a Jira project.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-createmeta-projectidorkey-issuetypes-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-createmeta-projectidorkey-issuetypes-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="projectIdOrKey" type="string" required>
+
+The ID or key of the project.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="maxResults" type="integer | null">
+
+The maximum number of items to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startAt" type="integer | null">
+
+The index of the first item to return in a page of results (page offset).
+
+Default: `null`.
+
+</ParamField>
+
+## List remote issue links
+
+Action ID: `tools.jira.list_remote_issue_links`
+
+Get the remote links (links to items outside Jira) on a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-remote-links/#api-rest-api-3-issue-issueidorkey-remotelink-get](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-remote-links/#api-rest-api-3-issue-issueidorkey-remotelink-get)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="globalId" type="string | null">
+
+The global ID of the remote issue link.
+
+Default: `null`.
+
+</ParamField>
+
+## Remove issue labels
+
+Action ID: `tools.jira.remove_issue_labels`
+
+Remove labels from a Jira issue, keeping its other labels.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="labels" type="array[string]" required>
+
+Labels to remove from the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="notifyUsers" type="boolean | null">
+
+Whether a notification email about the issue update is sent to all watchers. To disable the notification, administer Jira or administer project permissions are required. If the user doesn't have the necessary permission the request is ignored.
+
+Default: `null`.
+
+</ParamField>
+
+## Remove issue watcher
+
+Action ID: `tools.jira.remove_issue_watcher`
+
+Remove a user as a watcher of a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-watchers/#api-rest-api-3-issue-issueidorkey-watchers-delete](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-watchers/#api-rest-api-3-issue-issueidorkey-watchers-delete)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="accountId" type="string" required>
+
+The account ID of the user, which uniquely identifies the user across all Atlassian products. For example, 5b10ac8d82e05b22cc7d4ef5.
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
 ## Search issues
 
 Action ID: `tools.jira.search_issues`
@@ -434,6 +1379,65 @@ Default: `100`.
 <ParamField path="next_page" type="string">
 
 Next page token to get the next page of results. If not provided, the first page of results will be returned.
+
+Default: `null`.
+
+</ParamField>
+
+## Update issue comment
+
+Action ID: `tools.jira.update_issue_comment`
+
+Update a comment on a Jira issue.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-id-put](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-id-put)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="body" type="string | object" required>
+
+The comment text in Atlassian Document Format. Plain strings are wrapped as ADF text paragraphs. JSON object strings are deserialized.
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The ID of the comment.
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the issue.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="string | null">
+
+Use expand to include additional information about comments in the response. This parameter accepts `renderedBody`, which returns the comment body rendered in HTML.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="notifyUsers" type="boolean | null">
+
+Whether users are notified when a comment is updated.
 
 Default: `null`.
 

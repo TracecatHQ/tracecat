@@ -214,6 +214,42 @@ Default: `null`.
 
 </ParamField>
 
+## Add request participants
+
+Action ID: `tools.jira_service_management.add_request_participants`
+
+Add participants to a service request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-participant-post](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-participant-post)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="accountIds" type="array[string]" required>
+
+Account IDs of the users to add as participants.
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the customer request to have participants added.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
 ## Add responder to alert
 
 Action ID: `tools.jira_service_management.add_responder`
@@ -329,6 +365,48 @@ Default: `null`.
 <ParamField path="user" type="string | null">
 
 Display name of the request owner.
+
+Default: `null`.
+
+</ParamField>
+
+## Answer approval
+
+Action ID: `tools.jira_service_management.answer_approval`
+
+Approve or decline an approval on a service request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-approval-approvalid-post](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-approval-approvalid-post)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="approvalId" type="integer" required>
+
+The ID of the approval to be updated.
+
+</ParamField>
+
+<ParamField path="decision" type="string" required>
+
+Response to the approval request: "approve" or "decline".
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the customer request to be updated.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
 
 Default: `null`.
 
@@ -1293,6 +1371,52 @@ Default: `null`.
 
 </ParamField>
 
+## Get request transitions
+
+Action ID: `tools.jira_service_management.get_request_transitions`
+
+Get the transitions a customer can perform on a service request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-transition-get](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-transition-get)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the customer request whose transitions will be retrieved.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of items to return per page. Default: 50. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start" type="integer | null">
+
+The starting index of the returned objects. Base index: 0. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
 ## Get request types
 
 Action ID: `tools.jira_service_management.get_request_types`
@@ -1581,6 +1705,216 @@ Default: `null`.
 
 </ParamField>
 
+## List organizations
+
+Action ID: `tools.jira_service_management.list_organizations`
+
+Get the customer organizations on the Jira Service Management site.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-organization/#api-rest-servicedeskapi-organization-get](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-organization/#api-rest-servicedeskapi-organization-get)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="accountId" type="string | null">
+
+The account ID of the user, which uniquely identifies the user across all Atlassian products. For example, 5b10ac8d82e05b22cc7d4ef5.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of organizations to return per page. Default: 50. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start" type="integer | null">
+
+The starting index of the returned objects. Base index: 0. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+## List request approvals
+
+Action ID: `tools.jira_service_management.list_request_approvals`
+
+Get the approvals on a service request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-approval-get](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-approval-get)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the customer request to be queried for its approvals.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of approvals to return per page. Default: 50. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start" type="integer | null">
+
+The starting index of the returned objects. Base index: 0. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+## List request comments
+
+Action ID: `tools.jira_service_management.list_request_comments`
+
+Get the comments on a service request, including internal comments.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-comment-get](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-comment-get)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the customer request whose comments will be retrieved.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="expand" type="array[string] | null">
+
+A multi-value parameter indicating which properties of the comment to expand: `attachment` returns the attachment details, if any, for each comment. (If you want to get all attachments for a request, use servicedeskapi/request/\&#123;issueIdOrKey\&#125;/attachment.) `renderedBody` (Experimental) returns the rendered body in HTML format (in addition to the raw body) for each comment.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="internal" type="boolean | null">
+
+Specifies whether to return internal comments or not. Default: true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of comments to return per page. Default: 50. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="public" type="boolean | null">
+
+Specifies whether to return public comments or not. Default: true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start" type="integer | null">
+
+The starting index of the returned comments. Base index: 0. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+## List request participants
+
+Action ID: `tools.jira_service_management.list_request_participants`
+
+Get the participants of a service request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-participant-get](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-participant-get)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+The ID or key of the customer request to be queried for its participants.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of request types to return per page. Default: 50. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start" type="integer | null">
+
+The starting index of the returned objects. Base index: 0. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
 ## List schedules
 
 Action ID: `tools.jira_service_management.list_schedules`
@@ -1632,6 +1966,60 @@ Default: `null`.
 <ParamField path="size" type="integer | null">
 
 Maximum number of items to return.
+
+Default: `null`.
+
+</ParamField>
+
+## List service desk organizations
+
+Action ID: `tools.jira_service_management.list_service_desk_organizations`
+
+Get the customer organizations associated with a service desk.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-organization/#api-rest-servicedeskapi-servicedesk-servicedeskid-organization-get](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-organization/#api-rest-servicedeskapi-servicedesk-servicedeskid-organization-get)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="serviceDeskId" type="string" required>
+
+The ID of the service desk from which the organization list will be returned. This can alternatively be a project identifier.
+
+</ParamField>
+
+<ParamField path="accountId" type="string | null">
+
+The account ID of the user, which uniquely identifies the user across all Atlassian products. For example, 5b10ac8d82e05b22cc7d4ef5.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+The maximum number of items to return per page. Default: 50. See the Pagination section for more details.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="start" type="integer | null">
+
+The starting index of the returned objects. Base index: 0. See the Pagination section for more details.
 
 Default: `null`.
 
@@ -1728,6 +2116,50 @@ Default: `null`.
 <ParamField path="user" type="string | null">
 
 Display name of the request owner.
+
+Default: `null`.
+
+</ParamField>
+
+## Transition request
+
+Action ID: `tools.jira_service_management.transition_request`
+
+Perform a customer transition on a service request.
+
+Reference: [https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-transition-post](https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-transition-post)
+
+### Secrets
+
+Required secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+ID of the transition to be performed. Use get_request_transitions to find it.
+
+</ParamField>
+
+<ParamField path="issueIdOrKey" type="string" required>
+
+ID or key of the issue to transition
+
+</ParamField>
+
+<ParamField path="additionalComment" type="string | null">
+
+Comment explaining the reason for the transition.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Atlassian API URL for the Jira site (e.g. https://api.atlassian.com/ex/jira/&#123;cloudId&#125;).
 
 Default: `null`.
 

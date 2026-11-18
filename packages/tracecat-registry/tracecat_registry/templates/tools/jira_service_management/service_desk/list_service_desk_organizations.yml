@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List service desk organizations
+  description: Get the customer organizations associated with a service desk.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-organization/#api-rest-servicedeskapi-servicedesk-servicedeskid-organization-get
+  namespace: tools.jira_service_management
+  name: list_service_desk_organizations
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    serviceDeskId:
+      type: str
+      description: >-
+        The ID of the service desk from which the organization list will be
+        returned. This can alternatively be a project identifier.
+    start:
+      type: int | None
+      description: >-
+        The starting index of the returned objects. Base index: 0. See the
+        Pagination section for more details.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        The maximum number of items to return per page. Default: 50. See the
+        Pagination section for more details.
+      default: null
+    accountId:
+      type: str | None
+      description: >-
+        The account ID of the user, which uniquely identifies the user across
+        all Atlassian products. For example, 5b10ac8d82e05b22cc7d4ef5.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    - ref: list_service_desk_organizations
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/servicedesk/${{ FN.url_encode(inputs.serviceDeskId) }}/organization
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          start: ${{ inputs.start }}
+          limit: ${{ inputs.limit }}
+          accountId: ${{ inputs.accountId }}
+  returns: ${{ steps.list_service_desk_organizations.result }}
