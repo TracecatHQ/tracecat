@@ -1,0 +1,99 @@
+overlay: 1.0.0
+info:
+  title: Agent endpoint navigation
+  version: 1.0.0
+
+# Adding a tag changes Mintlify's default URL. Keep the published URLs explicit.
+actions:
+  - target: "$.paths['/organization/agent-catalog'].get"
+    update:
+      tags: [agent-catalog]
+      x-mint:
+        href: /api-reference/list-catalog
+  - target: "$.paths['/organization/agent-catalog'].post"
+    update:
+      tags: [agent-catalog]
+      x-mint:
+        href: /api-reference/create-catalog-entry
+  - target: "$.paths['/organization/agent-catalog/{catalog_id}'].get"
+    update:
+      tags: [agent-catalog]
+      x-mint:
+        href: /api-reference/get-catalog-entry
+  - target: "$.paths['/organization/agent-catalog/{catalog_id}'].patch"
+    update:
+      tags: [agent-catalog]
+      x-mint:
+        href: /api-reference/update-catalog-entry
+  - target: "$.paths['/organization/agent-catalog/{catalog_id}'].delete"
+    update:
+      tags: [agent-catalog]
+      x-mint:
+        href: /api-reference/delete-catalog-entry
+
+  - target: "$.paths['/organization/agent-model-access'].get"
+    update:
+      tags: [agent-model-access]
+      x-mint:
+        href: /api-reference/list-enabled-models
+  - target: "$.paths['/organization/agent-model-access'].post"
+    update:
+      tags: [agent-model-access]
+      x-mint:
+        href: /api-reference/enable-model
+  - target: "$.paths['/organization/agent-model-access/{access_id}'].delete"
+    update:
+      tags: [agent-model-access]
+      x-mint:
+        href: /api-reference/disable-model
+  - target: "$.paths['/workspaces/{workspace_id}/agent-models'].get"
+    update:
+      tags: [agent-model-access]
+      x-mint:
+        href: /api-reference/get-workspace-models
+  - target: "$.paths['/workspaces/{workspace_id}/agent-model-access'].get"
+    update:
+      tags: [agent-model-access]
+      x-mint:
+        href: /api-reference/get-workspace-model-access
+  - target: "$.paths['/workspaces/{workspace_id}/agent-model-access'].put"
+    update:
+      tags: [agent-model-access]
+      x-mint:
+        href: /api-reference/update-workspace-model-access
+
+  - target: "$.paths['/organization/agent-custom-providers'].get"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/list-custom-providers
+  - target: "$.paths['/organization/agent-custom-providers'].post"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/create-custom-provider
+  - target: "$.paths['/organization/agent-custom-providers/{provider_id}'].get"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/get-custom-provider
+  - target: "$.paths['/organization/agent-custom-providers/{provider_id}'].patch"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/update-custom-provider
+  - target: "$.paths['/organization/agent-custom-providers/{provider_id}'].delete"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/delete-custom-provider
+  - target: "$.paths['/organization/agent-custom-providers/{provider_id}/refresh'].post"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/refresh-custom-provider-catalog
+  - target: "$.paths['/organization/agent-custom-providers/validate'].post"
+    update:
+      tags: [agent-custom-providers]
+      x-mint:
+        href: /api-reference/validate-custom-provider-connection
