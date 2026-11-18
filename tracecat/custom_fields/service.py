@@ -213,23 +213,28 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
     ) -> Sequence[sa.engine.interfaces.ReflectedColumn] | None:
         """Return the table's user-visible columns, or None if it is missing.
 
-        Costs one catalog query when the columns are unchanged since the last
-        reflection in this process.
+        Takes ACCESS SHARE on the table first, as a SELECT on it would, so
+        column DDL cannot commit until the caller's transaction ends: the
+        fingerprint, the reflection and any query built from the returned
+        names all see the same columns. Costs one catalog query when the
+        columns are unchanged since the last reflection in this process.
         """
 
-        key = (self.schema_name, self._table)
+        if not await self._schema_exists():
+            return None
+        await self.session.execute(
+            sa.text(f"LOCK TABLE {self._full_table_name()} IN ACCESS SHARE MODE")
+        )
         fingerprint = await self._columns_fingerprint()
         if fingerprint is None:
             return None
+        key = (self.schema_name, self._table)
         cached = _columns_cache.get(key)
         if cached is not None and cached[0] == fingerprint:
             columns = cached[1]
         else:
             columns = await self.editor.get_columns()
-            # Statements read separate snapshots; cache only if nothing
-            # changed while reflecting.
-            if await self._columns_fingerprint() == fingerprint:
-                _columns_cache[key] = (fingerprint, columns)
+            _columns_cache[key] = (fingerprint, columns)
         # Copies, so a caller cannot change the shared entry.
         return [column.copy() for column in columns]
 

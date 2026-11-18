@@ -19,6 +19,7 @@ from sqlalchemy.util import await_only
 from tracecat_ee.tunnels import gateways
 
 from tracecat.auth.types import Role
+from tracecat.cases.schemas import CaseFieldCreate, CaseFieldUpdate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import (
     get_async_engine,
@@ -31,6 +32,7 @@ from tracecat.db.locks import (
     require_lock_holder_on_commit,
 )
 from tracecat.db.models import Case
+from tracecat.tables.enums import SqlType
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
@@ -294,6 +296,50 @@ async def test_custom_field_reads_never_take_the_schema_lock(
             asyncio.gather(*(read_fields() for _ in range(8))), timeout=30
         )
         assert results == [(0, schema_exists)] * 8
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await CaseFieldsService(session, svc_role).drop_workspace_schema()
+            await session.commit()
+
+
+async def test_case_field_columns_stay_valid_until_the_read_ends(
+    svc_role: Role,
+) -> None:
+    """Field DDL waits for a read that took columns, so the names stay valid.
+
+    Without this, a rename committed between the column read and the row query
+    fails the query, and a cache filled during the rename stores wrong columns.
+    """
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await CaseFieldsService(session, svc_role).create_field(
+            CaseFieldCreate(name="first", type=SqlType.TEXT)
+        )
+
+    async def rename() -> None:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await CaseFieldsService(session, svc_role).update_field(
+                "first", CaseFieldUpdate(name="second")
+            )
+
+    async def names() -> set[str]:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            columns = await CaseFieldsService(session, svc_role).list_fields()
+            return {column["name"] for column in columns}
+
+    try:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            service = CaseFieldsService(session, svc_role)
+            assert "first" in {c["name"] for c in await service.list_fields()}
+            renaming = asyncio.create_task(rename())
+            await asyncio.sleep(CONTENTION_WINDOW)
+            assert not renaming.done()
+            # The select list still names "first".
+            case = Case(id=uuid.uuid4(), workspace_id=svc_role.workspace_id)
+            assert await service.get_fields(case) is None
+            await session.commit()
+        await asyncio.wait_for(renaming, timeout=10)
+        assert {"second"} <= await names()
+        assert "first" not in await names()
     finally:
         async with get_async_session_bypass_rls_context_manager() as session:
             await CaseFieldsService(session, svc_role).drop_workspace_schema()
