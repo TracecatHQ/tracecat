@@ -62,8 +62,8 @@ from tracecat.cases.text_search import (
     case_search_execution_context,
     get_case_search_excerpts,
     parse_case_text_query,
+    search_planner_settings,
     validate_case_text_lexemes,
-    without_jit,
 )
 from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, CaseTask
 from tracecat.exceptions import TracecatValidationError
@@ -363,10 +363,12 @@ class CaseSearchService(BaseWorkspaceService):
         _require_resolved_view(request)
         lexical = self.parse_lexical_query(request)
         if lexical is None:
-            # The omitted-mode substring search shares the lexical predicates'
-            # planner costs, and with them the needless JIT compilation.
+            # The omitted-mode substring search uses the lexical predicates, so
+            # it needs the same planner settings.
             async with (
-                without_jit(self.session) if request.search_term else nullcontext()
+                search_planner_settings(self.session)
+                if request.search_term
+                else nullcontext()
             ):
                 return await self._query_cases(
                     request,
@@ -867,7 +869,9 @@ class CaseSearchService(BaseWorkspaceService):
         lexical = self.parse_lexical_query(query)
         if lexical is None:
             async with (
-                without_jit(self.session) if query.search_term else nullcontext()
+                search_planner_settings(self.session)
+                if query.search_term
+                else nullcontext()
             ):
                 return await self._query_aggregates(
                     query,

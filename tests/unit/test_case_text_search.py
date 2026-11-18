@@ -229,19 +229,25 @@ async def test_execution_settings_are_transaction_local_and_restored(
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
     session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "0.5"]
+    session.scalar.side_effect = ["0", "on", "auto", "0.5"]
     async with case_search_execution_context(session):
         pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert "SET LOCAL statement_timeout = 12345" in statements
-    assert "SELECT set_config('jit', 'off', true)" in statements
     parameters = [
         call.args[1] for call in session.execute.await_args_list if len(call.args) > 1
     ]
     assert {"threshold": "0.65"} in parameters
     assert {"threshold": "0.5"} in parameters
     assert {"timeout": "0"} in parameters
-    assert {"value": "on"} in parameters
+    # Planner settings are applied and then restored in reverse order.
+    planner = [p for p in parameters if "name" in p]
+    assert planner == [
+        {"name": "jit", "value": "off"},
+        {"name": "plan_cache_mode", "value": "force_custom_plan"},
+        {"name": "plan_cache_mode", "value": "auto"},
+        {"name": "jit", "value": "on"},
+    ]
 
 
 @pytest.mark.anyio
@@ -250,17 +256,20 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
     session = AsyncMock()
-    session.scalar.side_effect = ["0", "on"]
+    session.scalar.side_effect = ["0", "on", "auto"]
     async with case_search_execution_context(session, use_trigram_threshold=False):
         pass
     assert [str(call.args[0]) for call in session.scalar.await_args_list] == [
         "SHOW statement_timeout",
         "SHOW jit",
+        "SHOW plan_cache_mode",
     ]
     assert [str(call.args[0]) for call in session.execute.await_args_list] == [
         "SET LOCAL statement_timeout = 12345",
-        "SELECT set_config('jit', 'off', true)",
-        "SELECT set_config('jit', :value, true)",
+        "SELECT set_config(:name, :value, true)",
+        "SELECT set_config(:name, :value, true)",
+        "SELECT set_config(:name, :value, true)",
+        "SELECT set_config(:name, :value, true)",
         "SELECT set_config('statement_timeout', :timeout, true)",
     ]
 
@@ -268,14 +277,24 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
 @pytest.mark.anyio
 async def test_nested_fuzzy_execution_changes_and_restores_threshold_once() -> None:
     session = AsyncMock()
-    # The inner context sees JIT already off and leaves it alone.
-    session.scalar.side_effect = ["0", "on", "0.5", "1500ms", "off", "0.65"]
+    # The inner context sees the planner settings already applied.
+    session.scalar.side_effect = [
+        "0",
+        "on",
+        "auto",
+        "0.5",
+        "1500ms",
+        "off",
+        "force_custom_plan",
+        "0.65",
+    ]
     async with case_search_execution_context(session):
         async with case_search_execution_context(session):
             pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert statements.count("SELECT strict_word_similarity('', '')") == 2
-    assert statements.count("SELECT set_config('jit', 'off', true)") == 1
+    # Two settings applied once by the outer context, then restored.
+    assert statements.count("SELECT set_config(:name, :value, true)") == 4
     threshold_parameters = [
         call.args[1]
         for call in session.execute.await_args_list
@@ -289,7 +308,7 @@ async def test_timeout_message_is_specific_to_case_search_and_retains_error_code
     None
 ):
     session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "0.5"]
+    session.scalar.side_effect = ["0", "on", "auto", "0.5"]
     with pytest.raises(
         TracecatQueryTimeoutError, match="Case search timed out"
     ) as error:
@@ -301,9 +320,10 @@ async def test_timeout_message_is_specific_to_case_search_and_retains_error_code
 @pytest.mark.anyio
 async def test_failure_leaves_setting_cleanup_to_transaction_rollback() -> None:
     session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "0.5"]
+    session.scalar.side_effect = ["0", "on", "auto", "0.5"]
     with pytest.raises(RuntimeError):
         async with case_search_execution_context(session):
             raise RuntimeError("synthetic failure")
-    # Timeout, JIT, extension load, and threshold are set; none is restored.
-    assert session.execute.await_count == 4
+    # Timeout, two planner settings, extension load, and threshold are set;
+    # none is restored.
+    assert session.execute.await_count == 5

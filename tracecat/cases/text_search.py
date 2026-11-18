@@ -704,27 +704,44 @@ async def get_case_search_excerpts(
     return {case_id: tuple(values) for case_id, values in excerpts.items()}
 
 
-@asynccontextmanager
-async def without_jit(session: AsyncSession) -> AsyncIterator[None]:
-    """Turn off JIT compilation for search statements in this transaction.
+# Planner settings for search statements, applied per transaction.
+_SEARCH_PLANNER_SETTINGS = (
+    # Search statements are index-driven and usually finish in milliseconds,
+    # but their long expressions push the cost estimate over jit_above_cost.
+    # Compiling them took about 30 ms per statement, several times the
+    # execution time of a selective search.
+    ("jit", "off"),
+    # How many cases a keyword matches decides the plan: a rare one should use
+    # the text indexes, a broad one a scan. asyncpg reuses prepared statements,
+    # and after five runs PostgreSQL may switch to a generic plan that cannot
+    # see the keyword; a broad legacy search then took 0.97 s instead of 0.31 s.
+    ("plan_cache_mode", "force_custom_plan"),
+)
 
-    Search statements are index-driven and usually finish in milliseconds, but
-    their long expressions push the planner's cost estimate over
-    jit_above_cost. The legacy substring search outside the lexical execution
-    context uses this too. Compiling them then took about 30 ms per statement, several
-    times the execution time of a selective search. The setting is
-    transaction-local and restored afterwards; on an error the caller's
-    rollback restores it.
+
+@asynccontextmanager
+async def search_planner_settings(session: AsyncSession) -> AsyncIterator[None]:
+    """Apply search planner settings for this transaction, then restore them.
+
+    The lexical execution context uses this, and so does the legacy substring
+    search, which runs outside it. The settings are transaction-local; on an
+    error the caller's rollback restores them.
     """
-    previous = await session.scalar(sa.text("SHOW jit"))
-    if previous == "off":
-        yield
-        return
-    await session.execute(sa.text("SELECT set_config('jit', 'off', true)"))
+    changed: list[tuple[str, str]] = []
+    for name, value in _SEARCH_PLANNER_SETTINGS:
+        previous = await session.scalar(sa.text(f"SHOW {name}"))
+        if previous != value:
+            await session.execute(
+                sa.text("SELECT set_config(:name, :value, true)"),
+                {"name": name, "value": value},
+            )
+            changed.append((name, str(previous)))
     yield
-    await session.execute(
-        sa.text("SELECT set_config('jit', :value, true)"), {"value": previous}
-    )
+    for name, previous in reversed(changed):
+        await session.execute(
+            sa.text("SELECT set_config(:name, :value, true)"),
+            {"name": name, "value": previous},
+        )
 
 
 @asynccontextmanager
@@ -746,7 +763,7 @@ async def case_search_execution_context(
                 session,
                 statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
             ),
-            without_jit(session),
+            search_planner_settings(session),
         ):
             if check_readiness:
                 await ensure_case_text_indexes(session)

@@ -180,10 +180,13 @@ guards. The complete original source is still used for literal/fuzzy matching.
 Native headline selection uses required words for a field whose phrase match
 has already been proved, so large/position-saturated sources can return useful
 late context. All database work runs within an owned transaction/savepoint,
-and each statement gets its own budget. JIT compilation is turned off for the
-same transaction: search expressions are long enough to cross
-`jit_above_cost`, and compiling them took about 30 ms per statement, several
-times the execution time of a selective search.
+and each statement gets its own budget. Two planner settings apply to the
+same transaction, including the legacy substring search. JIT compilation is
+off: search expressions are long enough to cross `jit_above_cost`, and
+compiling them took about 30 ms per statement, several times the execution
+time of a selective search. `plan_cache_mode` is `force_custom_plan`: whether
+a keyword is rare or broad decides the right plan, and a cached generic plan
+cannot see the keyword (a broad legacy search took 0.97 s instead of 0.31 s).
 `TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS` sets it (default 30 s). The budget
 lets broad searches finish instead of failing, but it bounds each statement,
 not the request: a search runs its page, match-detail and excerpt queries, and
