@@ -20,9 +20,10 @@ class CancelOnDisconnectMiddleware:
     inside a task group, and the cancelled read that ``is_disconnected`` makes
     discards the message on the way back. Here the middleware reads the whole
     body itself, replays it to the app, and watches the server's own
-    ``receive`` for ``http.disconnect``. Cancelling the handler makes asyncpg
-    send PostgreSQL a cancel request for the running statement, and its
-    transaction rolls back as for any other error.
+    ``receive`` for ``http.disconnect``. Cancelling the handler alone does not
+    stop its SQL; the routes wrap their work in
+    ``cancel_statement_on_cancellation``, which cancels the running statement
+    in PostgreSQL before the cancellation unwinds.
 
     A disconnect after the response is complete is the normal end of a request
     and cancels nothing, so after-response work such as logging still runs.

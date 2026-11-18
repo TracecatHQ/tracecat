@@ -953,8 +953,8 @@ async def test_client_disconnect_cancels_the_running_search_statement(
             )
             await asyncio.wait_for(guarded(scope, receive, send), timeout=10)
             elapsed = asyncio.get_running_loop().time() - started
-        # asyncpg sends PostgreSQL's cancel request from its own task, so the
-        # statement stops shortly after the handler returns.
+        # pg_cancel_backend stops the statement; poll briefly in case the
+        # server takes a moment to report the backend idle.
         running = None
         async with engine.connect() as observer:
             for _ in range(30):
