@@ -38,6 +38,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.errors import find_db_error
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
@@ -2042,6 +2043,15 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
         collection = await self.search.for_table(table.id, row_write=True)
+        if upsert:
+            # Two upserts that share keys in a different order would deadlock on
+            # the source rows, so batch upserts to one table run one at a time.
+            await pg_advisory_xact_lock(
+                self.session,
+                derive_lock_key_from_parts(
+                    "tracecat.tables.batch_upsert", str(table.id)
+                ),
+            )
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
 

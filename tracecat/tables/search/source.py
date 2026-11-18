@@ -51,7 +51,7 @@ class TableSearchSource(TableSearchService):
         """Scan identities, never text; persist discovery/checkpoint before commit.
 
         The worker calls touch_document(backfill=True) for these rows and advances
-        checkpoint_backfill in this same transaction, while the shared lock is held.
+        checkpoint_backfill in this same transaction, while the workspace lock is held.
         Normal writers capture concurrent inserts that sort behind the cursor.
         """
         if not 1 <= limit <= 1000:

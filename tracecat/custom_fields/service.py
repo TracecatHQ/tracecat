@@ -148,9 +148,6 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
 
         # Held until the caller's transaction ends, so a waiter sees committed DDL.
         await pg_advisory_xact_lock(self.session, self._schema_lock_key())
-        # Another transaction may have created the table while this one waited.
-        if await self._schema_exists():
-            return
         await self.session.execute(CreateSchema(self.schema_name, if_not_exists=True))
         conn = await self.session.connection()
         await assign_dynamic_owner(conn, "SCHEMA", f'"{self.schema_name}"')
