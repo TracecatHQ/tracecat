@@ -246,6 +246,30 @@ jobs:
           docker build --target test --tag tracecat-sandbox-test:ci .
           echo "TRACECAT_TEST_SANDBOX_IMAGE=tracecat-sandbox-test:ci" >> "$GITHUB_ENV"
 
+      # tests/integration only runs on the scheduled integration workflow.
+      # These lock tests need Postgres, Redis and MinIO but not Temporal, so
+      # PRs run them here.
+      - name: Run table search lock tests
+        if: matrix.test_group == 'unit'
+        run: |
+          lifecycle=tests/integration/test_table_search_lifecycle.py
+          embedding=tests/integration/test_embedding_configuration.py
+          lock_tests=(
+            "$lifecycle::test_enablement_waits_for_unconfigured_writer"
+            "$lifecycle::test_row_writers_in_one_workspace_do_not_wait_on_each_other"
+            "$lifecycle::test_indexed_row_writers_wait_only_for_the_same_table"
+            "$lifecycle::test_batch_writes_to_one_table_run_one_at_a_time"
+            "$lifecycle::test_search_reads_wait_only_for_writers_to_the_same_table"
+            "$lifecycle::test_search_reads_do_not_create_workspace_state"
+            "$lifecycle::test_indexer_steps_wait_only_for_writers_to_the_same_table"
+            "$lifecycle::test_backfill_and_writes_to_the_same_table_keep_documents_current"
+            "$embedding::test_unchanged_settings_do_not_wait_for_row_writers"
+            "$embedding::test_changed_settings_wait_for_row_writers_then_save"
+            tests/integration/test_search_indexing.py::test_only_turns_that_reconcile_wait_for_row_writers
+            tests/integration/test_search_indexing_storage.py::test_one_transaction_takes_the_workspace_lock_once
+          )
+          uv run pytest "${lock_tests[@]}" -m "not live_secret" -ra -o faulthandler_timeout=300
+
       - name: Run tests
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
