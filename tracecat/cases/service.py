@@ -181,8 +181,8 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
     TablesService,
+    is_internal_column_name,
     validate_identifier,
-    visible_column_clauses,
 )
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -1986,17 +1986,20 @@ class CaseFieldsService(CustomFieldsService):
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
-        columns = await self.get_columns()
-        if columns is None:
+        if not await self._schema_exists():
             return None
+        # SELECT * resolves columns under the table lock, so a field renamed or
+        # dropped since any earlier catalog read cannot break this query.
         conn = await self.session.connection()
         stmt = (
-            sa.select(*visible_column_clauses([column["name"] for column in columns]))
+            sa.select(sa.text("*"))
             .select_from(sa.table(self.sanitized_table_name, schema=self.schema_name))
             .where(sa.column("case_id") == case.id)
         )
         row = (await conn.execute(stmt)).mappings().first()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        return {k: v for k, v in row.items() if not is_internal_column_name(k)}
 
     async def batch_get_fields(
         self, case_ids: list[uuid.UUID], field_ids: Sequence[str]
