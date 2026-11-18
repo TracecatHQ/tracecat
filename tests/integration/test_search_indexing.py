@@ -273,14 +273,17 @@ async def test_only_turns_that_reconcile_wait_for_row_writers(
 ):
     """A turn takes the workspace lock exclusively only to rebind its collection.
 
-    An unlocked pre-check decides. Other turns share the lock with row writers.
+    An unlocked pre-check decides. Other turns share the lock with writers to
+    other tables. Same-table serialization is covered by
+    test_indexer_steps_wait_only_for_writers_to_the_same_table.
     """
     work, pinned, embed = indexing
     await tables.insert_row(table, TableRowInsert(data={"body": "first"}))
     assert (await index_collection(work, pinned, embed)).outcome == "published"
 
     async with TableSearchSource.with_session(scope=work.scope) as writer:
-        # An open row write to any table holds the workspace lock shared.
+        # Stands in for an open row write to another table: the workspace
+        # lock shared, but not this collection's row.
         await writer.lock_scope(shared=True)
         await asyncio.wait_for(index_collection(work, pinned, embed), 5)
 
