@@ -28,6 +28,11 @@ def test_every_part_of_a_short_id_keeps_the_short_id_condition() -> None:
 )
 def test_terms_outside_any_short_id_drop_the_condition(term: str) -> None:
     assert not _may_occur_in_short_id(term)
+    assert "concat(" not in _sql(term)
+
+
+def test_unicode_digits_are_not_short_id_digits() -> None:
+    assert not _may_occur_in_short_id("\u0664\u0662")  # Arabic-Indic 42
 
 
 def _sql(term: str) -> str:
@@ -44,6 +49,6 @@ def test_words_use_the_trigram_expressions_without_the_short_id() -> None:
 
 
 def test_short_terms_and_id_fragments_keep_their_conditions() -> None:
-    assert "ILIKE" in _sql("ab")
+    assert "ILIKE" not in _sql("ab")
     assert "concat(" in _sql("CASE-004")
     assert "concat(" in _sql("42")

@@ -45,14 +45,9 @@ def test_search_predicates_escape_literal_metacharacters(
     # short ID is not searched. Every LIKE/ILIKE has an ESCAPE clause.
     assert "concat(" not in sql
     assert sql.count("ESCAPE") == sql.count(" LIKE ") + sql.count(" ILIKE ")
-    if len(term) < 3:
-        # No trigrams to look up: ILIKE on summary and description.
-        assert sql.count("ILIKE") == 2
-        assert patterns.count(escaped_term) == 2
-    else:
-        # The trigram-indexed substring predicate binds one pattern per field.
-        assert "ILIKE" not in sql
-        assert patterns.count(f"%{escaped_term}%") == 2
+    # The substring predicate binds one pattern per field.
+    assert "ILIKE" not in sql
+    assert patterns.count(f"%{escaped_term}%") == 2
     assert search_role.workspace_id in compiled.params.values()
 
 
