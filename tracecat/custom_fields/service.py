@@ -123,16 +123,31 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
 
         raise NotImplementedError
 
+    def _schema_lock_key(self) -> int:
+        """Advisory lock key that serializes setup of this workspace's table."""
+        return derive_lock_key_from_parts(
+            "tracecat.custom_fields.initialize_workspace_schema",
+            self.service_name,
+            self.schema_name,
+            self._table,
+        )
+
+    async def _schema_exists(self) -> bool:
+        """Return whether the workspace table exists, without creating it."""
+        if self._schema_initialized:
+            return True
+        exists = await self.session.scalar(
+            sa.text("SELECT to_regclass(:table_name) IS NOT NULL"),
+            {"table_name": self._full_table_name()},
+        )
+        self._schema_initialized = exists is True
+        return self._schema_initialized
+
     async def initialize_workspace_schema(self) -> None:
         """Create the workspace schema and base table if absent."""
 
-        lock_key = derive_lock_key_from_parts(
-            "tracecat.custom_fields.initialize_workspace_schema",
-            self.service_name,
-            self._table,
-        )
         # Held until the caller's transaction ends, so a waiter sees committed DDL.
-        await pg_advisory_xact_lock(self.session, lock_key)
+        await pg_advisory_xact_lock(self.session, self._schema_lock_key())
         await self.session.execute(CreateSchema(self.schema_name, if_not_exists=True))
         conn = await self.session.connection()
         await assign_dynamic_owner(conn, "SCHEMA", f'"{self.schema_name}"')
@@ -144,24 +159,14 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         self._schema_initialized = True
 
     async def _ensure_schema_ready(self) -> None:
-        """Ensure the workspace schema exists, creating it if needed."""
+        """Ensure the workspace schema exists, creating it if needed.
 
-        if self._schema_initialized:
-            return
+        Only a missing table takes the setup lock, so steady-state operations
+        never wait on each other here.
+        """
 
-        conn = await self.session.connection()
-
-        def check_schema_exists(sync_conn: sa.Connection) -> bool:
-            inspector = sa.inspect(sync_conn)
-            return inspector.has_schema(self.schema_name) and inspector.has_table(
-                self._table, schema=self.schema_name
-            )
-
-        if await conn.run_sync(check_schema_exists):
-            self._schema_initialized = True
-            return
-
-        await self.initialize_workspace_schema()
+        if not await self._schema_exists():
+            await self.initialize_workspace_schema()
 
     async def drop_workspace_schema(self) -> None:
         """Drop the workspace schema and all contained objects."""
