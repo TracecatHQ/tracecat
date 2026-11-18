@@ -37,7 +37,6 @@ from typing import (
 )
 
 import orjson
-import sqlalchemy as sa
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -3907,18 +3906,6 @@ def _case_comment_thread_payload(
     return thread
 
 
-def _case_field_payload(
-    column: sa.engine.interfaces.ReflectedColumn,
-    *,
-    field_schema: dict[str, Any],
-) -> CaseFieldReadMinimal:
-    """Serialize a case field definition."""
-    return CaseFieldReadMinimal.from_sa(
-        column,
-        field_schema=field_schema,
-    )
-
-
 def _parse_sql_type_arg(raw_value: str, field_name: str = "type") -> SqlType:
     """Parse an uppercase SqlType string argument."""
     try:
@@ -7480,18 +7467,7 @@ async def get_case(
                 raise ToolError(f"Case {case_id!r} not found")
 
             # Get custom field values and definitions
-            fields_data = await svc.fields.get_fields(case) or {}
-            field_definitions = await svc.fields.list_fields()
-            field_schema = await svc.fields.get_field_schema()
-            final_fields: list[CaseFieldRead] = []
-            for defn in field_definitions:
-                f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-                final_fields.append(
-                    CaseFieldRead(
-                        **f.model_dump(),
-                        value=fields_data.get(f.id),
-                    )
-                )
+            final_fields = await svc.fields.read_fields(case)
 
             # Tags
             tag_reads = [
@@ -8679,7 +8655,7 @@ async def list_case_fields(
             field_schema = await svc.get_field_schema()
             page = _paginate_items(
                 [
-                    _case_field_payload(column, field_schema=field_schema)
+                    CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
                     for column in columns
                 ],
                 tool_name="list_case_fields",

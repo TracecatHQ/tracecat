@@ -1,13 +1,12 @@
 import uuid
-from collections import OrderedDict
 from collections.abc import Iterator
 from decimal import Decimal
-from typing import Any
-from unittest.mock import AsyncMock, patch
+from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.engine.interfaces import ReflectedColumn
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -24,8 +23,7 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
 )
 from tracecat.cases.service import CaseFieldsService
-from tracecat.custom_fields import service as custom_fields_module
-from tracecat.custom_fields.types import ColumnsCacheEntry, ColumnsCacheKey
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.tables.enums import SqlType
@@ -89,23 +87,15 @@ class TestCaseFieldsService:
         [
             pytest.param(
                 "last_seen_at",
-                sa.types.TIMESTAMP(timezone=True),
+                "timestamp with time zone",
                 None,
                 CaseFieldReadType.TIMESTAMPTZ,
                 False,
-                id="timestamptz-type",
-            ),
-            pytest.param(
-                "custom_tz_field",
-                "TIMESTAMP WITH TIME ZONE",
-                None,
-                CaseFieldReadType.TIMESTAMPTZ,
-                False,
-                id="timestamptz-string",
+                id="timestamptz",
             ),
             pytest.param(
                 "case_id",
-                sa.types.UUID(),
+                "uuid",
                 None,
                 CaseFieldReadType.UUID,
                 True,
@@ -113,7 +103,7 @@ class TestCaseFieldsService:
             ),
             pytest.param(
                 "severity_band",
-                sa.types.String(),
+                "text",
                 {"severity_band": {"type": "SELECT", "options": ["low", "high"]}},
                 CaseFieldReadType.SELECT,
                 False,
@@ -124,12 +114,12 @@ class TestCaseFieldsService:
     async def test_case_field_read_type(
         self,
         name: str,
-        column_type: Any,
+        column_type: str,
         field_schema: dict[str, Any] | None,
         expected_type: CaseFieldReadType,
         reserved: bool,
     ) -> None:
-        column = ReflectedColumn(
+        column = CustomFieldColumn(
             name=name,
             type=column_type,
             nullable=True,
@@ -137,7 +127,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        field = CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
         assert field.type is expected_type
         assert field.reserved is reserved
         if field_schema is not None:
@@ -148,7 +138,7 @@ class TestCaseFieldsService:
         [
             (
                 "analyst_verdict",
-                sa.types.Text(),
+                "text",
                 {
                     "analyst_verdict": {
                         "type": "TEXT",
@@ -159,23 +149,23 @@ class TestCaseFieldsService:
             ),
             (
                 "analyst_verdict",
-                sa.types.Text(),
+                "text",
                 {"analyst_verdict": {"type": "TEXT"}},
                 "analyst_verdict",
             ),
-            ("analyst_verdict", sa.types.Text(), None, "analyst_verdict"),
-            ("case_id", sa.types.UUID(), None, "case_id"),
+            ("analyst_verdict", "text", None, "analyst_verdict"),
+            ("case_id", "uuid", None, "case_id"),
         ],
     )
     async def test_case_field_read_display_name(
         self,
         field_id: str,
-        field_type: Any,
+        field_type: str,
         field_schema: dict[str, Any] | None,
         expected_display_name: str,
     ) -> None:
         """Read display names from metadata and fall back to the field ID."""
-        column = ReflectedColumn(
+        column = CustomFieldColumn(
             name=field_id,
             type=field_type,
             nullable=True,
@@ -183,7 +173,7 @@ class TestCaseFieldsService:
             comment=None,
         )
 
-        field = CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        field = CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
 
         assert field.id == field_id
         assert field.display_name == expected_display_name
@@ -354,14 +344,13 @@ class TestCaseFieldsService:
         CaseFields.schema JSONB, update_field silently skipped the schema
         write because field_type resolved to None.
         """
-        reflected_column: ReflectedColumn = {
-            "name": "my_field",
-            "type": sa.Text(),
-            "nullable": True,
-            "default": None,
-            "comment": None,
-            "autoincrement": False,
-        }
+        reflected_column = CustomFieldColumn(
+            name="my_field",
+            type="text",
+            nullable=True,
+            default=None,
+            comment=None,
+        )
 
         with (
             patch.object(
@@ -598,10 +587,10 @@ class TestCaseFieldsService:
         assert await case_fields_service.list_fields() == []
         assert await case_fields_service.get_columns() is None
 
-    async def test_cached_columns_follow_ddl_from_other_services(
+    async def test_columns_follow_ddl_and_rollback(
         self, session: AsyncSession, svc_role: Role
     ) -> None:
-        """Columns cached by one service reflect DDL and rollbacks from others."""
+        """Columns read by a new service reflect DDL and rollbacks from others."""
         await CaseFieldsService(session, svc_role).create_field(
             CaseFieldCreate(name="first", type=SqlType.TEXT)
         )
@@ -627,43 +616,107 @@ class TestCaseFieldsService:
         await CaseFieldsService(session, svc_role).delete_field("second")
         assert "second" not in await names()
 
-    async def test_column_cache_evicts_least_recently_used(
-        self,
-        case_fields_service: CaseFieldsService,
-        monkeypatch: pytest.MonkeyPatch,
+    async def test_columns_match_sqlalchemy_reflection(
+        self, session: AsyncSession, svc_role: Role
     ) -> None:
-        """A full cache drops only the table read longest ago."""
-        cache: OrderedDict[ColumnsCacheKey, ColumnsCacheEntry] = OrderedDict()
-        monkeypatch.setattr(custom_fields_module, "_columns_cache", cache)
-        monkeypatch.setattr(custom_fields_module, "_COLUMNS_CACHE_MAX_ENTRIES", 2)
-        monkeypatch.setattr(
-            case_fields_service, "_schema_exists", AsyncMock(return_value=True)
+        """Definitions read from the catalog match the old reflection path.
+
+        Covers every field type with a default, the reserved columns, and a
+        legacy column with a type modifier, NOT NULL and no schema entry.
+        """
+        service = CaseFieldsService(session, svc_role)
+        defaults: dict[SqlType, Any] = {
+            SqlType.TEXT: "it's here",
+            SqlType.INTEGER: 7,
+            SqlType.NUMERIC: Decimal("1.5"),
+            SqlType.DATE: "2026-01-02",
+            SqlType.BOOLEAN: True,
+            SqlType.TIMESTAMPTZ: "2026-01-02T03:04:05+00:00",
+            SqlType.JSONB: {"a": 1},
+            SqlType.SELECT: "high",
+            SqlType.MULTI_SELECT: ["high"],
+        }
+        for sql_type, default in defaults.items():
+            options = (
+                ["low", "high"]
+                if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT)
+                else None
+            )
+            await service.create_field(
+                CaseFieldCreate(
+                    name=f"f_{sql_type.value.lower()}",
+                    type=sql_type,
+                    default=default,
+                    options=options,
+                )
+            )
+        await session.execute(
+            sa.text(
+                f"ALTER TABLE {service._full_table_name()} ADD COLUMN legacy_seen_at"
+                " timestamp(3) with time zone NOT NULL DEFAULT now()"
+            )
         )
-        monkeypatch.setattr(case_fields_service.session, "execute", AsyncMock())
-        monkeypatch.setattr(
-            case_fields_service,
-            "_columns_fingerprint",
-            AsyncMock(return_value="fingerprint"),
+
+        field_schema = await service.get_field_schema()
+        reflected = await service.editor.get_columns()
+        columns = await CaseFieldsService(session, svc_role).get_columns()
+
+        assert columns is not None
+        assert [column["name"] for column in columns] == [
+            column["name"] for column in reflected
+        ]
+        assert [
+            CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
+            for column in columns
+        ] == [
+            CaseFieldReadMinimal.from_column(
+                cast(CustomFieldColumn, column), field_schema=field_schema
+            )
+            for column in reflected
+        ]
+        definitions = {
+            definition.id: definition
+            for definition in await service.list_field_definitions()
+        }
+        assert definitions["legacy_seen_at"].type is CaseFieldReadType.TIMESTAMPTZ
+        assert definitions["legacy_seen_at"].nullable is False
+        assert {"id", "case_id", "created_at", "updated_at"} <= {
+            field_id for field_id, d in definitions.items() if d.reserved
+        }
+
+    async def test_read_fields_reads_the_catalog_once(
+        self,
+        session: AsyncSession,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """A case read runs one catalog statement and no SQLAlchemy reflection."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="verdict", type=SqlType.TEXT)
         )
-        reflect = AsyncMock(return_value=[])
-        monkeypatch.setattr(case_fields_service.editor, "get_columns", reflect)
-        table = case_fields_service._table
+        await case_fields_service.upsert_field_values(test_case, {"verdict": "benign"})
+        await session.commit()
 
-        async def read(schema: str) -> None:
-            case_fields_service.schema_name = schema
-            await case_fields_service.get_columns()
+        statements: list[str] = []
 
-        for schema in ("a", "b", "a", "c"):
-            await read(schema)
-        # Reading "a" again made "b" the least recently used.
-        assert list(cache) == [("a", table), ("c", table)]
-        assert reflect.await_count == 3
+        def record(*args: Any) -> None:
+            statements.append(args[2])
 
-        await read("a")
-        assert reflect.await_count == 3
-        await read("b")
-        assert reflect.await_count == 4
-        assert list(cache) == [("a", table), ("b", table)]
+        connection = (await session.connection()).sync_connection
+        assert connection is not None
+        event.listen(connection, "before_cursor_execute", record)
+        try:
+            fields = await CaseFieldsService(
+                session, case_fields_service.role
+            ).read_fields(test_case)
+        finally:
+            event.remove(connection, "before_cursor_execute", record)
+
+        assert {field.id: field.value for field in fields}["verdict"] == "benign"
+        # to_regclass, the column read, the value row, the field schema.
+        assert len(statements) == 4
+        assert sum("pg_attribute" in statement for statement in statements) == 1
+        assert not any("pg_enum" in statement for statement in statements)
 
     async def test_batch_get_fields_selects_only_requested_columns(
         self,

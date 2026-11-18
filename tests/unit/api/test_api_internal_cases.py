@@ -86,8 +86,7 @@ async def test_internal_get_case_include_rows_hydrates_rows(
         mock_service = AsyncMock()
         mock_service.get_case.return_value = mock_internal_case
         mock_service.fields = AsyncMock()
-        mock_service.fields.get_fields.return_value = {}
-        mock_service.fields.list_fields.return_value = []
+        mock_service.fields.read_fields.return_value = []
         mock_service_cls.return_value = mock_service
 
         response = action_gateway_client.get(
@@ -129,8 +128,7 @@ async def test_internal_update_case_include_rows_hydrates_rows(
         updated_case.summary = "Updated summary"
         mock_service.update_case.return_value = updated_case
         mock_service.fields = AsyncMock()
-        mock_service.fields.get_fields.return_value = {}
-        mock_service.fields.list_fields.return_value = []
+        mock_service.fields.read_fields.return_value = []
         mock_service_cls.return_value = mock_service
 
         response = action_gateway_client.patch(
@@ -297,8 +295,7 @@ async def test_internal_get_case_resolves_short_id(
         mock_service = AsyncMock()
         mock_service.get_case.return_value = mock_internal_case
         mock_service.fields = AsyncMock()
-        mock_service.fields.get_fields.return_value = {}
-        mock_service.fields.list_fields.return_value = []
+        mock_service.fields.read_fields.return_value = []
         mock_service_cls.return_value = mock_service
 
         response = action_gateway_client.get(

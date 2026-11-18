@@ -1,22 +1,17 @@
-"""Types for the per-process custom field column cache."""
+"""Types for custom field column metadata."""
 
-from dataclasses import dataclass
-
-from sqlalchemy.engine.interfaces import ReflectedColumn
-
-# (schema, table)
-type ColumnsCacheKey = tuple[str, str]
+from typing import TypedDict
 
 
-@dataclass(frozen=True, slots=True)
-class ColumnsCacheEntry:
-    """Reflected user-visible columns and the catalog fingerprint they match.
+class CustomFieldColumn(TypedDict):
+    """A user-visible column of a workspace custom fields table.
 
-    The fingerprint is the catalog content itself, so a hit is right for any
-    transaction that sees that content: DDL from another process or a
-    rolled-back transaction changes the fingerprint instead of needing an
-    invalidation.
+    Read from the Postgres catalog. ``type`` is ``format_type`` without the
+    type modifier, for example ``"text"`` or ``"timestamp with time zone"``.
     """
 
-    fingerprint: str
-    columns: tuple[ReflectedColumn, ...]
+    name: str
+    type: str
+    nullable: bool
+    default: str | None
+    comment: str | None

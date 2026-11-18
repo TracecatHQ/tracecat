@@ -97,6 +97,8 @@ from tracecat.cases.schemas import (
     CaseCommentWorkflowStatus,
     CaseCreate,
     CaseFieldCreate,
+    CaseFieldRead,
+    CaseFieldReadMinimal,
     CaseFieldUpdate,
     CaseHierarchyFilter,
     CaseReadMinimal,
@@ -1997,6 +1999,22 @@ class CaseFieldsService(CustomFieldsService):
         )
         row = (await conn.execute(stmt)).mappings().first()
         return dict(row) if row else None
+
+    async def list_field_definitions(self) -> list[CaseFieldReadMinimal]:
+        """Return the workspace's case field definitions, in table order."""
+        field_schema = await self.get_field_schema()
+        return [
+            CaseFieldReadMinimal.from_column(column, field_schema=field_schema)
+            for column in await self.list_fields()
+        ]
+
+    async def read_fields(self, case: Case) -> list[CaseFieldRead]:
+        """Return every case field definition with this case's value."""
+        values = await self.get_fields(case) or {}
+        return [
+            CaseFieldRead(**definition.model_dump(), value=values.get(definition.id))
+            for definition in await self.list_field_definitions()
+        ]
 
     async def batch_get_fields(
         self, case_ids: list[uuid.UUID], field_ids: Sequence[str]

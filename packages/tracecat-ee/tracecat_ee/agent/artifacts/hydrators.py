@@ -25,8 +25,6 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
-    CaseFieldRead,
-    CaseFieldReadMinimal,
     CaseRead,
 )
 from tracecat.cases.service import CasesService
@@ -71,21 +69,7 @@ class CaseArtifactHydrator:
                 logger.warning("Cannot hydrate missing case artifact", case_id=case_id)
                 return None
 
-            fields = await service.fields.get_fields(case) or {}
-            field_definitions = await service.fields.list_fields()
-            field_schema = await service.fields.get_field_schema()
-            final_fields: list[CaseFieldRead] = []
-            for definition in field_definitions:
-                field = CaseFieldReadMinimal.from_sa(
-                    definition,
-                    field_schema=field_schema,
-                )
-                final_fields.append(
-                    CaseFieldRead(
-                        **field.model_dump(),
-                        value=fields.get(field.id),
-                    )
-                )
+            final_fields = await service.fields.read_fields(case)
 
             dropdown_service = CaseDropdownValuesService(session, ctx.role)
             dropdown_values: list[CaseDropdownValueRead] = []

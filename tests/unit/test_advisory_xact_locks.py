@@ -364,6 +364,55 @@ async def test_case_field_columns_stay_valid_until_the_read_ends(
             await session.commit()
 
 
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+async def test_case_field_column_read_waits_for_open_field_ddl(
+    svc_role: Role, warm: bool
+) -> None:
+    """The column read waits for open field DDL, then sees its result.
+
+    The read locks the table in the same statement that reads the catalog. A
+    read that looked at the catalog before taking the lock would return the
+    columns from before the DDL. The warm case reuses a prepared statement on
+    the same connection, which must also lock before it reads.
+    """
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await CaseFieldsService(session, svc_role).create_field(
+            CaseFieldCreate(name="first", type=SqlType.TEXT)
+        )
+
+    async def names(reader: AsyncSession) -> set[str]:
+        columns = await CaseFieldsService(reader, svc_role).list_fields()
+        return {column["name"] for column in columns}
+
+    try:
+        async with get_async_engine().connect() as connection:
+            reader = AsyncSession(bind=connection)
+            if warm:
+                assert await names(reader) == {
+                    "id",
+                    "case_id",
+                    "created_at",
+                    "updated_at",
+                    "first",
+                }
+                await reader.commit()
+            async with get_async_session_bypass_rls_context_manager() as session:
+                writer = CaseFieldsService(session, svc_role)
+                await writer.editor.create_column(
+                    CaseFieldCreate(name="second", type=SqlType.TEXT)
+                )
+                read = asyncio.create_task(names(reader))
+                await _wait_for_relation_lock_waiter(writer._full_table_name())
+                assert not read.done()
+                await session.commit()
+            assert "second" in await asyncio.wait_for(read, timeout=10)
+            await reader.close()
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await CaseFieldsService(session, svc_role).drop_workspace_schema()
+            await session.commit()
+
+
 async def test_tunnel_reconcile_skips_while_another_process_reconciles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

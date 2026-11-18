@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections import OrderedDict
-from collections.abc import Sequence
 from typing import ClassVar
 
 import sqlalchemy as sa
-from sqlalchemy.engine.interfaces import ReflectedColumn
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import SessionTransaction
 from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
-from tracecat.custom_fields.types import ColumnsCacheEntry, ColumnsCacheKey
+from tracecat.custom_fields.types import CustomFieldColumn
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
@@ -30,28 +28,32 @@ from tracecat.tables.service import (
     validate_identifier,
 )
 
-# Everything SQLAlchemy reflects for a column, in one catalog query. NULL when
-# the table is missing.
-_COLUMNS_FINGERPRINT_SQL = sa.text(
+
+def _columns_sql(full_table_name: str) -> sa.TextClause:
+    """Read a table's columns from the catalog, in table order.
+
+    The statement also reads from the table itself (zero rows), so Postgres
+    takes the ACCESS SHARE lock a SELECT takes before the catalog read runs.
+    Column DDL needs ACCESS EXCLUSIVE, so the columns returned stay current
+    until the caller's transaction ends, and a statement that waited behind
+    DDL sees the committed result.
     """
-    SELECT CASE WHEN to_regclass(:table_name) IS NOT NULL THEN (
-        SELECT coalesce(json_agg(json_build_array(
-            a.attnum, a.attname, a.atttypid, a.atttypmod, a.attnotnull,
-            a.attidentity, a.attgenerated, pg_get_expr(d.adbin, d.adrelid),
-            col_description(a.attrelid, a.attnum)
-        ) ORDER BY a.attnum)::text, '[]')
-        FROM pg_attribute a
-        LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-        WHERE a.attrelid = to_regclass(:table_name)
+    return sa.text(
+        f"""
+        SELECT a.attname AS name,
+            format_type(a.atttypid, NULL) AS type,
+            NOT a.attnotnull AS nullable,
+            pg_get_expr(d.adbin, d.adrelid) AS column_default,
+            col_description(a.attrelid, a.attnum) AS comment
+        FROM pg_attribute AS a
+        LEFT JOIN pg_attrdef AS d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        LEFT JOIN (SELECT 1 FROM {full_table_name} LIMIT 0) AS table_lock ON true
+        WHERE a.attrelid = CAST(:table_name AS regclass)
             AND a.attnum > 0
             AND NOT a.attisdropped
-    ) END
-    """
-)
-
-# Least recently used first. Bounds memory across many workspaces.
-_columns_cache: OrderedDict[ColumnsCacheKey, ColumnsCacheEntry] = OrderedDict()
-_COLUMNS_CACHE_MAX_ENTRIES = 1024
+        ORDER BY a.attnum
+        """
+    )
 
 
 class CustomFieldsService(BaseWorkspaceService, ABC):
@@ -75,6 +77,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         self._workspace_uuid = WorkspaceUUID.new(self.workspace_id)
         self.schema_name = self._get_schema_name()
         self._schema_initialized = False
+        self._columns: tuple[SessionTransaction, list[CustomFieldColumn]] | None = None
         self.sanitized_table_name = sanitize_identifier(self._table)
         self.editor = TableEditorService(
             self.session,
@@ -202,45 +205,43 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         )
         self._schema_initialized = False
 
-    async def _columns_fingerprint(self) -> str | None:
-        return await self.session.scalar(
-            _COLUMNS_FINGERPRINT_SQL, {"table_name": self._full_table_name()}
-        )
-
-    async def get_columns(
-        self,
-    ) -> Sequence[ReflectedColumn] | None:
+    async def get_columns(self) -> list[CustomFieldColumn] | None:
         """Return the table's user-visible columns, or None if it is missing.
 
-        Takes ACCESS SHARE on the table first, as a SELECT on it would, so
-        column DDL cannot commit until the caller's transaction ends: the
-        fingerprint, the reflection and any query built from the returned
-        names all see the same columns. Costs one catalog query when the
-        columns are unchanged since the last reflection in this process.
+        One catalog statement that also locks the table (see `_columns_sql`),
+        so any later query in this transaction built from the returned names
+        sees the same columns. The result is reused until the transaction
+        ends, except inside a savepoint, whose rollback would release the lock.
         """
 
         if not await self._schema_exists():
             return None
-        await self.session.execute(
-            sa.text(f"LOCK TABLE {self._full_table_name()} IN ACCESS SHARE MODE")
-        )
-        fingerprint = await self._columns_fingerprint()
-        if fingerprint is None:
-            return None
-        key: ColumnsCacheKey = (self.schema_name, self._table)
-        cached = _columns_cache.get(key)
-        if cached is not None and cached.fingerprint == fingerprint:
-            columns = cached.columns
-        else:
-            columns = tuple(await self.editor.get_columns())
-            _columns_cache[key] = ColumnsCacheEntry(fingerprint, columns)
-        _columns_cache.move_to_end(key)
-        if len(_columns_cache) > _COLUMNS_CACHE_MAX_ENTRIES:
-            _columns_cache.popitem(last=False)
-        # Copies, so a caller cannot change the shared entry.
-        return [column.copy() for column in columns]
+        if self._columns is not None:
+            transaction, columns = self._columns
+            if transaction is self.session.sync_session.get_transaction():
+                return list(columns)
 
-    async def list_fields(self) -> Sequence[ReflectedColumn]:
+        table_name = self._full_table_name()
+        result = await self.session.execute(
+            _columns_sql(table_name), {"table_name": table_name}
+        )
+        columns = [
+            CustomFieldColumn(
+                name=row["name"],
+                type=row["type"],
+                nullable=row["nullable"],
+                default=row["column_default"],
+                comment=row["comment"],
+            )
+            for row in result.mappings()
+            if not is_internal_column_name(row["name"])
+        ]
+        transaction = self.session.sync_session.get_transaction()
+        if transaction is not None and not self.session.in_nested_transaction():
+            self._columns = (transaction, columns)
+        return list(columns)
+
+    async def list_fields(self) -> list[CustomFieldColumn]:
         """List all custom fields for the workspace.
 
         A missing table has no fields; a read does not create it.

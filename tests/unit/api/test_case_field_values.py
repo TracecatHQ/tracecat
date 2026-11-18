@@ -15,7 +15,7 @@ async def test_normalize_field_values_rejects_structured_value_for_text_field(
     service.get_field_schema = AsyncMock(
         return_value={"text_field": {"type": SqlType.TEXT.value}}
     )
-    service.editor.get_columns = AsyncMock(
+    service.get_columns = AsyncMock(
         return_value=[{"name": "text_field", "type": SqlType.TEXT}]
     )
 
@@ -34,7 +34,7 @@ async def test_normalize_field_values_allows_scalar_for_text_field(
     service.get_field_schema = AsyncMock(
         return_value={"text_field": {"type": SqlType.TEXT.value}}
     )
-    service.editor.get_columns = AsyncMock(
+    service.get_columns = AsyncMock(
         return_value=[{"name": "text_field", "type": SqlType.TEXT}]
     )
 
@@ -56,7 +56,7 @@ async def test_normalize_field_values_rejects_unknown_select_option(
             }
         }
     )
-    service.editor.get_columns = AsyncMock(
+    service.get_columns = AsyncMock(
         return_value=[{"name": "select_field", "type": SqlType.TEXT}]
     )
 
@@ -80,7 +80,7 @@ async def test_normalize_field_values_rejects_non_list_multi_select(
             }
         }
     )
-    service.editor.get_columns = AsyncMock(
+    service.get_columns = AsyncMock(
         return_value=[{"name": "multi_select_field", "type": SqlType.JSONB}]
     )
 
@@ -104,7 +104,7 @@ async def test_normalize_field_values_rejects_unknown_multi_select_option(
             }
         }
     )
-    service.editor.get_columns = AsyncMock(
+    service.get_columns = AsyncMock(
         return_value=[{"name": "multi_select_field", "type": SqlType.JSONB}]
     )
 

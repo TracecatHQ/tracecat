@@ -61,7 +61,6 @@ from tracecat.cases.schemas import (
     CaseCommentUpdate,
     CaseCreate,
     CaseFieldRead,
-    CaseFieldReadMinimal,
     CaseHierarchyFilter,
     CaseRead,
     CaseReadMinimal,
@@ -497,18 +496,7 @@ async def get_case(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
-    fields = await service.fields.get_fields(case) or {}
-    field_definitions = await service.fields.list_fields()
-    field_schema = await service.fields.get_field_schema()
-    final_fields: list[CaseFieldRead] = []
-    for defn in field_definitions:
-        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-        final_fields.append(
-            CaseFieldRead(
-                **f.model_dump(),
-                value=fields.get(f.id),
-            )
-        )
+    final_fields = await service.fields.read_fields(case)
 
     tag_reads = [
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
@@ -564,18 +552,7 @@ async def create_case(
             detail=str(e),
         ) from e
 
-    fields = await service.fields.get_fields(case) or {}
-    field_definitions = await service.fields.list_fields()
-    field_schema = await service.fields.get_field_schema()
-    final_fields: list[CaseFieldRead] = []
-    for defn in field_definitions:
-        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-        final_fields.append(
-            CaseFieldRead(
-                **f.model_dump(),
-                value=fields.get(f.id),
-            )
-        )
+    final_fields = await service.fields.read_fields(case)
 
     tag_reads = [
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
@@ -644,18 +621,7 @@ async def update_case(
             detail="Database operation failed",
         ) from e
 
-    fields = await service.fields.get_fields(updated_case) or {}
-    field_definitions = await service.fields.list_fields()
-    field_schema = await service.fields.get_field_schema()
-    final_fields: list[CaseFieldRead] = []
-    for defn in field_definitions:
-        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-        final_fields.append(
-            CaseFieldRead(
-                **f.model_dump(),
-                value=fields.get(f.id),
-            )
-        )
+    final_fields = await service.fields.read_fields(updated_case)
 
     tag_reads = [
         CaseTagRead.model_validate(tag, from_attributes=True)
@@ -978,12 +944,7 @@ async def get_case_metrics(
     cases_service = CasesService(session, role)
     duration_service = CaseDurationService(session, role)
 
-    field_definitions = await cases_service.fields.list_fields()
-    field_schema = await cases_service.fields.get_field_schema()
-    field_templates = [
-        CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-        for defn in field_definitions
-    ]
+    field_templates = await cases_service.fields.list_field_definitions()
 
     cases = []
     case_context: dict[

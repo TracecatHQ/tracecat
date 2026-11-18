@@ -86,9 +86,7 @@ def mock_case(test_workspace: Workspace) -> Case:
 def _mock_case_read_services(mock_svc: AsyncMock) -> AsyncMock:
     """Configure the mocks needed to serialize a CaseRead response."""
     mock_svc.fields = AsyncMock()
-    mock_svc.fields.get_fields.return_value = {}
-    mock_svc.fields.list_fields.return_value = []
-    mock_svc.fields.get_field_schema.return_value = {}
+    mock_svc.fields.read_fields.return_value = []
     mock_dropdown_svc = AsyncMock()
     mock_dropdown_svc.has_entitlement.return_value = False
     return mock_dropdown_svc
@@ -818,8 +816,7 @@ async def test_get_case_with_dropdown_values(
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
         mock_svc.fields = AsyncMock()
-        mock_svc.fields.get_fields.return_value = {}
-        mock_svc.fields.list_fields.return_value = []
+        mock_svc.fields.read_fields.return_value = []
         MockService.return_value = mock_svc
 
         # Mock dropdown values
@@ -881,8 +878,7 @@ async def test_get_case_hides_dropdown_values_without_case_addons(
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
         mock_svc.fields = AsyncMock()
-        mock_svc.fields.get_fields.return_value = {}
-        mock_svc.fields.list_fields.return_value = []
+        mock_svc.fields.read_fields.return_value = []
         MockService.return_value = mock_svc
 
         mock_dropdown_svc = AsyncMock()
