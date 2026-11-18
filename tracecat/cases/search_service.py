@@ -37,7 +37,6 @@ from tracecat.cases.schemas import (
     CaseReadMinimal,
     CaseSearchAggregateRead,
     CaseSearchMatchRead,
-    CaseStatusGroupCounts,
 )
 from tracecat.cases.search_adapters import (
     UNASSIGNED_IDENTIFIERS,
@@ -46,6 +45,14 @@ from tracecat.cases.search_adapters import (
     parse_dropdown_entry,
     requesting_user_id,
     resolve_user_refs,
+)
+from tracecat.cases.search_bounds import (
+    aggregate_read,
+    capped_status_counts,
+    ranks_newest_matches,
+    relevance_window_start,
+    status_count_columns,
+    window_anchor,
 )
 from tracecat.cases.search_metadata import validate_case_filter_metadata
 from tracecat.cases.search_schemas import (
@@ -486,11 +493,26 @@ class CaseSearchService(BaseWorkspaceService):
                 search_term=request.search_term,
                 filters=filters,
             )
-        result_filters = filters
+        # Scoring is the expensive part of relevance order, and it grows with
+        # every match; a capped search ranks only the newest matches.
+        window_start = (
+            await relevance_window_start(
+                self.session,
+                workspace_id=self.workspace_id,
+                request=request,
+                filters=filters,
+            )
+            if ranks_newest_matches(request)
+            else None
+        )
+        ordinary_filters = filters
+        if window_start is not None:
+            ordinary_filters = [*filters, Case.created_at >= window_start]
+        result_filters = ordinary_filters
         if exact_match is not None:
             result_filters = [
                 Case.workspace_id == self.workspace_id,
-                sa.or_(sa.and_(*filters), exact_match.predicate),
+                sa.or_(sa.and_(*ordinary_filters), exact_match.predicate),
             ]
 
         include_case_addons = case_addons_enabled
@@ -623,6 +645,7 @@ class CaseSearchService(BaseWorkspaceService):
                 stmt,
                 page=PageParams(limit=request.limit, cursor=request.cursor),
                 order_by=ordering,
+                anchor=window_anchor(window_start),
             )
         cases = case_page.items
 
@@ -938,7 +961,11 @@ class CaseSearchService(BaseWorkspaceService):
         legacy_filters: Filter | None = None,
         lexical: CaseTextQuery | None = None,
     ) -> CaseSearchAggregateRead:
-        """Return exact status totals using the same matching predicates as rows."""
+        """Return status totals using the same matching predicates as rows.
+
+        With cap_broad_matches, a search_mode search counts at most
+        SEARCH_MATCH_CAP matches.
+        """
         filters = await self.prepare_query(
             query,
             case_addons_enabled=case_addons_enabled,
@@ -947,57 +974,11 @@ class CaseSearchService(BaseWorkspaceService):
         )
         if query.match_none:
             filters.append(sa.false())
-        aggregate_stmt = select(
-            func.count(Case.id).label("total"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
-                0,
-            ).label("new"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
-                0,
-            ).label("in_progress"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
-                0,
-            ).label("on_hold"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)),
-                0,
-            ).label("resolved"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.CLOSED, 1), else_=0)),
-                0,
-            ).label("closed"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.UNKNOWN, 1), else_=0)),
-                0,
-            ).label("unknown"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (Case.status == CaseStatus.OTHER, 1),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("other"),
-        )
-
-        for clause in filters:
-            aggregate_stmt = aggregate_stmt.where(clause)
-
-        row = (await self.session.execute(aggregate_stmt)).one()
-
-        return CaseSearchAggregateRead(
-            total=int(row.total or 0),
-            status_groups=CaseStatusGroupCounts(
-                new=int(row.new or 0),
-                in_progress=int(row.in_progress or 0),
-                on_hold=int(row.on_hold or 0),
-                resolved=int(row.resolved or 0),
-                closed=int(row.closed or 0),
-                unknown=int(row.unknown or 0),
-                other=int(row.other or 0),
-            ),
-        )
+        if lexical is not None and query.cap_broad_matches:
+            return await capped_status_counts(self.session, filters)
+        row = (
+            await self.session.execute(
+                select(*status_count_columns(Case.status)).where(*filters)
+            )
+        ).one()
+        return aggregate_read(row)

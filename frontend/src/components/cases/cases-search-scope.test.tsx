@@ -156,6 +156,7 @@ function Harness({
       onDropdownModeChange={search.setDropdownMode}
       onDropdownSortDirectionChange={search.setDropdownSortDirection}
       totalFilteredCaseEstimate={search.totalFilteredCaseEstimate}
+      isCountCapped={search.isCountCapped}
       stageCounts={search.stageCounts}
       isCountsLoading={search.isCountsLoading}
       isCountsFetching={search.isCountsFetching}
@@ -557,6 +558,26 @@ describe("exact-first case search UI", () => {
       )
     )
     expect(screen.getByText("2 cases")).toBeInTheDocument()
+  })
+
+  it("shows a capped count as a lower bound without per-status counts", async () => {
+    mockCasesResponse({
+      items: [{ ...CASE, is_exact_match: true }],
+      has_more: false,
+    })
+    jest
+      .mocked(casesQueryCaseAggregates)
+      .mockImplementation(
+        () =>
+          new CancelablePromise((resolve) =>
+            resolve({ total: 10000, status_groups: null, capped: true })
+          )
+      )
+    setup()
+    expect(await screen.findByText("10,000+ cases")).toBeInTheDocument()
+    expect(screen.getByTestId("ordinary-results")).not.toHaveAttribute(
+      "data-closed-count"
+    )
   })
 
   it("clears the promoted result without changing the saved date constraint", async () => {

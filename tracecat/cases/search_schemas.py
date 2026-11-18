@@ -258,6 +258,16 @@ class CaseQuery(CaseCriteria):
     match_none: bool = Field(
         default=False, description="The ordinary filter population matches no cases."
     )
+    cap_broad_matches: bool = Field(
+        default=False,
+        description=(
+            "Bound the work for a search_mode search that matches more than "
+            "10,000 cases. Search status counts stop at 10,000 and report "
+            "capped, and relevance order ranks only the 10,000 newest matches; "
+            "older matches are left out. Column orders still return every "
+            "match, and include_count's total_estimate stays exact."
+        ),
+    )
 
 
 class CaseSearchRequest(CaseQuery, CursorPaginationParams):

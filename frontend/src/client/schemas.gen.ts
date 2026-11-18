@@ -11799,6 +11799,13 @@ export const $CaseQuery = {
       description: "The ordinary filter population matches no cases.",
       default: false,
     },
+    cap_broad_matches: {
+      type: "boolean",
+      title: "Cap Broad Matches",
+      description:
+        "Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
@@ -12159,9 +12166,26 @@ export const $CaseSearchAggregateRead = {
     total: {
       type: "integer",
       title: "Total",
+      description:
+        "Number of matching cases. When capped is true, more cases match and this is the cap.",
     },
     status_groups: {
-      $ref: "#/components/schemas/CaseStatusGroupCounts",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseStatusGroupCounts",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Matching cases per status. Null when capped is true.",
+    },
+    capped: {
+      type: "boolean",
+      title: "Capped",
+      description:
+        "True when a keyword search matched more cases than the count cap (10,000), so counting stopped there.",
+      default: false,
     },
   },
   type: "object",
@@ -12562,6 +12586,13 @@ export const $CaseSearchRequest = {
       type: "boolean",
       title: "Match None",
       description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
+    cap_broad_matches: {
+      type: "boolean",
+      title: "Cap Broad Matches",
+      description:
+        "Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.",
       default: false,
     },
     order_by: {

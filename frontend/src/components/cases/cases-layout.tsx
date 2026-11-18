@@ -98,6 +98,8 @@ interface CasesLayoutProps {
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   totalFilteredCaseEstimate: number | null
+  /** The total is the server's count cap; more cases match. */
+  isCountCapped?: boolean
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
@@ -149,6 +151,7 @@ export function CasesLayout({
   onDropdownModeChange,
   onDropdownSortDirectionChange,
   totalFilteredCaseEstimate,
+  isCountCapped = false,
   stageCounts,
   isCountsLoading,
   isCountsFetching,
@@ -474,6 +477,7 @@ export function CasesLayout({
     viewBar,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
+    isDisplayCaseCountCapped: isCountCapped,
     isCountsError,
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
@@ -502,9 +506,10 @@ export function CasesLayout({
       (filteredStageCounts[status] ?? 0) - 1
     )
   }
+  // A capped total is a lower bound, so the promoted exact match stays in it.
   const ordinaryTotal =
-    totalFilteredCaseEstimate === null
-      ? null
+    totalFilteredCaseEstimate === null || isCountCapped
+      ? totalFilteredCaseEstimate
       : Math.max(0, totalFilteredCaseEstimate - (exactMatchInFilters ? 1 : 0))
   const displayOrderedCases = [
     ...(exactMatch ? [exactMatch] : []),
@@ -623,6 +628,7 @@ export function CasesLayout({
               statusFilter={filters.statusFilter}
               statusMode={filters.statusMode}
               totalFilteredCaseEstimate={ordinaryTotal}
+              isCountCapped={isCountCapped}
               stageCounts={filteredStageCounts}
               isCountsLoading={isCountsLoading}
               isCountsFetching={isCountsFetching}

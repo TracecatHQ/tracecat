@@ -131,7 +131,7 @@ test("real case queries share grouped matching, counts, pagination and typed pay
     })
   )
   expect(counts.total).toBe(2)
-  expect(counts.status_groups.new).toBe(2)
+  expect(counts.status_groups?.new).toBe(2)
   // PostgreSQL keeps strings, numbers, booleans, missing paths and JSON null distinct.
   for (const [value, index] of [
     [80, 0],

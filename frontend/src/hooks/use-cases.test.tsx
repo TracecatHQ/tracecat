@@ -306,6 +306,39 @@ describe("case search aggregate counts", () => {
     expect(result.current.stageCounts?.new).toBe(12)
   })
 
+  it("asks rows and counts to cap broad matches and reports a capped total", async () => {
+    jest.mocked(casesQueryCaseAggregates).mockImplementation(() =>
+      resolved<CasesSearchCaseAggregatesResponse>({
+        total: 10000,
+        status_groups: null,
+        capped: true,
+      })
+    )
+    const { result } = setup()
+    await advance()
+    // A plain list load does not send the flag (undefined is dropped on the wire).
+    expect(
+      jest.mocked(casesQueryCases).mock.lastCall?.[0].requestBody
+        .cap_broad_matches
+    ).toBeUndefined()
+    act(() => result.current.setSearchQuery("powershell"))
+    await advance(300)
+    for (const request of [casesQueryCases, casesQueryCaseAggregates]) {
+      expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            search_term: "powershell",
+            cap_broad_matches: true,
+          }),
+        })
+      )
+    }
+    await advance()
+    expect(result.current.totalFilteredCaseEstimate).toBe(10000)
+    expect(result.current.isCountCapped).toBe(true)
+    expect(result.current.stageCounts).toBeNull()
+  })
+
   it("keeps successful rows when population counts exhaust retries", async () => {
     jest.mocked(casesQueryCases).mockImplementation(() =>
       resolved<CasesSearchCasesResponse>({

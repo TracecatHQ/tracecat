@@ -148,6 +148,8 @@ class _CursorPayload(BaseModel):
     boundary: _Boundary = _Boundary.EXCLUSIVE
     query_fingerprint: str
     values: list[JsonValue]
+    # Caller state the first page decided and later pages must reuse.
+    anchor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +460,7 @@ def _encode_page_cursor(
     values: tuple[object, ...],
     ordering: tuple[_OrderKey, ...],
     secret: bytes,
+    anchor: str | None = None,
 ) -> str:
     payload = (
         _CursorPayload(
@@ -466,8 +469,11 @@ def _encode_page_cursor(
             boundary=boundary,
             query_fingerprint=query_fingerprint,
             values=_serialize_cursor_values(values, ordering),
+            anchor=anchor,
         )
-        .model_dump_json()
+        # Cursors without an anchor keep their previous encoding, which
+        # servers that predate anchors can still read.
+        .model_dump_json(exclude={"anchor"} if anchor is None else None)
         .encode()
     )
     signature = _cursor_signature(payload, secret=secret)
@@ -480,13 +486,7 @@ def _encode_page_cursor(
     return cursor
 
 
-def _decode_page_cursor(
-    cursor: str,
-    *,
-    query_fingerprint: str,
-    ordering: tuple[_OrderKey, ...],
-    secret: bytes,
-) -> tuple[_Direction, _Boundary, tuple[object, ...]]:
+def _read_cursor_payload(cursor: str, *, secret: bytes) -> _CursorPayload:
     try:
         if len(cursor) > _MAX_CURSOR_LENGTH:
             raise ValueError("Cursor is too long")
@@ -496,19 +496,42 @@ def _decode_page_cursor(
         expected_signature = _cursor_signature(payload, secret=secret)
         if not hmac.compare_digest(signature, expected_signature):
             raise ValueError("Cursor signature does not match")
-        decoded = _CursorPayload.model_validate_json(payload)
+        return _CursorPayload.model_validate_json(payload)
     except (TypeError, ValueError, ValidationError) as exc:
         raise PaginationError(
             "Invalid pagination cursor",
             code=PaginationErrorCode.INVALID_CURSOR,
         ) from exc
 
+
+def read_cursor_anchor(cursor: str) -> str | None:
+    """Return the anchor a page stored in its cursor, after checking the signature.
+
+    A caller that decides something on its first page (such as a cutoff that
+    shapes the statement) passes it to ``paginate`` as ``anchor``, then reads it
+    back here before building the statement for a later page.
+
+    Raises:
+        PaginationError: The cursor is malformed or its signature is invalid.
+    """
+    return _read_cursor_payload(cursor, secret=get_signing_secret().encode()).anchor
+
+
+def _decode_page_cursor(
+    cursor: str,
+    *,
+    query_fingerprint: str,
+    ordering: tuple[_OrderKey, ...],
+    secret: bytes,
+    anchor: str | None,
+) -> tuple[_Direction, _Boundary, tuple[object, ...]]:
+    decoded = _read_cursor_payload(cursor, secret=secret)
     if decoded.version != _CURSOR_VERSION:
         raise PaginationError(
             "Unsupported pagination cursor version",
             code=PaginationErrorCode.UNSUPPORTED_CURSOR_VERSION,
         )
-    if decoded.query_fingerprint != query_fingerprint:
+    if decoded.query_fingerprint != query_fingerprint or decoded.anchor != anchor:
         raise PaginationError(
             "Pagination cursor does not match the current query",
             code=PaginationErrorCode.CURSOR_MISMATCH,
@@ -621,6 +644,7 @@ async def paginate[T](
     page: PageParams,
     order_by: tuple[ColumnElement[Any], ...],
     row_factory: None = None,
+    anchor: str | None = None,
 ) -> Page[T]: ...
 
 
@@ -632,6 +656,7 @@ async def paginate[T](
     page: PageParams,
     order_by: tuple[ColumnElement[Any], ...],
     row_factory: Callable[[tuple[object, ...]], T],
+    anchor: str | None = None,
 ) -> Page[T]: ...
 
 
@@ -642,6 +667,7 @@ async def paginate[T](
     page: PageParams,
     order_by: tuple[ColumnElement[Any], ...],
     row_factory: Callable[[tuple[object, ...]], T] | None = None,
+    anchor: str | None = None,
 ) -> Page[T]:
     """Execute a stable keyset-paginated SQLAlchemy query.
 
@@ -670,6 +696,10 @@ async def paginate[T](
         row_factory: Optional conversion for a multi-column selection. It
             receives only the statement's original selected values; private
             cursor columns are hidden.
+        anchor: Caller state stored in the returned cursors, for a value the
+            first page decided and later pages must reuse. Read it back with
+            ``read_cursor_anchor``. A cursor is rejected unless it carries the
+            same anchor.
 
     Returns:
         Items in canonical order with opaque next and previous cursors.
@@ -704,6 +734,7 @@ async def paginate[T](
             query_fingerprint=query_fingerprint,
             ordering=ordering,
             secret=secret,
+            anchor=anchor,
         )
 
     query_ordering = (
@@ -778,6 +809,7 @@ async def paginate[T](
                     values=page_rows[-1].cursor_values,
                     ordering=ordering,
                     secret=secret,
+                    anchor=anchor,
                 )
             if page.cursor is not None and boundary is _Boundary.EXCLUSIVE:
                 prev_cursor = _encode_page_cursor(
@@ -786,6 +818,7 @@ async def paginate[T](
                     values=page_rows[0].cursor_values,
                     ordering=ordering,
                     secret=secret,
+                    anchor=anchor,
                 )
         else:
             if page.cursor is not None and boundary is _Boundary.EXCLUSIVE:
@@ -795,6 +828,7 @@ async def paginate[T](
                     values=page_rows[-1].cursor_values,
                     ordering=ordering,
                     secret=secret,
+                    anchor=anchor,
                 )
             if has_more_in_direction:
                 prev_cursor = _encode_page_cursor(
@@ -803,6 +837,7 @@ async def paginate[T](
                     values=page_rows[0].cursor_values,
                     ordering=ordering,
                     secret=secret,
+                    anchor=anchor,
                 )
     elif cursor_values is not None and boundary is _Boundary.EXCLUSIVE:
         # Concurrent deletes can empty a page after its cursor was issued. A
@@ -816,6 +851,7 @@ async def paginate[T](
                 values=cursor_values,
                 ordering=ordering,
                 secret=secret,
+                anchor=anchor,
             )
         else:
             next_cursor = _encode_page_cursor(
@@ -825,6 +861,7 @@ async def paginate[T](
                 values=cursor_values,
                 ordering=ordering,
                 secret=secret,
+                anchor=anchor,
             )
 
     return Page(

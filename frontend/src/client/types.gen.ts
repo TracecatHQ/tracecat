@@ -3189,6 +3189,10 @@ export type CaseQuery = {
    * The ordinary filter population matches no cases.
    */
   match_none?: boolean
+  /**
+   * Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.
+   */
+  cap_broad_matches?: boolean
 }
 
 export type CaseQueryErrorCode = "current_user_required"
@@ -3274,8 +3278,18 @@ export type CaseRef = {
 }
 
 export type CaseSearchAggregateRead = {
+  /**
+   * Number of matching cases. When capped is true, more cases match and this is the cap.
+   */
   total: number
-  status_groups: CaseStatusGroupCounts
+  /**
+   * Matching cases per status. Null when capped is true.
+   */
+  status_groups: CaseStatusGroupCounts | null
+  /**
+   * True when a keyword search matched more cases than the count cap (10,000), so counting stopped there.
+   */
+  capped?: boolean
 }
 
 /**
@@ -3363,6 +3377,10 @@ export type CaseSearchRequest = {
    * The ordinary filter population matches no cases.
    */
   match_none?: boolean
+  /**
+   * Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.
+   */
+  cap_broad_matches?: boolean
   order_by?: CaseSearchOrder | null
   sort?: "asc" | "desc" | null
   include_rows?: boolean

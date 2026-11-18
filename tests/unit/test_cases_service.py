@@ -1987,6 +1987,7 @@ class TestCasesService:
             description_match.id,
         }
         assert aggregates.total == len(response.items) == 2
+        assert aggregates.status_groups is not None
         assert aggregates.status_groups.new == 1
         assert aggregates.status_groups.resolved == 1
 
@@ -2376,6 +2377,7 @@ class TestCasesService:
         )
 
         assert aggregates.total == 2
+        assert aggregates.status_groups is not None
         assert aggregates.status_groups.new == 0
         assert aggregates.status_groups.in_progress == 1
         assert aggregates.status_groups.on_hold == 0
@@ -2421,6 +2423,7 @@ class TestCasesService:
         aggregates = await cases_service.get_search_case_aggregates()
 
         assert aggregates.total == 2
+        assert aggregates.status_groups is not None
         assert aggregates.status_groups.new == 0
         assert aggregates.status_groups.in_progress == 0
         assert aggregates.status_groups.on_hold == 0
