@@ -367,9 +367,10 @@ def _field_clause(
         )
         .correlate(Case)
     )
-    # Over-budget sources have no stored list: split their complete text per
-    # row. The full-text operator rejects most rows before the split, and CASE
-    # keeps the planner from evaluating either for rows that have a list.
+    # A source with a word too long to index has no stored list: split its
+    # complete text per row. The full-text operator rejects most rows before
+    # the split, and CASE keeps the planner from evaluating either for rows
+    # that have a list.
     full_candidates = _full_normalized(source).bool_op("%>>")(term)
     fallback_words = field.words.is_(None)
     fuzzy = sa.or_(
