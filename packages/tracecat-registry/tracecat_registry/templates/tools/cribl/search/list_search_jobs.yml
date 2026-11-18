@@ -23,6 +23,10 @@ definition:
       type: str | None
       description: "Filter jobs by earliest time."
       default: null
+    latest:
+      type: str | None
+      description: "Filter jobs by latest time."
+      default: null
     type:
       type: str | None
       description: "Filter by job type."
@@ -57,6 +61,7 @@ definition:
           output: ${{ inputs.output }}
           id: ${{ inputs.id }}
           earliest: ${{ inputs.earliest }}
+          latest: ${{ inputs.latest }}
           type: ${{ inputs.type }}
           sortExp: ${{ inputs.sortExp }}
           sortDir: ${{ inputs.sortDir }}

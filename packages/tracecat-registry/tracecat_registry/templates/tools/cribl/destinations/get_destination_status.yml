@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get destination status
-  description: "Get the status of the specified Destination. Calls GET /system/status/outputs/{id}."
+  description: "Get the status and optional metrics for the specified Destination. Calls GET /system/status/outputs/{id}."
   display_group: Cribl
   doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-getOutputStatusById
   namespace: tools.cribl
@@ -18,6 +18,14 @@ definition:
     id:
       type: str
       description: "The id of the Destination to get the status for."
+    metrics:
+      type: bool | None
+      description: "Set to true to include metrics for each Destination. Otherwise, false (default)."
+      default: null
+    type:
+      type: bool | None
+      description: "Set to true to prefix the Destination id with the Destination type. Otherwise, false (default)."
+      default: null
     base_url:
       type: str | None
       description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
@@ -28,6 +36,9 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/status/outputs/${{ FN.url_encode(inputs.id) }}
         method: GET
+        params:
+          metrics: ${{ inputs.metrics }}
+          type: ${{ inputs.type }}
         headers:
           Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
   returns: ${{ steps.request.result }}

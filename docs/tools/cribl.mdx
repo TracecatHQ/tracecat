@@ -450,7 +450,7 @@ Default: `"default"`.
 
 Action ID: `tools.cribl.get_destination_status`
 
-Get the status of the specified Destination. Calls GET /system/status/outputs/&#123;id&#125;.
+Get the status and optional metrics for the specified Destination. Calls GET /system/status/outputs/&#123;id&#125;.
 
 Reference: [https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-getOutputStatusById](https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-getOutputStatusById)
 
@@ -481,6 +481,22 @@ Default: `null`.
 The id of the Worker Group or Edge Fleet whose configuration to use.
 
 Default: `"default"`.
+
+</ParamField>
+
+<ParamField path="metrics" type="boolean | null">
+
+Set to true to include metrics for each Destination. Otherwise, false (default).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="boolean | null">
+
+Set to true to prefix the Destination id with the Destination type. Otherwise, false (default).
+
+Default: `null`.
 
 </ParamField>
 
@@ -1000,7 +1016,7 @@ Default: `null`.
 
 Action ID: `tools.cribl.list_destination_statuses`
 
-List status information for all configured Destinations in the Worker Group or Edge Fleet. Calls GET /system/status/outputs.
+List status information and optional metrics for all configured Destinations in the Worker Group or Edge Fleet. Calls GET /system/status/outputs.
 
 Reference: [https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-getOutputStatus](https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-getOutputStatus)
 
@@ -1025,6 +1041,38 @@ Default: `null`.
 The id of the Worker Group or Edge Fleet whose configuration to use.
 
 Default: `"default"`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer | null">
+
+Maximum number of items to return in the response for this request. Use with offset to paginate the response into manageable batches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="metrics" type="boolean | null">
+
+Set to true to include metrics for each Destination. Otherwise, false (default).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="offset" type="integer | null">
+
+Starting point from which to retrieve results for this request. Use with limit to paginate the response into manageable batches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="boolean | null">
+
+Set to true to prefix the Destination id with the Destination type. Otherwise, false (default).
+
+Default: `null`.
 
 </ParamField>
 
@@ -1530,6 +1578,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="latest" type="string | null">
+
+Filter jobs by latest time.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="limit" type="integer | null">
 
 Maximum number of jobs to return. Use with offset to paginate results.
@@ -1912,7 +1968,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="latest" type="string | integer | null">
+<ParamField path="latest" type="string | number | null">
 
 End of the query time range, exclusive, as a relative time string or Unix time in seconds.
 
@@ -1968,7 +2024,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="wait" type="integer | null">
+<ParamField path="wait" type="string | integer | null">
 
 Time, in milliseconds, to wait after creating a new Search Job before streaming results back to the client.
 

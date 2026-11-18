@@ -28,7 +28,7 @@ definition:
       description: "Beginning of the query time range, inclusive, as a relative time string or Unix time in seconds."
       default: null
     latest:
-      type: str | int | None
+      type: str | float | None
       description: "End of the query time range, exclusive, as a relative time string or Unix time in seconds."
       default: null
     sampleRate:
@@ -40,7 +40,7 @@ definition:
       description: "IANA timezone used to interpret relative time bounds and timestamps."
       default: null
     wait:
-      type: int | None
+      type: str | int | None
       description: "Time, in milliseconds, to wait after creating a new Search Job before streaming results back to the client."
       default: null
     offset:
