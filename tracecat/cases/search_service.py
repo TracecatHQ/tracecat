@@ -579,8 +579,10 @@ class CaseSearchService(BaseWorkspaceService):
                 ordering = (sort_attr.desc(),)
         else:
             # The paginator omits NULLS LAST for NOT NULL columns (created_at,
-            # updated_at, case_number), so ix_case_cursor_pagination can supply
-            # the order. Computed keys can be NULL and keep NULLS LAST.
+            # updated_at, case_number). For created_at that lets
+            # ix_case_cursor_pagination supply the order; updated_at and
+            # case_number have no matching index. Computed keys can be NULL
+            # and keep NULLS LAST.
             if sort_direction == "asc":
                 ordering = (sort_attr.asc(), Case.id.asc())
             else:

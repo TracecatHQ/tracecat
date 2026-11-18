@@ -385,6 +385,14 @@ class TestPaginate:
     ) -> None:
         """NOT NULL keys drop NULLS LAST; same directions seek by row comparison."""
         items = await _create_page_items(session)
+        # Ties on label, so the id key's direction decides their order.
+        await session.execute(
+            items.insert(),
+            [
+                {"id": 7, "score": 1, "label": "bravo"},
+                {"id": 8, "score": 2, "label": "bravo"},
+            ],
+        )
         statement = sa.select(items.c.id)
         label_order = (
             items.c.label.asc() if label_direction == "asc" else items.c.label.desc()
