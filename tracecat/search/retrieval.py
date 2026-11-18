@@ -88,7 +88,7 @@ class TableRetrievalService:
         configuration: PinnedConfiguration,
         request: SearchRequest,
     ):
-        collection = await store.for_table(table_id)
+        collection = await store.for_table(table_id, read=True)
         if (
             collection is None
             or not collection.enabled
