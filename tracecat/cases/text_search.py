@@ -358,7 +358,29 @@ def _field_clause(
             ),
         ),
     )
-    similarity = sa.func.strict_word_similarity(term, _full_normalized(source))
+    # Score a listed match by its closest matched word. The stored list already
+    # proved which words matched, so only those few short words are compared
+    # with the term, not the whole field (that cost 0.3 ms per matched case at
+    # 1.2 KB). A field without a list keeps the full-text similarity.
+    listed_word = (
+        sa.func.unnest(field.words)
+        .table_valued(sa.column("word", sa.Text()))
+        .render_derived(name="case_search_listed_word")
+    )
+    listed_similarity = (
+        sa.select(sa.func.max(sa.func.strict_word_similarity(term, listed_word.c.word)))
+        .select_from(listed_word)
+        .where(listed_word.c.word == sa.func.any(typo_words))
+        .correlate(Case)
+        .scalar_subquery()
+    )
+    similarity = sa.case(
+        (
+            fallback_words,
+            sa.func.strict_word_similarity(term, _full_normalized(source)),
+        ),
+        else_=listed_similarity,
+    )
     return (
         exact,
         sa.or_(exact, fuzzy),

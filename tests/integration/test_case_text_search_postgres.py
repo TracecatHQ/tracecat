@@ -1097,6 +1097,34 @@ def test_safe_vector_exception_boundary_disables_parallel_operations(
         )
 
 
+def test_typo_score_comes_from_the_closest_matched_word(
+    search_database: Engine,
+) -> None:
+    """A listed typo match scores by its best matched word, not the whole field."""
+    with search_database.begin() as conn:
+        # "invoice" is only inside a file-name token, so it is a typo-tier
+        # match whose closest complete word is "invoice" itself (1.0).
+        file_name = seed_case(conn, 1, "synthetic one", "see invoice-17.pdf now")
+        # "invoices" is a complete word at similarity 0.7.
+        plural = seed_case(conn, 2, "synthetic two", "several invoices were sent")
+        scores = {
+            row.id: row.score
+            for row in conn.execute(
+                search_statement("invoice").order_by(None).limit(None)
+            )
+        }
+        similarity = conn.scalar(
+            sa.text("SELECT strict_word_similarity('invoice', 'invoices')")
+        )
+    # Both contain "invoice" as contiguous text (tier 3); the subscore is the
+    # matched word's similarity at the description weight of 0.3.
+    assert scores == {
+        file_name: 3_000_000 + int(0.3 * 999_999),
+        plural: 3_000_000 + int(similarity * 0.3 * 999_999),
+    }
+    assert scores[file_name] > scores[plural]
+
+
 def test_typo_matching_uses_complete_words_and_over_budget_fallback(
     search_database: Engine,
 ) -> None:
