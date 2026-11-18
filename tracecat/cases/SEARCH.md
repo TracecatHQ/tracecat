@@ -71,9 +71,10 @@ unit matches a field when one complete word of it (a run of letters and digits)
 has pg_trgm strict word similarity of at least 0.65 with the unit. Search first
 finds the workspace vocabulary words within that distance once per query, then
 keeps cases whose stored word list contains one of them. A typo-matched field
-scores by the strict word similarity of its closest matched word, so scoring
-compares the term with a few short words instead of the complete text. A field
-without a stored word list still scores against its complete text. There is no
+scores from its stored word list instead of its complete text: 1.0 when the
+term itself is one of its complete words (a keyword inside a file name or
+host), otherwise the 0.65 threshold. A field without a stored word list still
+scores by strict word similarity against its complete text. There is no
 capped initial candidate window.
 
 The selected page retains narrow projections and independent detail flags.
