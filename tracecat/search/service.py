@@ -92,17 +92,21 @@ class SearchStorage(BaseService):
                 )
                 yield cls(owned_session, scope)
 
-    async def lock_scope(self) -> None:
-        """Lock even an absent collection; prevent source deletion during work."""
+    async def lock_scope(self, *, shared: bool = False) -> None:
+        """Lock even an absent collection; prevent source deletion during work.
+
+        Source row writers take the lock shared, so writes to different tables
+        in one workspace run concurrently. Everything else takes it exclusive,
+        so it still waits for in-flight row writes and blocks new ones.
+        """
         identity = (
             f"semantic-search:{self.scope.organization_id}:{self.scope.workspace_id}"
         )
         key = int.from_bytes(
             hashlib.sha256(identity.encode()).digest()[:8], signed=True
         )
-        await self.session.execute(
-            text("SELECT pg_advisory_xact_lock(:key)"), {"key": key}
-        )
+        function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+        await self.session.execute(text(f"SELECT {function}(:key)"), {"key": key})
         live = await self.session.scalar(
             select(Workspace.id)
             .where(
@@ -311,6 +315,19 @@ class SearchStorage(BaseService):
         single-row and bulk writers.
         """
         collection = await self.collection(collection_id)
+        await self._upsert_documents(
+            collection, row_ids, deleted=deleted, backfill=backfill
+        )
+
+    async def _upsert_documents(
+        self,
+        collection: SearchCollection,
+        row_ids: Sequence[uuid.UUID],
+        *,
+        deleted: bool = False,
+        backfill: bool = False,
+    ) -> None:
+        """Reset documents of a collection the caller already locked."""
         row_ids = list(dict.fromkeys(row_ids))
         for offset in range(0, len(row_ids), 1000):
             # SQL parameter mappings combine literals and SQL expressions; they

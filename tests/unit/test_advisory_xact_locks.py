@@ -27,10 +27,10 @@ from tracecat.db.engine import (
 )
 from tracecat.db.exceptions import AdvisoryLockLostError
 from tracecat.db.locks import (
-    derive_lock_key_from_parts,
     hold_pg_advisory_xact_lock,
     require_lock_holder_on_commit,
 )
+from tracecat.db.models import Case
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
@@ -76,14 +76,6 @@ async def _advisory_waiters(key: int) -> int:
             {"high": key >> 32, "low": key & 0xFFFFFFFF},
         )
         return result.scalar_one()
-
-
-def _schema_init_lock_key() -> int:
-    return derive_lock_key_from_parts(
-        "tracecat.custom_fields.initialize_workspace_schema",
-        CaseFieldsService.service_name,
-        CaseFieldsService._table,
-    )
 
 
 async def test_held_lock_blocks_waiters_and_fails_tries() -> None:
@@ -256,7 +248,7 @@ async def test_custom_field_schema_init_waits_for_the_first_commit(
             await asyncio.sleep(CONTENTION_WINDOW)
             assert not second.done()
             # Waiting on the advisory lock, not on the first one's DDL.
-            assert await _advisory_waiters(_schema_init_lock_key()) >= 1
+            assert await _advisory_waiters(service._schema_lock_key()) >= 1
             await session.commit()
             # The second initializer sees the committed schema instead of
             # racing the first transaction's uncommitted DDL.
@@ -264,6 +256,47 @@ async def test_custom_field_schema_init_waits_for_the_first_commit(
         finally:
             await session.rollback()
             await service.drop_workspace_schema()
+            await session.commit()
+
+
+@pytest.mark.parametrize("schema_exists", [False, True])
+async def test_custom_field_reads_never_take_the_schema_lock(
+    svc_role: Role, schema_exists: bool
+) -> None:
+    """Concurrent reads take no advisory lock and never create the schema."""
+    if schema_exists:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await CaseFieldsService(session, svc_role).initialize_workspace_schema()
+            await session.commit()
+
+    async def read_fields() -> tuple[int, bool]:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            service = CaseFieldsService(session, svc_role)
+            case = Case(id=uuid.uuid4(), workspace_id=svc_role.workspace_id)
+            await service.get_fields(case)
+            await service.batch_get_fields([case.id], ["severity_score"])
+            # Transaction-scoped locks stay listed until this transaction ends.
+            held = await session.scalar(
+                text(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'"
+                    " AND pid = pg_backend_pid()"
+                )
+            )
+            table = await session.scalar(
+                text("SELECT to_regclass(:name) IS NOT NULL"),
+                {"name": service._full_table_name()},
+            )
+            await session.rollback()
+            return held, table
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*(read_fields() for _ in range(8))), timeout=30
+        )
+        assert results == [(0, schema_exists)] * 8
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            await CaseFieldsService(session, svc_role).drop_workspace_schema()
             await session.commit()
 
 

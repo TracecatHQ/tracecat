@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Iterator
-from typing import get_args
+from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import httpx
@@ -18,6 +18,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.db.engine import get_async_session
+from tracecat.db.locks import derive_lock_key_from_parts
 from tracecat.db.models import (
     Organization,
     SearchChunk,
@@ -401,6 +402,216 @@ async def test_enablement_waits_for_unconfigured_writer(
             )
             == 1
         )
+    finally:
+        release.set()
+        await engine.dispose()
+
+
+async def test_row_writers_in_one_workspace_do_not_wait_on_each_other(
+    tables: TablesService, table: Table
+):
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
+        )
+    )
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    table_id, other_id = table.id, other.id
+    await tables.session.commit()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    async def write(table_id: UUID) -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "concurrent"}))
+            await service.batch_insert_rows(live, [{"body": "a"}, {"body": "b"}])
+            row = await service.insert_row(
+                live, TableRowInsert(data={"body": "changed"})
+            )
+            await service.update_row(live, row["id"], {"body": "updated"})
+            await service.delete_row(live, row["id"])
+
+    async def configure():
+        async with sessions.begin() as session:
+            await TableSearchService(session, tables.search.scope).lock_scope()
+
+    try:
+        task = asyncio.create_task(open_writer())
+        await asyncio.wait_for(entered.wait(), 5)
+        # Writers to other tables, and to the same unindexed table, proceed
+        # while the first writer's transaction is still open.
+        await asyncio.wait_for(write(other_id), 5)
+        await asyncio.wait_for(write(table_id), 5)
+        # Search lifecycle work still waits for the open writer.
+        lifecycle = asyncio.create_task(configure())
+        await asyncio.sleep(0.05)
+        assert not lifecycle.done()
+        release.set()
+        await asyncio.wait_for(task, 5)
+        await asyncio.wait_for(lifecycle, 5)
+    finally:
+        release.set()
+        await engine.dispose()
+
+
+async def test_indexed_row_writers_wait_only_for_the_same_table(
+    tables: TablesService, table: Table
+):
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
+        )
+    )
+    collection = await enable(tables, table)
+    other_collection = await enable(tables, other)
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def insert(table_id: UUID, body: str) -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": body}))
+            if body == "held":
+                entered.set()
+                await release.wait()
+
+    try:
+        held = asyncio.create_task(insert(table.id, "held"))
+        await asyncio.wait_for(entered.wait(), 5)
+        # Indexing a row in another table does not wait for the open writer.
+        await asyncio.wait_for(insert(other.id, "other"), 5)
+        # A second writer on the same indexed table waits for the first.
+        same = asyncio.create_task(insert(table.id, "same"))
+        await asyncio.sleep(0.05)
+        assert not same.done()
+        release.set()
+        await asyncio.wait_for(held, 5)
+        await asyncio.wait_for(same, 5)
+        assert len(await documents(tables.session, collection)) == 2
+        assert len(await documents(tables.session, other_collection)) == 1
+    finally:
+        release.set()
+        await engine.dispose()
+
+
+async def test_batch_writes_to_one_table_run_one_at_a_time(
+    tables: TablesService, table: Table
+):
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[
+                TableColumnCreate(name="key", type=SqlType.TEXT),
+                TableColumnCreate(name="body", type=SqlType.TEXT),
+            ],
+        )
+    )
+    await tables.create_unique_index(table, "key")
+    await tables.create_unique_index(other, "key")
+    await tables.batch_insert_rows(table, [{"key": "a"}, {"key": "b"}])
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    batch_key = derive_lock_key_from_parts("tracecat.tables.batch_write", str(table.id))
+    row_ids = list(
+        (
+            await tables.session.scalars(
+                sa.text(f'SELECT id FROM "{tables._get_schema_name()}"."{table.name}"')
+            )
+        ).all()
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def upsert(table_id: UUID, rows: list[dict[str, Any]]) -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.batch_insert_rows(live, rows, upsert=True)
+            if rows[0].get("body") == "x":
+                entered.set()
+                await release.wait()
+
+    async def insert_single() -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table.id)
+            await service.insert_row(
+                live, TableRowInsert(data={"key": "c", "body": "single"})
+            )
+
+    async def update_counts() -> None:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table.id)
+            await service.batch_update_rows(live, row_ids, {"count": 9})
+
+    async def batch_waiters() -> int:
+        async with engine.connect() as connection:
+            return (
+                await connection.execute(
+                    sa.text(
+                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'"
+                        " AND NOT granted AND objsubid = 1"
+                        " AND classid = :high AND objid = :low"
+                    ),
+                    {"high": batch_key >> 32, "low": batch_key & 0xFFFFFFFF},
+                )
+            ).scalar_one()
+
+    try:
+        held = asyncio.create_task(
+            upsert(table.id, [{"key": "a", "body": "x"}, {"key": "b", "count": 1}])
+        )
+        await asyncio.wait_for(entered.wait(), 5)
+        # Same keys in reverse order and mixed shapes: the deadlock-prone pair.
+        reverse = asyncio.create_task(
+            upsert(table.id, [{"key": "b", "body": "y"}, {"key": "a", "count": 2}])
+        )
+        # A batch update of the same rows is just as deadlock-prone.
+        update = asyncio.create_task(update_counts())
+        # Both queue on the table's batch-write lock, before touching any row.
+        async with asyncio.timeout(5):
+            while await batch_waiters() != 2:
+                await asyncio.sleep(0.02)
+        assert not reverse.done() and not update.done()
+        await asyncio.wait_for(insert_single(), 5)
+        await asyncio.wait_for(upsert(other.id, [{"key": "a", "body": "z"}]), 5)
+        release.set()
+        await asyncio.wait_for(held, 5)
+        await asyncio.wait_for(reverse, 5)
+        await asyncio.wait_for(update, 5)
+        rows = (
+            await tables.session.execute(
+                sa.text(
+                    f'SELECT key, body, count FROM "{tables._get_schema_name()}"'
+                    f'."{table.name}" ORDER BY key'
+                )
+            )
+        ).all()
+        assert [(row[0], row[1]) for row in rows] == [
+            ("a", "x"),
+            ("b", "y"),
+            ("c", "single"),
+        ]
+        # The reverse upsert leaves b's count alone, so the update's value holds
+        # whichever queued writer ran first.
+        assert rows[1][2] == 9
     finally:
         release.set()
         await engine.dispose()

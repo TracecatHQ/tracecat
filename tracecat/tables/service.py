@@ -38,6 +38,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.errors import find_db_error
+from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_xact_lock
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
@@ -369,6 +370,19 @@ class BaseTablesService(BaseWorkspaceService):
                         raise ValueError(str(exc)) from exc
             conditions.append(col == param)
         return conditions
+
+    async def _lock_batch_writes(self, table: Table) -> None:
+        """Run multi-row writes to existing rows of one table one at a time.
+
+        Row writers share the workspace lock, so two multi-row writes that
+        touch the same rows in a different order would deadlock on them.
+        Batch upserts, updates and deletes take this lock after the table is
+        resolved in the caller's workspace; single-row writes don't need it.
+        """
+        await pg_advisory_xact_lock(
+            self.session,
+            derive_lock_key_from_parts("tracecat.tables.batch_write", str(table.id)),
+        )
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -1303,7 +1317,7 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If conflict keys are specified but not present in the data
             DBAPIError: If there's no unique index on the specified conflict keys
         """
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
@@ -1402,7 +1416,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TableRowError(
                 "empty_update", "Row update must include at least one column."
             )
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
@@ -1451,7 +1465,7 @@ class BaseTablesService(BaseWorkspaceService):
 
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1474,8 +1488,9 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows deleted
         """
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
+        await self._lock_batch_writes(table)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
@@ -1501,8 +1516,9 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows updated
         """
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
+        await self._lock_batch_writes(table)
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
@@ -2041,8 +2057,10 @@ class BaseTablesService(BaseWorkspaceService):
         if len(rows) > chunk_size:
             raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
 
-        collection = await self.search.for_table(table.id)
+        collection = await self.search.for_table(table.id, row_write=True)
         table = await self.search.table(table.id)
+        if upsert:
+            await self._lock_batch_writes(table)
         schema_name = self._get_schema_name()
 
         sanitized_table_name = self._sanitize_identifier(table.name)
