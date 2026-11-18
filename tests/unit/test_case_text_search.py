@@ -1,7 +1,7 @@
 """Bounded query semantics, SQL composition, and plain-text excerpts."""
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import sqlalchemy as sa
@@ -223,13 +223,22 @@ async def test_excerpt_batch_skips_empty_inputs_and_bounds_returned_ids() -> Non
     session.execute.assert_not_awaited()
 
 
+def _settings_session(*, previous_planner: list[str]) -> AsyncMock:
+    """A mock session whose statements return the given planner settings."""
+    session = AsyncMock()
+    session.execute.return_value = MagicMock(
+        scalars=MagicMock(return_value=previous_planner)
+    )
+    return session
+
+
 @pytest.mark.anyio
 async def test_execution_settings_are_transaction_local_and_restored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
-    session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "auto", "0.5"]
+    session = _settings_session(previous_planner=["on", "auto"])
+    session.scalar.side_effect = ["0", "0.5"]
     async with case_search_execution_context(session):
         pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
@@ -240,13 +249,13 @@ async def test_execution_settings_are_transaction_local_and_restored(
     assert {"threshold": "0.65"} in parameters
     assert {"threshold": "0.5"} in parameters
     assert {"timeout": "0"} in parameters
-    # Planner settings are applied and then restored in reverse order.
-    planner = [p for p in parameters if "name" in p]
+    # Planner settings are read, applied, then restored to what was read.
+    names = ["jit", "plan_cache_mode"]
+    planner = [p for p in parameters if "names" in p]
     assert planner == [
-        {"name": "jit", "value": "off"},
-        {"name": "plan_cache_mode", "value": "force_custom_plan"},
-        {"name": "plan_cache_mode", "value": "auto"},
-        {"name": "jit", "value": "on"},
+        {"names": names},
+        {"names": names, "values": ["off", "force_custom_plan"]},
+        {"names": names, "values": ["on", "auto"]},
     ]
 
 
@@ -255,46 +264,32 @@ async def test_nonfuzzy_execution_keeps_timeout_without_trigram_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS", 12_345)
-    session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "auto"]
+    session = _settings_session(previous_planner=["on", "auto"])
+    session.scalar.side_effect = ["0"]
     async with case_search_execution_context(session, use_trigram_threshold=False):
         pass
     assert [str(call.args[0]) for call in session.scalar.await_args_list] == [
         "SHOW statement_timeout",
-        "SHOW jit",
-        "SHOW plan_cache_mode",
     ]
-    assert [str(call.args[0]) for call in session.execute.await_args_list] == [
-        "SET LOCAL statement_timeout = 12345",
-        "SELECT set_config(:name, :value, true)",
-        "SELECT set_config(:name, :value, true)",
-        "SELECT set_config(:name, :value, true)",
-        "SELECT set_config(:name, :value, true)",
-        "SELECT set_config('statement_timeout', :timeout, true)",
-    ]
+    statements = [str(call.args[0]) for call in session.execute.await_args_list]
+    assert statements[0] == "SET LOCAL statement_timeout = 12345"
+    assert statements[1].startswith("SELECT current_setting(name)")
+    assert all("set_config(name, value, true)" in sql for sql in statements[2:4])
+    assert statements[4:] == ["SELECT set_config('statement_timeout', :timeout, true)"]
+    assert not any("pg_trgm" in sql for sql in statements)
 
 
 @pytest.mark.anyio
 async def test_nested_fuzzy_execution_changes_and_restores_threshold_once() -> None:
-    session = AsyncMock()
-    # The inner context sees the planner settings already applied.
-    session.scalar.side_effect = [
-        "0",
-        "on",
-        "auto",
-        "0.5",
-        "1500ms",
-        "off",
-        "force_custom_plan",
-        "0.65",
-    ]
+    session = _settings_session(previous_planner=["on", "auto"])
+    session.scalar.side_effect = ["0", "0.5", "1500ms", "0.65"]
     async with case_search_execution_context(session):
         async with case_search_execution_context(session):
             pass
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert statements.count("SELECT strict_word_similarity('', '')") == 2
-    # Two settings applied once by the outer context, then restored.
-    assert statements.count("SELECT set_config(:name, :value, true)") == 4
+    # Each context applies and restores the planner settings in one statement.
+    assert sum("set_config(name, value, true)" in sql for sql in statements) == 4
     threshold_parameters = [
         call.args[1]
         for call in session.execute.await_args_list
@@ -307,8 +302,8 @@ async def test_nested_fuzzy_execution_changes_and_restores_threshold_once() -> N
 async def test_timeout_message_is_specific_to_case_search_and_retains_error_code() -> (
     None
 ):
-    session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "auto", "0.5"]
+    session = _settings_session(previous_planner=["on", "auto"])
+    session.scalar.side_effect = ["0", "0.5"]
     with pytest.raises(
         TracecatQueryTimeoutError, match="Case search timed out"
     ) as error:
@@ -319,11 +314,11 @@ async def test_timeout_message_is_specific_to_case_search_and_retains_error_code
 
 @pytest.mark.anyio
 async def test_failure_leaves_setting_cleanup_to_transaction_rollback() -> None:
-    session = AsyncMock()
-    session.scalar.side_effect = ["0", "on", "auto", "0.5"]
+    session = _settings_session(previous_planner=["on", "auto"])
+    session.scalar.side_effect = ["0", "0.5"]
     with pytest.raises(RuntimeError):
         async with case_search_execution_context(session):
             raise RuntimeError("synthetic failure")
-    # Timeout, two planner settings, extension load, and threshold are set;
+    # Timeout, planner read and set, extension load, and threshold are set;
     # none is restored.
     assert session.execute.await_count == 5

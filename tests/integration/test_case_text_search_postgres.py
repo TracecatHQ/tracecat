@@ -262,8 +262,8 @@ def apply_case_search_migrations(engine: Engine, *, downgrade: bool = False) -> 
     else:
         apply_search_migration(engine)
         apply_vector_migration(engine)
+        # Also restores the over-budget revision, as Alembic would apply next.
         apply_word_migration(engine)
-        apply_oversized_migration(engine)
 
 
 @pytest.fixture

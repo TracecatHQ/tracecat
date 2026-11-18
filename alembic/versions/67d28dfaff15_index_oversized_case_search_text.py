@@ -304,7 +304,16 @@ def _index_state(name: str, definition: str, trgm_schema: str) -> _IndexState:
         op.get_bind()
         .execute(
             sa.text("""
-        SELECT pg_get_indexdef(c.oid), i.indisvalid AND i.indisready
+        SELECT pg_get_indexdef(c.oid), i.indisvalid AND i.indisready,
+            -- The definition omits a visible opclass's schema, so a same-named
+            -- lookalike earlier on search_path would render identically.
+            NOT EXISTS (
+                SELECT 1 FROM unnest(i.indclass::oid[]) AS k(opclass)
+                JOIN pg_opclass o ON o.oid = k.opclass
+                WHERE o.opcname = 'gin_trgm_ops' AND o.opcnamespace IS DISTINCT FROM (
+                    SELECT extnamespace FROM pg_extension WHERE extname = 'pg_trgm'
+                )
+            )
         FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
         WHERE c.oid = to_regclass(:name)
     """),
@@ -316,7 +325,10 @@ def _index_state(name: str, definition: str, trgm_schema: str) -> _IndexState:
     if row is None:
         return "absent"
     # The operator class is schema-qualified when its schema is not on search_path.
-    if row[0].replace(f" {trgm_schema}.gin_trgm_ops)", " gin_trgm_ops)") != definition:
+    definition_matches = (
+        row[0].replace(f" {trgm_schema}.gin_trgm_ops)", " gin_trgm_ops)") == definition
+    )
+    if not definition_matches or not row[2]:
         raise RuntimeError(
             f"Index public.{name} has an incompatible existing definition ({row[0]}); "
             "preserve it and resolve the name collision before retrying."

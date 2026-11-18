@@ -201,6 +201,7 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
         CASE_SEARCH_TRIGGER,
         CASE_SEARCH_TRIGGER_FUNCTION,
         CASE_SEARCH_TRIGGER_BODY_HASH,
+        trgm_schema=trgm_schema,
     )
     await _ensure_indexes(session, CASE_SEARCH_VECTOR_INDEXES, trgm_schema)
     await _ensure_stored_words(session, trgm_schema)
@@ -268,6 +269,7 @@ async def _ensure_stored_words(session: AsyncSession, trgm_schema: str) -> None:
         CASE_SEARCH_WORDS_TRIGGER,
         CASE_SEARCH_WORDS_TRIGGER_FUNCTION,
         CASE_SEARCH_WORDS_TRIGGER_BODY_HASH,
+        trgm_schema=trgm_schema,
     )
     await _ensure_indexes(session, CASE_SEARCH_WORD_INDEXES, trgm_schema)
 
@@ -278,7 +280,7 @@ async def _ensure_trigger(
     function: str,
     body_hash: str,
     *,
-    trgm_schema: str | None = None,
+    trgm_schema: str,
 ) -> None:
     """Verify a BEFORE INSERT/UPDATE row trigger that maintains search columns.
 
@@ -311,7 +313,7 @@ async def _ensure_trigger(
                 "function": f"public.{function}()",
                 "trigger_type": _BEFORE_ROW_INSERT_UPDATE,
                 "body_hash": body_hash,
-                "show_trgm": f"{trgm_schema or 'public'}.show_trgm(",
+                "show_trgm": f"{trgm_schema}.show_trgm(",
             },
         )
     ).scalar_one_or_none()

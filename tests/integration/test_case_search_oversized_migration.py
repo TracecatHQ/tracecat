@@ -20,6 +20,7 @@ from tests.integration.test_case_text_search_postgres import (
     search_database as _search_database,
 )
 from tracecat.cases.text_search import build_case_text_expressions
+from tracecat.cases.text_search_indexes import CASE_SEARCH_OVERSIZED_INDEXES
 from tracecat.db.models import Case
 
 pytestmark = pytest.mark.integration
@@ -36,6 +37,14 @@ def _stored(conn: Connection, case_id: uuid.UUID) -> sa.Row[tuple[object, ...]]:
         ),
         {"id": case_id},
     ).one()
+
+
+def _case_indexes(conn: Connection) -> set[str]:
+    return set(
+        conn.execute(
+            sa.text("SELECT indexname FROM pg_indexes WHERE tablename = 'case'")
+        ).scalars()
+    )
 
 
 def _vocabulary(conn: Connection, workspace: uuid.UUID) -> set[str]:
@@ -64,6 +73,7 @@ def test_oversized_migration_backfills_maintains_and_downgrades(
     apply_oversized_migration(search_database)
 
     with search_database.begin() as conn:
+        assert set(CASE_SEARCH_OVERSIZED_INDEXES) <= _case_indexes(conn)
         stored = _stored(conn, large)
         assert stored.no_vector is True
         assert stored.description_lexemes is not None
@@ -134,6 +144,7 @@ def test_oversized_migration_backfills_maintains_and_downgrades(
             ).scalars()
         )
         assert not {"summary_lexemes", "description_lexemes"} & columns
+        assert not set(CASE_SEARCH_OVERSIZED_INDEXES) & _case_indexes(conn)
         assert (
             conn.scalar(
                 sa.text(

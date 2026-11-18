@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -31,7 +31,7 @@ from tracecat.cases.text_search_indexes import (
 )
 from tracecat.db.models import Case, CaseSearchWord
 from tracecat.query.errors import TracecatQueryTimeoutError
-from tracecat.query.execution import query_execution_context
+from tracecat.query.execution import query_execution_context, transaction_settings
 from tracecat.query.lexical import (
     literal_search_pattern,
     parse_full_text_query,
@@ -705,44 +705,20 @@ async def get_case_search_excerpts(
     return {case_id: tuple(values) for case_id, values in excerpts.items()}
 
 
-# Planner settings for search statements, applied per transaction.
-_SEARCH_PLANNER_SETTINGS = (
+# Planner settings for search statements, applied per transaction with
+# ``transaction_settings``. The legacy substring search uses them too.
+SEARCH_PLANNER_SETTINGS: Mapping[str, str] = {
     # Search statements are index-driven and usually finish in milliseconds,
     # but their long expressions push the cost estimate over jit_above_cost.
     # Compiling them took about 30 ms per statement, several times the
     # execution time of a selective search.
-    ("jit", "off"),
+    "jit": "off",
     # How many cases a keyword matches decides the plan: a rare one should use
     # the text indexes, a broad one a scan. asyncpg reuses prepared statements,
     # and after five runs PostgreSQL may switch to a generic plan that cannot
     # see the keyword; a broad legacy search then took 0.97 s instead of 0.31 s.
-    ("plan_cache_mode", "force_custom_plan"),
-)
-
-
-@asynccontextmanager
-async def search_planner_settings(session: AsyncSession) -> AsyncIterator[None]:
-    """Apply search planner settings for this transaction, then restore them.
-
-    The lexical execution context uses this, and so does the legacy substring
-    search, which runs outside it. The settings are transaction-local; on an
-    error the caller's rollback restores them.
-    """
-    changed: list[tuple[str, str]] = []
-    for name, value in _SEARCH_PLANNER_SETTINGS:
-        previous = await session.scalar(sa.text(f"SHOW {name}"))
-        if previous != value:
-            await session.execute(
-                sa.text("SELECT set_config(:name, :value, true)"),
-                {"name": name, "value": value},
-            )
-            changed.append((name, str(previous)))
-    yield
-    for name, previous in reversed(changed):
-        await session.execute(
-            sa.text("SELECT set_config(:name, :value, true)"),
-            {"name": name, "value": previous},
-        )
+    "plan_cache_mode": "force_custom_plan",
+}
 
 
 @asynccontextmanager
@@ -764,7 +740,7 @@ async def case_search_execution_context(
                 session,
                 statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
             ),
-            search_planner_settings(session),
+            transaction_settings(session, SEARCH_PLANNER_SETTINGS),
         ):
             if check_readiness:
                 await ensure_case_text_indexes(session)
