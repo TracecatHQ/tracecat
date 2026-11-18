@@ -182,6 +182,7 @@ from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
     TablesService,
     validate_identifier,
+    visible_column_clauses,
 )
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
@@ -1713,7 +1714,7 @@ class CaseFieldsService(CustomFieldsService):
 
         schema = await self.get_field_schema()
         reflected_types: dict[str, SqlType] = {}
-        for column in await self.editor.get_columns():
+        for column in await self.get_columns() or []:
             column_name = column.get("name")
             if (
                 isinstance(column_name, str)
@@ -1849,7 +1850,7 @@ class CaseFieldsService(CustomFieldsService):
         # metadata-only updates (e.g. required_on_closure) are not silently
         # dropped.
         if field_type is None:
-            for col in await self.editor.get_columns():
+            for col in await self.get_columns() or []:
                 if col["name"] == new_field_id:
                     field_type = _normalize_case_field_read_type(col["type"]).value
                     break
@@ -1985,13 +1986,17 @@ class CaseFieldsService(CustomFieldsService):
 
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
-        if not await self._schema_exists():
+        columns = await self.get_columns()
+        if columns is None:
             return None
-        table = self._table_definition()
-        row_id = await self.session.scalar(
-            sa.select(table.c.id).where(table.c.case_id == case.id)
+        conn = await self.session.connection()
+        stmt = (
+            sa.select(*visible_column_clauses([column["name"] for column in columns]))
+            .select_from(sa.table(self.sanitized_table_name, schema=self.schema_name))
+            .where(sa.column("case_id") == case.id)
         )
-        return await self.editor.get_row(row_id) if row_id else None
+        row = (await conn.execute(stmt)).mappings().first()
+        return dict(row) if row else None
 
     async def batch_get_fields(
         self, case_ids: list[uuid.UUID], field_ids: Sequence[str]
@@ -2007,16 +2012,12 @@ class CaseFieldsService(CustomFieldsService):
         # Validate requested fields against reflected columns so stale or missing
         # schema metadata does not hide real columns. A missing table has no
         # values, and a read must not create it.
-        available_fields = (
-            {
-                column_name
-                for column in await self.editor.get_columns()
-                if isinstance((column_name := column.get("name")), str)
-                and column_name not in self._reserved_columns
-            }
-            if await self._schema_exists()
-            else set()
-        )
+        available_fields = {
+            column_name
+            for column in await self.get_columns() or []
+            if isinstance((column_name := column.get("name")), str)
+            and column_name not in self._reserved_columns
+        }
         requested_field_ids: list[str] = []
         for field_id in dict.fromkeys(field_ids):
             self._assert_user_field_name_allowed(field_id)

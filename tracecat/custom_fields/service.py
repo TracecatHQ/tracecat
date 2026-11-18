@@ -27,6 +27,33 @@ from tracecat.tables.service import (
     validate_identifier,
 )
 
+# Everything SQLAlchemy reflects for a column, in one catalog query. NULL when
+# the table is missing.
+_COLUMNS_FINGERPRINT_SQL = sa.text(
+    """
+    SELECT CASE WHEN to_regclass(:table_name) IS NOT NULL THEN (
+        SELECT coalesce(json_agg(json_build_array(
+            a.attnum, a.attname, a.atttypid, a.atttypmod, a.attnotnull,
+            a.attidentity, a.attgenerated, pg_get_expr(d.adbin, d.adrelid),
+            col_description(a.attrelid, a.attnum)
+        ) ORDER BY a.attnum)::text, '[]')
+        FROM pg_attribute a
+        LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE a.attrelid = to_regclass(:table_name)
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+    ) END
+    """
+)
+
+# (schema, table) -> (fingerprint, reflected user-visible columns). The key is
+# the catalog content itself, so a hit is right for any transaction that sees
+# that content: DDL from another process or a rolled-back transaction changes
+# the fingerprint instead of needing an invalidation.
+_columns_cache: dict[
+    tuple[str, str], tuple[str, Sequence[sa.engine.interfaces.ReflectedColumn]]
+] = {}
+
 
 class CustomFieldsService(BaseWorkspaceService, ABC):
     """Base service for managing workspace-specific custom fields.
@@ -176,11 +203,43 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         )
         self._schema_initialized = False
 
-    async def list_fields(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """List all custom fields for the workspace."""
+    async def _columns_fingerprint(self) -> str | None:
+        return await self.session.scalar(
+            _COLUMNS_FINGERPRINT_SQL, {"table_name": self._full_table_name()}
+        )
 
-        await self._ensure_schema_ready()
-        return await self.editor.get_columns()
+    async def get_columns(
+        self,
+    ) -> Sequence[sa.engine.interfaces.ReflectedColumn] | None:
+        """Return the table's user-visible columns, or None if it is missing.
+
+        Costs one catalog query when the columns are unchanged since the last
+        reflection in this process.
+        """
+
+        key = (self.schema_name, self._table)
+        fingerprint = await self._columns_fingerprint()
+        if fingerprint is None:
+            return None
+        cached = _columns_cache.get(key)
+        if cached is not None and cached[0] == fingerprint:
+            columns = cached[1]
+        else:
+            columns = await self.editor.get_columns()
+            # Statements read separate snapshots; cache only if nothing
+            # changed while reflecting.
+            if await self._columns_fingerprint() == fingerprint:
+                _columns_cache[key] = (fingerprint, columns)
+        # Copies, so a caller cannot change the shared entry.
+        return [column.copy() for column in columns]
+
+    async def list_fields(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """List all custom fields for the workspace.
+
+        A missing table has no fields; a read does not create it.
+        """
+
+        return await self.get_columns() or []
 
     async def create_field(self, params: CustomFieldCreate) -> None:
         """Create a new custom field column."""

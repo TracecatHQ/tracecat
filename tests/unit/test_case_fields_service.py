@@ -371,7 +371,7 @@ class TestCaseFieldsService:
                 "update_column",
             ),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=[reflected_column],
             ),
@@ -570,27 +570,59 @@ class TestCaseFieldsService:
         session: AsyncSession,
     ) -> None:
         """Test getting fields for a case with field values."""
-        # Initialize workspace schema and ensure a row exists for the case
-        await case_fields_service.initialize_workspace_schema()
-        row_id = await case_fields_service.ensure_workspace_row(test_case.id)
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field2", type=SqlType.INTEGER)
+        )
+        assert await case_fields_service.get_fields(test_case) is None
 
-        # Mock the editor.get_row method to return a response
-        mock_fields_data = {
-            "id": row_id,
-            "case_id": test_case.id,
-            "custom_field1": "test value",
-            "custom_field2": 123,
-        }
+        await case_fields_service.upsert_field_values(
+            test_case, {"custom_field1": "test value", "custom_field2": 123}
+        )
+        fields = await case_fields_service.get_fields(test_case)
 
-        with patch.object(case_fields_service.editor, "get_row") as mock_get_row:
-            mock_get_row.return_value = mock_fields_data
+        assert fields is not None
+        assert fields["case_id"] == test_case.id
+        assert fields["custom_field1"] == "test value"
+        assert fields["custom_field2"] == 123
 
-            # Get fields for the case
-            fields = await case_fields_service.get_fields(test_case)
+    async def test_list_fields_does_not_create_missing_table(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """A read on a workspace without the table returns nothing and runs no DDL."""
+        assert await case_fields_service.list_fields() == []
+        assert await case_fields_service.get_columns() is None
 
-            # Verify the fields were returned correctly
-            assert fields == mock_fields_data
-            mock_get_row.assert_called_once_with(row_id)
+    async def test_cached_columns_follow_ddl_from_other_services(
+        self, session: AsyncSession, svc_role: Role
+    ) -> None:
+        """Columns cached by one service reflect DDL and rollbacks from others."""
+        await CaseFieldsService(session, svc_role).create_field(
+            CaseFieldCreate(name="first", type=SqlType.TEXT)
+        )
+
+        async def names() -> set[str]:
+            columns = await CaseFieldsService(session, svc_role).list_fields()
+            return {column["name"] for column in columns}
+
+        assert "first" in await names()
+        await CaseFieldsService(session, svc_role).create_field(
+            CaseFieldCreate(name="second", type=SqlType.TEXT)
+        )
+        assert {"first", "second"} <= await names()
+
+        # Uncommitted DDL is visible in its transaction and gone after rollback.
+        await CaseFieldsService(session, svc_role).editor.create_column(
+            CaseFieldCreate(name="rolled_back", type=SqlType.TEXT)
+        )
+        assert "rolled_back" in await names()
+        await session.rollback()
+        assert "rolled_back" not in await names()
+
+        await CaseFieldsService(session, svc_role).delete_field("second")
+        assert "second" not in await names()
 
     async def test_batch_get_fields_selects_only_requested_columns(
         self,
@@ -652,7 +684,7 @@ class TestCaseFieldsService:
         with (
             patch.object(case_fields_service, "get_field_schema", return_value={}),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=reflected_columns,
             ),
@@ -746,7 +778,7 @@ class TestCaseFieldsService:
                 return_value={"numeric_field": {"type": "NUMERIC"}},
             ),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
             ),
@@ -774,7 +806,7 @@ class TestCaseFieldsService:
                 return_value={"numeric_field": {"type": "TEXT"}},
             ),
             patch.object(
-                case_fields_service.editor,
+                case_fields_service,
                 "get_columns",
                 return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
             ),
