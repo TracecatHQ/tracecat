@@ -358,28 +358,25 @@ def _field_clause(
             ),
         ),
     )
-    # Score a listed match from its stored word list instead of comparing the
-    # term with the whole field, which cost 0.3 ms per matched case at 1.2 KB:
-    # 1.0 when the term itself is a complete word of the field (a keyword
-    # inside a file name or host, such as invoice in invoice-17.pdf), else the
-    # typo threshold. A per-row lookup of the closest matched word was tried
-    # and made other searches about 12% slower, even where it never ran. A
-    # field without a list keeps the full-text similarity.
-    listed_score = sa.case(
-        (field.words.op("@>")(sa.literal([term], ARRAY(sa.Text()))), 1.0),
-        else_=FUZZY_THRESHOLD,
-    )
-    similarity = sa.case(
-        (
-            fallback_words,
-            sa.func.strict_word_similarity(term, _full_normalized(source)),
-        ),
-        else_=listed_score,
-    )
+    # A typo match scores from the field's stored word list: 1.0 when the term
+    # itself is a complete word of the field (a keyword inside a file name or
+    # host, such as invoice in invoice-17.pdf), else the typo threshold. Only
+    # a field without a list compares the term with its whole text.
+    # ``IS NOT TRUE`` also covers a NULL ``fuzzy``, which scores 0.
+    term_is_listed = field.words.op("@>")(sa.literal([term], ARRAY(sa.Text())))
     return (
         exact,
         sa.or_(exact, fuzzy),
-        sa.case((exact, rank), (fuzzy, similarity), else_=0.0),
+        sa.case(
+            (exact, rank),
+            (fuzzy.is_not(sa.true()), 0.0),
+            (
+                fallback_words,
+                sa.func.strict_word_similarity(term, _full_normalized(source)),
+            ),
+            (term_is_listed, 1.0),
+            else_=FUZZY_THRESHOLD,
+        ),
     )
 
 
