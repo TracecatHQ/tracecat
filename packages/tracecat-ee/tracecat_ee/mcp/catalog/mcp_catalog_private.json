@@ -2841,42 +2841,12 @@
               }
             ]
           }
-        },
-        {
-          "id": "standalone",
-          "label": "Standalone MCP server",
-          "description": "Connect to a self-hosted cribl/cribl-mcp-server container, which authenticates to Cribl with its own API Credential and accepts an MCP API key.",
-          "docs": "https://docs.cribl.io/copilot/cribl-mcp-server/",
-          "connection_spec": {
-            "server_type": "http",
-            "auth_type": "CUSTOM",
-            "server_uri": null,
-            "credentials": [
-              {
-                "key": "CRIBL_MCP_SERVER_URL",
-                "label": "Standalone MCP server URL",
-                "description": "URL of your standalone Cribl MCP server's /mcp endpoint, for example http://<host>:3030/mcp.",
-                "required": true,
-                "secret": false,
-                "placeholder": "http://<host>:3030/mcp",
-                "target": "server_uri"
-              },
-              {
-                "key": "X-API-Key",
-                "label": "MCP API key (X-API-Key header)",
-                "description": "Value of the MCP_API_KEY environment variable configured on the standalone server.",
-                "required": true,
-                "secret": true,
-                "target": "http_header"
-              }
-            ]
-          }
         }
       ],
       "_research": {
         "confidence": "high",
         "docker_only": false,
-        "notes": "Cribl documents two MCP servers. The embedded server (recommended for new setups) is hosted by the Cribl Leader at /api/v1/mcp on Cribl.Cloud and on-prem 4.19.0+, uses streamable HTTP, and takes the same Bearer token as the Cribl REST API; clients send Accept: application/json, text/event-stream. Catalog OAuth supports only the authorization code grant, while Cribl API Credentials use client credentials, so the embedded option takes a pasted Bearer token that expires after 24 hours on Cribl.Cloud (on-prem TTL is configurable, default 1 hour). The standalone server is the cribl/cribl-mcp-server Docker image on port 3030 at /mcp; it is configured with CRIBL_BASE_URL, CRIBL_CLIENT_ID, CRIBL_CLIENT_SECRET and optional MCP_API_KEY, and clients authenticate with the X-API-Key header, so its credential does not expire. Tools include cribl_getSystemMetrics, cribl_getAlerts, cribl_listWorkerGroups, cribl_getSources, cribl_getDestinations, cribl_getPipelines, cribl_getPipelineConfig, cribl_setPipelineConfig, cribl_getSearchContext, cribl_runSearchQuery, cribl_getSearchJobResults, Search Notebook tools, cribl_queryMetrics and cribl_getMonitors; visibility and execution follow the caller's Cribl RBAC.",
+        "notes": "Cribl documents two MCP servers. The embedded server (recommended for new setups) is hosted by the Cribl Leader at /api/v1/mcp on Cribl.Cloud and on-prem 4.19.0+, uses streamable HTTP, and takes the same Bearer token as the Cribl REST API; clients send Accept: application/json, text/event-stream. Catalog OAuth supports only the authorization code grant, while Cribl API Credentials use client credentials, so the embedded option takes a pasted Bearer token that expires after 24 hours on Cribl.Cloud (on-prem TTL is configurable, default 1 hour). The standalone server is the cribl/cribl-mcp-server Docker image on port 3030 at /mcp; it is configured with CRIBL_BASE_URL, CRIBL_CLIENT_ID, CRIBL_CLIENT_SECRET and optional MCP_API_KEY, and clients authenticate with the X-API-Key header, so its credential does not expire. Tools include cribl_getSystemMetrics, cribl_getAlerts, cribl_listWorkerGroups, cribl_getSources, cribl_getDestinations, cribl_getPipelines, cribl_getPipelineConfig, cribl_setPipelineConfig, cribl_getSearchContext, cribl_runSearchQuery, cribl_getSearchJobResults, Search Notebook tools, cribl_queryMetrics and cribl_getMonitors; visibility and execution follow the caller's Cribl RBAC. Only the embedded option ships: a standalone option would also be HTTP + CUSTOM with a user-supplied URL, which the catalog resolver cannot tell apart from the embedded option, so standalone users connect it as a custom MCP server.",
         "sources": [
           "https://docs.cribl.io/copilot/cribl-mcp-server/",
           "https://docs.cribl.io/cribl-as-code/api-auth/"

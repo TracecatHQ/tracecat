@@ -20,15 +20,15 @@ definition:
       description: "Number of time buckets to include in the query results."
       default: null
     earliest:
-      type: str | None
+      type: str | int | None
       description: "Start of the query time range. Accepts a relative time string or a timestamp in Unix time (milliseconds)."
       default: null
     latest:
-      type: str | None
+      type: str | int | None
       description: "End of the query time range. Accepts a relative time string or a timestamp in Unix time (milliseconds)."
       default: null
     metricNameFilter:
-      type: str | None
+      type: str | list[str] | None
       description: "Metric names to filter by. Accepts a regular expression or an array of metric names."
       default: null
     filterExpr:

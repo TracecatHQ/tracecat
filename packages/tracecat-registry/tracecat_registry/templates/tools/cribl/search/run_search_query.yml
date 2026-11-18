@@ -24,11 +24,11 @@ definition:
       description: "The Search Query string to run. Requires earliest and latest."
       default: null
     earliest:
-      type: str | None
+      type: str | float | None
       description: "Beginning of the query time range, inclusive, as a relative time string or Unix time in seconds."
       default: null
     latest:
-      type: str | None
+      type: str | int | None
       description: "End of the query time range, exclusive, as a relative time string or Unix time in seconds."
       default: null
     sampleRate:

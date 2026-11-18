@@ -1816,7 +1816,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="earliest" type="string | null">
+<ParamField path="earliest" type="string | integer | null">
 
 Start of the query time range. Accepts a relative time string or a timestamp in Unix time (milliseconds).
 
@@ -1832,7 +1832,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="latest" type="string | null">
+<ParamField path="latest" type="string | integer | null">
 
 End of the query time range. Accepts a relative time string or a timestamp in Unix time (milliseconds).
 
@@ -1840,7 +1840,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="metricNameFilter" type="string | null">
+<ParamField path="metricNameFilter" type="string | array[string] | null">
 
 Metric names to filter by. Accepts a regular expression or an array of metric names.
 
@@ -1896,7 +1896,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="earliest" type="string | null">
+<ParamField path="earliest" type="string | number | null">
 
 Beginning of the query time range, inclusive, as a relative time string or Unix time in seconds.
 
@@ -1912,7 +1912,7 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="latest" type="string | null">
+<ParamField path="latest" type="string | integer | null">
 
 End of the query time range, exclusive, as a relative time string or Unix time in seconds.
 
