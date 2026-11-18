@@ -599,16 +599,19 @@ async def test_batch_writes_to_one_table_run_one_at_a_time(
         rows = (
             await tables.session.execute(
                 sa.text(
-                    f'SELECT key, body FROM "{tables._get_schema_name()}"'
+                    f'SELECT key, body, count FROM "{tables._get_schema_name()}"'
                     f'."{table.name}" ORDER BY key'
                 )
             )
         ).all()
-        assert [tuple(row) for row in rows] == [
+        assert [(row[0], row[1]) for row in rows] == [
             ("a", "x"),
             ("b", "y"),
             ("c", "single"),
         ]
+        # The reverse upsert leaves b's count alone, so the update's value holds
+        # whichever queued writer ran first.
+        assert rows[1][2] == 9
     finally:
         release.set()
         await engine.dispose()
