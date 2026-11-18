@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import ClassVar
 
 import sqlalchemy as sa
+from sqlalchemy.engine.interfaces import ReflectedColumn
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
@@ -46,14 +49,26 @@ _COLUMNS_FINGERPRINT_SQL = sa.text(
     """
 )
 
-# (schema, table) -> (fingerprint, reflected user-visible columns). The key is
-# the catalog content itself, so a hit is right for any transaction that sees
-# that content: DDL from another process or a rolled-back transaction changes
-# the fingerprint instead of needing an invalidation.
-_columns_cache: dict[
-    tuple[str, str], tuple[str, Sequence[sa.engine.interfaces.ReflectedColumn]]
-] = {}
-# Bounds memory across many workspaces; a full cache starts over.
+# (schema, table)
+type ColumnsCacheKey = tuple[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnsCacheEntry:
+    """Reflected user-visible columns and the catalog fingerprint they match.
+
+    The fingerprint is the catalog content itself, so a hit is right for any
+    transaction that sees that content: DDL from another process or a
+    rolled-back transaction changes the fingerprint instead of needing an
+    invalidation.
+    """
+
+    fingerprint: str
+    columns: tuple[ReflectedColumn, ...]
+
+
+# Least recently used first. Bounds memory across many workspaces.
+_columns_cache: OrderedDict[ColumnsCacheKey, ColumnsCacheEntry] = OrderedDict()
 _COLUMNS_CACHE_MAX_ENTRIES = 1024
 
 
@@ -212,7 +227,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
 
     async def get_columns(
         self,
-    ) -> Sequence[sa.engine.interfaces.ReflectedColumn] | None:
+    ) -> Sequence[ReflectedColumn] | None:
         """Return the table's user-visible columns, or None if it is missing.
 
         Takes ACCESS SHARE on the table first, as a SELECT on it would, so
@@ -230,19 +245,20 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         fingerprint = await self._columns_fingerprint()
         if fingerprint is None:
             return None
-        key = (self.schema_name, self._table)
+        key: ColumnsCacheKey = (self.schema_name, self._table)
         cached = _columns_cache.get(key)
-        if cached is not None and cached[0] == fingerprint:
-            columns = cached[1]
+        if cached is not None and cached.fingerprint == fingerprint:
+            columns = cached.columns
         else:
-            columns = await self.editor.get_columns()
-            if len(_columns_cache) >= _COLUMNS_CACHE_MAX_ENTRIES:
-                _columns_cache.clear()
-            _columns_cache[key] = (fingerprint, columns)
+            columns = tuple(await self.editor.get_columns())
+            _columns_cache[key] = ColumnsCacheEntry(fingerprint, columns)
+        _columns_cache.move_to_end(key)
+        if len(_columns_cache) > _COLUMNS_CACHE_MAX_ENTRIES:
+            _columns_cache.popitem(last=False)
         # Copies, so a caller cannot change the shared entry.
         return [column.copy() for column in columns]
 
-    async def list_fields(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+    async def list_fields(self) -> Sequence[ReflectedColumn]:
         """List all custom fields for the workspace.
 
         A missing table has no fields; a read does not create it.

@@ -1,8 +1,9 @@
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
@@ -23,6 +24,7 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
 )
 from tracecat.cases.service import CaseFieldsService
+from tracecat.custom_fields import service as custom_fields_module
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.tables.enums import SqlType
@@ -623,6 +625,47 @@ class TestCaseFieldsService:
 
         await CaseFieldsService(session, svc_role).delete_field("second")
         assert "second" not in await names()
+
+    async def test_column_cache_evicts_least_recently_used(
+        self,
+        case_fields_service: CaseFieldsService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A full cache drops only the table read longest ago."""
+        cache: OrderedDict[
+            custom_fields_module.ColumnsCacheKey,
+            custom_fields_module.ColumnsCacheEntry,
+        ] = OrderedDict()
+        monkeypatch.setattr(custom_fields_module, "_columns_cache", cache)
+        monkeypatch.setattr(custom_fields_module, "_COLUMNS_CACHE_MAX_ENTRIES", 2)
+        monkeypatch.setattr(
+            case_fields_service, "_schema_exists", AsyncMock(return_value=True)
+        )
+        monkeypatch.setattr(case_fields_service.session, "execute", AsyncMock())
+        monkeypatch.setattr(
+            case_fields_service,
+            "_columns_fingerprint",
+            AsyncMock(return_value="fingerprint"),
+        )
+        reflect = AsyncMock(return_value=[])
+        monkeypatch.setattr(case_fields_service.editor, "get_columns", reflect)
+        table = case_fields_service._table
+
+        async def read(schema: str) -> None:
+            case_fields_service.schema_name = schema
+            await case_fields_service.get_columns()
+
+        for schema in ("a", "b", "a", "c"):
+            await read(schema)
+        # Reading "a" again made "b" the least recently used.
+        assert list(cache) == [("a", table), ("c", table)]
+        assert reflect.await_count == 3
+
+        await read("a")
+        assert reflect.await_count == 3
+        await read("b")
+        assert reflect.await_count == 4
+        assert list(cache) == [("a", table), ("b", table)]
 
     async def test_batch_get_fields_selects_only_requested_columns(
         self,
