@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -95,6 +96,36 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
             for index, enum_value in enumerate(ordered_values)
         ],
         else_=len(ordered_values),
+    )
+
+
+@asynccontextmanager
+async def _find_matches_before_ordering(
+    session: AsyncSession, *, enabled: bool
+) -> AsyncIterator[None]:
+    """Keep a keyword-filtered page on its match-then-sort plan.
+
+    Without NULLS LAST, PostgreSQL can return a column-ordered page by reading
+    ix_case_cursor_pagination backwards and stopping after one page. That is
+    what makes the plain case list fast. With a keyword filter its row
+    estimates are unreliable, and for a rare keyword it may walk the whole
+    workspace in date order looking for a few matches (0.1 s became 0.6 s at
+    100,000 cases). Turning off plain index scans for the page statement keeps
+    the plan that finds matches through the text indexes and then sorts them;
+    bitmap scans stay on, so the GIN and trigram indexes are still used.
+
+    The setting is transaction-local and restored afterwards. On an error the
+    caller's rollback restores it, as with the statement timeout.
+    """
+    if not enabled:
+        yield
+        return
+    previous = await session.scalar(sa.text("SHOW enable_indexscan"))
+    await session.execute(sa.text("SELECT set_config('enable_indexscan', 'off', true)"))
+    yield
+    await session.execute(
+        sa.text("SELECT set_config('enable_indexscan', :value, true)"),
+        {"value": previous},
     )
 
 
@@ -547,20 +578,27 @@ class CaseSearchService(BaseWorkspaceService):
             else:
                 ordering = (sort_attr.desc(),)
         else:
+            # The paginator omits NULLS LAST for NOT NULL columns (created_at,
+            # updated_at, case_number), so ix_case_cursor_pagination can supply
+            # the order. Computed keys can be NULL and keep NULLS LAST.
             if sort_direction == "asc":
-                ordering = (sort_attr.asc().nulls_last(), Case.id.asc())
+                ordering = (sort_attr.asc(), Case.id.asc())
             else:
-                ordering = (sort_attr.desc().nulls_last(), Case.id.desc())
+                ordering = (sort_attr.desc(), Case.id.desc())
 
         if exact_match is not None:
             ordering = (sa.case((exact_match.predicate, 0), else_=1).asc(), *ordering)
 
-        case_page = await paginate(
+        async with _find_matches_before_ordering(
             self.session,
-            stmt,
-            page=PageParams(limit=request.limit, cursor=request.cursor),
-            order_by=ordering,
-        )
+            enabled=sort_column != "relevance" and bool(request.search_term),
+        ):
+            case_page = await paginate(
+                self.session,
+                stmt,
+                page=PageParams(limit=request.limit, cursor=request.cursor),
+                order_by=ordering,
+            )
         cases = case_page.items
 
         hydration_options: list[ExecutableOption] = [

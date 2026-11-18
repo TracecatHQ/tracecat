@@ -154,7 +154,10 @@ class _CursorPayload(BaseModel):
 class _OrderKey:
     expression: ColumnElement[Any]
     direction: _SortDirection
-    nulls: _NullPlacement
+    # None means the key can never be NULL (a NOT NULL table column), so the
+    # SQL omits NULLS FIRST/LAST and a B-tree index can supply the order in
+    # either direction.
+    nulls: _NullPlacement | None
     adapter: TypeAdapter[Any]
 
     def clause(self) -> ColumnElement[Any]:
@@ -163,6 +166,8 @@ class _OrderKey:
             clause = self.expression.asc()
         else:
             clause = self.expression.desc()
+        if self.nulls is None:
+            return clause
         if self.nulls is _NullPlacement.FIRST:
             return clause.nulls_first()
         return clause.nulls_last()
@@ -175,7 +180,9 @@ class _OrderKey:
             else _SortDirection.ASC
         )
         nulls = (
-            _NullPlacement.LAST
+            None
+            if self.nulls is None
+            else _NullPlacement.LAST
             if self.nulls is _NullPlacement.FIRST
             else _NullPlacement.FIRST
         )
@@ -257,10 +264,18 @@ def _normalize_order(expression: ColumnElement[Any]) -> _OrderKey:
             f"Pagination ordering expression {current!s} has an unsupported value type"
         ) from exc
 
+    # A NOT NULL table column has no NULLs to place. Emitting NULLS LAST on a
+    # DESC key would stop PostgreSQL from reading a B-tree index backwards
+    # (that yields DESC NULLS FIRST) and force a sort of every match. An
+    # explicit NULLS modifier is kept as written, for example on a column read
+    # through an outer join.
+    if nulls is None and not (isinstance(current, sa.Column) and not current.nullable):
+        nulls = _NullPlacement.LAST
+
     return _OrderKey(
         expression=current,
         direction=direction,
-        nulls=nulls or _NullPlacement.LAST,
+        nulls=nulls,
         adapter=adapter,
     )
 
@@ -546,10 +561,34 @@ def _seek_predicate(
             "Cursor values do not match pagination ordering"
         )
 
+    if (
+        all(key.nulls is None for key in ordering)
+        and len({key.direction for key in ordering}) == 1
+        and all(value is not None for value in values)
+    ):
+        # Keys that are never NULL and share one direction compare as a row:
+        # (a, b) < (x, y). PostgreSQL uses that as a B-tree range condition,
+        # so a deep page starts at the cursor instead of filtering every
+        # earlier row.
+        row = sa.tuple_(*(key.expression for key in ordering))
+        bound = sa.tuple_(
+            *(
+                _bind_cursor_value(key, value)
+                for key, value in zip(ordering, values, strict=True)
+            )
+        )
+        inclusive = boundary is _Boundary.INCLUSIVE
+        if ordering[0].direction is _SortDirection.ASC:
+            return row >= bound if inclusive else row > bound
+        return row <= bound if inclusive else row < bound
+
     branches: list[ColumnElement[bool]] = []
     equal_prefix: list[ColumnElement[bool]] = []
     for key, value in zip(ordering, values, strict=True):
         branches.append(sa.and_(*equal_prefix, _strictly_after(key, value)))
+        if key.nulls is None and value is not None:
+            equal_prefix.append(key.expression == _bind_cursor_value(key, value))
+            continue
         equality_value = None if value is None else _bind_cursor_value(key, value)
         equal_prefix.append(key.expression.is_not_distinct_from(equality_value))
     if boundary is _Boundary.INCLUSIVE:
