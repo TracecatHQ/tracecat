@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState } from "react"
 import type { AgentPresetRead } from "@/client"
 import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
+import { CustomSlackAppDocsLink } from "@/components/agents/external-channels/slack-setup-fields"
 import { CopyButton } from "@/components/copy-button"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -362,7 +363,8 @@ export function SlackChannelPanel({
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">Custom Slack App</p>
               <p className="text-xs text-muted-foreground">
-                Handle `app_mention` events and respond in-thread.
+                Handle `app_mention` events and respond in-thread.{" "}
+                <CustomSlackAppDocsLink legacy />
               </p>
             </div>
             <Button type="button" size="sm" onClick={() => setDialogOpen(true)}>

@@ -1,65 +1,70 @@
 ---
 title: "Channels"
-description: "Chat with a preset agent and approve its tool calls from Slack."
+description: "Route Slack channels to agents or connect a custom app to one preset."
 icon: "lock"
 ---
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Connect a preset agent to a Slack app so your team can mention it in Slack.
-The agent replies in the thread, and approval-gated tool calls show `Approve` and `Deny` buttons in the same thread.
+Your organization needs the Agent Channels preview entitlement (`agent_channels_preview`) to [add Tracecat to Slack](/agents/ai-slackbot) or use the custom app setup below. Organizations with only `agent_channels` use the [earlier setup flow](#earlier-setup-flow). To change routes or connect an app, you need `agent:update` in the workspace.
 
-## Before you start
+## Capabilities
 
-Slack must be able to reach your Tracecat API at `TRACECAT__PUBLIC_API_URL`.
+- Direct messages: the agent answers every message.
+- Channels: the agent answers messages that mention it, in channels you invited it to.
+- Threads: each thread is one agent session, so the agent remembers earlier turns in that thread.
+- Channel routing: each channel can have its own agent. The default agent answers direct messages and channels without a route.
+- Tool approvals: approve or deny a tool call from the thread. The card then shows who decided.
+
+## Choose which agent answers
+
+In `Agents → # (Channels)`, the `Default agent` answers direct messages and channels without a route. Add a route for any channel that needs a different agent.
+
+1. Select `Pick a channel`. Search by name or paste the channel ID from Slack.
+2. Choose the agent and click `Add`. In Slack, run `/invite @Tracecat` in that channel, then mention `@Tracecat` to start a thread.
+
+![Default agent and channel routes](/img/agents/slack-channel-routing.png)
+
+Change the agent on a row to reroute new threads. Remove the row to use the default. Existing threads keep their agent.
+
+<Accordion title="Pause, reconnect, or move the app">
+  Click `Pause` to stop replies and `Resume` to restart them. If `Connected to Slack` shows `Needs reconnect`, click `Reconnect` and approve the app in Slack.
+
+  For a custom app, click `Manage` to find `Pause`, `Resume`, and `Disconnect`. If it shows `Needs reconnect`, click `Reconnect to Slack` in that dialog. If it shows `Update needed`, first copy the manifest under `Slack settings for this app` to the app's `App Manifest` page in Slack, then click `Reconnect to Slack`.
+
+  To connect the Slack workspace to a different Tracecat workspace, first click `Disconnect` in the current one.
+</Accordion>
 
 ## Connect a Slack app
 
-1. Open the preset from `Agents`, then select the `Channels` tab.
-2. Under `Custom Slack App`, click `Connect`.
-3. Choose `New App` to create an app from a pre-filled manifest, or `Existing App` to connect a Slack app you already have.
+Each custom app has its own bot name and icon and counts toward [Slack's installation limit](https://slack.com/help/articles/115002422943-Usage-limits-for-free-workspaces).
 
-For `New App`:
+1. Open the preset's `Channels` tab. Under `Custom Slack app`, click `Connect`.
+2. Choose a bot name, click `Create in Slack`, and create the app.
+3. From Slack's `Basic Information → App Credentials`, copy the client ID, client secret, and signing secret into Tracecat.
+4. Click `Connect to Slack` and approve. In Slack, invite the bot by name with `/invite`, then mention it to start a thread.
 
-1. Click `Copy` next to `Export app manifest`. The manifest includes the endpoint URL, OAuth redirect URL, bot scopes, and `app_mention` event subscription for this preset.
-2. Open [Slack Apps](https://api.slack.com/apps), click `Create New App`, then select `From an app manifest` and paste the manifest.
-3. Install the app to your Slack workspace.
-4. Back in Tracecat, click `Next`.
+<Accordion title="Socket Mode tokens and manual app setup">
+  For Socket Mode, generate an app-level token with `connections:write` and enter its access and refresh tokens.
 
-For `Existing App`, copy the `Endpoint URL` and `OAuth redirect URL` from the connect dialog.
-In Slack, use the endpoint URL as the `Event Subscriptions` request URL with the `app_mention` bot event and as the `Interactivity` request URL, then add the OAuth redirect URL.
+  ![Custom Slack app credential fields](/img/agents/slack-custom-app.png)
 
-To finish:
+  To use an unused app dedicated to this preset, copy the manifest under `Create the app by hand instead`, apply it in Slack, and select `I already have the app` in Tracecat. See [Slack's manifest guide](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/).
+</Accordion>
 
-1. Enter the app's `Client ID`, `Client secret`, and `Signing secret` from Slack's `Basic Information` page.
-2. Click `Connect to Slack` and approve the install.
+<Accordion title="Earlier setup flow" id="earlier-setup-flow">
+  Organizations with `agent_channels` alone see `Create app` and `Existing App`.
 
-Tracecat shows `Slack integration connected.` when the channel is active.
+  - Choose `Create app` to copy the manifest into Slack. Install the app, then click `Next` in Tracecat.
+  - Choose `Existing App` for an app dedicated to this preset. Add the OAuth redirect URL under `OAuth & Permissions`. Use the endpoint URL for events and interactivity, and subscribe to `app_mention`.
 
-## Chat with the agent
+  Enter the credentials and click `Connect to Slack`. If you rotate the endpoint later, update both request URLs in Slack.
+</Accordion>
 
-Invite the app to a Slack channel, then mention it with your request.
-The agent replies in the thread, and replies that mention it in the same thread continue the same agent session.
-Reactions on your message show whether the agent is working, finished, or failed.
+## Limitations
 
-## Approve tool calls in Slack
-
-Tools that require approval on the preset pause the agent in Slack too.
-See [Human-in-the-loop](/agents/human-in-the-loop#set-approvals-on-a-preset) to set a tool to `Ask`.
-
-For each pending call, the agent posts an `Approval required` message with the tool name, arguments, and `Approve` and `Deny` buttons.
-After a reviewer clicks a button, Tracecat updates the message with the decision and the reviewer, and the agent continues once every pending call in the batch has a decision.
-To edit tool arguments before approving, review the call in the agent inbox instead.
-
-## Manage the connection
-
-Open the connect dialog again from the `Channels` tab to update credentials.
-Click `Rotate endpoint` to issue a new endpoint URL, then update the Slack app's `Event Subscriptions` and `Interactivity` request URLs.
-Click `Disconnect` to remove the Slack connection from the preset.
-
-Changing `TRACECAT__SIGNING_SECRET` invalidates existing endpoint URLs.
-
-## Related pages
-
-- See [AI preset agent](/agents/ai-preset-agent) to create the preset that Slack users talk to.
-- See [Human-in-the-loop](/agents/human-in-the-loop) to choose which tool calls need approval.
+- In a channel thread, mention the agent in every message you want it to answer. The agent doesn't receive messages that don't mention it.
+- The agent reads message text only, not files or attachments.
+- While a tool call awaits approval, the agent doesn't accept new messages in that thread.
+- To edit a tool call's arguments before you approve it, use the [agent inbox](/agents/human-in-the-loop#review-tool-calls-in-the-inbox).
+- Each Slack workspace connects to one Tracecat workspace through the platform app.

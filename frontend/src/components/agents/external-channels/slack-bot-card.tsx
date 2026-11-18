@@ -33,6 +33,7 @@ import {
 import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
 import {
   CreateInSlackButton,
+  CustomSlackAppDocsLink,
   SetupDoneLine,
   SlackAppTokenFields,
   SlackClientCredentialFields,
@@ -95,7 +96,12 @@ export function SlackBotCard({
     <ChannelBotCard
       providerId="slack"
       title={TITLE}
-      description="The bot gets its own name and icon, and answers only for this agent."
+      description={
+        <>
+          The bot gets its own name and icon, and answers only for this agent.{" "}
+          <CustomSlackAppDocsLink />
+        </>
+      }
       state={state}
       reconnectHint="Connect to Slack again to restore this bot."
       onManage={dialog.openDialog}
