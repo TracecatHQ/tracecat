@@ -95,9 +95,10 @@ class SearchStorage(BaseService):
     async def lock_scope(self, *, shared: bool = False) -> None:
         """Lock even an absent collection; prevent source deletion during work.
 
-        Source row writers take the lock shared, so writes to different tables
-        in one workspace run concurrently. Everything else takes it exclusive,
-        so it still waits for in-flight row writes and blocks new ones.
+        Source row writers and read-only search paths take the lock shared, so
+        they run concurrently across tables in one workspace. Everything else
+        takes it exclusive, so it still waits for in-flight row writes and
+        blocks new ones.
         """
         identity = (
             f"semantic-search:{self.scope.organization_id}:{self.scope.workspace_id}"

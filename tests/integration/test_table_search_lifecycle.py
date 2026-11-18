@@ -514,13 +514,15 @@ async def test_indexed_row_writers_wait_only_for_the_same_table(
         await engine.dispose()
 
 
-async def test_search_reads_and_row_writers_do_not_wait_on_each_other(
+async def test_search_reads_wait_only_for_writers_to_the_same_table(
     tables: TablesService, table: Table
 ):
     """Search queries, status and progress reads share the workspace lock.
 
-    A read neither waits for an open row writer nor blocks row writers while
-    it is open. Lifecycle work still waits for an open read.
+    A read share-locks its table's collection row: it waits for an open writer
+    to that table and blocks new ones, so a strict search cannot see a write
+    commit between its readiness check and ranking. Reads and writes on other
+    tables proceed. Lifecycle work still waits for an open read.
     """
     other = await tables.create_table(
         TableCreate(
@@ -528,12 +530,23 @@ async def test_search_reads_and_row_writers_do_not_wait_on_each_other(
             columns=[TableColumnCreate(name="body", type=SqlType.TEXT)],
         )
     )
+    selected = await enable(tables, other)
     collection = await enable(tables, table, provider=True)
+    other_collection = await tables.search.configure_collection(
+        source_id=other.id,
+        column_ids=tuple(selected.selected_column_ids),
+        chunker=ChunkerSettings(tokenizer="synthetic"),
+        expected_generation=selected.generation,
+    )
     await tables.insert_row(table, TableRowInsert(data={"body": "indexed"}))
     await tables.session.commit()
     engine = create_async_engine(TEST_DB_CONFIG.test_url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
-    table_id, other_id, generation = table.id, other.id, collection.generation
+    table_id, other_id = table.id, other.id
+    generations = {
+        table_id: collection.generation,
+        other_id: other_collection.generation,
+    }
     configuration = PinnedConfiguration(
         1, ModelSpec(model="text-embedding-3-small", dimensions=3), uuid4(), "default"
     )
@@ -549,7 +562,7 @@ async def test_search_reads_and_row_writers_do_not_wait_on_each_other(
                 entered.set()
                 await release.wait()
 
-    async def read(*, hold: bool = False) -> None:
+    async def read(table_id: UUID, *, hold: bool = False) -> None:
         async with sessions.begin() as session:
             store = TableSearchSource(session, tables.search.scope)
             await TableRetrievalService(tables.role)._collection(
@@ -560,7 +573,8 @@ async def test_search_reads_and_row_writers_do_not_wait_on_each_other(
             )
             await store.configuration(table_id)
             await store.progress(
-                table_id, params=TableSearchProgressParams(generation=generation)
+                table_id,
+                params=TableSearchProgressParams(generation=generations[table_id]),
             )
             if hold:
                 entered.set()
@@ -571,25 +585,34 @@ async def test_search_reads_and_row_writers_do_not_wait_on_each_other(
             await TableSearchService(session, tables.search.scope).lock_scope()
 
     try:
-        # Reads complete while a writer on the same indexed table is open.
+        # With a writer open, reads of another table complete; reads of the
+        # writer's table wait for it to commit.
         writer = asyncio.create_task(insert(table_id, hold=True))
         await asyncio.wait_for(entered.wait(), 5)
-        await asyncio.wait_for(read(), 5)
+        await asyncio.wait_for(read(other_id), 5)
+        same = asyncio.create_task(read(table_id))
+        await asyncio.sleep(0.05)
+        assert not same.done()
         release.set()
         await asyncio.wait_for(writer, 5)
+        await asyncio.wait_for(same, 5)
 
-        # Writers complete while a read is open; lifecycle work waits for it.
+        # With a read open, writers to another table complete; writers to the
+        # read's table and lifecycle work wait for it.
         entered.clear()
         release.clear()
-        reader = asyncio.create_task(read(hold=True))
+        reader = asyncio.create_task(read(table_id, hold=True))
         await asyncio.wait_for(entered.wait(), 5)
-        await asyncio.wait_for(insert(table_id), 5)
         await asyncio.wait_for(insert(other_id), 5)
+        await asyncio.wait_for(read(other_id), 5)
+        blocked = asyncio.create_task(insert(table_id))
         lifecycle = asyncio.create_task(configure())
         await asyncio.sleep(0.05)
+        assert not blocked.done()
         assert not lifecycle.done()
         release.set()
         await asyncio.wait_for(reader, 5)
+        await asyncio.wait_for(blocked, 5)
         await asyncio.wait_for(lifecycle, 5)
     finally:
         release.set()

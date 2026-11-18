@@ -12,8 +12,10 @@ tokens (or the provider's smaller input/batch limit), using the pinned counter.
 Provider failures propagate; there is no fallback to another provider.
 
 Database transactions finish before provider I/O. The ranking transaction
-rechecks workspace config, collection generation and readiness under the same
-workspace lock as source mutations. Strict searches reject incomplete coverage.
+rechecks workspace config, collection generation and readiness. It shares the
+workspace lock and share-locks the table's collection row, so no write to that
+table commits between the readiness check and ranking. Strict searches reject
+incomplete coverage.
 Partial searches include only fully published current documents.
 
 A materialized CTE filters tenant, collection, configuration, dimension,
