@@ -472,18 +472,26 @@ async def test_import_table_from_csv_resolves_folder_path(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "error",
+    ("error", "expected_status"),
     [
-        TableRowError("write_conflict", "The write conflicted."),
-        TableRowError("invalid_value", "Bad value.", column="name"),
+        pytest.param(
+            TableRowError("write_conflict", "The write conflicted."),
+            status.HTTP_409_CONFLICT,
+            id="write_conflict",
+        ),
+        pytest.param(
+            TableRowError("invalid_value", "Bad value.", column="name"),
+            status.HTTP_400_BAD_REQUEST,
+            id="invalid_value",
+        ),
     ],
-    ids=lambda error: error.code,
 )
 async def test_csv_import_error_reports_rows_already_imported(
     client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
     error: TableRowError,
+    expected_status: int,
 ) -> None:
     """Earlier chunks commit, so a later row error must say what was saved."""
     mock_table.columns = [
@@ -510,6 +518,7 @@ async def test_csv_import_error_reports_rows_already_imported(
             data={"column_mapping": orjson.dumps({"name": "name"}).decode()},
         )
 
+    assert response.status_code == expected_status
     assert response.json()["detail"] == {
         "code": error.code,
         "column": error.detail["column"],
