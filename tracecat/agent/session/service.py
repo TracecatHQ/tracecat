@@ -12,6 +12,8 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import orjson
+from claude_agent_sdk.types import Message as ClaudeSDKMessage
+from claude_agent_sdk.types import TextBlock, UserMessage
 from sqlalchemy import (
     and_,
     case,
@@ -63,6 +65,7 @@ from tracecat.agent.backends.types import (
     SessionTurnContext,
     TurnAlreadyStarted,
 )
+from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
     AgentCancelControl,
@@ -203,6 +206,8 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
 _background_tasks: set[asyncio.Task[None]] = set()
 # Caps both the attempts a message's run lookup walks and a start's retries.
 _MESSAGE_ADMISSION_TRIES = 5
+# Fork chains are short; the bound only stops a corrupt cycle.
+_MAX_FORK_DEPTH = 8
 
 
 def _require_parent_session(agent_session: AgentSession) -> None:
@@ -324,6 +329,25 @@ class StreamResumeState:
 
 class SessionAwaitingApprovalsError(ValueError):
     """A new message arrived while the session waits for approval decisions."""
+
+
+def _display_text(text: str, *, channel_session: bool) -> str:
+    """A user message's text as people read it: a channel message's summary."""
+    if channel_session and (shown := ChannelMessage.display_text(text)) is not None:
+        return shown
+    return text
+
+
+def _channel_message_of(message: ClaudeSDKMessage) -> ChannelMessage | None:
+    """The channel message a user message's lone text renders, if any."""
+    if not isinstance(message, UserMessage):
+        return None
+    content = message.content
+    if isinstance(content, str):
+        return ChannelMessage.parse(content)
+    if len(content) == 1 and isinstance(text := content[0], TextBlock):
+        return ChannelMessage.parse(text.text)
+    return None
 
 
 def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
@@ -1570,8 +1594,9 @@ class AgentSessionService(BaseWorkspaceService):
         expected_title: str,
     ) -> None:
         """Best-effort auto-title on the first prompt."""
-        prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
+        channel_session = await self.is_channel_session(agent_session)
+        prompt = _display_text(user_prompt, channel_session=channel_session).strip()
         old_title = expected_title
 
         if agent_session.title != expected_title:
@@ -2545,13 +2570,14 @@ class AgentSessionService(BaseWorkspaceService):
                 "This agent backend does not support listing pending messages"
             )
         pending = await backend.list_pending(session_id)
+        channel_session = await self.is_channel_session(agent_session)
         return AgentSessionPendingRead(
             session_id=session_id,
             items=[
                 AgentPendingMessageRead(
                     id=message.id,
                     type=message.type,
-                    text=message.text,
+                    text=_display_text(message.text, channel_session=channel_session),
                     created_at=message.created_at,
                 )
                 for message in pending
@@ -3133,7 +3159,22 @@ class AgentSessionService(BaseWorkspaceService):
             history=history,
             approvals_by_tool_id=approval_by_tool_id,
             kinds=kinds,
+            channel_session=await self.is_channel_session(agent_session),
         )
+
+    async def is_channel_session(self, agent_session: AgentSession) -> bool:
+        """Whether the session, or the session it was forked from, is an external
+        channel session, whose user messages may be rendered channel messages."""
+        current: AgentSession | None = agent_session
+        for _ in range(_MAX_FORK_DEPTH):
+            if current is None:
+                return False
+            if current.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
+                return True
+            if current.forked_from_session_id is None:
+                return False
+            current = await self.get_session(current.forked_from_session_id)
+        return False
 
     def _render_history_entries(
         self,
@@ -3142,6 +3183,7 @@ class AgentSessionService(BaseWorkspaceService):
         approvals_by_tool_id: dict[str, Approval],
         kinds: Sequence[MessageKind] | None,
         history: SessionHistoryAdapter | None = None,
+        channel_session: bool = False,
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
@@ -3223,6 +3265,9 @@ class AgentSessionService(BaseWorkspaceService):
                     id=str(entry.id),
                     message=message,
                     created_at=_session_line_time(content),
+                    channel_message=_channel_message_of(message)
+                    if channel_session
+                    else None,
                 )
             )
 

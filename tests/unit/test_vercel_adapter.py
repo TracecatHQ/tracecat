@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -21,6 +21,13 @@ from tracecat.agent.adapter.vercel import (
     convert_chat_messages_to_ui,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.channel_bots.messages import (
+    ChannelMessage,
+    ChannelMessageSender,
+    QuotedMessage,
+    QuotedMessageKind,
+)
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage
@@ -317,3 +324,94 @@ async def test_stream_user_message_event_becomes_a_data_part(
     assert isinstance(payload, DataEventPayload)
     assert payload.type == "data-user-message"
     assert payload.data == {"id": message_id, "text": "Focus on the newest alert"}
+
+
+FORWARD = QuotedMessage(
+    kind=QuotedMessageKind.FORWARDED, author="alice", text="Disk at 95% on db-1"
+)
+
+
+def _channel_message(text: str) -> ChannelMessage:
+    return ChannelMessage(
+        provider=ChannelBotProvider.SLACK,
+        text=text,
+        sender=ChannelMessageSender(provider_user_id="U1", name="Dana"),
+        quoted=[FORWARD],
+    )
+
+
+@pytest.mark.parametrize("text", ["triage this", ""])
+def test_convert_chat_messages_to_ui_shows_a_channel_message_and_its_context(
+    text: str,
+) -> None:
+    channel_message = _channel_message(text)
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(content=channel_message.render()),
+                channel_message=channel_message,
+            )
+        ]
+    )
+
+    assert len(messages) == 1
+    parts = messages[0].parts
+    data_part = cast(DataUIPart, parts[-1])
+    assert data_part["type"] == "data-channel-message"
+    data = cast(dict[str, Any], data_part["data"])
+    assert data["quoted"][0]["text"] == "Disk at 95% on db-1"
+    assert data["sender"]["name"] == "Dana"
+    assert "text" not in data
+    if text:
+        assert parts[0] == {"type": "text", "text": text, "state": "done"}
+    else:
+        assert len(parts) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("channel_session", [True, False])
+async def test_a_steered_channel_message_decodes_only_in_a_channel_session(
+    channel_session: bool,
+) -> None:
+    rendered = _channel_message("and db-2").render()
+    context = VercelStreamContext(
+        message_id="msg_test", channel_session=channel_session
+    )
+    event = UnifiedStreamEvent.user_message_event(rendered, message_id="steer-1")
+
+    payloads = [payload async for payload in context.handle_event(event)]
+
+    payload = payloads[0]
+    assert isinstance(payload, DataEventPayload)
+    if channel_session:
+        assert payload.data["text"] == "and db-2"
+        assert payload.data["channel_message"]["quoted"][0]["author"] == "alice"
+    else:
+        assert payload.data == {"id": "steer-1", "text": rendered}
+
+
+def test_quoted_interrupt_markers_do_not_hide_a_channel_message() -> None:
+    channel_message = ChannelMessage(
+        provider=ChannelBotProvider.SLACK,
+        text="what happened?",
+        sender=ChannelMessageSender(provider_user_id="U1"),
+        quoted=[
+            QuotedMessage(
+                kind=QuotedMessageKind.FORWARDED,
+                author="alice",
+                text="[Request interrupted by user for tool use]",
+            )
+        ],
+    )
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(content=[TextBlock(text=channel_message.render())]),
+                channel_message=channel_message,
+            )
+        ]
+    )
+
+    assert len(messages) == 1

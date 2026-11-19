@@ -12,6 +12,7 @@ from pydantic import UUID4, BaseModel, ConfigDict, Discriminator, Field, Validat
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
@@ -268,6 +269,10 @@ class ChatMessage(BaseModel):
     created_at: datetime | None = Field(
         default=None,
         description="When the agent runtime recorded the message",
+    )
+    channel_message: ChannelMessage | None = Field(
+        default=None,
+        description="The channel message a user message's text renders, decoded",
     )
 
     @classmethod

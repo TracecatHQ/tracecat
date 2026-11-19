@@ -9,6 +9,8 @@ import orjson
 import pytest
 from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 
+from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,
@@ -16,6 +18,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.db.models import AgentSession
@@ -703,3 +706,58 @@ def test_mark_hidden_continuation_ignores_malformed_parent(
 
     assert not mark_hidden_continuation(line, hidden, internal_row=True)
     assert hidden == {"parent"}
+
+
+CHANNEL_MESSAGE = ChannelMessage(
+    provider=ChannelBotProvider.SLACK,
+    text="triage this",
+    sender=ChannelMessageSender(provider_user_id="U1"),
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity_type", "decoded"),
+    [(AgentSessionEntity.EXTERNAL_CHANNEL, True), (AgentSessionEntity.CASE, False)],
+)
+async def test_list_messages_decodes_channel_messages_in_channel_sessions(
+    entity_type: AgentSessionEntity, decoded: bool
+) -> None:
+    service, agent_session = _build_service()
+    agent_session.entity_type = entity_type.value
+    entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        kind=MessageKind.CHAT_MESSAGE.value,
+        content={
+            "type": "user",
+            "message": {"role": "user", "content": CHANNEL_MESSAGE.render()},
+        },
+    )
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[_mock_scalar_result([]), _mock_scalar_result([entry])]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert isinstance(messages[0].message, UserMessage)
+    assert messages[0].channel_message == (CHANNEL_MESSAGE if decoded else None)
+
+
+@pytest.mark.anyio
+async def test_a_fork_of_a_channel_session_is_a_channel_session() -> None:
+    service, source = _build_service()
+    source.entity_type = AgentSessionEntity.EXTERNAL_CHANNEL.value
+    fork = AgentSession(
+        workspace_id=source.workspace_id,
+        title="Chat (continued)",
+        entity_type=AgentSessionEntity.APPROVAL.value,
+        entity_id=source.entity_id,
+        forked_from_session_id=source.id,
+    )
+    service.get_session = AsyncMock(return_value=source)
+
+    assert await service.is_channel_session(fork)
+    service.get_session = AsyncMock(return_value=None)
+    assert not await service.is_channel_session(fork)

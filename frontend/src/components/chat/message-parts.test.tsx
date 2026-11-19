@@ -463,3 +463,36 @@ describe("approval submit", () => {
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled()
   })
 })
+
+describe("channel messages", () => {
+  const channelMessage = {
+    provider: "slack" as const,
+    sender: { provider_user_id: "U1" },
+    quoted: [
+      {
+        kind: "forwarded" as const,
+        author: "alice",
+        text: "Disk at 95% on db-1",
+      },
+    ],
+  }
+
+  it("draws the forwards in the text's bubble", () => {
+    const message: UIMessage = {
+      id: "u1",
+      role: "user",
+      parts: [
+        { type: "text", text: "triage this" },
+        { type: "data-channel-message", data: channelMessage },
+      ],
+    }
+    const { container } = render(
+      <MessageParts message={message} status="ready" isLastMessage />
+    )
+
+    const bubble = screen.getByText("triage this").closest(".is-user")
+    expect(bubble).not.toBeNull()
+    expect(bubble).toContainElement(screen.getByText("Disk at 95% on db-1"))
+    expect(container.querySelectorAll(".is-user")).toHaveLength(1)
+  })
+})

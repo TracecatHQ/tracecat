@@ -35,6 +35,7 @@ from claude_agent_sdk.types import (
 from pydantic_core import to_json
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -61,6 +62,7 @@ from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
     CANCELLED_DATA_PART_TYPE,
+    CHANNEL_MESSAGE_DATA_PART_TYPE,
     COMPACTION_DATA_PART_TYPE,
     USER_MESSAGE_DATA_PART_TYPE,
 )
@@ -639,6 +641,8 @@ class VercelStreamContext:
     """
 
     message_id: str | None
+    # Decode steered channel messages; only channel sessions carry them.
+    channel_session: bool = False
     # Active parts keyed by event index -> maintains per-part lifecycle state.
     part_states: dict[int, _PartState] = dataclasses.field(default_factory=dict)
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
@@ -975,13 +979,16 @@ class VercelStreamContext:
 
             case StreamEventType.USER_MESSAGE:
                 message_id = (event.metadata or {}).get("id")
-                yield DataEventPayload(
-                    type=USER_MESSAGE_DATA_PART_TYPE,
-                    data={
-                        "id": message_id if isinstance(message_id, str) else None,
-                        "text": event.text or "",
-                    },
-                )
+                data: dict[str, Any] = {
+                    "id": message_id if isinstance(message_id, str) else None,
+                    "text": event.text or "",
+                }
+                if self.channel_session and (
+                    channel_message := ChannelMessage.parse(data["text"])
+                ):
+                    data["text"] = channel_message.text
+                    data["channel_message"] = channel_message_data(channel_message)
+                yield DataEventPayload(type=USER_MESSAGE_DATA_PART_TYPE, data=data)
 
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
@@ -1265,6 +1272,11 @@ def _is_internal_interrupt_message(chat_message: ChatMessage) -> bool:
     return False
 
 
+def channel_message_data(message: ChannelMessage) -> dict[str, Any]:
+    """A channel message's context for display; its text renders as a text part."""
+    return message.model_dump(mode="json", exclude={"text"})
+
+
 def convert_chat_messages_to_ui(
     messages: list[ChatMessage],
 ) -> list[UIMessage]:
@@ -1375,8 +1387,11 @@ def convert_chat_messages_to_ui(
 
         message_data = chat_message.message
 
-        # Skip internal interrupt messages from Claude Code SDK
-        if _is_internal_interrupt_message(chat_message):
+        # Skip internal interrupt messages from Claude Code SDK. A channel message's
+        # quoted text may contain the markers, so it is never one.
+        if chat_message.channel_message is None and _is_internal_interrupt_message(
+            chat_message
+        ):
             continue
 
         # Extract message data from the ChatMessage schema
@@ -1399,6 +1414,19 @@ def convert_chat_messages_to_ui(
             parts=[],
             created_at=chat_message.created_at,
         )
+        if role == "user" and (channel_message := chat_message.channel_message):
+            if channel_message.text:
+                mutable_message.parts.append(
+                    TextUIPart(type="text", text=channel_message.text, state="done")
+                )
+            mutable_message.parts.append(
+                DataUIPart(
+                    type=CHANNEL_MESSAGE_DATA_PART_TYPE,
+                    data=channel_message_data(channel_message),
+                )
+            )
+            mutable_messages.append(mutable_message)
+            continue
         approval_payload = _extract_approval_payload_from_message(message_data)
 
         for part_type, part in _iter_message_parts(message_data):
@@ -1557,6 +1585,7 @@ async def sse_vercel(
     *,
     message_id: str | None,
     resume_from: str | None = None,
+    channel_session: bool = False,
 ) -> AsyncIterable[str]:
     """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
@@ -1570,7 +1599,9 @@ async def sse_vercel(
     the client already saw (``resume_from``).
     """
 
-    context = VercelStreamContext(message_id=message_id)
+    context = VercelStreamContext(
+        message_id=message_id, channel_session=channel_session
+    )
     # One context per child session: part ids and part states are per-session,
     # so sharing the root context would let children collide with each other.
     child_contexts: dict[uuid.UUID, VercelStreamContext] = {}
