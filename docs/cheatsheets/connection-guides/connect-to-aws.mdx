@@ -117,9 +117,34 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
   Attach the S3 policy to a Tracecat role whose S3 object access should be limited to the archive. The policy denies `s3:ListBucket` and `s3:GetObject` outside the allowlist across the entire role, even when another policy grants those actions. Deploy one S3 policy stack per role and update its allowlist when you add buckets.
 </Info>
 
-For any deployment method, create a regular CloudFormation stack in the log bucket owner's account from the [log archive template](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-s3-policy.yaml). Use the entry role name as `RoleName` if the buckets are in your entry account. For a separate log archive account, include it in your approved member accounts and use `TracecatSecOpsAuditRole`. Set `LogBucketArns` to a comma-separated list, such as `arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs`. Acknowledge named IAM resources and create the stack.
+<Steps>
+  <Step title="Choose the role that will read the logs">
+    - If the buckets are in your entry account, use your entry role.
+    - If the buckets are in a separate account, include it in your approved member accounts and use `TracecatSecOpsAuditRole` in that account.
+  </Step>
+  <Step title="Create the S3 policy stack">
+    In the bucket owner's account, create a CloudFormation stack from the [log archive template](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-s3-policy.yaml). Follow this step for either deployment method.
 
-For SSE-KMS logs, create a [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-kms-policy.yaml) in the same account for each key. Enter its full ARN as `KeyArn`, the same `RoleName`, and only the approved `LogBucketArns` encrypted by that key. Confirm the key policy allows the role to decrypt, either directly or through permissions delegated to IAM in the key's own account. If the key belongs to a different account, its key policy must authorize the external role or its account as well.
+    - Set `RoleName` to the role you chose.
+    - Set `LogBucketArns` to the approved bucket ARNs, separated by commas.
+
+```text
+arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs
+```
+
+    Acknowledge named IAM resources and create the stack.
+  </Step>
+</Steps>
+
+### Allow decryption for SSE-KMS logs
+
+If your logs use SSE-KMS, create a [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-kms-policy.yaml) in the bucket owner's account for each key.
+
+- Set `KeyArn` to the full ARN of the KMS key.
+- Set `RoleName` to the same role you used for the S3 policy stack.
+- Set `LogBucketArns` to only the approved buckets encrypted by that key.
+
+Acknowledge named IAM resources and create the stack. Confirm the key policy allows the role to decrypt. For a key in the same account, the key policy can grant access directly or delegate it to IAM. For a key in a different account, the key policy must authorize the role or its account.
 
 ## Connect and verify in Tracecat
 
