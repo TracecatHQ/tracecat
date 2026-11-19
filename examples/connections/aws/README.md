@@ -36,6 +36,8 @@ Set `EnableGuardDutyTriage` to `true` on the entry stack only if you want Tracec
 
 ## Add log archive access
 
+Use a Tracecat role dedicated to log archive access for S3. The explicit denies apply to the role's `s3:ListBucket` and `s3:GetObject` permissions across all policies. Deploy one S3 policy stack per role and put all its approved buckets in that stack's allowlist.
+
 In the log bucket owner's account, create a regular stack from [`tracecat-secops-log-archive-s3-policy.yaml`](cloudformation/tracecat-secops-log-archive-s3-policy.yaml). Use your entry role name if the buckets are in the entry account. For a separate log archive account, include it in your approved member accounts and use `TracecatSecOpsAuditRole`. Enter the approved bucket ARNs as a comma-separated `LogBucketArns` value such as `arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs`. Acknowledge named IAM resources.
 
 For SSE-KMS logs, create a separate stack from [`tracecat-secops-log-archive-kms-policy.yaml`](cloudformation/tracecat-secops-log-archive-kms-policy.yaml) for each key. Set `KeyArn` to the full KMS key ARN, `LogBucketArns` to the approved buckets encrypted by that key, and `RoleName` to the same role name. Confirm the [key policy permits decryption](https://docs.tracecat.com/cheatsheets/connection-guides/connect-to-aws#grant-read-access-to-archived-logs).

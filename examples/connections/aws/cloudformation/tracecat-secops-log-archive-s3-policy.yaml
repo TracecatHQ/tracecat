@@ -4,9 +4,11 @@ Parameters:
   RoleName:
     Type: String
     Default: TracecatSecOpsAuditRole
+    Description: Tracecat role dedicated to log archive access for S3. The denies apply across all policies on the role.
   LogBucketArns:
     Type: CommaDelimitedList
     AllowedPattern: 'arn:aws[a-z0-9-]*:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+    Description: Complete list of approved log bucket ARNs. Use one S3 policy stack per role.
 Resources:
   LogArchiveRead:
     Type: AWS::IAM::RolePolicy
