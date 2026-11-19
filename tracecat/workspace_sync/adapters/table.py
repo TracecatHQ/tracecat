@@ -168,11 +168,11 @@ class TableAdapter(DirectoryManifestAdapter):
         """
         tables = workspace_spec.tables
         imported: list[ImportedResource] = []
+        if not tables:
+            return imported
         table_service = BaseTablesService(
             session=workspace_service.session, role=workspace_service.role
         )
-        if not tables:
-            return imported
         # Schema changes below mix lock-free DDL with changes that take the
         # search lock exclusively, so take it first (see tracecat.search.service).
         await table_service.search.lock_scope()

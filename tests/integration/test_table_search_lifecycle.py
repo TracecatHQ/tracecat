@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Iterator
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID, uuid4
 
 import httpx
@@ -82,6 +82,22 @@ from tracecat.workspace_sync.schemas import (
 )
 
 pytestmark = pytest.mark.anyio
+
+
+async def wait_for_advisory_lock_waiter(engine: AsyncEngine) -> None:
+    """Return once a transaction in this database waits for an advisory lock."""
+    async with engine.connect() as connection:
+        for _ in range(500):
+            if await connection.scalar(
+                sa.text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory'"
+                    " AND NOT granted AND database = (SELECT oid FROM pg_database"
+                    " WHERE datname = current_database()))"
+                )
+            ):
+                return
+            await asyncio.sleep(0.01)
+    raise AssertionError("No transaction waited for an advisory lock")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -520,22 +536,6 @@ async def test_indexed_row_writers_wait_only_for_the_same_table(
         await engine.dispose()
 
 
-async def wait_for_advisory_lock_waiter(engine: AsyncEngine) -> None:
-    """Return once a transaction in this database waits for an advisory lock."""
-    async with engine.connect() as connection:
-        for _ in range(500):
-            if await connection.scalar(
-                sa.text(
-                    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory'"
-                    " AND NOT granted AND database = (SELECT oid FROM pg_database"
-                    " WHERE datname = current_database()))"
-                )
-            ):
-                return
-            await asyncio.sleep(0.01)
-    raise AssertionError("No transaction waited for an advisory lock")
-
-
 async def test_ddl_that_cannot_affect_search_does_not_wait_for_row_writers(
     tables: TablesService, table: Table
 ):
@@ -683,7 +683,7 @@ async def test_table_sync_takes_the_search_lock_before_changing_a_table(
 
 @pytest.mark.parametrize("change", ["delete", "update"])
 async def test_changing_a_column_another_request_deleted_is_not_found(
-    tables: TablesService, table: Table, change: str
+    tables: TablesService, table: Table, change: Literal["delete", "update"]
 ):
     table_id = table.id
     column_id = next(c.id for c in table.columns if c.name == "body")
