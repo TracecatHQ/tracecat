@@ -441,7 +441,7 @@ For SSE-KMS logs, add a statement like this for each key that encrypts an approv
 
 ## Connect and verify in Tracecat
 
-1. Save the entry stack's `RoleArn` as `AWS_ROLE_ARN` in the `aws` credential. Actions under `tools.amazon_s3` use the `amazon_s3` credential.
+1. Save the entry stack's `RoleArn` as `AWS_ROLE_ARN` in the `aws` credential. If you use `tools.amazon_s3`, set `AWS_ROLE_ARN` in the `amazon_s3` credential to the same ARN.
 2. Add the AWS actions to your agent's available tools. See [AI preset agent tools](/agents/ai-preset-agent#where-tools-come-from).
 3. Run [AWS Boto3 → Call method](/tools/aws_boto3#call-method) and confirm it returns the entry role session.
 
@@ -482,7 +482,7 @@ Verify each path you configured.
     Deploy only the entry role and omit the organization settings. For self-hosted Tracecat, use the executor's IAM role as the principal. The default Fargate setup requires the entry role in a different account from Tracecat. See [AWS role assumption](/self-hosting/aws-fargate#aws-role-assumption).
   </Accordion>
   <Accordion title="What access do the policies grant?">
-    The AWS-managed `SecurityAudit` policy grants security configuration reads in each account, including GuardDuty reads. The optional entry-role triage policy grants archive, unarchive, and finding feedback. The log policy limits object listing and reads to approved buckets. See [SecurityAudit](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/SecurityAudit.html) and [GuardDuty administrator permissions](https://docs.aws.amazon.com/guardduty/latest/ug/administrator_member_relationships.html).
+    The AWS-managed `SecurityAudit` policy grants security configuration reads in each account, including GuardDuty reads. The optional triage policy uses `Resource: '*'` so the entry role can archive findings, unarchive findings, and update feedback wherever the GuardDuty delegated administrator can manage findings. The log policy limits object listing and reads to approved buckets. See [SecurityAudit](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/SecurityAudit.html) and [GuardDuty administrator permissions](https://docs.aws.amazon.com/guardduty/latest/ug/administrator_member_relationships.html).
   </Accordion>
   <Accordion title="Why does the management account need its own stack?">
     Service-managed StackSets deploy to member accounts. Create a regular stack in the management account for Organizations and CloudTrail reads. Use the full trail ARN for organization-trail checks. See [StackSet account targeting](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-associate-stackset-with-org.html).
