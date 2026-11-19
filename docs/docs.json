@@ -63,8 +63,7 @@
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
-                  "automations/integrations/mcp-integrations",
-                  "automations/integrations/chatops"
+                  "automations/integrations/mcp-integrations"
                 ]
               }
             ]
@@ -375,8 +374,12 @@
           },
           {
             "group": "Connection Guides",
-            "icon": "/img/icons/aws.svg",
-            "pages": ["cheatsheets/connection-guides/connect-to-aws"]
+            "icon": "plug",
+            "pages": [
+              "cheatsheets/connection-guides/connect-to-aws",
+              "cheatsheets/connection-guides/connect-to-slack",
+              "cheatsheets/connection-guides/connect-to-teams"
+            ]
           }
         ]
       },
@@ -461,6 +464,10 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/automations/integrations/chatops",
+      "destination": "/cheatsheets/connection-guides/connect-to-slack"
+    },
     {
       "source": "/tools/google_secops_detection",
       "destination": "/tools/google_chronicle"
