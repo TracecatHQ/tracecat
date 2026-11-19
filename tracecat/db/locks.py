@@ -81,6 +81,9 @@ def require_lock_holder_on_commit(
         try:
             held = holder_connection.execute(_HOLDS_LOCK, key_parts).scalar()
         except Exception as exc:
+            # The holder is unusable. Invalidate it so releasing it doesn't try
+            # a rollback on a dead socket and replace this error with that one.
+            holder_connection.invalidate(exc)
             raise AdvisoryLockLostError("Advisory lock holder ended") from exc
         if held is not True:
             raise AdvisoryLockLostError("Advisory lock is no longer held")
