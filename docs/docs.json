@@ -372,6 +372,11 @@
               "cheatsheets/aggregate-and-search",
               "cheatsheets/workflow-metadata"
             ]
+          },
+          {
+            "group": "Connection Guides",
+            "icon": "plug",
+            "pages": ["cheatsheets/connection-guides/connect-to-aws"]
           }
         ]
       },
