@@ -171,15 +171,7 @@ arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs
   </Step>
 </Steps>
 
-### Allow decryption for SSE-KMS logs
-
-If your logs use SSE-KMS, create a [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-kms-policy.yaml) in the bucket owner's account for each key.
-
-- Set `KeyArn` to the full ARN of the KMS key.
-- Set `RoleName` to the same role you used for the S3 policy stack.
-- Set `LogBucketArns` to only the approved buckets encrypted by that key.
-
-Acknowledge named IAM resources and create the stack. Confirm the key policy allows the role to decrypt. For a key in the same account, the key policy can grant access directly or delegate it to IAM. For a key in a different account, the key policy must authorize the role or its account.
+If your logs use SSE-KMS, follow the [KMS setup in the FAQ](#faq) before testing file reads.
 
 ## Connect and verify in Tracecat
 
@@ -250,8 +242,16 @@ Verify each path you configured.
   <Accordion title="Why does the management account need its own stack?">
     Service-managed StackSets deploy to member accounts. Create a regular stack in the management account for Organizations and CloudTrail reads. Use the full trail ARN for organization-trail checks. See [StackSet account targeting](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-associate-stackset-with-org.html).
   </Accordion>
-  <Accordion title="Which key and encryption context do I use for logs?">
-    Use the key that encrypted the object. An organization trail can set its own key at the trail level. Match the S3 bucket ARN for S3 Bucket Keys and the object ARN pattern for object-level encryption. See [CloudTrail KMS key policies](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-kms-key-policy-for-cloudtrail.html).
+  <Accordion title="How do I read logs encrypted with SSE-KMS?">
+    In the log bucket owner's account, create one [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-kms-policy.yaml) per key. If an organization trail specifies its own key, use that key for its logs.
+
+    - Set `KeyArn` to the full ARN of the KMS key.
+    - Set `RoleName` to the role you used for the S3 policy stack.
+    - Set `LogBucketArns` to the ARNs of the approved buckets encrypted by this key.
+
+    Acknowledge named IAM resources and create the stack. Confirm the key policy allows the role to decrypt. For keys in the same account as the role, the key policy can grant access directly or delegate it to IAM. For cross-account keys, the key policy must authorize the role or its account.
+
+    The template matches the bucket ARN for S3 Bucket Keys and object ARNs for object-level encryption. See [CloudTrail KMS key policies](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-kms-key-policy-for-cloudtrail.html).
   </Accordion>
   <Accordion title="How long do chained sessions last?">
     AWS limits the session for the second role to one hour. Set `duration_seconds` to a value from 900 to 3600.
