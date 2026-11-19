@@ -58,6 +58,10 @@ const LINK_FAILURES: Record<string, LinkFailure> = {
     message: "The provider could not confirm your sign-in.",
     retryable: true,
   },
+  blocked_network: {
+    message: "Your organization's IP allowlist does not include this network.",
+    retryable: true,
+  },
 }
 
 function linkFailure(

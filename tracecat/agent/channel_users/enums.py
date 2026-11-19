@@ -40,3 +40,5 @@ class ChannelLinkError(StrEnum):
     SIGNED_OUT = "signed_out"
     FAILED = "failed"
     """The provider refused the sign-in or errored."""
+    BLOCKED_NETWORK = "blocked_network"
+    """The organization's IP allowlist excludes the browser."""
