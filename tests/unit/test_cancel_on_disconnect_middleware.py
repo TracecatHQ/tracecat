@@ -111,3 +111,35 @@ async def test_work_after_a_complete_response_is_not_cancelled() -> None:
     )
     await middleware(_scope("/cases/search/aggregate"), receive, send)
     assert events == ['{"a":1}', "after response"]
+
+
+@pytest.mark.anyio
+async def test_a_receive_after_the_response_gets_the_disconnect() -> None:
+    """An app that listens after its response must not wait forever."""
+    chunks = [{"type": "http.request", "body": b"{}", "more_body": False}]
+    response_sent = asyncio.Event()
+
+    async def receive() -> Message:
+        if chunks:
+            return chunks.pop(0)
+        await response_sent.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.body":
+            response_sent.set()
+
+    received: list[str] = []
+
+    async def app(_scope: Any, app_receive: Any, app_send: Any) -> None:
+        await app_receive()
+        await app_send({"type": "http.response.start", "status": 200, "headers": []})
+        await app_send({"type": "http.response.body", "body": b"ok"})
+        # e.g. a streaming response that watches for the client leaving
+        received.append((await app_receive())["type"])
+
+    middleware = CancelOnDisconnectMiddleware(
+        app, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
+    )
+    await asyncio.wait_for(middleware(_scope("/cases/search"), receive, send), 2)
+    assert received == ["http.disconnect"]

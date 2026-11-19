@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Collection
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -45,7 +46,7 @@ class CancelOnDisconnectMiddleware:
 
         # Own receive from here on: read the body, then only a disconnect can
         # arrive, which the watcher below waits for.
-        body: list[Message] = []
+        body: deque[Message] = deque()
         while True:
             message = await receive()
             if message["type"] == "http.disconnect":
@@ -56,10 +57,11 @@ class CancelOnDisconnectMiddleware:
 
         client_gone = asyncio.Event()
         response_done = False
+        cancelled_for_disconnect = False
 
         async def replay() -> Message:
             if body:
-                return body.pop(0)
+                return body.popleft()
             await client_gone.wait()
             return {"type": "http.disconnect"}
 
@@ -74,16 +76,22 @@ class CancelOnDisconnectMiddleware:
         handler = asyncio.ensure_future(self.app(scope, replay, tracked_send))
 
         async def watch() -> None:
+            nonlocal cancelled_for_disconnect
             message = await receive()
-            if message["type"] == "http.disconnect" and not response_done:
-                client_gone.set()
+            if message["type"] != "http.disconnect":
+                return
+            # Any receive the app makes from now on gets the disconnect, even
+            # after its response, so nothing waits on replay() forever.
+            client_gone.set()
+            if not response_done:
+                cancelled_for_disconnect = True
                 handler.cancel()
 
         watcher = asyncio.ensure_future(watch())
         try:
             await handler
         except asyncio.CancelledError:
-            if not client_gone.is_set():
+            if not cancelled_for_disconnect:
                 raise
             # The client left; there is no one to send a response to.
         finally:
