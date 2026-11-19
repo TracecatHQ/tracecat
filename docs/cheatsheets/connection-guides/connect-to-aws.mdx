@@ -6,7 +6,7 @@ description: "Connect Tracecat to AWS with IAM roles, then extend access to AWS 
 Give Tracecat agents and workflows one AWS entry role. This guide puts it in your security account, which already serves as the GuardDuty delegated administrator for the Regions you monitor.
 
 <Prompt description="Set up the AWS connection with an AI assistant">
-Help me connect Tracecat to AWS using Terraform, Pulumi, or CloudFormation. Start with the examples at https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws. Ask which deployment method and AWS profiles I use, whether I need one account or organization coverage, which member accounts and log buckets to approve, and whether to enable GuardDuty triage writes. Use my GuardDuty delegated administrator account for the entry role. For organization coverage, use a StackSets delegated administrator and a separate management stack if I need Organizations reads. Have me supply the Tracecat workspace External ID through a protected input. Verify the AWS account behind each profile and show me the plan or CloudFormation changes before applying. Then give me the entry role ARN and walk me through configuring the aws credential and testing it in Tracecat. If I added S3 logs, also walk me through configuring the amazon_s3 credential and running the DuckDB sample.
+Help me connect Tracecat to AWS using CloudFormation or Terraform. Start with the examples at https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws. Ask which deployment method and AWS profiles I use, whether I need one account or organization coverage, which member accounts and log buckets to approve, and whether to enable GuardDuty triage writes. Use my GuardDuty delegated administrator account for the entry role. For organization coverage, use a StackSets delegated administrator and a separate management stack if I need Organizations reads. Have me supply the Tracecat workspace External ID through a protected input. Verify the AWS account behind each profile and show me the plan or CloudFormation changes before applying. Then give me the entry role ARN and walk me through configuring the aws credential and testing it in Tracecat. If I added S3 logs, also walk me through configuring the amazon_s3 credential and running the DuckDB sample.
 </Prompt>
 
 ```mermaid
@@ -82,13 +82,13 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
 
 <Steps>
   <Step title="Create the entry role">
-    In the security account, open **CloudFormation → Stacks** and create a stack from `cloudformation/entry-role.yaml`. Set `TracecatPrincipalArn` and `ExternalId` from Tracecat. For organization access, set `TargetRoleArns` to a comma-separated list of `arn:aws:iam::<ACCOUNT_ID>:role/TracecatSecOpsAuditRole` for each approved member and the management account if needed. Leave it empty for a single account. Set `EnableGuardDutyTriage` to `true` only if you want triage writes. Acknowledge named IAM resources, create the stack, and copy the `RoleArn` output.
+    In the security account, open **CloudFormation → Stacks** and create a stack from `cloudformation/tracecat-secops-access-role.yaml`. Set `TracecatPrincipalArn` and `ExternalId` from Tracecat. For organization access, set `TargetRoleArns` to a comma-separated list of `arn:aws:iam::<ACCOUNT_ID>:role/TracecatSecOpsAuditRole` for each approved member and the management account if needed. Leave it empty for a single account. Set `EnableGuardDutyTriage` to `true` only if you want triage writes. Acknowledge named IAM resources, create the stack, and copy the `RoleArn` output.
   </Step>
   <Step title="Deploy to approved member accounts">
-    In the StackSets delegated administrator account, create a StackSet from `cloudformation/audit-role.yaml` with **Service-managed permissions**. Paste the entry role ARN into `EntryRoleArns` and acknowledge named IAM resources. Under **Deployment targets**, choose **Deploy to organizational units (OUs)**, add the root or OU ID, select the **Intersection** filter, and enter the approved member account IDs. Select one Region and turn automatic deployment off. Verify the targets on the review screen and wait for the stack instances to be up to date.
+    In the StackSets delegated administrator account, create a StackSet from `cloudformation/tracecat-secops-audit-role.yaml` with **Service-managed permissions**. Paste the entry role ARN into `EntryRoleArns` and acknowledge named IAM resources. Under **Deployment targets**, choose **Deploy to organizational units (OUs)**, add the root or OU ID, select the **Intersection** filter, and enter the approved member account IDs. Select one Region and turn automatic deployment off. Verify the targets on the review screen and wait for the stack instances to be up to date.
   </Step>
   <Step title="Deploy the management audit role if needed">
-    In the management account, create a regular stack from `cloudformation/audit-role.yaml` with the same `EntryRoleArns`. Acknowledge named IAM resources and wait for the stack to complete.
+    In the management account, create a regular stack from `cloudformation/tracecat-secops-audit-role.yaml` with the same `EntryRoleArns`. Acknowledge named IAM resources and wait for the stack to complete.
   </Step>
 </Steps>
 
@@ -105,25 +105,13 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
 </Steps>
 
 </Tab>
-<Tab title="Pulumi">
-
-<Steps>
-  <Step title="Configure AWS profiles and Pulumi inputs">
-    In `examples/connections/aws/pulumi`, follow the [Pulumi example](https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws#pulumi) to install dependencies and configure the stack. Set `organization` only for multi-account access. Save the External ID with `pulumi config set --secret externalId`.
-  </Step>
-  <Step title="Preview and apply">
-    Run `pulumi preview`. Verify the selected accounts and IAM changes. Run `pulumi up`, then copy the output of `pulumi stack output roleArn`.
-  </Step>
-</Steps>
-
-</Tab>
 </Tabs>
 
 ## Grant read access to archived logs
 
-For any deployment method, create a regular CloudFormation stack in the log bucket owner's account from the [log archive template](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/log-archive-policy.yaml). Use the entry role name as `RoleName` if the buckets are in your entry account. For a separate log archive account, include it in your approved member accounts and use `TracecatSecOpsAuditRole`. Set `LogBucketArns` to a comma-separated list, such as `arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs`. Acknowledge named IAM resources and create the stack.
+For any deployment method, create a regular CloudFormation stack in the log bucket owner's account from the [log archive template](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-s3-policy.yaml). Use the entry role name as `RoleName` if the buckets are in your entry account. For a separate log archive account, include it in your approved member accounts and use `TracecatSecOpsAuditRole`. Set `LogBucketArns` to a comma-separated list, such as `arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs`. Acknowledge named IAM resources and create the stack.
 
-For SSE-KMS logs, create a [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/log-archive-kms-policy.yaml) in the same account for each key. Enter its full ARN as `KeyArn`, the same `RoleName`, and only the approved `LogBucketArns` encrypted by that key. Confirm the key policy allows the role to decrypt, either directly or through permissions delegated to IAM in the key's own account. If the key belongs to a different account, its key policy must authorize the external role or its account as well.
+For SSE-KMS logs, create a [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-kms-policy.yaml) in the same account for each key. Enter its full ARN as `KeyArn`, the same `RoleName`, and only the approved `LogBucketArns` encrypted by that key. Confirm the key policy allows the role to decrypt, either directly or through permissions delegated to IAM in the key's own account. If the key belongs to a different account, its key policy must authorize the external role or its account as well.
 
 ## Connect and verify in Tracecat
 
@@ -169,10 +157,10 @@ Verify each path you configured.
 
 <Steps>
   <Step title="Create the replacement entry role">
-    Create a separate entry stack with a distinct `EntryRoleName` and the same target role allowlist. With Terraform or Pulumi, add a second stack resource with a distinct resource address, stack name, and role name. Keep the original stack in place during the cutover.
+    Create a separate entry stack with a distinct `EntryRoleName` and the same target role allowlist. With Terraform, add a second stack resource with a distinct resource address, stack name, and role name. Keep the original stack in place during the cutover.
   </Step>
   <Step title="Allow both entry roles during cutover">
-    For organization access, update the existing target role stacks to trust both entry role ARNs. Pass both ARNs as `EntryRoleArns`, or set `organization.previous_entry_role_arn` in Terraform or `organization.previousEntryRoleArn` in Pulumi when switching the audit stacks' entry role reference. Wait until the target stack instances are up to date.
+    For organization access, update the existing target role stacks to trust both entry role ARNs. Pass both ARNs as `EntryRoleArns`, or set `organization.previous_entry_role_arn` in Terraform when switching the audit stacks' entry role reference. Wait until the target stack instances are up to date.
   </Step>
   <Step title="Switch the credential and verify">
     Set `AWS_ROLE_ARN` to the new stack's `RoleArn` output in each credential you use and repeat the verification calls. Check any workflows that still need write permissions granted by the previous role. Restore the previous ARN if a check fails.

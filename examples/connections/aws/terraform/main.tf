@@ -71,7 +71,7 @@ data "aws_partition" "current" {
 }
 
 locals {
-  audit_template        = var.organization == null ? null : file("${path.module}/../cloudformation/audit-role.yaml")
+  audit_template        = var.organization == null ? null : file("${path.module}/../cloudformation/tracecat-secops-audit-role.yaml")
   member_account_ids    = var.organization == null ? [] : sort(tolist(var.organization.member_account_ids))
   management_account_id = try(var.organization.management_account_id, null)
   target_account_ids = concat(
@@ -91,7 +91,7 @@ locals {
 resource "aws_cloudformation_stack" "entry" {
   provider      = aws.entry
   name          = var.entry_stack_name
-  template_body = file("${path.module}/../cloudformation/entry-role.yaml")
+  template_body = file("${path.module}/../cloudformation/tracecat-secops-access-role.yaml")
   capabilities  = ["CAPABILITY_NAMED_IAM"]
   parameters = {
     EntryRoleName         = var.entry_role_name
