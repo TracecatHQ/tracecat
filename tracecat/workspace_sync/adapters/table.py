@@ -171,6 +171,10 @@ class TableAdapter(DirectoryManifestAdapter):
         table_service = BaseTablesService(
             session=workspace_service.session, role=workspace_service.role
         )
+        # Take the workspace search lock first. Adding a column locks its table
+        # without this lock, so taking it after that could deadlock with a row
+        # writer that holds it shared and waits for the table.
+        await table_service.search.lock_scope()
 
         async def rename_table(table: Table, name: str) -> None:
             await table_service.update_table(table, TableUpdate(name=name))

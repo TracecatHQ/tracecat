@@ -1232,6 +1232,8 @@ class BaseTablesService(BaseWorkspaceService):
         await self._ensure_schema_unmanaged(column.table_id)
         collection = await self.search.for_table(column.table_id)
         table = await self.search.table(column.table_id)
+        # The caller may have read the column before a rename committed.
+        await self.session.refresh(column)
         await self.search.column_changed(collection, column, removed=True)
         self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(table.name)

@@ -582,6 +582,82 @@ async def test_ddl_that_cannot_affect_search_does_not_wait_for_row_writers(
         await engine.dispose()
 
 
+async def test_table_sync_takes_the_search_lock_before_changing_a_table(
+    tables: TablesService, table: Table
+):
+    """A sync waits for row writers before it locks any table.
+
+    Adding a column locks its table without the workspace search lock. A sync
+    can later change another column, which needs that lock exclusively, so it
+    must take the lock first. Otherwise a row writer holding the lock shared
+    and waiting for the table would deadlock with it.
+    """
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="key", type=SqlType.TEXT)],
+        )
+    )
+    table_id, other_name = table.id, tables._full_table_name(other.name)
+    spec = WorkspaceSpec(
+        tables={
+            "synthetic": TableResourceSpec(
+                id="synthetic",
+                name=other.name,
+                columns=[
+                    TableColumnSpec(name="key", type="text"),
+                    TableColumnSpec(name="note", type="text"),
+                ],
+            )
+        }
+    )
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    async def sync():
+        async with sessions.begin() as session:
+            importer = WorkspaceResourceImportService(session, tables.role)
+            await importer.import_non_workflow_resources(spec)
+
+    async def other_is_locked() -> bool:
+        async with engine.connect() as conn:
+            return bool(
+                await conn.scalar(
+                    sa.text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_locks "
+                        "WHERE relation = to_regclass(:name) "
+                        "AND mode = 'AccessExclusiveLock')"
+                    ),
+                    {"name": other_name},
+                )
+            )
+
+    tasks: list[asyncio.Task[None]] = []
+    try:
+        tasks.append(asyncio.create_task(open_writer()))
+        await asyncio.wait_for(entered.wait(), 5)
+        tasks.append(syncing := asyncio.create_task(sync()))
+        await asyncio.sleep(0.2)
+        assert not syncing.done()
+        assert not await other_is_locked()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 5)
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await engine.dispose()
+
+
 async def test_search_reads_wait_only_for_writers_to_the_same_table(
     tables: TablesService, table: Table
 ):
