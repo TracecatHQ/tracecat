@@ -455,8 +455,8 @@ async def test_selection_gives_up_on_a_busy_table(
                 ),
             )
 
+    task = asyncio.create_task(writer())
     try:
-        task = asyncio.create_task(writer())
         await asyncio.wait_for(entered.wait(), 5)
         with pytest.raises(SearchError) as exc:
             await asyncio.wait_for(select(), 5)
@@ -467,6 +467,7 @@ async def test_selection_gives_up_on_a_busy_table(
         assert await asyncio.wait_for(select(), 5) is not None
     finally:
         release.set()
+        await asyncio.gather(task, return_exceptions=True)
         await engine.dispose()
 
 
