@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get destination samples
+  description: "Get sample event data for the specified Destination to validate the configuration or test connectivity. Calls GET /system/outputs/{id}/samples."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Destinations-getOutputSamplesById
+  namespace: tools.cribl
+  name: get_destination_samples
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    id:
+      type: str
+      description: "The id of the Destination to get sample event data for."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/system/outputs/${{ FN.url_encode(inputs.id) }}/samples
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

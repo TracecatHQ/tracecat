@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Update pipeline
+  description: "Update the specified Pipeline. Provide a complete representation of the Pipeline that you want to update in the request body. This endpoint does not support partial updates. Calls PATCH /pipelines/{id}."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Pipelines-updatePipelinesById
+  namespace: tools.cribl
+  name: update_pipeline
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    id:
+      type: str
+      description: "The id of the Pipeline to update."
+    conf:
+      type: dict[str, Any]
+      description: "Configuration for the Pipeline, including functions and settings. Documented fields: asyncFuncTimeout, output, description, streamtags, functions, groups."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/pipelines/${{ FN.url_encode(inputs.id) }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload:
+          id: ${{ inputs.id }}
+          conf: ${{ inputs.conf }}
+  returns: ${{ steps.request.result }}

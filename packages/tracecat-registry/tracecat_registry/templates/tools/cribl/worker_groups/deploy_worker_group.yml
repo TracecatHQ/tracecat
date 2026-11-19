@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Deploy commit to worker group
+  description: "Deploy commits to the specified Worker Group, Outpost Group, or Edge Fleet. Calls PATCH /products/{product}/groups/{id}/deploy."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Worker_Groups_and_Outpost_Groups-updateProductsGroupsDeployByProductAndId
+  namespace: tools.cribl
+  name: deploy_worker_group
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    product:
+      type: str
+      description: "Name of the Cribl product. Valid values: stream, edge, outpost."
+    id:
+      type: str
+      description: "The id of the target Worker Group, Outpost Group, or Edge Fleet for commit deployment."
+    version:
+      type: str
+      description: "Commit hash to deploy to the Worker Group, Outpost Group, or Edge Fleet."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/products/${{ FN.url_encode(inputs.product) }}/groups/${{ FN.url_encode(inputs.id) }}/deploy
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload:
+          version: ${{ inputs.version }}
+  returns: ${{ steps.request.result }}

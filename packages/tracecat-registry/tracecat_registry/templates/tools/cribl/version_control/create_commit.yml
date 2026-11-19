@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Create commit
+  description: "Create a new commit for pending changes to the Cribl configuration. Any merge conflicts indicated in the response must be resolved using Git. Calls POST /version/commit."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Version_Control-createVersionCommit
+  namespace: tools.cribl
+  name: create_commit
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    payload:
+      # Generic: optional GitCommitBody fields are not documented to accept null, and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: "GitCommitBody object. Documented fields: message (required, commit message), group (Worker Group to commit), files (file paths to include, relative to the configuration root; all pending changes if omitted), effective (apply the commit to the group's effective configuration)."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/version/commit
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

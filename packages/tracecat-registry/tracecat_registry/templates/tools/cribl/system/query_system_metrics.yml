@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Query system metrics
+  description: "Query raw system metrics. Calls GET /system/metrics."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-core/#operations-Diagnostics_and_Monitoring-getSystemMetrics
+  namespace: tools.cribl
+  name: query_system_metrics
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    wp:
+      type: int | None
+      description: "Worker Process index to query. Supported only on Worker Nodes."
+      default: null
+    numBuckets:
+      type: int | None
+      description: "Number of time buckets to include in the query results."
+      default: null
+    earliest:
+      type: str | int | None
+      description: "Start of the query time range. Accepts a relative time string or a timestamp in Unix time (milliseconds)."
+      default: null
+    latest:
+      type: str | int | None
+      description: "End of the query time range. Accepts a relative time string or a timestamp in Unix time (milliseconds)."
+      default: null
+    metricNameFilter:
+      type: str | list[str] | None
+      description: "Metric names to filter by. Accepts a regular expression or an array of metric names."
+      default: null
+    filterExpr:
+      type: str | None
+      description: "Filter expression applied to returned metrics. Supports filtering by dimension values."
+      default: null
+    namespace:
+      type: str | None
+      description: "Metrics store namespace. If omitted, uses the default metrics store."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/system/metrics
+        method: GET
+        params:
+          wp: ${{ inputs.wp }}
+          numBuckets: ${{ inputs.numBuckets }}
+          earliest: ${{ inputs.earliest }}
+          latest: ${{ inputs.latest }}
+          metricNameFilter: ${{ inputs.metricNameFilter }}
+          filterExpr: ${{ inputs.filterExpr }}
+          namespace: ${{ inputs.namespace }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

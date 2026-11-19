@@ -226,6 +226,7 @@
               "tools/cisa_kev",
               "tools/cloudflare_sdk",
               "tools/confluence",
+              "tools/cribl",
               "tools/crowdsec",
               "tools/crowdstrike",
               "tools/databricks",
@@ -445,7 +446,10 @@
           },
           {
             "group": "Endpoints",
-            "openapi": "https://platform.tracecat.com/api/openapi.json"
+            "openapi": {
+              "source": "https://platform.tracecat.com/api/openapi.json",
+              "overlays": ["api-reference/agent-endpoints.overlay.yaml"]
+            }
           }
         ]
       }

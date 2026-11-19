@@ -10,7 +10,7 @@ import orjson
 import pytest
 
 from tracecat.db.models import MCPIntegration
-from tracecat.integrations.catalog import loader
+from tracecat.integrations.catalog import loader, resolver
 from tracecat.integrations.catalog.service import PlatformMCPCatalogService
 from tracecat.integrations.catalog.types import RawCatalogRow
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
@@ -710,6 +710,29 @@ def test_devin_row_uses_api_key_headers() -> None:
     assert credential.required is True
     assert credential.secret is True
     assert credential.placeholder == "Bearer cog_..."
+
+
+def test_cribl_row_uses_embedded_server_bearer_header() -> None:
+    """Cribl's embedded server takes a user-supplied URL and Bearer token."""
+    _clear_catalog_cache()
+    entry = loader.get_platform_mcp_catalog_entry_by_slug(
+        "cribl-mcp", include_private=True
+    )
+    assert entry is not None
+    assert entry.name == "Cribl"
+    [option] = resolver.connect_options(entry)
+    assert option.id == "embedded"
+    spec = option.connection_spec
+    assert spec.kind == "http_custom"
+    assert not spec.server_uri
+    targets = {
+        credential.key: (credential.target, credential.secret)
+        for credential in spec.credentials
+    }
+    assert targets == {
+        "CRIBL_MCP_ENDPOINT": ("server_uri", False),
+        "Authorization": ("http_header", True),
+    }
 
 
 def test_google_workspace_rows_pin_offline_consent_authorize_params() -> None:

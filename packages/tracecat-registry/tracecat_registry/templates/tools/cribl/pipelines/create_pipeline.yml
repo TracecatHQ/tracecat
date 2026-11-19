@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Create pipeline
+  description: "Create a new Pipeline. Calls POST /pipelines."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-stream/#operations-Pipelines-createPipelines
+  namespace: tools.cribl
+  name: create_pipeline
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    group:
+      type: str
+      description: "The id of the Worker Group or Edge Fleet whose configuration to use."
+      default: default
+    id:
+      type: str
+      description: "Unique identifier for the Pipeline."
+    conf:
+      type: dict[str, Any]
+      description: "Configuration for the Pipeline, including functions and settings. Documented fields: asyncFuncTimeout, output, description, streamtags, functions, groups."
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/m/${{ FN.url_encode(inputs.group) }}/pipelines
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+        payload:
+          id: ${{ inputs.id }}
+          conf: ${{ inputs.conf }}
+  returns: ${{ steps.request.result }}

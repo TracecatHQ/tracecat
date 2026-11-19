@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: List system messages
+  description: "Get a list of all Messages. Calls GET /system/messages."
+  display_group: Cribl
+  doc_url: https://docs.cribl.io/cribl-as-code/api-reference/control-plane/cribl-core/#operations-System_Messages-getBulletinMessage
+  namespace: tools.cribl
+  name: list_system_messages
+  secrets:
+    - type: oauth
+      provider_id: cribl
+      grant_type: client_credentials
+  expects:
+    offset:
+      type: int | None
+      description: "Starting point from which to retrieve results for this request. Use with limit to paginate the response into manageable batches."
+      default: null
+    limit:
+      type: int | None
+      description: "Maximum number of Messages to return in the response for this request. Use with offset to paginate the response into manageable batches."
+      default: null
+    base_url:
+      type: str | None
+      description: "Cribl deployment URL, without /api/v1. For example, https://<workspace>-<organization>.cribl.cloud, or the cribl-gov.cloud equivalent for Cribl.Cloud Government."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.cribl.base_url }}/api/v1/system/messages
+        method: GET
+        params:
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.cribl_oauth.CRIBL_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}
