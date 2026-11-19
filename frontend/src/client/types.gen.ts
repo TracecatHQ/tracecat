@@ -571,6 +571,19 @@ export type AgentChannelTokenUpdate = {
 }
 
 /**
+ * A linked provider user.
+ */
+export type AgentChannelUserRead = {
+  id: string
+  provider: string
+  provider_tenant_id: string
+  provider_user_id: string
+  user_id: string | null
+  link_method: ChannelLinkMethod
+  linked_at: string
+}
+
+/**
  * The running turn's outcome for a control request.
  */
 export type AgentControlReceipt = {
@@ -839,6 +852,13 @@ export type AgentPresetCapability =
   | "internet_access"
 
 /**
+ * Who may act on the agent through channels; live, never versioned.
+ */
+export type AgentPresetChannelAccess = {
+  channel_access_policy: ChannelAccessPolicy
+}
+
+/**
  * Payload for creating a new agent preset.
  */
 export type AgentPresetCreate = {
@@ -929,6 +949,7 @@ export type AgentPresetRead = {
   current_version_id?: string | null
   folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
+  channel_access_policy: ChannelAccessPolicy
   created_at: string
   updated_at: string
 }
@@ -3855,6 +3876,11 @@ export type CatalogMappingSelection = {
 }
 
 /**
+ * Who may act on an agent through a channel; set per preset, never versioned.
+ */
+export type ChannelAccessPolicy = "linked_only" | "linked_approvals" | "open"
+
+/**
  * Who owns a bot's provider app.
  */
 export type ChannelBotAppOwner = "workspace" | "platform"
@@ -3899,6 +3925,10 @@ export type ChannelBotPlatformAppSetup = {
   transport: ChannelBotTransport
   oauth_redirect_url: string
   request_url: string | null
+  /**
+   * Where the provider returns a channel user's sign-in when they link.
+   */
+  readonly sign_in_redirect_url: string
 }
 
 /**
@@ -3934,6 +3964,30 @@ export type ChannelBotStatus =
  * How a bot's events arrive: posted to our endpoint, or read from a provider socket.
  */
 export type ChannelBotTransport = "http" | "socket"
+
+/**
+ * What the confirm page shows before linking.
+ */
+export type ChannelLinkDetails = {
+  provider: string
+  provider_tenant_id: string
+  provider_user_id: string
+  organization_name: string
+  user_email: string
+  expires_at: string
+}
+
+/**
+ * How a channel sender was linked to a Tracecat user.
+ */
+export type ChannelLinkMethod = "email" | "challenge"
+
+/**
+ * Where to send the browser to prove the provider identity.
+ */
+export type ChannelLinkSignInRead = {
+  sign_in_url: string
+}
 
 /**
  * Supported external channel types.
@@ -4513,6 +4567,30 @@ export type CursorPaginatedResponse_AgentChannelBotRead_ = {
 
 export type CursorPaginatedResponse_AgentChannelRouteRead_ = {
   items: Array<AgentChannelRouteRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentChannelUserRead_ = {
+  items: Array<AgentChannelUserRead>
   /**
    * Cursor for next page
    */
@@ -11655,6 +11733,10 @@ export type SlackBotDetails = {
   has_signing_secret: boolean
   has_client_secret: boolean
   oauth_redirect_url: string
+  /**
+   * Where the provider returns a channel user's sign-in when they link.
+   */
+  readonly sign_in_redirect_url: string
 }
 
 /**
@@ -15415,6 +15497,47 @@ export type PublicHandleSlackOauthCallbackData = {
 
 export type PublicHandleSlackOauthCallbackResponse = unknown
 
+export type AgentChannelUsersGetChannelLinkData = {
+  token: string
+}
+
+export type AgentChannelUsersGetChannelLinkResponse = ChannelLinkDetails
+
+export type AgentChannelUsersConfirmChannelLinkData = {
+  token: string
+}
+
+export type AgentChannelUsersConfirmChannelLinkResponse = ChannelLinkSignInRead
+
+export type AgentChannelUsersListMyChannelUsersData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type AgentChannelUsersListMyChannelUsersResponse =
+  CursorPaginatedResponse_AgentChannelUserRead_
+
+export type AgentChannelUsersUnlinkMyChannelUserData = {
+  linkId: string
+}
+
+export type AgentChannelUsersUnlinkMyChannelUserResponse = void
+
+export type AgentChannelUsersListOrganizationChannelUsersData = {
+  cursor?: string | null
+  limit?: number
+  userId?: string | null
+}
+
+export type AgentChannelUsersListOrganizationChannelUsersResponse =
+  CursorPaginatedResponse_AgentChannelUserRead_
+
+export type AgentChannelUsersUnlinkOrganizationChannelUserData = {
+  linkId: string
+}
+
+export type AgentChannelUsersUnlinkOrganizationChannelUserResponse = void
+
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesCreateWorkspaceData = {
@@ -17084,6 +17207,15 @@ export type AgentPresetsPreviewToolPolicyData = {
 }
 
 export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
+
+export type AgentPresetsSetAgentPresetChannelAccessData = {
+  presetId: string
+  requestBody: AgentPresetChannelAccess
+  workspaceId: string
+}
+
+export type AgentPresetsSetAgentPresetChannelAccessResponse =
+  AgentPresetChannelAccess
 
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
@@ -20883,6 +21015,96 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/channel-links/{token}": {
+    get: {
+      req: AgentChannelUsersGetChannelLinkData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelLinkDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channel-links/{token}/confirm": {
+    post: {
+      req: AgentChannelUsersConfirmChannelLinkData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelLinkSignInRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channel-users/me": {
+    get: {
+      req: AgentChannelUsersListMyChannelUsersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentChannelUserRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channel-users/me/{link_id}": {
+    delete: {
+      req: AgentChannelUsersUnlinkMyChannelUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channel-users": {
+    get: {
+      req: AgentChannelUsersListOrganizationChannelUsersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentChannelUserRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channel-users/{link_id}": {
+    delete: {
+      req: AgentChannelUsersUnlinkOrganizationChannelUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces": {
     get: {
       res: {
@@ -24191,6 +24413,21 @@ export type $OpenApiTs = {
          * Invalid tool policy selections
          */
         400: AgentPresetValidationErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-access": {
+    put: {
+      req: AgentPresetsSetAgentPresetChannelAccessData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetChannelAccess
         /**
          * Validation Error
          */

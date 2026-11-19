@@ -110,8 +110,14 @@ export function buildDuplicateAgentSlug(
   return `${baseSlug}-${suffix}`
 }
 
+// Channel access is workspace policy, not config; a copy starts at the default.
+export type DuplicateSourcePreset = Omit<
+  AgentPresetRead,
+  "channel_access_policy"
+>
+
 export function buildDuplicateAgentPresetPayload(
-  preset: AgentPresetRead,
+  preset: DuplicateSourcePreset,
   existingSlugs: Iterable<string>
 ): AgentPresetCreate {
   return {

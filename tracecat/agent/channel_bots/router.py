@@ -19,6 +19,7 @@ from tracecat.agent.channel_bots.provider import (
     ChannelListingNeedsReinstall,
     ChannelListingNotSupported,
     get_channel_bot_admin,
+    require_channel_bot_admin,
 )
 from tracecat.agent.channel_bots.schemas import (
     CHANNEL_BOTS_PREFIX,
@@ -42,7 +43,6 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -53,15 +53,6 @@ from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
 
-def _require_admin() -> ChannelBotAdmin:
-    if (admin := get_channel_bot_admin()) is None:
-        raise EntitlementRequired(
-            Entitlement.AGENT_CHANNELS.value,
-            message="Channel bots require Tracecat Enterprise",
-        )
-    return admin
-
-
 async def _require_agent_channels_preview(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
@@ -70,7 +61,7 @@ async def _require_agent_channels_preview(
     await check_entitlement(session, role, Entitlement.AGENT_CHANNELS_PREVIEW)
 
 
-Admin = Annotated[ChannelBotAdmin, Depends(_require_admin)]
+Admin = Annotated[ChannelBotAdmin, Depends(require_channel_bot_admin)]
 PageQuery = Annotated[PageParams, Depends()]
 
 _CHANNEL_LISTING_RESPONSES: dict[int | str, dict[str, Any]] = {

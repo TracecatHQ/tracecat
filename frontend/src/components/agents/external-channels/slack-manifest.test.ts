@@ -5,6 +5,7 @@ import {
 
 const REDIRECT =
   "https://api.example.com/agent/channel-bots/slack/oauth/callback"
+const SIGN_IN_REDIRECT = "https://api.example.com/agent/channel-links/callback"
 
 describe("buildSlackManifest", () => {
   it("enables Socket Mode and drops the request URLs", () => {
@@ -141,14 +142,27 @@ describe("buildSlackPlatformManifest", () => {
   type Manifest = {
     display_information: { name: string }
     features: { bot_user: { display_name: string } }
-    oauth_config: { scopes: { bot: string[] } }
+    oauth_config: { scopes: { bot: string[] }; redirect_urls: string[] }
     settings: Record<string, unknown>
   }
+
+  it("allowlists the install and channel-user sign-in redirects", () => {
+    const manifest = buildSlackPlatformManifest({
+      endpointUrl: null,
+      oauthRedirectUrl: REDIRECT,
+      signInRedirectUrl: SIGN_IN_REDIRECT,
+    }) as Manifest
+    expect(manifest.oauth_config.redirect_urls).toEqual([
+      REDIRECT,
+      SIGN_IN_REDIRECT,
+    ])
+  })
 
   it("names the app Tracecat and asks for channel access up front", () => {
     const manifest = buildSlackPlatformManifest({
       endpointUrl: "https://api.example.com/platform-events",
       oauthRedirectUrl: REDIRECT,
+      signInRedirectUrl: SIGN_IN_REDIRECT,
     }) as Manifest
     expect(manifest.display_information.name).toBe("Tracecat")
     expect(manifest.features.bot_user.display_name).toBe("Tracecat")
@@ -180,6 +194,7 @@ describe("buildSlackPlatformManifest", () => {
     const manifest = buildSlackPlatformManifest({
       endpointUrl: null,
       oauthRedirectUrl: REDIRECT,
+      signInRedirectUrl: SIGN_IN_REDIRECT,
     }) as Manifest
     expect(manifest.settings).toEqual(
       expect.objectContaining({

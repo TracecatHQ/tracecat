@@ -8,6 +8,7 @@ import {
   reservedSlackBot,
   SLACK_ENDPOINT,
   SLACK_REDIRECT,
+  SLACK_SIGN_IN_REDIRECT,
   serveBots,
   serveEntitlements,
   slackBot,
@@ -400,7 +401,10 @@ describe("Creating the custom Slack app", () => {
     )
     expect(manifest.settings.interactivity.request_url).toBe(SLACK_ENDPOINT)
     expect(manifest.settings.token_rotation_enabled).toBe(true)
-    expect(manifest.oauth_config.redirect_urls).toEqual([SLACK_REDIRECT])
+    expect(manifest.oauth_config.redirect_urls).toEqual([
+      SLACK_REDIRECT,
+      SLACK_SIGN_IN_REDIRECT,
+    ])
 
     await userEvent.click(link)
     expect(screen.getByText("Slack app ready")).toBeInTheDocument()

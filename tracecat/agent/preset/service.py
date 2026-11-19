@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, selectinload
@@ -21,6 +21,7 @@ from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.channel_bots.platform_app import is_live_platform_install
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -538,6 +539,7 @@ class AgentPresetService(BaseWorkspaceService):
             created_at=preset.created_at,
             updated_at=preset.updated_at,
             skills=await self._list_head_skill_bindings(preset.id),
+            channel_access_policy=ChannelAccessPolicy(preset.channel_access_policy),
         )
 
     async def build_version_read(
@@ -2100,6 +2102,33 @@ class AgentPresetService(BaseWorkspaceService):
             stmt = with_deleted(stmt)
         result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    @require_scope("agent:update")
+    @audit_log(
+        resource_type="agent_preset", action="update", resource_id_attr="preset_id"
+    )
+    async def set_channel_access_policy(
+        self, preset_id: uuid.UUID, policy: ChannelAccessPolicy
+    ) -> ChannelAccessPolicy:
+        """Set who may act through channels; applies at once, never versioned.
+
+        Raises:
+            TracecatNotFoundError: If the preset is not in this workspace.
+        """
+        updated = await self.session.scalar(
+            update(AgentPreset)
+            .where(
+                AgentPreset.id == preset_id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
+            .values(channel_access_policy=policy)
+            .returning(AgentPreset.channel_access_policy)
+        )
+        if updated is None:
+            raise TracecatNotFoundError(f"Agent preset {preset_id} not found")
+        await self.session.commit()
+        return ChannelAccessPolicy(updated)
 
     async def get_preset_by_slug(
         self, slug: str, *, include_deleted: bool = False

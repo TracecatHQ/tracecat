@@ -26,10 +26,12 @@ from tracecat.agent.channel_bots.schemas import (
     ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
+from tracecat.agent.channel_users.types import ChannelIdentity
 from tracecat.api.extensions import load_api_extensions
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatException
+from tracecat.exceptions import EntitlementRequired, TracecatException
 from tracecat.pagination import CursorPaginatedResponse, PageParams
+from tracecat.tiers.enums import Entitlement
 
 
 class ChannelListingNotSupported(TracecatException):
@@ -203,6 +205,38 @@ class ChannelBotAdmin(Protocol):
         """
         ...
 
+    async def provider_sign_in_url(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        state: str,
+        redirect_uri: str,
+    ) -> str:
+        """The provider's sign-in page for the bot's tenant, returning to `redirect_uri`.
+
+        `role` is a service role for the bot's workspace. Raise
+        `TracecatValidationError` when the provider has no sign-in.
+        """
+        ...
+
+    async def verify_provider_sign_in(
+        self,
+        session: AsyncSession,
+        role: Role,
+        bot_id: uuid.UUID,
+        *,
+        code: str,
+        redirect_uri: str,
+    ) -> ChannelIdentity:
+        """Exchange the sign-in `code` for the provider user who signed in.
+
+        Raise `TracecatValidationError` for a refused code or a provider without
+        sign-in.
+        """
+        ...
+
 
 @runtime_checkable
 class ChannelBotAdminExtension(Protocol):
@@ -223,3 +257,17 @@ def get_channel_bot_admin() -> ChannelBotAdmin | None:
         names = ", ".join(sorted(admins))
         raise RuntimeError(f"Multiple channel bot admins installed: {names}")
     return next(iter(admins.values()), None)
+
+
+def require_channel_bot_admin() -> ChannelBotAdmin:
+    """The installed admin.
+
+    Raises:
+        EntitlementRequired: If no enterprise admin is installed.
+    """
+    if (admin := get_channel_bot_admin()) is None:
+        raise EntitlementRequired(
+            Entitlement.AGENT_CHANNELS.value,
+            message="Channel bots require Tracecat Enterprise",
+        )
+    return admin

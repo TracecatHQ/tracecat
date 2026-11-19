@@ -6,6 +6,7 @@ import type {
   AgentPresetRead,
   ChannelBotProvider,
 } from "@/client"
+import { ChannelAccessSelect } from "@/components/agents/external-channels/channel-access-select"
 import {
   pickChannelBot,
   platformInstallState,
@@ -105,6 +106,7 @@ function ChannelBotsPanel({
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-3 px-4 pt-4 pb-16">
+        <ChannelAccessSelect workspaceId={workspaceId} preset={preset} />
         <div className="rounded-md border">
           <SlackBotCard
             workspaceId={workspaceId}

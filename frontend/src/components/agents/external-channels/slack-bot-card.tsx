@@ -488,6 +488,7 @@ function slackBotManifest(
   return buildSlackManifest({
     endpointUrl: socket ? null : bot.endpoint_url,
     oauthRedirectUrl: details.oauth_redirect_url,
+    signInRedirectUrl: details.sign_in_redirect_url,
     appName,
   })
 }

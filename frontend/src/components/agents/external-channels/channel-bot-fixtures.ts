@@ -17,6 +17,7 @@ import {
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   agentPresetsListAgentPresets,
+  agentPresetsSetAgentPresetChannelAccess,
   type ChannelBotChannel,
   type ChannelBotDetails,
   type OrganizationGetOrganizationEntitlementsResponse,
@@ -42,10 +43,15 @@ export const api = {
   setRoute: jest.mocked(agentChannelBotsSetBotRoute),
   deleteRoute: jest.mocked(agentChannelBotsDeleteBotRoute),
   listPresets: jest.mocked(agentPresetsListAgentPresets),
+  setChannelAccess: jest.mocked(agentPresetsSetAgentPresetChannelAccess),
 }
 
 export const WORKSPACE_ID = "workspace-1"
-export const PRESET = { id: "preset-1", name: "Triage" } as AgentPresetRead
+export const PRESET = {
+  id: "preset-1",
+  name: "Triage",
+  channel_access_policy: "linked_approvals",
+} as AgentPresetRead
 // The workspace's agents, as the agent pickers list them.
 export const AGENTS = [
   { id: PRESET.id, name: PRESET.name },
@@ -54,13 +60,15 @@ export const AGENTS = [
 export const SLACK_ENDPOINT = "https://api.example.com/agent/channels/slack/abc"
 export const SLACK_REDIRECT =
   "https://api.example.com/agent/channel-bots/slack/oauth/callback"
+export const SLACK_SIGN_IN_REDIRECT =
+  "https://api.example.com/agent/channel-links/callback"
 
 type SlackBotDetails = Extract<ChannelBotDetails, { provider: "slack" }>
 
 /** An installed Slack bot on an HTTP deployment. */
 export function slackBot(
   overrides: Partial<AgentChannelBotRead> = {},
-  details: Partial<SlackBotDetails> = {}
+  details: Partial<Omit<SlackBotDetails, "sign_in_redirect_url">> = {}
 ): AgentChannelBotRead {
   return {
     id: "bot-1",
@@ -88,6 +96,7 @@ export function slackBot(
       has_signing_secret: true,
       has_client_secret: true,
       oauth_redirect_url: SLACK_REDIRECT,
+      sign_in_redirect_url: SLACK_SIGN_IN_REDIRECT,
       ...details,
     },
     ...overrides,

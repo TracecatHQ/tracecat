@@ -2,12 +2,15 @@
 export function buildSlackManifest({
   endpointUrl,
   oauthRedirectUrl,
+  signInRedirectUrl,
   appName,
   legacy = false,
 }: {
   /** Where Slack posts events and interactions, or null over Socket Mode. */
   endpointUrl: string | null
   oauthRedirectUrl: string
+  /** Where "Sign in with Slack" returns when a channel user links their account. */
+  signInRedirectUrl?: string
   appName: string
   /** The legacy channel token path: mentions only, and no agent_view (one-way per app). */
   legacy?: boolean
@@ -70,7 +73,9 @@ export function buildSlackManifest({
           "users:read.email",
         ],
       },
-      redirect_urls: [oauthRedirectUrl],
+      redirect_urls: signInRedirectUrl
+        ? [oauthRedirectUrl, signInRedirectUrl]
+        : [oauthRedirectUrl],
     },
     settings,
   }
@@ -80,13 +85,16 @@ export function buildSlackManifest({
 export function buildSlackPlatformManifest({
   endpointUrl,
   oauthRedirectUrl,
+  signInRedirectUrl,
 }: {
   endpointUrl: string | null
   oauthRedirectUrl: string
+  signInRedirectUrl: string
 }): Record<string, unknown> {
   return buildSlackManifest({
     endpointUrl,
     oauthRedirectUrl,
+    signInRedirectUrl,
     appName: "Tracecat",
   })
 }

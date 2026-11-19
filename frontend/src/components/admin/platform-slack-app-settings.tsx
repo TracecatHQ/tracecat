@@ -81,6 +81,7 @@ export function PlatformSlackAppSettings() {
   const manifest = buildSlackPlatformManifest({
     endpointUrl: slackApp.setup.request_url ?? null,
     oauthRedirectUrl: slackApp.setup.oauth_redirect_url,
+    signInRedirectUrl: slackApp.setup.sign_in_redirect_url,
   })
   const manual = (summary: string) => (
     <SlackManualSetup

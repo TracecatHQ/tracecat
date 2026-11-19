@@ -43,6 +43,8 @@ function slackApp(
       transport: "http",
       oauth_redirect_url:
         "https://api.example.com/agent/channel-bots/slack/oauth/callback",
+      sign_in_redirect_url:
+        "https://api.example.com/agent/channel-links/callback",
       request_url: REQUEST_URL,
     },
     ...overrides,
@@ -131,6 +133,7 @@ describe("PlatformSlackAppSettings", () => {
     const manifest = JSON.parse(copied)
     expect(manifest.oauth_config.redirect_urls).toEqual([
       "https://api.example.com/agent/channel-bots/slack/oauth/callback",
+      "https://api.example.com/agent/channel-links/callback",
     ])
     expect(manifest.oauth_config.scopes.bot).toEqual(
       expect.arrayContaining(["channels:read", "groups:read"])

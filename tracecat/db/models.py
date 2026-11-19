@@ -65,6 +65,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy, ChannelLinkMethod
 from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
@@ -4907,6 +4908,37 @@ class AgentChannelRoute(TimestampMixin, Base):
     agent_preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
 
 
+class AgentChannelUser(TimestampMixin, Base):
+    """A provider user linked to a Tracecat user: identity evidence, never authority."""
+
+    __tablename__ = "agent_channel_user"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "provider",
+            "provider_tenant_id",
+            "provider_user_id",
+            name="uq_agent_channel_user_org_provider_identity",
+        ),
+        CheckConstraint("link_method IN ('email', 'challenge')", name="link_method"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    link_method: Mapped[ChannelLinkMethod] = mapped_column(String(16), nullable=False)
+    linked_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class AgentSessionThread(TimestampMixin, Base):
     """A session's link to one provider thread; one session per thread per bot."""
 
@@ -5071,6 +5103,10 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
         # Target of the channel bot's composite key.
         UniqueConstraint("id", "workspace_id"),
+        CheckConstraint(
+            "channel_access_policy IN ('linked_only', 'linked_approvals', 'open')",
+            name="channel_access_policy",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -5192,6 +5228,13 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         UUID,
         ForeignKey("agent_folder.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    channel_access_policy: Mapped[ChannelAccessPolicy] = mapped_column(
+        String(32),
+        default=ChannelAccessPolicy.LINKED_APPROVALS,
+        server_default=ChannelAccessPolicy.LINKED_APPROVALS.value,
+        nullable=False,
+        doc="Who may act through channels; live workspace policy, never versioned",
     )
 
     workspace: Mapped[Workspace] = relationship(

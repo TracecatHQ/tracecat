@@ -1855,6 +1855,60 @@ export const $AgentChannelTokenUpdate = {
   description: "Request schema for updating an external channel token.",
 } as const
 
+export const $AgentChannelUserRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    provider: {
+      type: "string",
+      title: "Provider",
+    },
+    provider_tenant_id: {
+      type: "string",
+      title: "Provider Tenant Id",
+    },
+    provider_user_id: {
+      type: "string",
+      title: "Provider User Id",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    link_method: {
+      $ref: "#/components/schemas/ChannelLinkMethod",
+    },
+    linked_at: {
+      type: "string",
+      format: "date-time",
+      title: "Linked At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "provider",
+    "provider_tenant_id",
+    "provider_user_id",
+    "user_id",
+    "link_method",
+    "linked_at",
+  ],
+  title: "AgentChannelUserRead",
+  description: "A linked provider user.",
+} as const
+
 export const $AgentControlReceipt = {
   properties: {
     id: {
@@ -2734,6 +2788,19 @@ export const $AgentPresetCapability = {
   enum: ["approvals", "subagents", "internet_access"],
 } as const
 
+export const $AgentPresetChannelAccess = {
+  properties: {
+    channel_access_policy: {
+      $ref: "#/components/schemas/ChannelAccessPolicy",
+    },
+  },
+  type: "object",
+  required: ["channel_access_policy"],
+  title: "AgentPresetChannelAccess",
+  description:
+    "Who may act on the agent through channels; live, never versioned.",
+} as const
+
 export const $AgentPresetCreate = {
   properties: {
     instructions: {
@@ -3299,6 +3366,9 @@ export const $AgentPresetRead = {
       type: "array",
       title: "Skills",
     },
+    channel_access_policy: {
+      $ref: "#/components/schemas/ChannelAccessPolicy",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -3318,6 +3388,7 @@ export const $AgentPresetRead = {
     "workspace_id",
     "name",
     "slug",
+    "channel_access_policy",
     "created_at",
     "updated_at",
   ],
@@ -14381,6 +14452,14 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelAccessPolicy = {
+  type: "string",
+  enum: ["linked_only", "linked_approvals", "open"],
+  title: "ChannelAccessPolicy",
+  description:
+    "Who may act on an agent through a channel; set per preset, never versioned.",
+} as const
+
 export const $ChannelBotAppOwner = {
   type: "string",
   enum: ["workspace", "platform"],
@@ -14535,9 +14614,21 @@ export const $ChannelBotPlatformAppSetup = {
       ],
       title: "Request Url",
     },
+    sign_in_redirect_url: {
+      type: "string",
+      title: "Sign In Redirect Url",
+      description:
+        "Where the provider returns a channel user's sign-in when they link.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["transport", "oauth_redirect_url", "request_url"],
+  required: [
+    "transport",
+    "oauth_redirect_url",
+    "request_url",
+    "sign_in_redirect_url",
+  ],
   title: "ChannelBotPlatformAppSetup",
   description:
     "What a platform admin pastes into the deployment's own provider app.",
@@ -14615,6 +14706,67 @@ export const $ChannelBotTransport = {
   title: "ChannelBotTransport",
   description:
     "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
+} as const
+
+export const $ChannelLinkDetails = {
+  properties: {
+    provider: {
+      type: "string",
+      title: "Provider",
+    },
+    provider_tenant_id: {
+      type: "string",
+      title: "Provider Tenant Id",
+    },
+    provider_user_id: {
+      type: "string",
+      title: "Provider User Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    user_email: {
+      type: "string",
+      title: "User Email",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "provider_tenant_id",
+    "provider_user_id",
+    "organization_name",
+    "user_email",
+    "expires_at",
+  ],
+  title: "ChannelLinkDetails",
+  description: "What the confirm page shows before linking.",
+} as const
+
+export const $ChannelLinkMethod = {
+  type: "string",
+  enum: ["email", "challenge"],
+  title: "ChannelLinkMethod",
+  description: "How a channel sender was linked to a Tracecat user.",
+} as const
+
+export const $ChannelLinkSignInRead = {
+  properties: {
+    sign_in_url: {
+      type: "string",
+      title: "Sign In Url",
+    },
+  },
+  type: "object",
+  required: ["sign_in_url"],
+  title: "ChannelLinkSignInRead",
+  description: "Where to send the browser to prove the provider identity.",
 } as const
 
 export const $ChannelType = {
@@ -16110,6 +16262,69 @@ export const $CursorPaginatedResponse_AgentChannelRouteRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentChannelRouteRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelUserRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelUserRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelUserRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {
@@ -38410,6 +38625,13 @@ export const $SlackBotDetails = {
       type: "string",
       title: "Oauth Redirect Url",
     },
+    sign_in_redirect_url: {
+      type: "string",
+      title: "Sign In Redirect Url",
+      description:
+        "Where the provider returns a channel user's sign-in when they link.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -38426,6 +38648,7 @@ export const $SlackBotDetails = {
     "has_signing_secret",
     "has_client_secret",
     "oauth_redirect_url",
+    "sign_in_redirect_url",
   ],
   title: "SlackBotDetails",
   description: "Secrets are reported only as present or not.",
