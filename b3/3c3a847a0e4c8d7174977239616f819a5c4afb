@@ -1,0 +1,19 @@
+docs/img/icons/aws.svg
+  s_b496de929b0995::t_81b7a6314eb450 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b33c3a847a0e4c8d7174977239616f819a5c4afb",
+  "prompts": {},
+  "sessions": {
+    "s_b496de929b0995": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f5cb-9ba0-7091-b129-60101d2e725e",
+        "model": "unknown"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
