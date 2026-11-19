@@ -225,9 +225,9 @@ async def _execute_row_write[T](
 ) -> T:
     """Translate known row errors without exposing SQL or submitted values.
 
-    A deadlock with a concurrent write to the same rows becomes a retryable
-    conflict. Unknown NOT NULL columns and constraint types remain server
-    errors.
+    A deadlock reported by this statement becomes a ``write_conflict``.
+    Deadlocks raised by other statements in the transaction are not translated.
+    Unknown NOT NULL columns and constraint types remain server errors.
     """
     error: TableRowError | None = None
     try:
@@ -258,8 +258,8 @@ async def _execute_row_write[T](
             if isinstance(cause, DeadlockDetectedError):
                 error = TableRowError(
                     "write_conflict",
-                    "The write conflicted with a concurrent write to the same rows. "
-                    "Retry it.",
+                    "The write conflicted with a concurrent write. Nothing from "
+                    "this request was saved, so it can be retried.",
                 )
                 break
             if isinstance(cause, DataError):

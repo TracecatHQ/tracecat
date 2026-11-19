@@ -292,7 +292,11 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
 
 
 async def table_row_exception_handler(request: Request, exc: Exception) -> Response:
-    """Report invalid row input as a client error, without capturing an outage."""
+    """Report rejected or conflicting row writes as client errors.
+
+    ``write_conflict`` is a 409 like ``duplicate_value``; clients tell them apart
+    by ``detail.code``. Neither is captured as an outage.
+    """
     if not isinstance(exc, TableRowError):
         raise exc
     status_code = (

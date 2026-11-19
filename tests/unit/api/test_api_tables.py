@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from types import ModuleType
 from unittest.mock import AsyncMock, patch
 
+import orjson
 import pytest
 from asyncpg import DuplicateTableError
 from fastapi import status
@@ -258,6 +259,12 @@ async def test_invalid_row_values_return_400(
             ),
             409,
         ),
+        (
+            TableRowError(
+                "write_conflict", "The write conflicted with a concurrent write."
+            ),
+            409,
+        ),
     ],
 )
 async def test_row_errors_have_structured_client_responses(
@@ -460,6 +467,48 @@ async def test_import_table_from_csv_resolves_folder_path(
     else:
         mock_folder_svc.get_folder_by_path.assert_not_awaited()
         assert call.kwargs["folder_id"] is None
+
+
+@pytest.mark.anyio
+async def test_csv_import_conflict_reports_rows_already_imported(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    """Earlier chunks commit, so the conflict must not advise retrying the file."""
+    mock_table.columns = [
+        TableColumn(
+            id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeee1"),
+            table_id=mock_table.id,
+            name="name",
+            type=SqlType.TEXT.value,
+            nullable=True,
+            default=None,
+        )
+    ]
+    rows = "".join(f"row{n}\n" for n in range(1001))
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service.batch_insert_rows.side_effect = [
+            1000,
+            TableRowError("write_conflict", "The write conflicted."),
+        ]
+        service_type.return_value = service
+        response = client.post(
+            f"/tables/{mock_table.id}/import",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={"file": ("rows.csv", f"name\n{rows}".encode(), "text/csv")},
+            data={"column_mapping": orjson.dumps({"name": "name"}).decode()},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == {
+        "code": "write_conflict",
+        "column": None,
+        "message": "1000 rows were imported before the write conflicted with a "
+        "concurrent write. Import only the remaining rows.",
+    }
 
 
 @pytest.mark.anyio

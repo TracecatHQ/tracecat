@@ -110,8 +110,8 @@ async def test_deadlocks_are_retryable_conflicts() -> None:
     assert exc.value.detail == {
         "code": "write_conflict",
         "column": None,
-        "message": "The write conflicted with a concurrent write to the same rows. "
-        "Retry it.",
+        "message": "The write conflicted with a concurrent write. Nothing from "
+        "this request was saved, so it can be retried.",
     }
     assert exc.value.__context__ is None
 
