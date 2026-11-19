@@ -5,6 +5,7 @@ import {
   type EmbeddingConfigurationRead,
   searchGetEmbeddingConfiguration,
   type TableSearchConfiguration,
+  type TableSearchErrorResponse,
   tablesGetTableSearch,
   tablesRetryTableSearch,
   tablesSelectTableSearchColumn,
@@ -91,6 +92,16 @@ export function useTableSearch(workspaceId: string, tableId: string) {
     ])
   }
   function mutationError(error: ApiError) {
+    const detail = (error.body as TableSearchErrorResponse | undefined)?.detail
+    if (detail?.retryable) {
+      // The table had writes in progress and the change gave up waiting.
+      toast({
+        title: "Table is busy",
+        description: "Rows are being written to this table. Try again shortly.",
+        variant: "destructive",
+      })
+      return
+    }
     toast({
       title:
         error.status === 409

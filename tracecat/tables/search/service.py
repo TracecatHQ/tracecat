@@ -3,14 +3,20 @@
 Every operation uses the caller's transaction. Never resolve provider credentials
 or perform external work here. The workspace lock precedes all source writes,
 even while no collection exists, so enabling cannot miss a concurrent writer.
+Selection changes also take a SHARE lock on the source table. That lock alone
+excludes concurrent row writes, so writers can later stop taking the workspace
+lock.
 """
 
 from collections.abc import Sequence
 from uuid import UUID
 
 import sqlalchemy as sa
+from asyncpg.exceptions import LockNotAvailableError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import aliased, selectinload
 
+from tracecat.db.errors import find_db_error
 from tracecat.db.models import (
     SearchChunk,
     SearchCollection,
@@ -19,6 +25,7 @@ from tracecat.db.models import (
     TableColumn,
 )
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.pagination import paginate
 from tracecat.search.embeddings.schemas import EmbeddingConfigurationRead
 from tracecat.search.service import SearchStorage
@@ -29,6 +36,7 @@ from tracecat.search.types import (
     SearchErrorCode,
     SearchState,
 )
+from tracecat.tables.common import quote_identifier, sanitize_identifier
 from tracecat.tables.enums import SqlType
 from tracecat.tables.search.schemas import (
     TableSearchConfiguration,
@@ -38,6 +46,10 @@ from tracecat.tables.search.schemas import (
     TableSearchProgressParams,
     TableSearchSelection,
 )
+
+# How long a selection change waits for a lock before giving up. A waiting
+# exclusive lock holds back every new row writer behind it.
+SELECTION_LOCK_TIMEOUT = "5s"
 
 
 class TableSearchService(SearchStorage):
@@ -84,7 +96,33 @@ class TableSearchService(SearchStorage):
     async def select_column(
         self, table_id: UUID, params: TableSearchSelection
     ) -> SearchCollection | None:
-        """Apply an idempotent selection change with optimistic concurrency."""
+        """Apply an idempotent selection change with optimistic concurrency.
+
+        Each lock wait is bounded, so a busy table makes this fail fast instead
+        of holding back the workspace's row writers.
+
+        Raises:
+            SearchError: SOURCE_BUSY if a lock wasn't granted in time. The
+                transaction is aborted and the caller can retry it.
+        """
+        await self.session.execute(
+            sa.text(f"SET LOCAL lock_timeout = '{SELECTION_LOCK_TIMEOUT}'")
+        )
+        try:
+            collection = await self._select_column(table_id, params)
+        except DBAPIError as exc:
+            if find_db_error(exc, LockNotAvailableError) is None:
+                raise
+            busy = SearchError(SearchErrorCode.SOURCE_BUSY)
+        else:
+            await self.session.execute(sa.text("SET LOCAL lock_timeout TO DEFAULT"))
+            return collection
+        # Raise outside the handler so the database error is not chained.
+        raise busy
+
+    async def _select_column(
+        self, table_id: UUID, params: TableSearchSelection
+    ) -> SearchCollection | None:
         collection = await self.for_table(table_id)
         table = await self.table(table_id)
         generation = collection.generation if collection else 0
@@ -98,6 +136,7 @@ class TableSearchService(SearchStorage):
         selected = set(collection.selected_column_ids if collection else [])
         if (params.column_id in selected) == params.enabled:
             return collection
+        await self._lock_source_writes(table)
         if params.enabled:
             selected.add(params.column_id)
         else:
@@ -123,6 +162,22 @@ class TableSearchService(SearchStorage):
         collection.backfill_complete = False
         await self.session.flush()
         return collection
+
+    async def _lock_source_writes(self, table: Table) -> None:
+        """Wait for the table's open row writes and block new ones until commit.
+
+        SHARE mode conflicts with the ROW EXCLUSIVE lock that every row write
+        takes, and not with reads. So no row write to this table can commit
+        between a selection change and the backfill it schedules.
+        """
+        schema = f"tables_{WorkspaceUUID.new(self.scope.workspace_id).short()}"
+        name = sanitize_identifier(table.name)
+        await self.session.execute(
+            sa.text(
+                f"LOCK TABLE {quote_identifier(schema)}.{quote_identifier(name)}"
+                " IN SHARE MODE"
+            )
+        )
 
     async def record_rows(
         self,

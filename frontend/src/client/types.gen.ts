@@ -10886,6 +10886,7 @@ export type SearchErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "INVALID_CURSOR"
   | "INVALID_TABLE_NAME"
+  | "SOURCE_BUSY"
 
 /**
  * Index availability and document counts for a collection.
@@ -12563,6 +12564,10 @@ export type TableSearchDocumentProgress = {
  */
 export type TableSearchErrorRead = {
   code: SearchErrorCode | "INVALID_SELECTION"
+  /**
+   * Whether the same request can succeed if sent again.
+   */
+  retryable?: boolean
 }
 
 export type TableSearchErrorResponse = {

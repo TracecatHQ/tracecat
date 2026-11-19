@@ -35463,6 +35463,7 @@ export const $SearchErrorCode = {
     "PROVIDER_UNAVAILABLE",
     "INVALID_CURSOR",
     "INVALID_TABLE_NAME",
+    "SOURCE_BUSY",
   ],
   title: "SearchErrorCode",
   description:
@@ -41119,6 +41120,12 @@ export const $TableSearchErrorRead = {
         },
       ],
       title: "Code",
+    },
+    retryable: {
+      type: "boolean",
+      title: "Retryable",
+      description: "Whether the same request can succeed if sent again.",
+      default: false,
     },
   },
   type: "object",

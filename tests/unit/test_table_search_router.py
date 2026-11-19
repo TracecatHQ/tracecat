@@ -15,6 +15,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.pagination import PaginationError, PaginationErrorCode
 from tracecat.search.embeddings.service import WorkspaceEmbeddingService
+from tracecat.search.types import SearchError, SearchErrorCode
 from tracecat.tables.search.router import (
     get_table_search,
     get_table_search_progress,
@@ -94,6 +95,37 @@ async def test_invalid_column_selection_keeps_safe_422_response(
         )
     assert exc.value.status_code == 422
     assert exc.value.detail == {"code": "INVALID_SELECTION"}
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("code", "retryable"),
+    [
+        (SearchErrorCode.SOURCE_BUSY, True),
+        (SearchErrorCode.CONFIGURATION_CHANGED, False),
+    ],
+)
+async def test_selection_conflicts_say_whether_to_retry(
+    search_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    code: SearchErrorCode,
+    retryable: bool,
+):
+    session = AsyncMock(spec=AsyncSession)
+    monkeypatch.setattr(
+        TableSearchService, "select_column", AsyncMock(side_effect=SearchError(code))
+    )
+    with pytest.raises(HTTPException) as exc:
+        await select_table_search_column(
+            table_id=uuid4(),
+            params=TableSearchSelection(
+                column_id=uuid4(), enabled=True, expected_generation=0
+            ),
+            role=search_role,
+            session=session,
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"code": code.value, "retryable": retryable}
     session.commit.assert_not_awaited()
 
 
