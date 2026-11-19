@@ -375,7 +375,7 @@
           },
           {
             "group": "Connection Guides",
-            "icon": "plug",
+            "icon": "/img/icons/aws.svg",
             "pages": ["cheatsheets/connection-guides/connect-to-aws"]
           }
         ]
