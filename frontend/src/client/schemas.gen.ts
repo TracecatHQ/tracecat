@@ -14547,6 +14547,37 @@ export const $ChannelBotPlatformApp = {
     "A provider app the deployment owns, which a workspace installs in one step.",
 } as const
 
+export const $ChannelBotPlatformAppSetup = {
+  properties: {
+    transport: {
+      $ref: "#/components/schemas/ChannelBotTransport",
+    },
+    oauth_redirect_url: {
+      type: "string",
+      title: "Oauth Redirect Url",
+    },
+    request_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Url",
+    },
+    manifest: {
+      $ref: "#/components/schemas/ChannelBotAppManifest",
+    },
+  },
+  type: "object",
+  required: ["transport", "oauth_redirect_url", "request_url", "manifest"],
+  title: "ChannelBotPlatformAppSetup",
+  description:
+    "What a platform admin pastes into the deployment's own provider app.",
+} as const
+
 export const $ChannelBotPlatformInstall = {
   properties: {
     provider: {
@@ -38694,7 +38725,7 @@ export const $SlackPlatformAppRead = {
       title: "Unreadable",
     },
     setup: {
-      $ref: "#/components/schemas/SlackPlatformAppSetup",
+      $ref: "#/components/schemas/ChannelBotPlatformAppSetup",
     },
   },
   type: "object",
@@ -38712,36 +38743,6 @@ export const $SlackPlatformAppRead = {
   title: "SlackPlatformAppRead",
   description:
     "The registration without its secrets, and what to paste into Slack.",
-} as const
-
-export const $SlackPlatformAppSetup = {
-  properties: {
-    transport: {
-      $ref: "#/components/schemas/ChannelBotTransport",
-    },
-    oauth_redirect_url: {
-      type: "string",
-      title: "Oauth Redirect Url",
-    },
-    request_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Request Url",
-    },
-    manifest: {
-      $ref: "#/components/schemas/ChannelBotAppManifest",
-    },
-  },
-  type: "object",
-  required: ["transport", "oauth_redirect_url", "request_url", "manifest"],
-  title: "SlackPlatformAppSetup",
-  description: "The deployment's setup, and the app manifest it fills in.",
 } as const
 
 export const $SlackPlatformAppSetupStepsUpdate = {

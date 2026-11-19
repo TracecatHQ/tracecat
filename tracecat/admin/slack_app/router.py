@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from tracecat.admin.slack_app.schemas import (
     SlackPlatformAppRead,
-    SlackPlatformAppSetup,
     SlackPlatformAppSetupStepsUpdate,
     SlackPlatformAppUpdate,
 )
@@ -17,7 +16,10 @@ from tracecat.admin.slack_app.service import (
 )
 from tracecat.agent.channel_bots.platform_app import clear_slack_platform_app_cache
 from tracecat.agent.channel_bots.provider import get_channel_bot_admin
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channel_bots.schemas import (
+    ChannelBotPlatformAppSetup,
+    ChannelBotProvider,
+)
 from tracecat.auth.credentials import SuperuserRole, SuperuserStepUpRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.exceptions import TracecatValidationError
@@ -25,19 +27,17 @@ from tracecat.exceptions import TracecatValidationError
 router = APIRouter(prefix="/slack-app", tags=["admin:slack-app"])
 
 
-def _slack_setup() -> SlackPlatformAppSetup:
+def _slack_setup() -> ChannelBotPlatformAppSetup:
     if (admin := get_channel_bot_admin()) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Channel bots require Tracecat Enterprise",
         )
-    setup = admin.platform_app_setup(ChannelBotProvider.SLACK)
-    manifest = admin.platform_app_manifest(ChannelBotProvider.SLACK)
-    return SlackPlatformAppSetup(**setup.model_dump(), manifest=manifest)
+    return admin.platform_app_setup(ChannelBotProvider.SLACK)
 
 
 # Declared after the role in each route, so only a superuser learns the deployment's setup.
-SlackSetup = Annotated[SlackPlatformAppSetup, Depends(_slack_setup)]
+SlackSetup = Annotated[ChannelBotPlatformAppSetup, Depends(_slack_setup)]
 
 
 @router.get("", response_model=SlackPlatformAppRead)

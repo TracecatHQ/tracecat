@@ -3903,6 +3903,16 @@ export type ChannelBotPlatformApp = {
 }
 
 /**
+ * What a platform admin pastes into the deployment's own provider app.
+ */
+export type ChannelBotPlatformAppSetup = {
+  transport: ChannelBotTransport
+  oauth_redirect_url: string
+  request_url: string | null
+  manifest: ChannelBotAppManifest
+}
+
+/**
  * Install the platform app, which the deployment registers, over OAuth; or reconnect.
  */
 export type ChannelBotPlatformInstall = {
@@ -11754,17 +11764,7 @@ export type SlackPlatformAppRead = {
   icon_uploaded: boolean
   distribution_enabled: boolean
   unreadable: boolean
-  setup: SlackPlatformAppSetup
-}
-
-/**
- * The deployment's setup, and the app manifest it fills in.
- */
-export type SlackPlatformAppSetup = {
-  transport: ChannelBotTransport
-  oauth_redirect_url: string
-  request_url: string | null
-  manifest: ChannelBotAppManifest
+  setup: ChannelBotPlatformAppSetup
 }
 
 /**

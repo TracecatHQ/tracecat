@@ -207,15 +207,6 @@ class ChannelBotPlatformApp(BaseModel):
     provider: ChannelBotProvider
 
 
-class ChannelBotPlatformAppSetup(BaseModel):
-    """What a platform admin pastes into the deployment's own provider app."""
-
-    transport: ChannelBotTransport
-    oauth_redirect_url: str
-    # Events and interactions share it; None over Socket Mode.
-    request_url: str | None
-
-
 class ChannelBotAppManifest(BaseModel):
     """What an admin takes to the provider to create a bot's app."""
 
@@ -225,6 +216,16 @@ class ChannelBotAppManifest(BaseModel):
     content: str
     # The provider page that creates the app from it, if the provider has one.
     create_url: str | None
+
+
+class ChannelBotPlatformAppSetup(BaseModel):
+    """What a platform admin pastes into the deployment's own provider app."""
+
+    transport: ChannelBotTransport
+    oauth_redirect_url: str
+    # Events and interactions share it; None over Socket Mode.
+    request_url: str | None
+    manifest: ChannelBotAppManifest
 
 
 class ChannelBotPlatformInstall(BaseModel):

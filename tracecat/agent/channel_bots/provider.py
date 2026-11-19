@@ -43,7 +43,7 @@ class ChannelListingNeedsReinstall(TracecatException):
 
 class ChannelBotAdmin(Protocol):
     """Workspace-scoped by `role` except `complete_oauth` and the deployment-wide
-    `platform_app_setup` and `platform_app_manifest`. Raise `TracecatNotFoundError` for an unknown bot or preset,
+    `platform_app_setup`. Raise `TracecatNotFoundError` for an unknown bot or preset,
     `TracecatValidationError` for a refused request.
     """
 
@@ -102,13 +102,7 @@ class ChannelBotAdmin(Protocol):
     def platform_app_setup(
         self, provider: ChannelBotProvider
     ) -> ChannelBotPlatformAppSetup:
-        """How the deployment's own app for `provider` reaches it."""
-        ...
-
-    def platform_app_manifest(
-        self, provider: ChannelBotProvider
-    ) -> ChannelBotAppManifest:
-        """What creates the deployment's own app in `provider`."""
+        """How the deployment's own app for `provider` reaches it, and what creates it."""
         ...
 
     async def install_platform(

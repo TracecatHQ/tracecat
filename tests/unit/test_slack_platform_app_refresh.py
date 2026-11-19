@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import (
 
 from tests.database import TEST_DB_CONFIG
 from tracecat.admin.slack_app.schemas import (
-    SlackPlatformAppSetup,
     SlackPlatformAppSetupStepsUpdate,
     SlackPlatformAppUpdate,
 )
@@ -34,6 +33,7 @@ from tracecat.agent.channel_bots.platform_app import (
 )
 from tracecat.agent.channel_bots.schemas import (
     ChannelBotAppManifest,
+    ChannelBotPlatformAppSetup,
     ChannelBotTransport,
 )
 from tracecat.audit.service import AuditService
@@ -207,7 +207,7 @@ async def test_an_admin_change_waits_for_an_in_flight_refresh_and_keeps_its_toke
 ) -> None:
     monkeypatch.setattr(AuditService, "create_event", AsyncMock())
     role = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
-    setup = SlackPlatformAppSetup(
+    setup = ChannelBotPlatformAppSetup(
         transport=ChannelBotTransport.HTTP,
         oauth_redirect_url="https://api.example.com/oauth/callback",
         request_url="https://api.example.com/platform-events",

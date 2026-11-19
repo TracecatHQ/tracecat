@@ -45,19 +45,20 @@ from tracecat.secrets.encryption import encrypt_value
 
 pytestmark = pytest.mark.usefixtures("db")
 
-HTTP_SETUP = ChannelBotPlatformAppSetup(
-    transport=ChannelBotTransport.HTTP,
-    oauth_redirect_url="https://api.example.com/agent/channel-bots/slack/oauth/callback",
-    request_url="https://api.example.com/platform-events",
-)
-SOCKET_SETUP = HTTP_SETUP.model_copy(
-    update={"transport": ChannelBotTransport.SOCKET, "request_url": None}
-)
 MANIFEST = ChannelBotAppManifest(
     filename="slack-app-manifest.json",
     media_type="application/json",
     content='{"settings": {}}',
     create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+)
+HTTP_SETUP = ChannelBotPlatformAppSetup(
+    transport=ChannelBotTransport.HTTP,
+    oauth_redirect_url="https://api.example.com/agent/channel-bots/slack/oauth/callback",
+    request_url="https://api.example.com/platform-events",
+    manifest=MANIFEST,
+)
+SOCKET_SETUP = HTTP_SETUP.model_copy(
+    update={"transport": ChannelBotTransport.SOCKET, "request_url": None}
 )
 SECRETS = {
     "client_secret": "synthetic-client-secret",
@@ -80,12 +81,6 @@ class ChannelBotAdmin:
     ) -> ChannelBotPlatformAppSetup:
         self.asked.append(provider)
         return self.setup
-
-    def platform_app_manifest(
-        self, provider: ChannelBotProvider
-    ) -> ChannelBotAppManifest:
-        self.asked.append(provider)
-        return MANIFEST
 
 
 @pytest.fixture
@@ -216,10 +211,7 @@ async def test_a_saved_app_is_stored_encrypted_and_never_returns_its_secrets(
         "icon_uploaded": False,
         "distribution_enabled": False,
         "unreadable": False,
-        "setup": {
-            **HTTP_SETUP.model_dump(mode="json"),
-            "manifest": MANIFEST.model_dump(mode="json"),
-        },
+        "setup": HTTP_SETUP.model_dump(mode="json"),
     }
     row = await stored_row(session)
     assert row is not None and row.is_encrypted
