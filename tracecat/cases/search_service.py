@@ -82,7 +82,7 @@ if TYPE_CHECKING:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
-# Digits, optionally after a suffix of "CASE-" that ends in the dash.
+# Every short ID is this prefix and zero-padded digits, such as CASE-0042.
 _SHORT_ID_PREFIX = "CASE-"
 # A suffix of the prefix (or none), then digits: the tail of a short ID.
 _SHORT_ID_FRAGMENT = re.compile(r"(?:(?:CASE|ASE|SE|E)?-)?[0-9]+", re.IGNORECASE)
