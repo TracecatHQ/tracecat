@@ -22,7 +22,8 @@ class TableRowErrorDetail(TypedDict):
 
 
 class TableRowError(TracecatException):
-    """A row rejected by its table schema or a uniqueness constraint."""
+    """A row write rejected by its table schema, a uniqueness constraint, or a
+    conflict with a concurrent write (``write_conflict``, safe to retry)."""
 
     def __init__(
         self,
