@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ChannelBotInstallResult } from "@/client"
 import {
@@ -402,25 +402,21 @@ describe("Creating the custom Slack app", () => {
     await openDialog("Connect")
     await screen.findByRole("link", { name: "Create in Slack" })
 
-    jest.useFakeTimers()
-    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-    await user.clear(screen.getByLabelText("Bot name"))
+    await userEvent.clear(screen.getByLabelText("Bot name"))
+    // Settled on the empty name: the fallback name's manifest loads, yet no link.
+    await waitFor(() =>
+      expect(api.appManifest).toHaveBeenLastCalledWith(
+        expect.objectContaining({ appName: "Custom Slack app" })
+      )
+    )
     await waitFor(() =>
       expect(
-        screen.queryByRole("link", { name: "Create in Slack" })
-      ).not.toBeInTheDocument()
-    )
-    // Settled on the empty name, the card still shows no link.
-    await act(async () => {
-      jest.advanceTimersByTime(400)
-    })
-    expect(api.appManifest).toHaveBeenLastCalledWith(
-      expect.objectContaining({ appName: "Custom Slack app" })
+        screen.getByRole("button", { name: "Copy app manifest" })
+      ).toBeEnabled()
     )
     expect(
       screen.queryByRole("link", { name: "Create in Slack" })
     ).not.toBeInTheDocument()
-    jest.useRealTimers()
   })
 
   it("says why Slack cannot open when the manifest fails to load", async () => {
