@@ -199,6 +199,18 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
+  AgentChannelUsersConfirmChannelLinkData,
+  AgentChannelUsersConfirmChannelLinkResponse,
+  AgentChannelUsersGetChannelLinkData,
+  AgentChannelUsersGetChannelLinkResponse,
+  AgentChannelUsersListMyChannelUsersData,
+  AgentChannelUsersListMyChannelUsersResponse,
+  AgentChannelUsersListOrganizationChannelUsersData,
+  AgentChannelUsersListOrganizationChannelUsersResponse,
+  AgentChannelUsersUnlinkMyChannelUserData,
+  AgentChannelUsersUnlinkMyChannelUserResponse,
+  AgentChannelUsersUnlinkOrganizationChannelUserData,
+  AgentChannelUsersUnlinkOrganizationChannelUserResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -257,6 +269,8 @@ import type {
   AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
+  AgentPresetsSetAgentPresetChannelAccessData,
+  AgentPresetsSetAgentPresetChannelAccessResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
   AgentRefreshProviderModelsData,
@@ -1531,6 +1545,150 @@ export const publicHandleSlackOauthCallback = (
       state: data.state,
       error: data.error,
       error_description: data.errorDescription,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Channel Link
+ * What linking this token would do, for the signed-in org member.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns ChannelLinkDetails Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersGetChannelLink = (
+  data: AgentChannelUsersGetChannelLinkData
+): CancelablePromise<AgentChannelUsersGetChannelLinkResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channel-links/{token}",
+    path: {
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Confirm Channel Link
+ * Start the provider sign-in that proves the sender is this user.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns ChannelLinkSignInRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersConfirmChannelLink = (
+  data: AgentChannelUsersConfirmChannelLinkData
+): CancelablePromise<AgentChannelUsersConfirmChannelLinkResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channel-links/{token}/confirm",
+    path: {
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List My Channel Users
+ * The caller's own channel links in this organization.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelUserRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersListMyChannelUsers = (
+  data: AgentChannelUsersListMyChannelUsersData = {}
+): CancelablePromise<AgentChannelUsersListMyChannelUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channel-users/me",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink My Channel User
+ * Remove one of the caller's own links.
+ * @param data The data for the request.
+ * @param data.linkId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersUnlinkMyChannelUser = (
+  data: AgentChannelUsersUnlinkMyChannelUserData
+): CancelablePromise<AgentChannelUsersUnlinkMyChannelUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/channel-users/me/{link_id}",
+    path: {
+      link_id: data.linkId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Channel Users
+ * Every channel link in the organization, or one member's.
+ * @param data The data for the request.
+ * @param data.userId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelUserRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersListOrganizationChannelUsers = (
+  data: AgentChannelUsersListOrganizationChannelUsersData = {}
+): CancelablePromise<AgentChannelUsersListOrganizationChannelUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channel-users",
+    query: {
+      user_id: data.userId,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink Organization Channel User
+ * Remove any link in the organization.
+ * @param data The data for the request.
+ * @param data.linkId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersUnlinkOrganizationChannelUser = (
+  data: AgentChannelUsersUnlinkOrganizationChannelUserData
+): CancelablePromise<AgentChannelUsersUnlinkOrganizationChannelUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/channel-users/{link_id}",
+    path: {
+      link_id: data.linkId,
     },
     errors: {
       422: "Validation Error",
@@ -7362,6 +7520,34 @@ export const agentPresetsPreviewToolPolicy = (
     mediaType: "application/json",
     errors: {
       400: "Invalid tool policy selections",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Set Agent Preset Channel Access
+ * Set who may act through channels; applies at once, unversioned.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetChannelAccess Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsSetAgentPresetChannelAccess = (
+  data: AgentPresetsSetAgentPresetChannelAccessData
+): CancelablePromise<AgentPresetsSetAgentPresetChannelAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-access",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
       422: "Validation Error",
     },
   })

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tracecat import config
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
+    AgentPresetChannelAccess,
     AgentPresetCreate,
     AgentPresetMoveToFolder,
     AgentPresetRead,
@@ -31,6 +32,8 @@ from tracecat.pagination import (
     CursorPaginationParams,
     PageParams,
 )
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
@@ -138,6 +141,29 @@ async def create_agent_preset(
         return await service.build_preset_read(preset)
     except TracecatValidationError as exc:
         raise _validation_error(exc) from exc
+
+
+@router.put("/{preset_id}/channel-access", response_model=AgentPresetChannelAccess)
+@require_scope("agent:update")
+async def set_agent_preset_channel_access(
+    *,
+    preset_id: uuid.UUID,
+    params: AgentPresetChannelAccess,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentPresetChannelAccess:
+    """Set who may act through channels; applies at once, unversioned."""
+    await check_entitlement(session, role, Entitlement.AGENT_CHANNELS_PREVIEW)
+    service = AgentPresetService(session, role=role)
+    try:
+        policy = await service.set_channel_access_policy(
+            preset_id, params.channel_access_policy
+        )
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return AgentPresetChannelAccess(channel_access_policy=policy)
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)

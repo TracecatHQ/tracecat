@@ -213,6 +213,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
             "enable_thinking": True,
             "enable_internet_access": False,
             "current_version_id": None,
+            "channel_access_policy": "linked_approvals",
             "created_at": "2026-03-09T00:00:00Z",
             "updated_at": "2026-03-09T00:00:00Z",
         }
