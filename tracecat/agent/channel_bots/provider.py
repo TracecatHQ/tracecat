@@ -15,6 +15,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstall,
@@ -88,6 +89,12 @@ class ChannelBotAdmin(Protocol):
         self, session: AsyncSession, role: Role, params: ChannelBotInstall
     ) -> ChannelBotInstallResult: ...
 
+    async def app_manifest(
+        self, session: AsyncSession, role: Role, bot_id: uuid.UUID, *, app_name: str
+    ) -> ChannelBotAppManifest:
+        """What creates the bot's own provider app, named `app_name`."""
+        ...
+
     async def list_platform_apps(
         self, session: AsyncSession, role: Role
     ) -> list[ChannelBotPlatformApp]:
@@ -97,7 +104,7 @@ class ChannelBotAdmin(Protocol):
     def platform_app_setup(
         self, provider: ChannelBotProvider
     ) -> ChannelBotPlatformAppSetup:
-        """How the deployment's own app for `provider` reaches it."""
+        """How the deployment's own app for `provider` reaches it, and what creates it."""
         ...
 
     async def install_platform(

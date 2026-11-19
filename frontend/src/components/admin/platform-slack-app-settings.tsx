@@ -14,10 +14,7 @@ import {
   CredentialField,
   StatusLabel,
 } from "@/components/agents/external-channels/channel-bot-fields"
-import {
-  buildSlackPlatformManifest,
-  slackAppSettingsUrl,
-} from "@/components/agents/external-channels/slack-manifest"
+import { slackAppSettingsUrl } from "@/components/agents/external-channels/slack-manifest"
 import {
   CreateInSlackButton,
   SetupDoneLine,
@@ -78,11 +75,7 @@ export function PlatformSlackAppSettings() {
   }
 
   const registered = slackApp.app_id !== null || slackApp.unreadable
-  const manifest = buildSlackPlatformManifest({
-    endpointUrl: slackApp.setup.request_url ?? null,
-    oauthRedirectUrl: slackApp.setup.oauth_redirect_url,
-    signInRedirectUrl: slackApp.setup.sign_in_redirect_url,
-  })
+  const manifest = slackApp.setup.manifest
   const manual = (summary: string) => (
     <SlackManualSetup
       summary={summary}
@@ -132,7 +125,7 @@ export function PlatformSlackAppSettings() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <CreateInSlackButton
-              manifest={manifest}
+              createUrl={manifest.create_url}
               onOpen={() => setCreated(true)}
             />
             {created ? null : (

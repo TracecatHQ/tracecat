@@ -28,6 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstallResult,
@@ -298,6 +299,13 @@ WORKSPACE_ROUTES = [
         "agent:update",
         id="install_platform",
     ),
+    pytest.param(
+        "GET",
+        f"/{uuid.uuid4()}/app-manifest?app_name=Triage",
+        None,
+        "agent:read",
+        id="app_manifest",
+    ),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
     pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
     pytest.param(
@@ -330,6 +338,7 @@ ADMIN_METHODS = (
     "install",
     "list_platform_apps",
     "install_platform",
+    "app_manifest",
     "list_routes",
     "add_route",
     "list_channels",
@@ -595,6 +604,58 @@ def test_platform_routes_hand_the_request_to_the_admin(
         SESSION, ROLE, bot_id, AgentChannelRouteSet.model_validate(ROUTE_BODY)
     )
     admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, "C1")
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        ChannelBotAppManifest(
+            filename="slack-app-manifest.json",
+            media_type="application/json",
+            encoding="text",
+            content='{"display_information": {"name": "SOC bot"}}',
+            create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+        ),
+        # A provider with no create page ships a binary package instead.
+        ChannelBotAppManifest(
+            filename="app-package.zip",
+            media_type="application/zip",
+            encoding="base64",
+            content="UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==",
+            create_url=None,
+        ),
+    ],
+    ids=["text", "binary"],
+)
+def test_a_bots_app_manifest_comes_from_the_admin_as_is(
+    client: TestClient, admin: AsyncMock, manifest: ChannelBotAppManifest
+) -> None:
+    bot_id = uuid.uuid4()
+    admin.app_manifest.return_value = manifest
+
+    response = client.get(
+        f"/agent/channel-bots/{bot_id}/app-manifest", params={"app_name": "SOC bot"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == manifest.model_dump(mode="json")
+    admin.app_manifest.assert_awaited_once_with(
+        SESSION, ROLE, bot_id, app_name="SOC bot"
+    )
+
+
+@pytest.mark.parametrize(
+    "params", [{}, {"app_name": ""}, {"app_name": "   "}, {"app_name": "x" * 256}]
+)
+def test_an_app_manifest_needs_a_name(
+    client: TestClient, admin: AsyncMock, params: dict[str, str]
+) -> None:
+    response = client.get(
+        f"/agent/channel-bots/{uuid.uuid4()}/app-manifest", params=params
+    )
+
+    assert response.status_code == 422
+    admin.app_manifest.assert_not_awaited()
 
 
 def test_a_platform_reconnect_can_replace_the_default_agent(

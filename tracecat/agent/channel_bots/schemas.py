@@ -7,10 +7,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat.agent.channel_users.enums import ChannelAccessPolicy
-from tracecat.agent.channel_users.schemas import channel_link_callback_url
 
 CHANNEL_BOTS_PREFIX = "/agent/channel-bots"
 OAUTH_CALLBACK_ROUTE = f"{CHANNEL_BOTS_PREFIX}/{{provider}}/oauth/callback"
@@ -119,12 +118,6 @@ class SlackBotDetails(BaseModel):
     has_client_secret: bool
     oauth_redirect_url: str
 
-    @computed_field
-    @property
-    def sign_in_redirect_url(self) -> str:
-        """Where the provider returns a channel user's sign-in when they link."""
-        return channel_link_callback_url()
-
 
 type ChannelBotDetails = Annotated[SlackBotDetails, Field(discriminator="provider")]
 
@@ -223,6 +216,17 @@ class ChannelBotPlatformApp(BaseModel):
     provider: ChannelBotProvider
 
 
+class ChannelBotAppManifest(BaseModel):
+    """What an admin takes to the provider to create a bot's app."""
+
+    filename: str
+    media_type: str
+    encoding: Literal["text", "base64"]
+    content: str
+    # The provider page that creates the app from it, if the provider has one.
+    create_url: str | None
+
+
 class ChannelBotPlatformAppSetup(BaseModel):
     """What a platform admin pastes into the deployment's own provider app."""
 
@@ -230,12 +234,7 @@ class ChannelBotPlatformAppSetup(BaseModel):
     oauth_redirect_url: str
     # Events and interactions share it; None over Socket Mode.
     request_url: str | None
-
-    @computed_field
-    @property
-    def sign_in_redirect_url(self) -> str:
-        """Where the provider returns a channel user's sign-in when they link."""
-        return channel_link_callback_url()
+    manifest: ChannelBotAppManifest
 
 
 class ChannelBotPlatformInstall(BaseModel):

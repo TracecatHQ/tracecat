@@ -165,6 +165,8 @@ import type {
   AgentChannelBotsDeleteBotRouteResponse,
   AgentChannelBotsDisconnectBotData,
   AgentChannelBotsDisconnectBotResponse,
+  AgentChannelBotsGetBotAppManifestData,
+  AgentChannelBotsGetBotAppManifestResponse,
   AgentChannelBotsInstallBotData,
   AgentChannelBotsInstallBotResponse,
   AgentChannelBotsInstallPlatformBotData,
@@ -7061,6 +7063,35 @@ export const agentChannelBotsInstallPlatformBot = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Bot App Manifest
+ * What an admin takes to the provider to create the bot's own app.
+ * @param data The data for the request.
+ * @param data.botId
+ * @param data.workspaceId
+ * @param data.appName
+ * @returns ChannelBotAppManifest Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsGetBotAppManifest = (
+  data: AgentChannelBotsGetBotAppManifestData
+): CancelablePromise<AgentChannelBotsGetBotAppManifestResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/app-manifest",
+    path: {
+      bot_id: data.botId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      app_name: data.appName,
+    },
     errors: {
       422: "Validation Error",
     },

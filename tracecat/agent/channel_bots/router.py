@@ -29,6 +29,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstall,
@@ -210,6 +211,20 @@ async def install_platform_bot(
     admin: Admin,
 ) -> ChannelBotInstallResult:
     return await _call(admin.install_platform(session, role, params))
+
+
+@router.get("/{bot_id}/app-manifest", response_model=ChannelBotAppManifest)
+@require_scope("agent:read")
+async def get_bot_app_manifest(
+    *,
+    bot_id: uuid.UUID,
+    app_name: Annotated[str, Query(min_length=1, max_length=255, pattern=r"\S")],
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    admin: Admin,
+) -> ChannelBotAppManifest:
+    """What an admin takes to the provider to create the bot's own app."""
+    return await _call(admin.app_manifest(session, role, bot_id, app_name=app_name))
 
 
 @router.get(

@@ -14473,6 +14473,43 @@ export const $ChannelAccessPolicy = {
     "Who may act on an agent through a channel; set per preset, never versioned.",
 } as const
 
+export const $ChannelBotAppManifest = {
+  properties: {
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+    },
+    encoding: {
+      type: "string",
+      enum: ["text", "base64"],
+      title: "Encoding",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    create_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Create Url",
+    },
+  },
+  type: "object",
+  required: ["filename", "media_type", "encoding", "content", "create_url"],
+  title: "ChannelBotAppManifest",
+  description: "What an admin takes to the provider to create a bot's app.",
+} as const
+
 export const $ChannelBotAppOwner = {
   type: "string",
   enum: ["workspace", "platform"],
@@ -14627,21 +14664,12 @@ export const $ChannelBotPlatformAppSetup = {
       ],
       title: "Request Url",
     },
-    sign_in_redirect_url: {
-      type: "string",
-      title: "Sign In Redirect Url",
-      description:
-        "Where the provider returns a channel user's sign-in when they link.",
-      readOnly: true,
+    manifest: {
+      $ref: "#/components/schemas/ChannelBotAppManifest",
     },
   },
   type: "object",
-  required: [
-    "transport",
-    "oauth_redirect_url",
-    "request_url",
-    "sign_in_redirect_url",
-  ],
+  required: ["transport", "oauth_redirect_url", "request_url", "manifest"],
   title: "ChannelBotPlatformAppSetup",
   description:
     "What a platform admin pastes into the deployment's own provider app.",
@@ -38597,13 +38625,6 @@ export const $SlackBotDetails = {
       type: "string",
       title: "Oauth Redirect Url",
     },
-    sign_in_redirect_url: {
-      type: "string",
-      title: "Sign In Redirect Url",
-      description:
-        "Where the provider returns a channel user's sign-in when they link.",
-      readOnly: true,
-    },
   },
   type: "object",
   required: [
@@ -38620,7 +38641,6 @@ export const $SlackBotDetails = {
     "has_signing_secret",
     "has_client_secret",
     "oauth_redirect_url",
-    "sign_in_redirect_url",
   ],
   title: "SlackBotDetails",
   description: "Secrets are reported only as present or not.",
