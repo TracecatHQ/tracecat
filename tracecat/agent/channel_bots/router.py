@@ -12,7 +12,6 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from pydantic import JsonValue
 
 from tracecat import config
 from tracecat.agent.channel_bots.provider import (
@@ -29,6 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstall,
@@ -222,7 +222,7 @@ async def install_platform_bot(
     return await _call(admin.install_platform(session, role, params))
 
 
-@router.get("/{bot_id}/app-manifest", response_model=dict[str, JsonValue])
+@router.get("/{bot_id}/app-manifest", response_model=ChannelBotAppManifest)
 @require_scope("agent:read")
 async def get_bot_app_manifest(
     *,
@@ -231,8 +231,8 @@ async def get_bot_app_manifest(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,
-) -> dict[str, JsonValue]:
-    """The manifest to paste into the provider to create the bot's own app."""
+) -> ChannelBotAppManifest:
+    """What an admin takes to the provider to create the bot's own app."""
     return await _call(admin.app_manifest(session, role, bot_id, app_name=app_name))
 
 

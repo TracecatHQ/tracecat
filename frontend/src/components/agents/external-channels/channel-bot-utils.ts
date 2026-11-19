@@ -1,10 +1,12 @@
 import type {
   AgentChannelBotRead,
+  ChannelBotAppManifest,
   ChannelBotChannel,
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
 import { getErrorStatus } from "@/lib/errors"
+import { copyToClipboard } from "@/lib/utils"
 
 /** Each provider's name as toasts and warnings show it. */
 export const CHANNEL_BOT_PROVIDER_NAMES: Record<ChannelBotProvider, string> = {
@@ -230,5 +232,44 @@ export function isUnreachableEndpoint(url: string): boolean {
     return protocol !== "https:" || PRIVATE_HOST.test(hostname)
   } catch {
     return true
+  }
+}
+
+/** Whether an app manifest's content is text to copy rather than base64 bytes. */
+export function isTextAppManifest(manifest: ChannelBotAppManifest): boolean {
+  const type = manifest.media_type.split(";")[0].trim().toLowerCase()
+  return (
+    type.startsWith("text/") ||
+    type === "application/json" ||
+    type.endsWith("+json")
+  )
+}
+
+/** Copies a text app manifest, or downloads a binary one as its file. */
+export function copyOrDownloadAppManifest(
+  manifest: ChannelBotAppManifest
+): void {
+  if (isTextAppManifest(manifest)) {
+    void copyToClipboard({
+      value: manifest.content,
+      message: "App manifest copied",
+    })
+    return
+  }
+  const bytes = Uint8Array.from(atob(manifest.content), (char) =>
+    char.charCodeAt(0)
+  )
+  const url = URL.createObjectURL(
+    new Blob([bytes], { type: manifest.media_type })
+  )
+  const link = document.createElement("a")
+  try {
+    link.href = url
+    link.download = manifest.filename
+    document.body.appendChild(link)
+    link.click()
+  } finally {
+    link.remove()
+    URL.revokeObjectURL(url)
   }
 }

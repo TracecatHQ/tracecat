@@ -5,7 +5,6 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
@@ -24,6 +23,7 @@ from tracecat.agent.channel_bots.platform_app import (
     write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
+    ChannelBotAppManifest,
     ChannelBotPlatformAppSetup,
     ChannelBotProvider,
     ChannelBotTransport,
@@ -53,8 +53,12 @@ HTTP_SETUP = ChannelBotPlatformAppSetup(
 SOCKET_SETUP = HTTP_SETUP.model_copy(
     update={"transport": ChannelBotTransport.SOCKET, "request_url": None}
 )
-# Keys out of sorted order, so a test sees the order kept.
-MANIFEST = {"settings": {"socket_mode_enabled": False}, "oauth_config": {"scopes": {}}}
+MANIFEST = ChannelBotAppManifest(
+    filename="slack-app-manifest.json",
+    media_type="application/json",
+    content='{"settings": {}}',
+    create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+)
 SECRETS = {
     "client_secret": "synthetic-client-secret",
     "signing_secret": "synthetic-signing-secret",
@@ -77,7 +81,9 @@ class ChannelBotAdmin:
         self.asked.append(provider)
         return self.setup
 
-    def platform_app_manifest(self, provider: ChannelBotProvider) -> dict[str, Any]:
+    def platform_app_manifest(
+        self, provider: ChannelBotProvider
+    ) -> ChannelBotAppManifest:
         self.asked.append(provider)
         return MANIFEST
 
@@ -210,9 +216,11 @@ async def test_a_saved_app_is_stored_encrypted_and_never_returns_its_secrets(
         "icon_uploaded": False,
         "distribution_enabled": False,
         "unreadable": False,
-        "setup": {**HTTP_SETUP.model_dump(mode="json"), "manifest": MANIFEST},
+        "setup": {
+            **HTTP_SETUP.model_dump(mode="json"),
+            "manifest": MANIFEST.model_dump(mode="json"),
+        },
     }
-    assert list(read.json()["setup"]["manifest"]) == ["settings", "oauth_config"]
     row = await stored_row(session)
     assert row is not None and row.is_encrypted
     assert not any(secret.encode() in row.value for secret in SECRETS.values())

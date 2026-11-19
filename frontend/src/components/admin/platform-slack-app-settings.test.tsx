@@ -6,6 +6,7 @@ import {
   adminSlackAppGetSlackApp,
   adminSlackAppMarkSlackAppSetupSteps,
   adminSlackAppSaveSlackApp,
+  type ChannelBotAppManifest,
   type SlackPlatformAppRead,
 } from "@/client"
 import { PlatformSlackAppSettings } from "@/components/admin/platform-slack-app-settings"
@@ -26,10 +27,12 @@ const api = {
   remove: jest.mocked(adminSlackAppDeleteSlackApp),
 }
 const REQUEST_URL = "https://api.example.com/platform-events"
-// The API builds the manifest; the page passes it on as served.
-const MANIFEST = {
-  display_information: { name: "Tracecat" },
-  settings: { event_subscriptions: { request_url: REQUEST_URL } },
+// The API builds the manifest and its create link; the page passes both on as served.
+const MANIFEST: ChannelBotAppManifest = {
+  filename: "slack-app-manifest.json",
+  media_type: "application/json",
+  content: '{\n  "display_information": {\n    "name": "Tracecat"\n  }\n}',
+  create_url: "https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
 }
 
 function slackApp(
@@ -81,18 +84,13 @@ beforeEach(() => {
 })
 
 describe("PlatformSlackAppSettings", () => {
-  it("opens Slack with the served manifest filled in", async () => {
+  it("opens the create link the API serves", async () => {
     api.get.mockResolvedValue(slackApp())
     renderSettings()
 
     const link = await screen.findByRole("link", { name: "Create in Slack" })
     expect(link).toHaveAttribute("target", "_blank")
-    const url = new URL(link.getAttribute("href") ?? "")
-    expect(url.origin + url.pathname).toBe("https://api.slack.com/apps")
-    expect(url.searchParams.get("new_app")).toBe("1")
-    expect(JSON.parse(url.searchParams.get("manifest_json") ?? "")).toEqual(
-      MANIFEST
-    )
+    expect(link).toHaveAttribute("href", MANIFEST.create_url)
     expect(screen.queryByLabelText("App ID")).not.toBeInTheDocument()
   })
 
@@ -112,7 +110,7 @@ describe("PlatformSlackAppSettings", () => {
     )
 
     const copied = jest.mocked(copyToClipboard).mock.calls[0][0].value ?? ""
-    expect(copied).toBe(JSON.stringify(MANIFEST, null, 2))
+    expect(copied).toBe(MANIFEST.content)
   })
 
   it("registers a new app only once every credential is filled in", async () => {

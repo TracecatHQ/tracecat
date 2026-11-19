@@ -3855,6 +3855,16 @@ export type CatalogMappingSelection = {
 }
 
 /**
+ * What an admin takes to the provider to create a bot's app.
+ */
+export type ChannelBotAppManifest = {
+  filename: string
+  media_type: string
+  content: string
+  create_url: string | null
+}
+
+/**
  * Who owns a bot's provider app.
  */
 export type ChannelBotAppOwner = "workspace" | "platform"
@@ -11754,9 +11764,7 @@ export type SlackPlatformAppSetup = {
   transport: ChannelBotTransport
   oauth_redirect_url: string
   request_url: string | null
-  manifest: {
-    [key: string]: JsonValue
-  }
+  manifest: ChannelBotAppManifest
 }
 
 /**
@@ -17009,9 +17017,7 @@ export type AgentChannelBotsGetBotAppManifestData = {
   workspaceId: string
 }
 
-export type AgentChannelBotsGetBotAppManifestResponse = {
-  [key: string]: JsonValue
-}
+export type AgentChannelBotsGetBotAppManifestResponse = ChannelBotAppManifest
 
 export type AgentChannelBotsListBotRoutesData = {
   agentPresetId?: string | null
@@ -24048,9 +24054,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: JsonValue
-        }
+        200: ChannelBotAppManifest
         /**
          * Validation Error
          */

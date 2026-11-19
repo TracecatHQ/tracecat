@@ -15,6 +15,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstall,
@@ -88,11 +89,8 @@ class ChannelBotAdmin(Protocol):
 
     async def app_manifest(
         self, session: AsyncSession, role: Role, bot_id: uuid.UUID, *, app_name: str
-    ) -> dict[str, JsonValue]:
-        """The app manifest that creates the bot's own app, named `app_name`.
-
-        Raise `TracecatValidationError` for a platform install, which has none.
-        """
+    ) -> ChannelBotAppManifest:
+        """What creates the bot's own provider app, named `app_name`."""
         ...
 
     async def list_platform_apps(
@@ -109,8 +107,8 @@ class ChannelBotAdmin(Protocol):
 
     def platform_app_manifest(
         self, provider: ChannelBotProvider
-    ) -> dict[str, JsonValue]:
-        """The app manifest that creates the deployment's own app in `provider`."""
+    ) -> ChannelBotAppManifest:
+        """What creates the deployment's own app in `provider`."""
         ...
 
     async def install_platform(

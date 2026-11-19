@@ -125,7 +125,7 @@ export function PlatformSlackAppSettings() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <CreateInSlackButton
-              manifest={manifest}
+              createUrl={manifest.create_url}
               onOpen={() => setCreated(true)}
             />
             {created ? null : (

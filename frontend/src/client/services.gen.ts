@@ -6940,12 +6940,12 @@ export const agentChannelBotsInstallPlatformBot = (
 
 /**
  * Get Bot App Manifest
- * The manifest to paste into the provider to create the bot's own app.
+ * What an admin takes to the provider to create the bot's own app.
  * @param data The data for the request.
  * @param data.botId
  * @param data.workspaceId
  * @param data.appName
- * @returns JsonValue Successful Response
+ * @returns ChannelBotAppManifest Successful Response
  * @throws ApiError
  */
 export const agentChannelBotsGetBotAppManifest = (

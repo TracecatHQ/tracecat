@@ -28,6 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstallResult,
@@ -599,12 +600,29 @@ def test_platform_routes_hand_the_request_to_the_admin(
     admin.delete_route.assert_awaited_once_with(SESSION, ROLE, bot_id, "C1")
 
 
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        ChannelBotAppManifest(
+            filename="slack-app-manifest.json",
+            media_type="application/json",
+            content='{"display_information": {"name": "SOC bot"}}',
+            create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+        ),
+        # A provider with no create page ships a binary package instead.
+        ChannelBotAppManifest(
+            filename="app-package.zip",
+            media_type="application/zip",
+            content="UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==",
+            create_url=None,
+        ),
+    ],
+    ids=["text", "binary"],
+)
 def test_a_bots_app_manifest_comes_from_the_admin_as_is(
-    client: TestClient, admin: AsyncMock
+    client: TestClient, admin: AsyncMock, manifest: ChannelBotAppManifest
 ) -> None:
     bot_id = uuid.uuid4()
-    # Keys out of sorted order, so the test sees the order kept.
-    manifest = {"settings": {"socket_mode_enabled": True}, "display_information": {}}
     admin.app_manifest.return_value = manifest
 
     response = client.get(
@@ -612,8 +630,7 @@ def test_a_bots_app_manifest_comes_from_the_admin_as_is(
     )
 
     assert response.status_code == 200
-    assert list(response.json()) == ["settings", "display_information"]
-    assert response.json() == manifest
+    assert response.json() == manifest.model_dump(mode="json")
     admin.app_manifest.assert_awaited_once_with(
         SESSION, ROLE, bot_id, app_name="SOC bot"
     )

@@ -19,6 +19,7 @@ import {
   agentChannelBotsListPlatformApps,
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
+  type ChannelBotAppManifest,
   type ChannelBotAppOwner,
   type ChannelBotChannel,
   type ChannelBotInstall,
@@ -177,7 +178,7 @@ export function useChannelBotAppManifest(
   appName: string
 ) {
   const [settledName] = useDebounce(appName, APP_NAME_DEBOUNCE_MS)
-  const { data, error } = useQuery<Record<string, unknown>, TracecatApiError>({
+  const { data, error } = useQuery<ChannelBotAppManifest, TracecatApiError>({
     queryKey: [
       CHANNEL_BOTS_QUERY_KEY,
       bot.workspace_id,

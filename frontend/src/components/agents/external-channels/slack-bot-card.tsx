@@ -6,6 +6,7 @@ import { flushSync } from "react-dom"
 import type {
   AgentChannelBotRead,
   AgentPresetRead,
+  ChannelBotAppManifest,
   SlackBotCredentialsUpdate,
   SlackBotInstall,
 } from "@/client"
@@ -431,7 +432,7 @@ function SlackAppCreateStep({
 }: {
   bot: AgentChannelBotRead
   details: ChannelBotDetailsOf<"slack">
-  manifest: Record<string, unknown> | null
+  manifest: ChannelBotAppManifest | null
   manifestError: string | null
   botName: string
   onBotNameChange: (value: string) => void
@@ -466,7 +467,7 @@ function SlackAppCreateStep({
       />
       <div className="flex flex-wrap items-center gap-3">
         <CreateInSlackButton
-          manifest={manifest ?? {}}
+          createUrl={manifest?.create_url ?? null}
           disabled={disabled || !botName.trim() || !manifest}
           onOpen={onCreated}
         />
@@ -502,7 +503,7 @@ function SlackBotManualSetup({
 }: {
   bot: AgentChannelBotRead
   details: ChannelBotDetailsOf<"slack">
-  manifest: Record<string, unknown> | null
+  manifest: ChannelBotAppManifest | null
   manifestError: string | null
   summary: string
 }) {

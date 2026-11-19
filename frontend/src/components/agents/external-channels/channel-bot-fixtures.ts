@@ -18,6 +18,7 @@ import {
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   agentPresetsListAgentPresets,
+  type ChannelBotAppManifest,
   type ChannelBotChannel,
   type ChannelBotDetails,
   type OrganizationGetOrganizationEntitlementsResponse,
@@ -120,13 +121,22 @@ export function reservedSlackBot(
   )
 }
 
+/** A Slack app manifest naming `appName`, as the API serves it. */
+export function slackAppManifest(appName: string): ChannelBotAppManifest {
+  const body = { display_information: { name: appName } }
+  return {
+    filename: "slack-app-manifest.json",
+    media_type: "application/json",
+    content: JSON.stringify(body, null, 2),
+    create_url: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(body))}`,
+  }
+}
+
 /** Serves an app manifest naming the app it was asked for. */
 export function serveAppManifest(): void {
   api.appManifest.mockImplementation(
     ({ appName }) =>
-      new CancelablePromise((resolve) =>
-        resolve({ display_information: { name: appName } })
-      )
+      new CancelablePromise((resolve) => resolve(slackAppManifest(appName)))
   )
 }
 

@@ -216,6 +216,17 @@ class ChannelBotPlatformAppSetup(BaseModel):
     request_url: str | None
 
 
+class ChannelBotAppManifest(BaseModel):
+    """What an admin takes to the provider to create a bot's app."""
+
+    filename: str
+    # A text type means `content` is that text; any other type means base64 bytes.
+    media_type: str
+    content: str
+    # The provider page that creates the app from it, if the provider has one.
+    create_url: str | None
+
+
 class ChannelBotPlatformInstall(BaseModel):
     """Install the platform app, which the deployment registers, over OAuth; or reconnect."""
 

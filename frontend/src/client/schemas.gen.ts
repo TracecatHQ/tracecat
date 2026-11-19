@@ -14381,6 +14381,38 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelBotAppManifest = {
+  properties: {
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    create_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Create Url",
+    },
+  },
+  type: "object",
+  required: ["filename", "media_type", "content", "create_url"],
+  title: "ChannelBotAppManifest",
+  description: "What an admin takes to the provider to create a bot's app.",
+} as const
+
 export const $ChannelBotAppOwner = {
   type: "string",
   enum: ["workspace", "platform"],
@@ -38703,11 +38735,7 @@ export const $SlackPlatformAppSetup = {
       title: "Request Url",
     },
     manifest: {
-      additionalProperties: {
-        $ref: "#/components/schemas/JsonValue",
-      },
-      type: "object",
-      title: "Manifest",
+      $ref: "#/components/schemas/ChannelBotAppManifest",
     },
   },
   type: "object",
