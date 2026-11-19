@@ -1,0 +1,20 @@
+docs/automations/triggers/webhooks.mdx
+  h_5f9670feebc95f 65,69
+docs/cheatsheets/connection-guides/connect-to-slack.mdx
+  h_5f9670feebc95f 2,4
+docs/cheatsheets/connection-guides/connect-to-teams.mdx
+  h_5f9670feebc95f 1-8
+docs/docs.json
+  h_5f9670feebc95f 66,377-382,467-470
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c6ef224b1111fed8fa6ba23e236e4c118991b9eb",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
