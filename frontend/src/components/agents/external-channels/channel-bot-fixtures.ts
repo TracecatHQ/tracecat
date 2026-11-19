@@ -7,6 +7,7 @@ import {
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
   agentChannelBotsDisconnectBot,
+  agentChannelBotsGetBotAppManifest,
   agentChannelBotsInstallBot,
   agentChannelBotsInstallPlatformBot,
   agentChannelBotsListBotChannels,
@@ -17,6 +18,7 @@ import {
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   agentPresetsListAgentPresets,
+  type ChannelBotAppManifest,
   type ChannelBotChannel,
   type ChannelBotDetails,
   type OrganizationGetOrganizationEntitlementsResponse,
@@ -33,6 +35,7 @@ export const api = {
   installBot: jest.mocked(agentChannelBotsInstallBot),
   updateBot: jest.mocked(agentChannelBotsUpdateBot),
   disconnectBot: jest.mocked(agentChannelBotsDisconnectBot),
+  appManifest: jest.mocked(agentChannelBotsGetBotAppManifest),
   listPlatformApps: jest.mocked(agentChannelBotsListPlatformApps),
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
   listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
@@ -115,6 +118,26 @@ export function reservedSlackBot(
       has_client_secret: false,
       ...details,
     }
+  )
+}
+
+/** A Slack app manifest naming `appName`, as the API serves it. */
+export function slackAppManifest(appName: string): ChannelBotAppManifest {
+  const body = { display_information: { name: appName } }
+  return {
+    filename: "slack-app-manifest.json",
+    media_type: "application/json",
+    encoding: "text",
+    content: JSON.stringify(body, null, 2),
+    create_url: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(body))}`,
+  }
+}
+
+/** Serves an app manifest naming the app it was asked for. */
+export function serveAppManifest(): void {
+  api.appManifest.mockImplementation(
+    ({ appName }) =>
+      new CancelablePromise((resolve) => resolve(slackAppManifest(appName)))
   )
 }
 

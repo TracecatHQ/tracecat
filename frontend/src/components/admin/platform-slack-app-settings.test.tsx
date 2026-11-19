@@ -6,6 +6,7 @@ import {
   adminSlackAppGetSlackApp,
   adminSlackAppMarkSlackAppSetupSteps,
   adminSlackAppSaveSlackApp,
+  type ChannelBotAppManifest,
   type SlackPlatformAppRead,
 } from "@/client"
 import { PlatformSlackAppSettings } from "@/components/admin/platform-slack-app-settings"
@@ -26,6 +27,14 @@ const api = {
   remove: jest.mocked(adminSlackAppDeleteSlackApp),
 }
 const REQUEST_URL = "https://api.example.com/platform-events"
+// The API builds the manifest and its create link; the page passes both on as served.
+const MANIFEST: ChannelBotAppManifest = {
+  filename: "slack-app-manifest.json",
+  media_type: "application/json",
+  encoding: "text",
+  content: '{\n  "display_information": {\n    "name": "Tracecat"\n  }\n}',
+  create_url: "https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+}
 
 function slackApp(
   overrides: Partial<SlackPlatformAppRead> = {}
@@ -44,6 +53,7 @@ function slackApp(
       oauth_redirect_url:
         "https://api.example.com/agent/channel-bots/slack/oauth/callback",
       request_url: REQUEST_URL,
+      manifest: MANIFEST,
     },
     ...overrides,
   }
@@ -75,41 +85,14 @@ beforeEach(() => {
 })
 
 describe("PlatformSlackAppSettings", () => {
-  it("opens Slack with the platform manifest filled in", async () => {
+  it("opens the create link the API serves", async () => {
     api.get.mockResolvedValue(slackApp())
     renderSettings()
 
     const link = await screen.findByRole("link", { name: "Create in Slack" })
     expect(link).toHaveAttribute("target", "_blank")
-    const url = new URL(link.getAttribute("href") ?? "")
-    expect(url.origin + url.pathname).toBe("https://api.slack.com/apps")
-    expect(url.searchParams.get("new_app")).toBe("1")
-    const manifest = JSON.parse(url.searchParams.get("manifest_json") ?? "")
-    expect(manifest.settings.event_subscriptions.request_url).toBe(REQUEST_URL)
-    expect(manifest.settings.interactivity.request_url).toBe(REQUEST_URL)
-    expect(manifest.settings.token_rotation_enabled).toBe(true)
-    expect(manifest.settings.socket_mode_enabled).toBe(false)
-    expect(manifest.display_information.name).toBe("Tracecat")
-    // Slack reads the manifest from the query string; keep it well under URL limits.
-    expect(link.getAttribute("href")?.length).toBeLessThan(4000)
+    expect(link).toHaveAttribute("href", MANIFEST.create_url)
     expect(screen.queryByLabelText("App ID")).not.toBeInTheDocument()
-  })
-
-  it("fills in Socket Mode and app-level token rotation over Socket Mode", async () => {
-    api.get.mockResolvedValue(
-      slackApp({
-        setup: { ...slackApp().setup, transport: "socket", request_url: null },
-      })
-    )
-    renderSettings()
-
-    const link = await screen.findByRole("link", { name: "Create in Slack" })
-    const url = new URL(link.getAttribute("href") ?? "")
-    const manifest = JSON.parse(url.searchParams.get("manifest_json") ?? "")
-    expect(manifest.settings.socket_mode_enabled).toBe(true)
-    expect(manifest.settings.app_level_token_rotation_enabled).toBe(true)
-    expect(manifest.settings.token_rotation_enabled).toBe(true)
-    expect(manifest.settings.event_subscriptions.request_url).toBeUndefined()
   })
 
   it("keeps the URLs and manifest in a collapsed manual section", async () => {
@@ -128,14 +111,7 @@ describe("PlatformSlackAppSettings", () => {
     )
 
     const copied = jest.mocked(copyToClipboard).mock.calls[0][0].value ?? ""
-    const manifest = JSON.parse(copied)
-    expect(manifest.oauth_config.redirect_urls).toEqual([
-      "https://api.example.com/agent/channel-bots/slack/oauth/callback",
-    ])
-    expect(manifest.oauth_config.scopes.bot).toEqual(
-      expect.arrayContaining(["channels:read", "groups:read"])
-    )
-    expect(manifest.oauth_config.scopes.bot).not.toContain("channels:join")
+    expect(copied).toBe(MANIFEST.content)
   })
 
   it("registers a new app only once every credential is filled in", async () => {

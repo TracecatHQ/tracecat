@@ -32,6 +32,7 @@ from tracecat.agent.channel_bots.platform_app import (
     write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
+    ChannelBotAppManifest,
     ChannelBotPlatformAppSetup,
     ChannelBotTransport,
 )
@@ -210,6 +211,13 @@ async def test_an_admin_change_waits_for_an_in_flight_refresh_and_keeps_its_toke
         transport=ChannelBotTransport.HTTP,
         oauth_redirect_url="https://api.example.com/oauth/callback",
         request_url="https://api.example.com/platform-events",
+        manifest=ChannelBotAppManifest(
+            filename="slack-app-manifest.json",
+            media_type="application/json",
+            encoding="text",
+            content="{}",
+            create_url=None,
+        ),
     )
     async with sessions() as seed:
         await register(seed, ROTATING)

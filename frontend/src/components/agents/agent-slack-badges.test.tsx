@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   AgentSlackBadges,
@@ -31,6 +31,34 @@ describe("slackPlacementLabel", () => {
 })
 
 describe("AgentSlackBadges", () => {
+  it("marks public channels with # and private ones with a lock in the overflow tooltip", async () => {
+    const channel = (name: string, isPrivate: boolean) => ({
+      kind: "channel" as const,
+      channel: { id: name, name, is_private: isPrivate, is_member: true },
+    })
+    render(
+      <TooltipProvider>
+        <AgentSlackBadges
+          placements={[
+            channel("a", false),
+            channel("b", false),
+            channel("channel1", false),
+            channel("channel2", true),
+          ]}
+        />
+      </TooltipProvider>
+    )
+    await userEvent.hover(screen.getByText("+2"))
+    const tooltip = await screen.findByRole("tooltip")
+    const [publicItem, privateItem] = within(tooltip).getAllByRole("listitem")
+    expect(publicItem).toHaveTextContent("#channel1")
+    expect(within(publicItem).queryByLabelText("Private channel")).toBeNull()
+    expect(privateItem).toHaveTextContent("channel2")
+    expect(
+      within(privateItem).getByLabelText("Private channel")
+    ).toBeInTheDocument()
+  })
+
   it("asks for a reinstall from the overflow tooltip", async () => {
     const channel = (id: string) => ({
       kind: "channel" as const,

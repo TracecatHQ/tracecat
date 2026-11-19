@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { AgentPresetRead } from "@/client"
-import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
+import { buildLegacySlackManifest } from "@/components/agents/external-channels/slack-manifest"
 import { CustomSlackAppDocsLink } from "@/components/agents/external-channels/slack-setup-fields"
 import { CopyButton } from "@/components/copy-button"
 import { ProviderIcon } from "@/components/icons"
@@ -164,11 +164,10 @@ export function SlackChannelPanel({
       return ""
     }
     return JSON.stringify(
-      buildSlackManifest({
+      buildLegacySlackManifest({
         endpointUrl,
         oauthRedirectUrl,
         appName: preset?.name ?? "Tracecat",
-        legacy: true,
       }),
       null,
       2

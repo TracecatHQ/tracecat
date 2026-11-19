@@ -14381,6 +14381,43 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelBotAppManifest = {
+  properties: {
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+    },
+    encoding: {
+      type: "string",
+      enum: ["text", "base64"],
+      title: "Encoding",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    create_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Create Url",
+    },
+  },
+  type: "object",
+  required: ["filename", "media_type", "encoding", "content", "create_url"],
+  title: "ChannelBotAppManifest",
+  description: "What an admin takes to the provider to create a bot's app.",
+} as const
+
 export const $ChannelBotAppOwner = {
   type: "string",
   enum: ["workspace", "platform"],
@@ -14535,9 +14572,12 @@ export const $ChannelBotPlatformAppSetup = {
       ],
       title: "Request Url",
     },
+    manifest: {
+      $ref: "#/components/schemas/ChannelBotAppManifest",
+    },
   },
   type: "object",
-  required: ["transport", "oauth_redirect_url", "request_url"],
+  required: ["transport", "oauth_redirect_url", "request_url", "manifest"],
   title: "ChannelBotPlatformAppSetup",
   description:
     "What a platform admin pastes into the deployment's own provider app.",

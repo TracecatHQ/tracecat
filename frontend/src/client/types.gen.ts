@@ -3855,6 +3855,19 @@ export type CatalogMappingSelection = {
 }
 
 /**
+ * What an admin takes to the provider to create a bot's app.
+ */
+export type ChannelBotAppManifest = {
+  filename: string
+  media_type: string
+  encoding: "text" | "base64"
+  content: string
+  create_url: string | null
+}
+
+export type encoding = "text" | "base64"
+
+/**
  * Who owns a bot's provider app.
  */
 export type ChannelBotAppOwner = "workspace" | "platform"
@@ -3899,6 +3912,7 @@ export type ChannelBotPlatformAppSetup = {
   transport: ChannelBotTransport
   oauth_redirect_url: string
   request_url: string | null
+  manifest: ChannelBotAppManifest
 }
 
 /**
@@ -8658,7 +8672,7 @@ export type ObjectRef = {
   created_at?: string
 }
 
-export type encoding = "json" | "json+zstd" | "json+gzip"
+export type encoding2 = "json" | "json+zstd" | "json+gzip"
 
 /**
  * A disjunction of one or more filters.
@@ -14224,7 +14238,7 @@ export type WorkflowExecutionObjectPreviewResponse = {
 /**
  * Encoding used to decode preview text
  */
-export type encoding2 = "utf-8" | "unknown"
+export type encoding3 = "utf-8" | "unknown"
 
 export type WorkflowExecutionObjectRequest = {
   /**
@@ -16999,6 +17013,14 @@ export type AgentChannelBotsInstallPlatformBotData = {
 }
 
 export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsGetBotAppManifestData = {
+  appName: string
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsGetBotAppManifestResponse = ChannelBotAppManifest
 
 export type AgentChannelBotsListBotRoutesData = {
   agentPresetId?: string | null
@@ -24021,6 +24043,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/app-manifest": {
+    get: {
+      req: AgentChannelBotsGetBotAppManifestData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelBotAppManifest
         /**
          * Validation Error
          */
