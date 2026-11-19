@@ -25,11 +25,6 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
 }))
 
-// Radix Select captures pointers and scrolls options into view; jsdom has neither.
-window.HTMLElement.prototype.hasPointerCapture = jest.fn()
-window.HTMLElement.prototype.releasePointerCapture = jest.fn()
-window.HTMLElement.prototype.scrollIntoView = jest.fn()
-
 beforeEach(() => {
   jest.clearAllMocks()
   serveEntitlements()
@@ -53,30 +48,6 @@ describe("AgentChannelsPanel", () => {
       await screen.findByRole("group", { name: "Custom Slack app" })
     ).toBeInTheDocument()
     expect(screen.queryByText("Legacy Slack panel")).toBeNull()
-  })
-
-  it("sets who can use the agent from channels", async () => {
-    api.setChannelAccess.mockResolvedValue({
-      channel_access_policy: "linked_only",
-    })
-    renderPanel()
-    const select = await screen.findByRole("combobox")
-    await waitFor(() =>
-      expect(select).toHaveTextContent(
-        "Anyone can message; linked members approve"
-      )
-    )
-    await userEvent.click(select)
-    await userEvent.click(
-      await screen.findByRole("option", { name: "Only linked members" })
-    )
-    await waitFor(() =>
-      expect(api.setChannelAccess).toHaveBeenCalledWith({
-        workspaceId: "workspace-1",
-        presetId: PRESET.id,
-        requestBody: { channel_access_policy: "linked_only" },
-      })
-    )
   })
 
   it("renders the bot panel with only the preview entitlement", async () => {

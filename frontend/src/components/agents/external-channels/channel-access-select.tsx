@@ -1,6 +1,6 @@
 "use client"
 
-import type { AgentPresetRead, ChannelAccessPolicy } from "@/client"
+import type { AgentChannelBotRead, ChannelAccessPolicy } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   Select,
@@ -9,7 +9,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useSetAgentPresetChannelAccess } from "@/hooks/use-agent-preset-channel-access"
+import {
+  useChannelBotsBusy,
+  useUpdateAgentChannelBot,
+} from "@/hooks/use-agent-channel-bots"
 
 const POLICIES: ReadonlyArray<[ChannelAccessPolicy, string]> = [
   ["linked_approvals", "Anyone can message; linked members approve"],
@@ -17,31 +20,37 @@ const POLICIES: ReadonlyArray<[ChannelAccessPolicy, string]> = [
   ["open", "Anyone in the channel"],
 ]
 
-/** Workspace policy, not package config: editable on managed presets too. */
+/** One rule for every channel and agent the bot serves. */
 export function ChannelAccessSelect({
   workspaceId,
-  preset,
+  bot,
 }: {
   workspaceId: string
-  preset: AgentPresetRead
+  bot: AgentChannelBotRead
 }) {
   const canUpdateAgent = useScopeCheck("agent:update") === true
-  const { setPolicy, setPolicyIsPending } = useSetAgentPresetChannelAccess(
-    workspaceId,
-    preset.id
-  )
+  const { updateBot } = useUpdateAgentChannelBot(workspaceId, bot.provider)
+  const busy = useChannelBotsBusy(workspaceId)
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium">Who can use this agent</span>
+      <span className="text-xs font-medium">Who can use this bot</span>
       <Select
-        value={preset.channel_access_policy}
+        value={bot.channel_access_policy}
         onValueChange={(value) => {
           const policy = POLICIES.find(([option]) => option === value)?.[0]
-          if (policy) setPolicy(policy)
+          if (policy) {
+            updateBot({
+              botId: bot.id,
+              requestBody: { channel_access_policy: policy },
+            })
+          }
         }}
-        disabled={!canUpdateAgent || setPolicyIsPending}
+        disabled={!canUpdateAgent || busy}
       >
-        <SelectTrigger className="h-8 text-xs">
+        <SelectTrigger
+          className="h-8 text-xs"
+          aria-label="Who can use this bot"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

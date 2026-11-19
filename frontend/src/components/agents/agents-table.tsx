@@ -39,10 +39,7 @@ import {
   useDeleteAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
-import {
-  buildDuplicateAgentPresetPayload,
-  type DuplicateSourcePreset,
-} from "@/lib/agent-presets"
+import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useListMcpIntegrations } from "@/lib/hooks"
 import { useQuery } from "@/lib/query"
@@ -146,7 +143,7 @@ const hasToolsConfig = (preset: AgentPresetTableRow) =>
 
 function toDuplicateSourcePreset(
   preset: AgentPresetTableRow
-): DuplicateSourcePreset | null {
+): AgentPresetRead | null {
   if (
     typeof preset.slug !== "string" ||
     typeof preset.model_name !== "string" ||

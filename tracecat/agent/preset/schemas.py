@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.agent.skill.schemas import SkillName
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
@@ -426,7 +425,6 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     current_version_id: uuid.UUID | None = None
     folder_id: uuid.UUID | None = None
     skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
-    channel_access_policy: ChannelAccessPolicy
     created_at: datetime
     updated_at: datetime
 
@@ -551,9 +549,3 @@ class AgentPresetVersionDiff(BaseModel):
     tool_tunnel_changes: list[ToolTunnelFieldChange] = Field(default_factory=list)
     skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0
-
-
-class AgentPresetChannelAccess(BaseModel):
-    """Who may act on the agent through channels; live, never versioned."""
-
-    channel_access_policy: ChannelAccessPolicy

@@ -1596,6 +1596,11 @@ export const $AgentChannelBotRead = {
       description:
         "Inbound event URL; None when the bot's events arrive over a socket.",
     },
+    channel_access_policy: {
+      $ref: "#/components/schemas/ChannelAccessPolicy",
+      description:
+        "Who may act in the bot's channels, for every agent it serves.",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -1621,6 +1626,7 @@ export const $AgentChannelBotRead = {
     "provider_tenant_id",
     "provider_app_id",
     "endpoint_url",
+    "channel_access_policy",
     "created_at",
     "updated_at",
     "details",
@@ -1664,6 +1670,18 @@ export const $AgentChannelBotUpdate = {
         },
       ],
       description: "Must name the bot's provider.",
+    },
+    channel_access_policy: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelAccessPolicy",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Who may act in the bot's channels, for every agent it serves.",
     },
   },
   additionalProperties: false,
@@ -2788,19 +2806,6 @@ export const $AgentPresetCapability = {
   enum: ["approvals", "subagents", "internet_access"],
 } as const
 
-export const $AgentPresetChannelAccess = {
-  properties: {
-    channel_access_policy: {
-      $ref: "#/components/schemas/ChannelAccessPolicy",
-    },
-  },
-  type: "object",
-  required: ["channel_access_policy"],
-  title: "AgentPresetChannelAccess",
-  description:
-    "Who may act on the agent through channels; live, never versioned.",
-} as const
-
 export const $AgentPresetCreate = {
   properties: {
     instructions: {
@@ -3366,9 +3371,6 @@ export const $AgentPresetRead = {
       type: "array",
       title: "Skills",
     },
-    channel_access_policy: {
-      $ref: "#/components/schemas/ChannelAccessPolicy",
-    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -3388,7 +3390,6 @@ export const $AgentPresetRead = {
     "workspace_id",
     "name",
     "slug",
-    "channel_access_policy",
     "created_at",
     "updated_at",
   ],

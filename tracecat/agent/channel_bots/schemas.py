@@ -9,6 +9,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy
+
 CHANNEL_BOTS_PREFIX = "/agent/channel-bots"
 OAUTH_CALLBACK_ROUTE = f"{CHANNEL_BOTS_PREFIX}/{{provider}}/oauth/callback"
 
@@ -91,6 +93,10 @@ class AgentChannelBotUpdate(BaseModel):
     credentials: ChannelBotCredentialsUpdate | None = Field(
         default=None, description="Must name the bot's provider."
     )
+    channel_access_policy: ChannelAccessPolicy | None = Field(
+        default=None,
+        description="Who may act in the bot's channels, for every agent it serves.",
+    )
 
 
 class SlackBotDetails(BaseModel):
@@ -129,6 +135,9 @@ class AgentChannelBotRead(BaseModel):
     provider_app_id: str | None
     endpoint_url: str | None = Field(
         description="Inbound event URL; None when the bot's events arrive over a socket."
+    )
+    channel_access_policy: ChannelAccessPolicy = Field(
+        description="Who may act in the bot's channels, for every agent it serves."
     )
     created_at: datetime
     updated_at: datetime

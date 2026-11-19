@@ -18,7 +18,6 @@ import {
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   agentPresetsListAgentPresets,
-  agentPresetsSetAgentPresetChannelAccess,
   type ChannelBotAppManifest,
   type ChannelBotChannel,
   type ChannelBotDetails,
@@ -46,15 +45,10 @@ export const api = {
   setRoute: jest.mocked(agentChannelBotsSetBotRoute),
   deleteRoute: jest.mocked(agentChannelBotsDeleteBotRoute),
   listPresets: jest.mocked(agentPresetsListAgentPresets),
-  setChannelAccess: jest.mocked(agentPresetsSetAgentPresetChannelAccess),
 }
 
 export const WORKSPACE_ID = "workspace-1"
-export const PRESET = {
-  id: "preset-1",
-  name: "Triage",
-  channel_access_policy: "linked_approvals",
-} as AgentPresetRead
+export const PRESET = { id: "preset-1", name: "Triage" } as AgentPresetRead
 // The workspace's agents, as the agent pickers list them.
 export const AGENTS = [
   { id: PRESET.id, name: PRESET.name },
@@ -81,6 +75,7 @@ export function slackBot(
     provider_tenant_id: "T1",
     provider_app_id: "A1",
     endpoint_url: SLACK_ENDPOINT,
+    channel_access_policy: "linked_approvals",
     created_at: "2026-11-12T00:00:00Z",
     updated_at: "2026-11-12T00:00:00Z",
     details: {

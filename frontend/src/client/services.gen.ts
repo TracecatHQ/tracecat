@@ -269,8 +269,6 @@ import type {
   AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
-  AgentPresetsSetAgentPresetChannelAccessData,
-  AgentPresetsSetAgentPresetChannelAccessResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
   AgentRefreshProviderModelsData,
@@ -7520,34 +7518,6 @@ export const agentPresetsPreviewToolPolicy = (
     mediaType: "application/json",
     errors: {
       400: "Invalid tool policy selections",
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Set Agent Preset Channel Access
- * Set who may act through channels; applies at once, unversioned.
- * @param data The data for the request.
- * @param data.presetId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns AgentPresetChannelAccess Successful Response
- * @throws ApiError
- */
-export const agentPresetsSetAgentPresetChannelAccess = (
-  data: AgentPresetsSetAgentPresetChannelAccessData
-): CancelablePromise<AgentPresetsSetAgentPresetChannelAccessResponse> => {
-  return __request(OpenAPI, {
-    method: "PUT",
-    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-access",
-    path: {
-      preset_id: data.presetId,
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
       422: "Validation Error",
     },
   })

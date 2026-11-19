@@ -44,7 +44,6 @@ from tracecat.agent.channel_users.tokens import (
     read_sign_in_state,
 )
 from tracecat.agent.channel_users.types import ChannelIdentity, ChannelSenderEvidence
-from tracecat.agent.preset.service import AgentPresetService
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,
@@ -55,6 +54,7 @@ from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
+    AgentChannelBot,
     AgentChannelUser,
     AgentPreset,
     Organization,
@@ -550,7 +550,7 @@ async def test_unlink_removes_future_authority(
         )
 
 
-async def test_preset_policy_defaults_to_linked_approvals_and_updates_live(
+async def test_bot_policy_defaults_to_linked_approvals(
     session: AsyncSession, svc_role: Role
 ) -> None:
     assert svc_role.workspace_id is not None
@@ -562,15 +562,18 @@ async def test_preset_policy_defaults_to_linked_approvals_and_updates_live(
         model_provider="openai",
     )
     session.add(preset)
-    await session.commit()
-    await session.refresh(preset)
-    assert preset.channel_access_policy == ChannelAccessPolicy.LINKED_APPROVALS
-    service = AgentPresetService(session, role=svc_role)
-    updated = await service.set_channel_access_policy(
-        preset.id, ChannelAccessPolicy.LINKED_ONLY
+    await session.flush()
+    bot = AgentChannelBot(
+        workspace_id=svc_role.workspace_id,
+        agent_preset_id=preset.id,
+        provider="slack",
+        manifest_version=1,
+        encrypted_credentials=b"",
     )
-    assert updated == ChannelAccessPolicy.LINKED_ONLY
-    assert preset.current_version_id is None
+    session.add(bot)
+    await session.commit()
+    await session.refresh(bot)
+    assert bot.channel_access_policy == ChannelAccessPolicy.LINKED_APPROVALS
 
 
 APP_URL = "https://app.example.com"

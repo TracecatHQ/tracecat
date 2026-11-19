@@ -4828,6 +4828,10 @@ class AgentChannelBot(TimestampMixin, Base):
         ),
         CheckConstraint("transport IN ('http', 'socket')", name="transport"),
         CheckConstraint("app_owner IN ('workspace', 'platform')", name="app_owner"),
+        CheckConstraint(
+            "channel_access_policy IN ('linked_only', 'linked_approvals', 'open')",
+            name="channel_access_policy",
+        ),
         Index(
             "ix_agent_channel_bot_token_refresh_due_at",
             "token_refresh_due_at",
@@ -4888,6 +4892,13 @@ class AgentChannelBot(TimestampMixin, Base):
         TIMESTAMP(timezone=True),
         nullable=True,
         doc="Earliest due refresh of a rotating token; null when none rotates",
+    )
+    channel_access_policy: Mapped[ChannelAccessPolicy] = mapped_column(
+        String(32),
+        default=ChannelAccessPolicy.LINKED_APPROVALS,
+        server_default=ChannelAccessPolicy.LINKED_APPROVALS.value,
+        nullable=False,
+        doc="Who may act through this bot's channels, for every agent it serves",
     )
 
 
@@ -5117,10 +5128,6 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
         # Target of the channel bot's composite key.
         UniqueConstraint("id", "workspace_id"),
-        CheckConstraint(
-            "channel_access_policy IN ('linked_only', 'linked_approvals', 'open')",
-            name="channel_access_policy",
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -5243,14 +5250,6 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         ForeignKey("agent_folder.id", ondelete="SET NULL"),
         nullable=True,
     )
-    channel_access_policy: Mapped[ChannelAccessPolicy] = mapped_column(
-        String(32),
-        default=ChannelAccessPolicy.LINKED_APPROVALS,
-        server_default=ChannelAccessPolicy.LINKED_APPROVALS.value,
-        nullable=False,
-        doc="Who may act through channels; live workspace policy, never versioned",
-    )
-
     workspace: Mapped[Workspace] = relationship(
         back_populates="agent_presets", foreign_keys="AgentPreset.workspace_id"
     )

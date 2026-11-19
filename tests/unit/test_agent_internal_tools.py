@@ -47,7 +47,6 @@ def _build_claims(preset_id: uuid.UUID) -> MCPTokenClaims:
 def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
     data = dict(preset)
     data.setdefault("skills", [])
-    data.setdefault("channel_access_policy", "linked_approvals")
     return AgentPresetRead.model_validate(data)
 
 
