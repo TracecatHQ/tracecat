@@ -36,11 +36,11 @@ def _process_is_running(pid: int) -> bool:
     return True
 
 
-async def _wait_for_file(path: Path) -> None:
+async def _read_pid_file(path: Path) -> int:
     # write_text creates the file empty before writing, so wait for content.
     for _ in range(200):
-        if path.exists() and path.read_text().strip():
-            return
+        if path.exists() and (text := path.read_text().strip()):
+            return int(text)
         await asyncio.sleep(0.01)
     raise AssertionError(f"Timed out waiting for {path}")
 
@@ -447,8 +447,7 @@ def main():
                 timeout_seconds=30,
             )
         )
-        await _wait_for_file(pid_file)
-        child_pid = int(pid_file.read_text())
+        child_pid = await _read_pid_file(pid_file)
 
         execution.cancel()
         try:
