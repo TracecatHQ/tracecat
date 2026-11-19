@@ -80,10 +80,11 @@ if not TRACECAT__DB_URI:
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# Interpret the config file for Python logging. Keep loggers that already
+# exist enabled: `tracecat.db.roles.migrate` runs Alembic inside a process that
+# has already created its own loggers, and fileConfig disables them by default.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
