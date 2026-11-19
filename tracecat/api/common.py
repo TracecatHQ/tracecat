@@ -297,7 +297,7 @@ async def table_row_exception_handler(request: Request, exc: Exception) -> Respo
         raise exc
     status_code = (
         status.HTTP_409_CONFLICT
-        if exc.code == "duplicate_value"
+        if exc.code in ("duplicate_value", "write_conflict")
         else status.HTTP_400_BAD_REQUEST
     )
     return await http_exception_handler(

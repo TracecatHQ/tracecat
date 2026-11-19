@@ -11,6 +11,7 @@ type TableRowErrorCode = Literal[
     "invalid_value",
     "duplicate_value",
     "empty_update",
+    "write_conflict",
 ]
 
 
