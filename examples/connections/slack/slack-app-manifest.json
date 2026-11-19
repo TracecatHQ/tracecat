@@ -1,0 +1,38 @@
+{
+  "display_information": {
+    "name": "Tracecat"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Tracecat",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/tracecat",
+        "url": "https://<tracecat-host>/api/webhooks/<slash-command-workflow-id>/<webhook-secret>?echo=true&empty_echo=true",
+        "description": "Run a Tracecat workflow",
+        "usage_hint": "[text]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["app_mentions:read", "chat:write", "commands"]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://<tracecat-host>/api/webhooks/<events-workflow-id>/<webhook-secret>?echo=true",
+      "bot_events": ["app_mention"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://<tracecat-host>/api/webhooks/<interactivity-workflow-id>/<webhook-secret>?echo=true&empty_echo=true"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
