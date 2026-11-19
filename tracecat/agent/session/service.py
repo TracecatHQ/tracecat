@@ -206,10 +206,9 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
 _background_tasks: set[asyncio.Task[None]] = set()
 # Caps both the attempts a message's run lookup walks and a start's retries.
 _MESSAGE_ADMISSION_TRIES = 5
+
+
 # Fork chains are short; the bound only stops a corrupt cycle.
-_MAX_FORK_DEPTH = 8
-
-
 def _require_parent_session(agent_session: AgentSession) -> None:
     # Only the parent's runtime executes a spawned child; a direct turn would
     # target a harness binding it does not own.
@@ -3166,13 +3165,13 @@ class AgentSessionService(BaseWorkspaceService):
         """Whether the session, or the session it was forked from, is an external
         channel session, whose user messages may be rendered channel messages."""
         current: AgentSession | None = agent_session
-        for _ in range(_MAX_FORK_DEPTH):
-            if current is None:
-                return False
+        visited: set[uuid.UUID] = set()
+        while current is not None and current.id not in visited:
             if current.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
                 return True
             if current.forked_from_session_id is None:
                 return False
+            visited.add(current.id)
             current = await self.get_session(current.forked_from_session_id)
         return False
 
