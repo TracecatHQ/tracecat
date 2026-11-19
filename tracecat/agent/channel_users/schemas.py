@@ -27,17 +27,6 @@ def channel_link_page_url(token: str) -> str:
     return f"{base_url}/channel-links/{quote(token, safe='')}"
 
 
-class ChannelLinkDetails(BaseModel):
-    """What the confirm page shows before linking."""
-
-    provider: str
-    provider_tenant_id: str
-    provider_user_id: str
-    organization_name: str
-    user_email: str
-    expires_at: datetime
-
-
 class ChannelLinkSignInRead(BaseModel):
     """Where to send the browser to prove the provider identity."""
 
@@ -55,4 +44,5 @@ class AgentChannelUserRead(BaseModel):
     provider_user_id: str
     user_id: uuid.UUID | None
     link_method: ChannelLinkMethod
+    provider_email: str | None
     linked_at: datetime

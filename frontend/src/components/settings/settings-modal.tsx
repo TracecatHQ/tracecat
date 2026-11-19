@@ -4,6 +4,7 @@ import {
   Cpu,
   FileIcon,
   LayersIcon,
+  Link2,
   LogOut,
   Palette,
   Settings2,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
+import { LinkedAccountsSettings } from "@/components/settings/linked-accounts-settings"
 import { ProfileSettings } from "@/components/settings/profile-settings"
 import { SecuritySettings } from "@/components/settings/security-settings"
 import {
@@ -29,6 +31,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuthActions } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useUserScopes, useWorkspaceManager } from "@/lib/hooks"
 import { hasGrantedScope } from "@/lib/scopes"
 import { cn } from "@/lib/utils"
@@ -165,13 +168,17 @@ function SettingsModalContent() {
   ])
 
   const showWorkspaceNav = !!workspaceId && canAdministerWorkspace
+  const { hasEntitlement } = useEntitlements()
+  const showLinkedAccounts = hasEntitlement("agent_channels_preview")
   const isAccountSection =
     activeSection === "profile" ||
     activeSection === "appearance" ||
-    activeSection === "security"
+    activeSection === "security" ||
+    activeSection === "linked-accounts"
   const canDisplaySection = isAccountSection || canAdministerWorkspace
   const displayedSection =
-    isAccountSection || (showWorkspaceNav && canDisplaySection)
+    (activeSection !== "linked-accounts" || showLinkedAccounts) &&
+    (isAccountSection || (showWorkspaceNav && canDisplaySection))
       ? activeSection
       : "profile"
 
@@ -184,6 +191,9 @@ function SettingsModalContent() {
     }
     if (displayedSection === "security") {
       return <SecuritySettings />
+    }
+    if (displayedSection === "linked-accounts") {
+      return <LinkedAccountsSettings />
     }
     if (workspaceId) {
       return (
@@ -233,6 +243,15 @@ function SettingsModalContent() {
                 activeSection={displayedSection}
                 onSelect={setActiveSection}
               />
+              {showLinkedAccounts && (
+                <NavItem
+                  icon={Link2}
+                  label="Linked accounts"
+                  section="linked-accounts"
+                  activeSection={displayedSection}
+                  onSelect={setActiveSection}
+                />
+              )}
 
               {showWorkspaceNav && (
                 <>

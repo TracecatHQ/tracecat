@@ -26,7 +26,7 @@ from tracecat.agent.channel_bots.schemas import (
     ChannelBotPlatformInstall,
     ChannelBotProvider,
 )
-from tracecat.agent.channel_users.types import ChannelIdentity
+from tracecat.agent.channel_users.types import ProviderSignIn
 from tracecat.api.extensions import load_api_extensions
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired, TracecatException
@@ -229,7 +229,7 @@ class ChannelBotAdmin(Protocol):
         *,
         code: str,
         redirect_uri: str,
-    ) -> ChannelIdentity:
+    ) -> ProviderSignIn:
         """Exchange the sign-in `code` for the provider user who signed in.
 
         Raise `TracecatValidationError` for a refused code or a provider without

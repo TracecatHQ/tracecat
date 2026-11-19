@@ -21,7 +21,6 @@ from tracecat.agent.channel_users.enums import (
 )
 from tracecat.agent.channel_users.schemas import (
     AgentChannelUserRead,
-    ChannelLinkDetails,
     channel_link_callback_url,
     channel_link_page_url,
 )
@@ -44,7 +43,6 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
     AgentChannelUser,
-    Organization,
     OrganizationDomain,
     OrganizationMembership,
     User,
@@ -96,6 +94,7 @@ async def _upsert_link(
     identity: ChannelIdentity,
     user_id: uuid.UUID,
     link_method: ChannelLinkMethod,
+    provider_email: str | None,
     where: ColumnElement[bool] | None = None,
 ) -> uuid.UUID | None:
     """Link `identity` to `user_id`; None when `where` keeps the existing row."""
@@ -106,6 +105,7 @@ async def _upsert_link(
         provider_user_id=identity.provider_user_id,
         user_id=user_id,
         link_method=link_method,
+        provider_email=provider_email,
     )
     return await session.scalar(
         statement.on_conflict_do_update(
@@ -113,6 +113,7 @@ async def _upsert_link(
             set_={
                 "user_id": user_id,
                 "link_method": link_method,
+                "provider_email": provider_email,
                 "linked_at": func.now(),
                 "updated_at": func.now(),
             },
@@ -214,6 +215,7 @@ async def resolve_channel_actor(
         identity=evidence,
         user_id=user.id,
         link_method=ChannelLinkMethod.EMAIL,
+        provider_email=evidence.email,
         # Never replaces a challenge link, nor revives an unlinked row.
         where=and_(
             AgentChannelUser.link_method == ChannelLinkMethod.EMAIL,
@@ -332,24 +334,6 @@ def _bot_service_role(claims: ChannelLinkClaims) -> Role:
     )
 
 
-async def read_link_details(
-    session: AsyncSession, *, claims: ChannelLinkClaims, user_id: uuid.UUID
-) -> ChannelLinkDetails:
-    """What the confirm page shows; only to a current member of the token's org."""
-    user = await _ensure_linkable(session, claims=claims, user_id=user_id)
-    organization_name = await session.scalar(
-        select(Organization.name).where(Organization.id == claims.organization_id)
-    )
-    return ChannelLinkDetails(
-        provider=claims.identity.provider,
-        provider_tenant_id=claims.identity.provider_tenant_id,
-        provider_user_id=claims.identity.provider_user_id,
-        organization_name=organization_name or "",
-        user_email=user.email,
-        expires_at=datetime.fromtimestamp(claims.exp, UTC),
-    )
-
-
 async def start_provider_sign_in(
     session: AsyncSession, *, link_token: str, user_id: uuid.UUID
 ) -> str:
@@ -391,14 +375,14 @@ async def complete_channel_link(
         session, claims.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
     )
     await _ensure_unused(claims)
-    identity = await require_channel_bot_admin().verify_provider_sign_in(
+    signed_in = await require_channel_bot_admin().verify_provider_sign_in(
         session,
         _bot_service_role(claims),
         claims.bot_id,
         code=code,
         redirect_uri=channel_link_callback_url(),
     )
-    if identity != claims.identity:
+    if signed_in.identity != claims.identity:
         raise ChannelLinkInvalid(
             "You signed in as a different provider user",
             error=ChannelLinkError.WRONG_ACCOUNT,
@@ -411,9 +395,10 @@ async def complete_channel_link(
     await _upsert_link(
         session,
         organization_id=claims.organization_id,
-        identity=identity,
+        identity=signed_in.identity,
         user_id=user_id,
         link_method=ChannelLinkMethod.CHALLENGE,
+        provider_email=signed_in.email,
     )
     await session.commit()
 
@@ -436,7 +421,7 @@ async def unlink_channel_user(
             AgentChannelUser.organization_id == organization_id,
             AgentChannelUser.user_id.is_not(None),
         )
-        .values(user_id=None, updated_at=func.now())
+        .values(user_id=None, provider_email=None, updated_at=func.now())
     )
     if user_id is not None:
         statement = statement.where(AgentChannelUser.user_id == user_id)
