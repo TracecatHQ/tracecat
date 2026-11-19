@@ -71,7 +71,7 @@ class AtlassianOAuthProvider(AuthorizationCodeOAuthProvider):
             "register the Tracecat redirect URI as the callback URL. OAuth requests "
             "are routed through api.atlassian.com, so set the Jira base URL to "
             "https://api.atlassian.com/ex/jira/{cloudId} and the Confluence base URL "
-            "to https://api.atlassian.com/ex/confluence/{cloudId}/wiki rather than your "
+            "to https://api.atlassian.com/ex/confluence/{cloudId} rather than your "
             "site URLs. Remove the Confluence scopes if the app only has Jira "
             "permissions."
         ),

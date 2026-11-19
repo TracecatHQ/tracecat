@@ -65,7 +65,7 @@ definition:
       type: str | None
       description: >-
         Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}/wiki.
+        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
         Do not append /api/v2 or /rest/api.
       default: null
   steps:
