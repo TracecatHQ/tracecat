@@ -1,0 +1,14 @@
+docs/cheatsheets/connection-guides/connect-to-aws.mdx
+  h_5f9670feebc95f 6-23,25-27,31-32,36,52-55,58,89-103,109,111,137-141,146-149,154-156,177-181,255-259,306,311-313,351,395,400,402,427,450-452,459,468-475,480,483-502
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2e6308a04531d71a988110f81ef84a10791ee031",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
