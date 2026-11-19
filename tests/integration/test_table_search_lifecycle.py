@@ -515,6 +515,73 @@ async def test_indexed_row_writers_wait_only_for_the_same_table(
         await engine.dispose()
 
 
+async def test_ddl_that_cannot_affect_search_does_not_wait_for_row_writers(
+    tables: TablesService, table: Table
+):
+    other = await tables.create_table(
+        TableCreate(
+            name="search_" + uuid4().hex,
+            columns=[TableColumnCreate(name="key", type=SqlType.TEXT)],
+        )
+    )
+    table_id, other_id = table.id, other.id
+    await enable(tables, table)
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def open_writer():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.insert_row(live, TableRowInsert(data={"body": "held"}))
+            entered.set()
+            await release.wait()
+
+    async def change_schema():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            await service.create_table(
+                TableCreate(
+                    name="search_" + uuid4().hex,
+                    columns=[
+                        TableColumnCreate(name="key", type=SqlType.TEXT, is_index=True)
+                    ],
+                )
+            )
+            live = await service.get_table(other_id)
+            await service.create_column(
+                live, TableColumnCreate(name="note", type=SqlType.TEXT)
+            )
+            live = await service.get_table(other_id)
+            await service.create_unique_index(live, "key")
+            await service.drop_unique_index(live, "key")
+
+    async def rename_table():
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(other_id)
+            await service.update_table(live, TableUpdate(name="search_" + uuid4().hex))
+
+    try:
+        task = asyncio.create_task(open_writer())
+        await asyncio.wait_for(entered.wait(), 5)
+        # Creating tables, adding columns and changing unique indexes elsewhere
+        # in the workspace proceed while a search-indexed write is open.
+        await asyncio.wait_for(change_schema(), 5)
+        # A rename can change what search reads, so it still waits.
+        rename = asyncio.create_task(rename_table())
+        await asyncio.sleep(0.05)
+        assert not rename.done()
+        release.set()
+        await asyncio.wait_for(task, 5)
+        await asyncio.wait_for(rename, 5)
+    finally:
+        release.set()
+        await engine.dispose()
+
+
 async def test_search_reads_wait_only_for_writers_to_the_same_table(
     tables: TablesService, table: Table
 ):

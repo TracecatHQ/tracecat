@@ -113,8 +113,10 @@ class TableSearchSource(TableSearchService):
             raise SearchError(SearchErrorCode.NOT_FOUND)
         source = self.physical_table(table, column)
         # One bounded SQL projection joins the text to the expected revision.
-        # The shared workspace lock also excludes source DDL until this transaction
-        # ends, because DDL takes it exclusively.
+        # The shared workspace lock also excludes DDL that can change a selected
+        # column until this transaction ends: changing or deleting a column and
+        # renaming or deleting the table take it exclusively. Adding a column or
+        # a unique index can't change the selected column's text.
         stmt = (
             sa.select(
                 sa.func.coalesce(

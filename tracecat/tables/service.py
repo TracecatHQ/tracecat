@@ -807,9 +807,10 @@ class BaseTablesService(BaseWorkspaceService):
         """Add a new table's columns with one ALTER TABLE and one flush.
 
         The table's own create audit event covers these columns, so they are
-        not audited one by one.
+        not audited one by one. It skips the workspace search lock: the table
+        is invisible to other transactions until commit, so it cannot have a
+        search collection yet.
         """
-        await self.search.for_table(table.id)
         prepared = [self._prepare_column(table, params) for params in columns]
         self.session.add_all(column for column, _ in prepared)
         add_clauses = ", ".join(
@@ -927,7 +928,8 @@ class BaseTablesService(BaseWorkspaceService):
         """
         await self._ensure_schema_unmanaged(table.id)
         column, column_def_str = self._prepare_column(table, params)
-        await self.search.for_table(table.id)
+        # No workspace search lock: a column can't be selected for search before
+        # it commits, and ALTER TABLE already makes this table's writers wait.
         self.session.add(column)
 
         # Add the column to the physical table
@@ -1156,8 +1158,8 @@ class BaseTablesService(BaseWorkspaceService):
         if len(index) > 0:
             raise ValueError("Table cannot have multiple unique indexes")
 
-        # Get the fully qualified table name with schema
-        await self.search.for_table(table.id)
+        # Search doesn't read unique indexes, so this takes no workspace search
+        # lock. CREATE INDEX already makes this table's writers wait.
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
@@ -1197,7 +1199,6 @@ class BaseTablesService(BaseWorkspaceService):
         """Drop the unique index on the specified column."""
 
         await self._ensure_schema_unmanaged(table.id)
-        await self.search.for_table(table.id)
         schema_name = self._get_schema_name()
 
         resolved_column_name = self._resolve_external_column_name(table, column_name)
@@ -2447,8 +2448,7 @@ class TableEditorService(BaseWorkspaceService):
         service = BaseTablesService(self.session, self.role)
         if self.schema_name != service._get_schema_name():
             return None
-        # Use the same lock even if metadata is absent or being created/renamed.
-        await service.search.lock_scope()
+        # The delegated methods take the search locks they need.
         table = await self.session.scalar(
             select(Table)
             .where(
