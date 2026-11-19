@@ -33,11 +33,11 @@ def _process_is_running(pid: int) -> bool:
         return False
 
 
-async def _wait_for_file(path: Path) -> None:
+async def _read_pid_file(path: Path) -> tuple[int, ...]:
     # write_text creates the file empty before writing, so wait for content.
     for _ in range(500):
-        if path.exists() and path.read_text().strip():
-            return
+        if path.exists() and (text := path.read_text().strip()):
+            return tuple(int(pid) for pid in text.split())
         await asyncio.sleep(0.01)
     raise AssertionError(f"Timed out waiting for {path}")
 
@@ -162,8 +162,7 @@ async def test_supervisor_reaps_detached_descendant_before_cancellation_returns(
     tmp_path: Path,
 ) -> None:
     process, pid_file = await _spawn_supervised_action(tmp_path, mode="block")
-    await _wait_for_file(pid_file)
-    action_pid, detached_pid = (int(pid) for pid in pid_file.read_text().split())
+    action_pid, detached_pid = await _read_pid_file(pid_file)
     communication = asyncio.create_task(
         communicate_process_group(
             process,
@@ -225,8 +224,7 @@ async def test_termination_recovers_stopped_supervisor_tree(
     mode: str,
 ) -> None:
     process, pid_file = await _spawn_supervised_action(tmp_path, mode=mode)
-    await _wait_for_file(pid_file)
-    tracked_pids = tuple(int(pid) for pid in pid_file.read_text().split())
+    tracked_pids = await _read_pid_file(pid_file)
     action_pid, detached_pid = tracked_pids
 
     try:
@@ -260,10 +258,7 @@ async def test_parent_death_resumes_monitor_and_reaps_action_tree(
         tmp_path,
         mode="stop-monitor-kill-supervisor",
     )
-    await _wait_for_file(pid_file)
-    action_pid, detached_pid, monitor_pid, outer_pid = (
-        int(pid) for pid in pid_file.read_text().split()
-    )
+    action_pid, detached_pid, monitor_pid, outer_pid = await _read_pid_file(pid_file)
     assert outer_pid == process.pid
 
     try:
