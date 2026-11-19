@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Limit Tracecat object listing and reads to approved S3 log buckets.
+Parameters:
+  RoleName:
+    Type: String
+    Default: TracecatSecOpsAuditRole
+  LogBucketArns:
+    Type: CommaDelimitedList
+    AllowedPattern: 'arn:aws[a-z0-9-]*:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+Resources:
+  LogArchiveRead:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref RoleName
+      PolicyName: ReadApprovedTracecatLogBuckets
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Ref LogBucketArns
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Split
+              - ','
+              - !Sub
+                - '${Buckets}/*'
+                - Buckets: !Join ['/*,', !Ref LogBucketArns]
+          - Effect: Deny
+            Action: s3:ListBucket
+            NotResource: !Ref LogBucketArns
+          - Effect: Deny
+            Action: s3:GetObject
+            NotResource: !Split
+              - ','
+              - !Sub
+                - '${Buckets}/*'
+                - Buckets: !Join ['/*,', !Ref LogBucketArns]

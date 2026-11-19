@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["index.ts"]
+}

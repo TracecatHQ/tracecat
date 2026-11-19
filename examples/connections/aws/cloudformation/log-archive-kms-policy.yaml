@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Allow the Tracecat log reader to decrypt approved S3 logs with one KMS key.
+Parameters:
+  RoleName:
+    Type: String
+    Default: TracecatSecOpsAuditRole
+  KeyArn:
+    Type: String
+    AllowedPattern: 'arn:aws[a-z0-9-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[a-zA-Z0-9-]+'
+  LogBucketArns:
+    Type: CommaDelimitedList
+    AllowedPattern: 'arn:aws[a-z0-9-]*:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+Resources:
+  LogArchiveDecrypt:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref RoleName
+      PolicyName: !Ref AWS::StackName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: kms:Decrypt
+            Resource: !Ref KeyArn
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub
+                  - 's3.${KeyRegion}.${AWS::URLSuffix}'
+                  - KeyRegion: !Select [3, !Split [':', !Ref KeyArn]]
+              StringLike:
+                kms:EncryptionContext:aws:s3:arn: !Split
+                  - ','
+                  - !Sub
+                    - '${BucketArns},${ObjectArns}/*'
+                    - BucketArns: !Join [',', !Ref LogBucketArns]
+                      ObjectArns: !Join ['/*,', !Ref LogBucketArns]

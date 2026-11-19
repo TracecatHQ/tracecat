@@ -3,7 +3,11 @@ title: "Connect to AWS"
 description: "Connect Tracecat to AWS with IAM roles, then extend access to AWS Organizations, GuardDuty, and approved S3 log buckets."
 ---
 
-Use this setup to connect Tracecat agents and workflows to AWS. The guide assumes the entry role lives in your security account, which is also the GuardDuty delegated administrator for the Regions you monitor.
+Give Tracecat agents and workflows one AWS entry role. This guide puts it in your security account, which already serves as the GuardDuty delegated administrator for the Regions you monitor.
+
+<Prompt description="Set up the AWS connection with an AI assistant">
+Help me connect Tracecat to AWS using Terraform, Pulumi, or CloudFormation. Start with the examples at https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws. Ask which deployment method and AWS profiles I use, whether I need one account or organization coverage, which member accounts and log buckets to approve, and whether to enable GuardDuty triage writes. Use my GuardDuty delegated administrator account for the entry role. For organization coverage, use a StackSets delegated administrator and a separate management stack if I need Organizations reads. Have me supply the Tracecat workspace External ID through a protected input. Verify the AWS account behind each profile and show me the plan or CloudFormation changes before applying. Then give me the entry role ARN and walk me through configuring the aws credential and testing it in Tracecat. If I added S3 logs, also walk me through configuring the amazon_s3 credential and running the DuckDB sample.
+</Prompt>
 
 ```mermaid
 flowchart TD
@@ -20,141 +24,71 @@ flowchart TD
   The entry role trusts your Tracecat executor and requires the workspace External ID. Tracecat uses temporary sessions and can assume only the audit roles you list. Each target role grants access for its account.
 </Info>
 
-## Get your workspace trust settings
+## What you can do
+
+Use [AWS Boto3 → Call method](/tools/aws_boto3#call-method) for the API calls below. Set `role_arn` to the target audit role ARN when the check runs outside your entry account.
+
+<AccordionGroup>
+  <Accordion title="Triage GuardDuty findings">
+    Use the entry role in each GuardDuty Region. Call `guardduty.list_detectors`, then `list_findings` with `DetectorId` and `get_findings` with `DetectorId` and `FindingIds`. Enable triage writes to archive or unarchive findings and submit feedback.
+  </Accordion>
+  <Accordion title="Map your AWS organization and audit SCPs">
+    Use the management audit role. Start with `organizations.list_roots`. Call `list_organizational_units_for_parent` and `list_accounts_for_parent` with each root or OU as `ParentId`. To include inherited SCPs, call `list_policies_for_target` with `Filter: SERVICE_CONTROL_POLICY` and pass each account, ancestor OU, and root ID as `TargetId`. Read each policy with `describe_policy` and its `PolicyId`. Use [Call paginator](/tools/aws_boto3#call-paginator) for the list calls.
+  </Accordion>
+  <Accordion title="Query S3 logs with DuckDB">
+    Configure the `amazon_s3` credential in [Connect and verify in Tracecat](#connect-and-verify-in-tracecat). Add [`core.duckdb.execute_sql`](/automations/core-actions/request-actions/sql#coreduckdbexecute_sql) to your workflow. The inputs below count events in one Parquet partition. Replace the bucket, path, Region, and audit role ARN. Omit `role_arn` if the entry role has direct bucket access.
+
+```yaml
+role_arn: arn:aws:iam::<LOG_ACCOUNT_ID>:role/TracecatSecOpsAuditRole
+region_name: us-east-1
+sql: |
+  SELECT count(*) AS events
+  FROM read_parquet('s3://<LOG_BUCKET_NAME>/<PARQUET_PREFIX>/day=2026-01-01/*.parquet')
+```
+
+  </Accordion>
+  <Accordion title="Verify CloudTrail coverage">
+    Use the audit role in the trail's owning account and set `region_name` to the trail's home Region. Call `cloudtrail.get_trail_status` with the full trail ARN as `Name` to check `IsLogging` and delivery errors. Call `get_event_selectors` with the ARN as `TrailName` to see which events the trail captures.
+  </Accordion>
+  <Accordion title="Audit IAM in each approved account">
+    Use the member audit role with the AWS-managed `SecurityAudit` policy. Call `iam.list_roles` to inventory role trust policies, then `list_attached_role_policies` with `RoleName` to see which managed policies each role uses.
+  </Accordion>
+</AccordionGroup>
+
+## Before you deploy
 
 <Steps>
-  <Step title="Copy the workspace trust settings">
-    In Tracecat, open **Credentials** and configure the AWS role credential. Copy the workspace's **Principal ARN** and **External ID** from **Trust policy**.
+  <Step title="Get the workspace trust settings">
+    In Tracecat, open **Credentials** and configure the AWS role credential. Copy **Principal ARN** and **External ID** from **Trust policy**. Use a protected deployment input for the External ID.
   </Step>
-  <Step title="Confirm the AWS entry account">
-    Run `aws sts get-caller-identity` to confirm you're in the entry account. Supply the External ID through a protected deployment input.
+  <Step title="Choose the AWS accounts and Region">
+    Choose one deployment Region for the IAM stacks and StackSet. To cover multiple accounts, record your organization root ID (`r-…`) or OU ID (`ou-…`), the approved member account IDs, and the management account ID if you want organization reads. Run `aws sts get-caller-identity --profile <PROFILE>` for each AWS CLI profile you use.
+  </Step>
+  <Step title="Prepare StackSets for organization deployments">
+    In the AWS management account, confirm [all features](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_org_support-all-features.html) are enabled in AWS Organizations. Open **CloudFormation → StackSets** and [activate trusted access](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-activate-trusted-access.html) if prompted. Expand **Delegated administrators**. If your deployment account is absent, choose **Register delegated administrator** and enter its account ID.
   </Step>
 </Steps>
 
-## Define the roles
-
-Save the template as `entry-role.yaml`. Set `EnableGuardDutyTriage` to `true` to grant finding triage writes.
-
-```yaml entry-role.yaml
-AWSTemplateFormatVersion: '2010-09-09'
-Parameters:
-  EntryRoleName:
-    Type: String
-    Default: TracecatSecOpsAccessRole
-  TracecatPrincipalArn:
-    Type: String
-  ExternalId:
-    Type: String
-    NoEcho: true
-  TargetRoleArns:
-    Type: CommaDelimitedList
-    Default: ''
-  EnableGuardDutyTriage:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['false', 'true']
-Conditions:
-  HasTargets: !Not [!Equals [!Join ['', !Ref TargetRoleArns], '']]
-  CanTriageGuardDuty: !Equals [!Ref EnableGuardDutyTriage, 'true']
-Resources:
-  EntryRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Ref EntryRoleName
-      MaxSessionDuration: 3600
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Ref TracecatPrincipalArn
-            Action: sts:AssumeRole
-            Condition:
-              StringEquals:
-                sts:ExternalId: !Ref ExternalId
-      ManagedPolicyArns:
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
-  AssumeTargetRoles:
-    Type: AWS::IAM::RolePolicy
-    Condition: HasTargets
-    Properties:
-      RoleName: !Ref EntryRole
-      PolicyName: AssumeTracecatAuditRoles
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action: sts:AssumeRole
-            Resource: !Ref TargetRoleArns
-  GuardDutyTriage:
-    Type: AWS::IAM::RolePolicy
-    Condition: CanTriageGuardDuty
-    Properties:
-      RoleName: !Ref EntryRole
-      PolicyName: TriageGuardDutyFindings
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - guardduty:ArchiveFindings
-              - guardduty:UnarchiveFindings
-              - guardduty:UpdateFindingsFeedback
-            Resource: '*'
-Outputs:
-  RoleArn:
-    Value: !GetAtt EntryRole.Arn
-```
-
-Set `TargetRoleArns` to a comma-separated list of `arn:aws:iam::<TARGET_ACCOUNT_ID>:role/TracecatSecOpsAuditRole` ARNs. For a single account, leave it empty and deploy only the entry role.
-
-For an organization, also save `audit-role.yaml`. It gives each selected account an audit role with the AWS-managed `SecurityAudit` policy. Deploy the entry role first, then use its ARN for `EntryRoleArns`.
-
-```yaml audit-role.yaml
-AWSTemplateFormatVersion: '2010-09-09'
-Parameters:
-  EntryRoleArns:
-    Type: CommaDelimitedList
-Resources:
-  AuditRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: TracecatSecOpsAuditRole
-      MaxSessionDuration: 3600
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Ref EntryRoleArns
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
-```
+<Info>
+  We strongly recommend deploying StackSets from a dedicated delegated administrator account. Use the management account to register it and to deploy the separate management audit role. [Register a StackSets delegated administrator](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-delegated-admin.html).
+</Info>
 
 ## Deploy the roles
 
-<Info>
-  We strongly recommend deploying StackSets from a dedicated member account registered as a delegated administrator. Use the management account to enable trusted access and register the delegated administrator during initial setup. Then sign in to the delegated administrator account for deployments. [Set up a delegated administrator for StackSets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-delegated-admin.html).
-</Info>
-
-Verify each deployment profile with `aws sts get-caller-identity` and choose one deployment Region.
+Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open [`examples/connections/aws`](https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws). For a single account, deploy only the entry role. For organization access, keep the security account out of the member account allowlist because it uses the entry role directly.
 
 <Tabs>
 <Tab title="CloudFormation">
 
 <Steps>
   <Step title="Create the entry role">
-    In the entry account, create a stack from `entry-role.yaml` in **CloudFormation → Stacks**. Enter the template parameters, acknowledge named IAM resources, and copy the `RoleArn` output. For one account, go to [Connect and verify in Tracecat](#connect-and-verify-in-tracecat).
-  </Step>
-  <Step title="Create the audit StackSet">
-    In the StackSets delegated administrator account, create a StackSet from `audit-role.yaml` with **Service-managed permissions**. Set `EntryRoleArns` to the entry role ARN and acknowledge named IAM resources.
+    In the security account, open **CloudFormation → Stacks** and create a stack from `cloudformation/entry-role.yaml`. Set `TracecatPrincipalArn` and `ExternalId` from Tracecat. For organization access, set `TargetRoleArns` to a comma-separated list of `arn:aws:iam::<ACCOUNT_ID>:role/TracecatSecOpsAuditRole` for each approved member and the management account if needed. Leave it empty for a single account. Set `EnableGuardDutyTriage` to `true` only if you want triage writes. Acknowledge named IAM resources, create the stack, and copy the `RoleArn` output.
   </Step>
   <Step title="Deploy to approved member accounts">
-    Select the root or target OUs and choose the **Intersection** filter to enter the approved member account IDs. Turn automatic deployment off and wait until all selected instances are up to date.
+    In the StackSets delegated administrator account, create a StackSet from `cloudformation/audit-role.yaml` with **Service-managed permissions**. Paste the entry role ARN into `EntryRoleArns` and acknowledge named IAM resources. Under **Deployment targets**, choose **Deploy to organizational units (OUs)**, add the root or OU ID, select the **Intersection** filter, and enter the approved member account IDs. Select one Region and turn automatic deployment off. Verify the targets on the review screen and wait for the stack instances to be up to date.
   </Step>
-  <Step title="Deploy the management account role if needed">
-    For management-account reads, deploy `audit-role.yaml` as a regular stack in the management account with the same `EntryRoleArns`.
+  <Step title="Deploy the management audit role if needed">
+    In the management account, create a regular stack from `cloudformation/audit-role.yaml` with the same `EntryRoleArns`. Acknowledge named IAM resources and wait for the stack to complete.
   </Step>
 </Steps>
 
@@ -162,319 +96,40 @@ Verify each deployment profile with `aws sts get-caller-identity` and choose one
 <Tab title="Terraform">
 
 <Steps>
-  <Step title="Configure the entry account">
-    Save the templates in your module directory. Configure `aws-security` and set `region`, `tracecat_principal_arn`, and `external_id`.
+  <Step title="Configure AWS profiles and Terraform inputs">
+    In `examples/connections/aws/terraform`, follow the [Terraform example](https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws#terraform) to configure AWS profiles and create `terraform.tfvars`. Set `organization` only for multi-account access. Supply `external_id` as a protected input and restrict access to your state.
   </Step>
-  <Step title="Add organization targets if needed">
-    For an organization, configure `aws-stacksets` and set `organization.target_ou_id` and `organization.member_account_ids`. For management-account reads, also configure `aws-management` and set `organization.management_account_id`. Leave `organization` unset for one account.
-  </Step>
-  <Step title="Enable triage writes if needed">
-    Set `enable_guardduty_triage` to `true` for finding triage writes.
+  <Step title="Plan and apply">
+    Run `terraform init` and `terraform plan`. Verify the selected accounts and IAM changes. Run `terraform apply`, then copy the output of `terraform output -raw role_arn`.
   </Step>
 </Steps>
-
-```hcl
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.0"
-    }
-  }
-}
-
-variable "region" { type = string }
-variable "tracecat_principal_arn" { type = string }
-
-variable "external_id" {
-  type      = string
-  sensitive = true
-}
-
-variable "enable_guardduty_triage" {
-  type    = bool
-  default = false
-}
-
-variable "entry_stack_name" {
-  type    = string
-  default = "tracecat-secops-entry"
-}
-
-variable "entry_role_name" {
-  type    = string
-  default = "TracecatSecOpsAccessRole"
-}
-
-variable "organization" {
-  type = object({
-    target_ou_id            = string
-    member_account_ids      = set(string)
-    management_account_id   = optional(string)
-    previous_entry_role_arn = optional(string)
-  })
-  default = null
-
-  validation {
-    condition = var.organization == null ? true : (
-      trimspace(var.organization.target_ou_id) != "" && length(var.organization.member_account_ids) > 0
-    )
-    error_message = "Organization mode requires a root or OU ID and at least one member account."
-  }
-}
-
-provider "aws" {
-  alias   = "entry"
-  profile = "aws-security"
-  region  = var.region
-}
-
-provider "aws" {
-  alias   = "stacksets"
-  profile = var.organization == null ? "aws-security" : "aws-stacksets"
-  region  = var.region
-}
-
-provider "aws" {
-  alias   = "management"
-  profile = local.management_account_id == null ? "aws-security" : "aws-management"
-  region  = var.region
-}
-
-data "aws_partition" "current" {
-  provider = aws.entry
-}
-
-locals {
-  audit_template        = var.organization == null ? null : file("${path.module}/audit-role.yaml")
-  member_account_ids    = var.organization == null ? [] : sort(tolist(var.organization.member_account_ids))
-  management_account_id = try(var.organization.management_account_id, null)
-  target_account_ids = concat(
-    local.member_account_ids,
-    local.management_account_id == null ? [] : [local.management_account_id],
-  )
-  target_role_arns = [
-    for account_id in local.target_account_ids :
-    "arn:${data.aws_partition.current.partition}:iam::${account_id}:role/TracecatSecOpsAuditRole"
-  ]
-  entry_role_arns = join(",", compact([
-    aws_cloudformation_stack.entry.outputs["RoleArn"],
-    try(var.organization.previous_entry_role_arn, null),
-  ]))
-}
-
-resource "aws_cloudformation_stack" "entry" {
-  provider      = aws.entry
-  name          = var.entry_stack_name
-  template_body = file("${path.module}/entry-role.yaml")
-  capabilities  = ["CAPABILITY_NAMED_IAM"]
-  parameters = {
-    EntryRoleName         = var.entry_role_name
-    TracecatPrincipalArn  = var.tracecat_principal_arn
-    ExternalId            = var.external_id
-    TargetRoleArns        = join(",", local.target_role_arns)
-    EnableGuardDutyTriage = tostring(var.enable_guardduty_triage)
-  }
-}
-
-resource "aws_cloudformation_stack_set" "audit" {
-  count            = var.organization == null ? 0 : 1
-  provider         = aws.stacksets
-  name             = "tracecat-secops-audit"
-  permission_model = "SERVICE_MANAGED"
-  call_as          = "DELEGATED_ADMIN"
-  capabilities     = ["CAPABILITY_NAMED_IAM"]
-  template_body    = local.audit_template
-  parameters       = { EntryRoleArns = local.entry_role_arns }
-
-  auto_deployment {
-    enabled = false
-  }
-}
-
-resource "aws_cloudformation_stack_instances" "members" {
-  count          = var.organization == null ? 0 : 1
-  provider       = aws.stacksets
-  stack_set_name = aws_cloudformation_stack_set.audit[0].name
-  call_as        = "DELEGATED_ADMIN"
-  regions        = [var.region]
-
-  deployment_targets {
-    organizational_unit_ids = [var.organization.target_ou_id]
-    account_filter_type     = "INTERSECTION"
-    accounts                = local.member_account_ids
-  }
-}
-
-resource "aws_cloudformation_stack" "management" {
-  count         = local.management_account_id == null ? 0 : 1
-  provider      = aws.management
-  name          = "tracecat-secops-audit"
-  template_body = local.audit_template
-  capabilities  = ["CAPABILITY_NAMED_IAM"]
-  parameters    = { EntryRoleArns = local.entry_role_arns }
-}
-
-output "role_arn" {
-  value = aws_cloudformation_stack.entry.outputs["RoleArn"]
-}
-```
-
-Protect Terraform state. Run `terraform init` and review `terraform plan` before applying.
 
 </Tab>
 <Tab title="Pulumi">
 
 <Steps>
-  <Step title="Configure the entry account">
-    In a TypeScript project with `@pulumi/aws` and `@pulumi/pulumi`, save the templates and configure `aws-security`. Set `region` and `tracecatPrincipalArn`. Use `pulumi config set --secret externalId` for the workspace External ID.
+  <Step title="Configure AWS profiles and Pulumi inputs">
+    In `examples/connections/aws/pulumi`, follow the [Pulumi example](https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws#pulumi) to install dependencies and configure the stack. Set `organization` only for multi-account access. Save the External ID with `pulumi config set --secret externalId`.
   </Step>
-  <Step title="Add organization targets if needed">
-    For an organization, configure `aws-stacksets` and set `organization.targetOuId` and `organization.memberAccountIds`. For management-account reads, also configure `aws-management` and set `organization.managementAccountId`. Leave `organization` unset for one account.
-  </Step>
-  <Step title="Enable triage writes if needed">
-    Set `enableGuardDutyTriage` to `true` for finding triage writes.
+  <Step title="Preview and apply">
+    Run `pulumi preview`. Verify the selected accounts and IAM changes. Run `pulumi up`, then copy the output of `pulumi stack output roleArn`.
   </Step>
 </Steps>
-
-```typescript
-import * as aws from "@pulumi/aws";
-import * as pulumi from "@pulumi/pulumi";
-import { readFileSync } from "node:fs";
-
-type Organization = {
-  targetOuId: string;
-  memberAccountIds: string[];
-  managementAccountId?: string;
-  previousEntryRoleArn?: string;
-};
-
-const config = new pulumi.Config();
-const region = config.require("region");
-const organization = config.getObject<Organization>("organization");
-if (organization && (!organization.targetOuId || !organization.memberAccountIds?.length)) {
-  throw new Error("Organization mode requires a root or OU ID and at least one member account.");
-}
-
-const entryProvider = new aws.Provider("entry", { profile: "aws-security", region });
-const management = organization?.managementAccountId;
-const targetAccounts = [...(organization?.memberAccountIds ?? []), ...(management ? [management] : [])];
-const partition = aws.getPartitionOutput({}, { provider: entryProvider });
-const targetRoleArns = partition.partition.apply((value) =>
-  targetAccounts.map((id) => `arn:${value}:iam::${id}:role/TracecatSecOpsAuditRole`).join(","),
-);
-
-const entry = new aws.cloudformation.Stack("entry", {
-  name: config.get("entryStackName") ?? "tracecat-secops-entry",
-  templateBody: readFileSync("entry-role.yaml", "utf8"),
-  capabilities: ["CAPABILITY_NAMED_IAM"],
-  parameters: {
-    EntryRoleName: config.get("entryRoleName") ?? "TracecatSecOpsAccessRole",
-    TracecatPrincipalArn: config.require("tracecatPrincipalArn"),
-    ExternalId: config.requireSecret("externalId"),
-    TargetRoleArns: targetRoleArns,
-    EnableGuardDutyTriage: String(config.getBoolean("enableGuardDutyTriage") ?? false),
-  },
-}, { provider: entryProvider });
-
-export const roleArn = entry.outputs.apply((outputs) => outputs.RoleArn);
-if (organization) {
-  const provider = new aws.Provider("stacksets", { profile: "aws-stacksets", region });
-  const auditTemplate = readFileSync("audit-role.yaml", "utf8");
-  const entryRoleArns = roleArn.apply((arn) =>
-    [arn, organization.previousEntryRoleArn].filter(Boolean).join(","),
-  );
-  const audit = new aws.cloudformation.StackSet("audit", {
-    name: "tracecat-secops-audit",
-    permissionModel: "SERVICE_MANAGED",
-    callAs: "DELEGATED_ADMIN",
-    capabilities: ["CAPABILITY_NAMED_IAM"],
-    autoDeployment: { enabled: false },
-    templateBody: auditTemplate,
-    parameters: { EntryRoleArns: entryRoleArns },
-  }, { provider });
-
-  new aws.cloudformation.StackInstances("members", {
-    stackSetName: audit.name,
-    callAs: "DELEGATED_ADMIN",
-    regions: [region],
-    deploymentTargets: {
-      organizationalUnitIds: [organization.targetOuId],
-      accountFilterType: "INTERSECTION",
-      accounts: organization.memberAccountIds,
-    },
-  }, { provider });
-
-  if (management) {
-    const managementProvider = new aws.Provider("management", { profile: "aws-management", region });
-    new aws.cloudformation.Stack("management", {
-      name: "tracecat-secops-audit",
-      templateBody: auditTemplate,
-      capabilities: ["CAPABILITY_NAMED_IAM"],
-      parameters: { EntryRoleArns: entryRoleArns },
-    }, { provider: managementProvider });
-  }
-}
-```
-
-Review `pulumi preview` before running `pulumi up`.
 
 </Tab>
 </Tabs>
 
 ## Grant read access to archived logs
 
-Attach this policy to the audit role in the log archive account. For a single-account setup, attach it to the entry role. Add every approved bucket ARN to both listing statements and every matching object ARN to the read statement.
+For any deployment method, create a regular CloudFormation stack in the log bucket owner's account from the [log archive template](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/log-archive-policy.yaml). Use the entry role name as `RoleName` if the buckets are in your entry account. For a separate log archive account, include it in your approved member accounts and use `TracecatSecOpsAuditRole`. Set `LogBucketArns` to a comma-separated list, such as `arn:aws:s3:::example-security-logs,arn:aws:s3:::example-network-logs`. Acknowledge named IAM resources and create the stack.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": ["arn:aws:s3:::<LOG_BUCKET_NAME>"]
-    },
-    {
-      "Effect": "Allow",
-      "Action": "s3:GetObject",
-      "Resource": ["arn:aws:s3:::<LOG_BUCKET_NAME>/*"]
-    },
-    {
-      "Effect": "Deny",
-      "Action": "s3:ListBucket",
-      "NotResource": ["arn:aws:s3:::<LOG_BUCKET_NAME>"]
-    }
-  ]
-}
-```
-
-For SSE-KMS logs, add a statement like this for each key that encrypts an approved log source. Confirm the key policy authorizes the role or enables IAM grants in its account.
-
-```json
-{
-  "Effect": "Allow",
-  "Action": "kms:Decrypt",
-  "Resource": "arn:aws:kms:<LOG_REGION>:<LOG_ACCOUNT_ID>:key/<KEY_ID>",
-  "Condition": {
-    "StringEquals": {
-      "kms:ViaService": "s3.<LOG_REGION>.amazonaws.com"
-    },
-    "StringLike": {
-      "kms:EncryptionContext:aws:s3:arn": [
-        "arn:aws:s3:::<LOG_BUCKET_NAME>",
-        "arn:aws:s3:::<LOG_BUCKET_NAME>/*"
-      ]
-    }
-  }
-}
-```
+For SSE-KMS logs, create a [KMS policy stack](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/log-archive-kms-policy.yaml) in the same account for each key. Enter its full ARN as `KeyArn`, the same `RoleName`, and only the approved `LogBucketArns` encrypted by that key. Confirm the key policy allows the role to decrypt, either directly or through permissions delegated to IAM in the key's own account. If the key belongs to a different account, its key policy must authorize the external role or its account as well.
 
 ## Connect and verify in Tracecat
 
 <Steps>
   <Step title="Save the entry role ARN">
-    Save the entry stack's `RoleArn` as `AWS_ROLE_ARN` in the `aws` credential. If you use `tools.amazon_s3`, set `AWS_ROLE_ARN` in the `amazon_s3` credential to the same ARN.
+    Save the entry stack's `RoleArn` as `AWS_ROLE_ARN` in the `aws` credential. For S3 actions or DuckDB queries against S3, set `AWS_ROLE_ARN` in the `amazon_s3` credential to the same ARN. Use role credentials with `AWS_ROLE_ARN` and leave access key fields empty.
   </Step>
   <Step title="Add AWS actions to your agent">
     Add the AWS actions to your agent's available tools. See [AI preset agent tools](/agents/ai-preset-agent#where-tools-come-from).
@@ -520,7 +175,7 @@ Verify each path you configured.
     For organization access, update the existing target role stacks to trust both entry role ARNs. Pass both ARNs as `EntryRoleArns`, or set `organization.previous_entry_role_arn` in Terraform or `organization.previousEntryRoleArn` in Pulumi when switching the audit stacks' entry role reference. Wait until the target stack instances are up to date.
   </Step>
   <Step title="Switch the credential and verify">
-    Set `AWS_ROLE_ARN` to the new stack's `RoleArn` output and repeat the verification calls. Check any workflows that still need write permissions granted by the previous role. Restore the previous ARN if a check fails.
+    Set `AWS_ROLE_ARN` to the new stack's `RoleArn` output in each credential you use and repeat the verification calls. Check any workflows that still need write permissions granted by the previous role. Restore the previous ARN if a check fails.
   </Step>
   <Step title="Retire the previous entry role">
     After verification and once the previous role has no callers, remove it from target role trust policies and retire its stack.

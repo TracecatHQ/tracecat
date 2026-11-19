@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  EntryRoleName:
+    Type: String
+    Default: TracecatSecOpsAccessRole
+  TracecatPrincipalArn:
+    Type: String
+  ExternalId:
+    Type: String
+    NoEcho: true
+  TargetRoleArns:
+    Type: CommaDelimitedList
+    Default: ''
+  EnableGuardDutyTriage:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+Conditions:
+  HasTargets: !Not [!Equals [!Join ['', !Ref TargetRoleArns], '']]
+  CanTriageGuardDuty: !Equals [!Ref EnableGuardDutyTriage, 'true']
+Resources:
+  EntryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref EntryRoleName
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref TracecatPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
+  AssumeTargetRoles:
+    Type: AWS::IAM::RolePolicy
+    Condition: HasTargets
+    Properties:
+      RoleName: !Ref EntryRole
+      PolicyName: AssumeTracecatAuditRoles
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Resource: !Ref TargetRoleArns
+  GuardDutyTriage:
+    Type: AWS::IAM::RolePolicy
+    Condition: CanTriageGuardDuty
+    Properties:
+      RoleName: !Ref EntryRole
+      PolicyName: TriageGuardDutyFindings
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - guardduty:ArchiveFindings
+              - guardduty:UnarchiveFindings
+              - guardduty:UpdateFindingsFeedback
+            Resource: '*'
+Outputs:
+  RoleArn:
+    Value: !GetAtt EntryRole.Arn

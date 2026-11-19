@@ -30,79 +30,25 @@ The manifest requests these [bot token scopes](https://docs.slack.dev/reference/
 
 Remove the `slash_commands`, `event_subscriptions`, or `interactivity` block if you don't use that feature. See the [app manifest reference](https://docs.slack.dev/reference/app-manifest).
 
-```json
-{
-  "display_information": {
-    "name": "Tracecat"
-  },
-  "features": {
-    "bot_user": {
-      "display_name": "Tracecat",
-      "always_online": true
-    },
-    "slash_commands": [
-      {
-        "command": "/tracecat",
-        "url": "https://<tracecat-host>/api/webhooks/<slash-command-workflow-id>/<webhook-secret>?echo=true&empty_echo=true",
-        "description": "Run a Tracecat workflow",
-        "usage_hint": "[text]",
-        "should_escape": false
-      }
-    ]
-  },
-  "oauth_config": {
-    "scopes": {
-      "bot": [
-        "app_mentions:read",
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "chat:write.public",
-        "commands",
-        "groups:history",
-        "groups:read",
-        "im:history",
-        "im:write",
-        "reactions:read",
-        "reactions:write",
-        "users:read",
-        "users:read.email"
-      ]
-    }
-  },
-  "settings": {
-    "event_subscriptions": {
-      "request_url": "https://<tracecat-host>/api/webhooks/<events-workflow-id>/<webhook-secret>?echo=true",
-      "bot_events": ["app_mention"]
-    },
-    "interactivity": {
-      "is_enabled": true,
-      "request_url": "https://<tracecat-host>/api/webhooks/<interactivity-workflow-id>/<webhook-secret>?echo=true&empty_echo=true"
-    },
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
-    "token_rotation_enabled": false
-  }
-}
-```
+Open the [sample Slack app manifest](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/slack/slack-app-manifest.json). In a local copy, replace each request URL with its workflow’s webhook URL and keep the matching [suffix](#slack-apps). Treat each full webhook URL as a credential.
 
 | Scope | Why |
 | --- | --- |
 | `app_mentions:read` | Receive `@Tracecat` mentions |
-| `channels:history`, `groups:history` | Read messages and threads in channels the app is in |
-| `channels:read`, `groups:read` | Look up channel names and IDs |
 | `chat:write` | Post and update messages |
-| `chat:write.public` | Post to public channels without joining |
 | `commands` | Register slash commands |
-| `im:history`, `im:write` | Read DMs to the app and open DMs with users |
-| `reactions:read`, `reactions:write` | Read and add reactions |
-| `users:read`, `users:read.email` | Look up users by ID or email |
 
 <Accordion title="Optional scopes">
 Add these only for the `tools.slack` actions you use.
 
 | Scope | Add it for |
 | --- | --- |
+| `channels:history`, `groups:history` | Reading messages and threads in channels the app is in |
+| `channels:read`, `groups:read` | Looking up channel names and IDs |
+| `chat:write.public` | Posting to public channels without joining |
+| `im:history`, `im:write` | Reading DMs to the app and opening DMs with users |
+| `reactions:read`, `reactions:write` | Reading and adding reactions |
+| `users:read`, `users:read.email` | Looking up users by ID or email |
 | `channels:manage`, `groups:write` | Creating, archiving, or managing channel members |
 | `channels:join` | Joining public channels without an invite |
 | `pins:read`, `pins:write` | Listing and adding pins |
@@ -121,7 +67,7 @@ Before you start, publish each workflow, copy its webhook URL (`https://<traceca
 
 <Steps>
   <Step title="Create the app from a manifest">
-    Open [Slack apps](https://api.slack.com/apps), click `Create New App` > `From a manifest`, pick your workspace, and paste the [manifest](#app-manifest-and-scopes) above with your webhook URLs.
+    Open [Slack apps](https://api.slack.com/apps), click `Create New App` > `From a manifest`, pick your workspace, and select **JSON**, and paste your configured [manifest](#app-manifest-and-scopes).
   </Step>
   <Step title="Install the app">
     Open `Install App` (`/apps/<app-id>/install-on-team`) and click `Install to Workspace`.
