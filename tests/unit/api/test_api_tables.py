@@ -20,6 +20,7 @@ from tracecat.tables import internal_router as internal_tables_router
 from tracecat.tables import router as tables_router
 from tracecat.tables.enums import SqlType
 from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.importer import CSVImporter
 
 
 @pytest.fixture
@@ -470,12 +471,21 @@ async def test_import_table_from_csv_resolves_folder_path(
 
 
 @pytest.mark.anyio
-async def test_csv_import_conflict_reports_rows_already_imported(
+@pytest.mark.parametrize(
+    "error",
+    [
+        TableRowError("write_conflict", "The write conflicted."),
+        TableRowError("invalid_value", "Bad value.", column="name"),
+    ],
+    ids=lambda error: error.code,
+)
+async def test_csv_import_error_reports_rows_already_imported(
     client: TestClient,
     test_admin_role: Role,
     mock_table: Table,
+    error: TableRowError,
 ) -> None:
-    """Earlier chunks commit, so the conflict must not advise retrying the file."""
+    """Earlier chunks commit, so a later row error must say what was saved."""
     mock_table.columns = [
         TableColumn(
             id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeee1"),
@@ -486,14 +496,12 @@ async def test_csv_import_conflict_reports_rows_already_imported(
             default=None,
         )
     ]
-    rows = "".join(f"row{n}\n" for n in range(1001))
+    chunk = CSVImporter([]).chunk_size
+    rows = "".join(f"row{n}\n" for n in range(chunk + 1))
     with patch.object(tables_router, "TablesService") as service_type:
         service = AsyncMock()
         service.get_table.return_value = mock_table
-        service.batch_insert_rows.side_effect = [
-            1000,
-            TableRowError("write_conflict", "The write conflicted."),
-        ]
+        service.batch_insert_rows.side_effect = [chunk, error]
         service_type.return_value = service
         response = client.post(
             f"/tables/{mock_table.id}/import",
@@ -502,12 +510,11 @@ async def test_csv_import_conflict_reports_rows_already_imported(
             data={"column_mapping": orjson.dumps({"name": "name"}).decode()},
         )
 
-    assert response.status_code == status.HTTP_409_CONFLICT
     assert response.json()["detail"] == {
-        "code": "write_conflict",
-        "column": None,
-        "message": "1000 rows were imported before the write conflicted with a "
-        "concurrent write. Import only the remaining rows.",
+        "code": error.code,
+        "column": error.detail["column"],
+        "message": f"{chunk} rows were imported before this error. "
+        f"{error.detail['message']} Import only the remaining rows.",
     }
 
 

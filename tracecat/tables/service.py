@@ -258,8 +258,7 @@ async def _execute_row_write[T](
             if isinstance(cause, DeadlockDetectedError):
                 error = TableRowError(
                     "write_conflict",
-                    "The write conflicted with a concurrent write. Nothing from "
-                    "this request was saved, so it can be retried.",
+                    "The write conflicted with a concurrent write. Retry it.",
                 )
                 break
             if isinstance(cause, DataError):

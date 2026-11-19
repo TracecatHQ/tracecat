@@ -35,7 +35,7 @@ class TableRowError(TracecatException):
         *,
         column: str | None = None,
     ) -> None:
-        self.code = code
+        self.code: TableRowErrorCode = code
         detail: TableRowErrorDetail = {
             "code": code,
             "column": column,
