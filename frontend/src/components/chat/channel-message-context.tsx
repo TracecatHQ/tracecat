@@ -39,6 +39,7 @@ export function ChannelMessageContext({
         <EarlierThread
           messages={thread.messages}
           olderOmitted={thread.older_omitted ?? false}
+          laterOmitted={thread.later_omitted ?? false}
         />
       )}
     </div>
@@ -78,9 +79,11 @@ function QuotedMessage({ quoted }: { quoted: QuotedMessageData }) {
 function EarlierThread({
   messages,
   olderOmitted,
+  laterOmitted,
 }: {
   messages: EarlierThreadMessage[]
   olderOmitted: boolean
+  laterOmitted: boolean
 }) {
   return (
     <Collapsible>
@@ -103,6 +106,11 @@ function EarlierThread({
           {olderOmitted && (
             <p className="text-xs text-muted-foreground">
               Older replies not shown
+            </p>
+          )}
+          {laterOmitted && (
+            <p className="text-xs text-muted-foreground">
+              Later replies not shown
             </p>
           )}
         </div>

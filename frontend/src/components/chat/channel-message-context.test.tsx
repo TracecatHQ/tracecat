@@ -15,7 +15,7 @@ const MESSAGE: ChannelMessageData = {
       { author: "alice", is_bot: false, text: "on it" },
     ],
     older_omitted: true,
-    later_omitted: false,
+    later_omitted: true,
   },
   quoted: [
     {
@@ -61,6 +61,7 @@ describe("ChannelMessageContext", () => {
     fireEvent.click(screen.getByText(/Earlier thread · 2 messages/))
     expect(screen.getByText("Triggered: db-1 disk")).toBeInTheDocument()
     expect(screen.getByText("Older replies not shown")).toBeInTheDocument()
+    expect(screen.getByText("Later replies not shown")).toBeInTheDocument()
   })
 })
 

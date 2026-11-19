@@ -135,7 +135,7 @@ class ChannelMessage(BaseModel):
         return None if message is None else message.summary_text()
 
     def summary_text(self) -> str:
-        """What the sender asked, or the first forward when they only forwarded."""
+        """What the sender asked, or the first quoted message when they only quoted."""
         if self.text.strip():
             return self.text
         return self.quoted[0].text if self.quoted else ""
