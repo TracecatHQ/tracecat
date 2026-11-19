@@ -106,12 +106,12 @@ async def handle_channel_link_callback(
         return _link_page(sign_in, ChannelLinkError.SIGNED_OUT)
     try:
         # These routes take the user, not an org role, so the org check runs here.
-        await enforce_org_ip_allowlist(
-            sign_in.claims.organization_id, bypass=user.is_superuser
-        )
-    except HTTPException:
-        return _link_page(sign_in, ChannelLinkError.BLOCKED_NETWORK)
-    try:
+        try:
+            await enforce_org_ip_allowlist(
+                sign_in.claims.organization_id, bypass=user.is_superuser
+            )
+        except HTTPException:
+            return _link_page(sign_in, ChannelLinkError.BLOCKED_NETWORK)
         async with get_async_session_tenant_context_manager(
             workspace_id=sign_in.claims.workspace_id
         ) as session:
