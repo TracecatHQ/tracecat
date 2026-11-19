@@ -21,6 +21,8 @@ def test_every_part_of_a_short_id_keeps_the_short_id_condition() -> None:
         for end in range(start + 1, len(short_id) + 1)
     }
     assert [part for part in sorted(parts) if not _may_occur_in_short_id(part)] == []
+    # And each one keeps the formatted short-ID condition in the predicate.
+    assert [part for part in sorted(parts) if "concat(" not in _sql(part)] == []
 
 
 @pytest.mark.parametrize(
