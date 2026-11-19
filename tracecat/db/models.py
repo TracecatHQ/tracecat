@@ -4959,6 +4959,8 @@ class AgentChannelUser(TimestampMixin, Base):
         UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
     )
     link_method: Mapped[ChannelLinkMethod] = mapped_column(String(16), nullable=False)
+    # Display only; authority never reads it.
+    provider_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     linked_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )

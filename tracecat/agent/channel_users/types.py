@@ -16,6 +16,16 @@ class ChannelIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderSignIn:
+    """The provider user who signed in, with the email the provider reported.
+
+    Wraps `ChannelIdentity` so identity equality stays exact."""
+
+    identity: ChannelIdentity
+    email: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ChannelSenderEvidence(ChannelIdentity):
     """What the provider says about a sender; email counts only when it qualifies."""
 

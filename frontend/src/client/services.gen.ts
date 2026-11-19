@@ -199,14 +199,12 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
-  AgentChannelUsersConfirmChannelLinkData,
-  AgentChannelUsersConfirmChannelLinkResponse,
-  AgentChannelUsersGetChannelLinkData,
-  AgentChannelUsersGetChannelLinkResponse,
   AgentChannelUsersListMyChannelUsersData,
   AgentChannelUsersListMyChannelUsersResponse,
   AgentChannelUsersListOrganizationChannelUsersData,
   AgentChannelUsersListOrganizationChannelUsersResponse,
+  AgentChannelUsersStartChannelLinkSignInData,
+  AgentChannelUsersStartChannelLinkSignInResponse,
   AgentChannelUsersUnlinkMyChannelUserData,
   AgentChannelUsersUnlinkMyChannelUserResponse,
   AgentChannelUsersUnlinkOrganizationChannelUserData,
@@ -1551,42 +1549,19 @@ export const publicHandleSlackOauthCallback = (
 }
 
 /**
- * Get Channel Link
- * What linking this token would do, for the signed-in org member.
- * @param data The data for the request.
- * @param data.token
- * @returns ChannelLinkDetails Successful Response
- * @throws ApiError
- */
-export const agentChannelUsersGetChannelLink = (
-  data: AgentChannelUsersGetChannelLinkData
-): CancelablePromise<AgentChannelUsersGetChannelLinkResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/agent/channel-links/{token}",
-    path: {
-      token: data.token,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Confirm Channel Link
+ * Start Channel Link Sign In
  * Start the provider sign-in that proves the sender is this user.
  * @param data The data for the request.
  * @param data.token
  * @returns ChannelLinkSignInRead Successful Response
  * @throws ApiError
  */
-export const agentChannelUsersConfirmChannelLink = (
-  data: AgentChannelUsersConfirmChannelLinkData
-): CancelablePromise<AgentChannelUsersConfirmChannelLinkResponse> => {
+export const agentChannelUsersStartChannelLinkSignIn = (
+  data: AgentChannelUsersStartChannelLinkSignInData
+): CancelablePromise<AgentChannelUsersStartChannelLinkSignInResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/agent/channel-links/{token}/confirm",
+    url: "/agent/channel-links/{token}/sign-in",
     path: {
       token: data.token,
     },

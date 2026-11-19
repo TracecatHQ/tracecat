@@ -588,6 +588,7 @@ export type AgentChannelUserRead = {
   provider_user_id: string
   user_id: string | null
   link_method: ChannelLinkMethod
+  provider_email: string | null
   linked_at: string
 }
 
@@ -3982,18 +3983,6 @@ export type ChannelBotStatus =
  * How a bot's events arrive: posted to our endpoint, or read from a provider socket.
  */
 export type ChannelBotTransport = "http" | "socket"
-
-/**
- * What the confirm page shows before linking.
- */
-export type ChannelLinkDetails = {
-  provider: string
-  provider_tenant_id: string
-  provider_user_id: string
-  organization_name: string
-  user_email: string
-  expires_at: string
-}
 
 /**
  * How a channel sender was linked to a Tracecat user.
@@ -15674,17 +15663,12 @@ export type PublicHandleSlackOauthCallbackData = {
 
 export type PublicHandleSlackOauthCallbackResponse = unknown
 
-export type AgentChannelUsersGetChannelLinkData = {
+export type AgentChannelUsersStartChannelLinkSignInData = {
   token: string
 }
 
-export type AgentChannelUsersGetChannelLinkResponse = ChannelLinkDetails
-
-export type AgentChannelUsersConfirmChannelLinkData = {
-  token: string
-}
-
-export type AgentChannelUsersConfirmChannelLinkResponse = ChannelLinkSignInRead
+export type AgentChannelUsersStartChannelLinkSignInResponse =
+  ChannelLinkSignInRead
 
 export type AgentChannelUsersListMyChannelUsersData = {
   cursor?: string | null
@@ -21215,24 +21199,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channel-links/{token}": {
-    get: {
-      req: AgentChannelUsersGetChannelLinkData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ChannelLinkDetails
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/channel-links/{token}/confirm": {
+  "/agent/channel-links/{token}/sign-in": {
     post: {
-      req: AgentChannelUsersConfirmChannelLinkData
+      req: AgentChannelUsersStartChannelLinkSignInData
       res: {
         /**
          * Successful Response

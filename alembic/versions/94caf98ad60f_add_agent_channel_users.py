@@ -33,6 +33,7 @@ def upgrade() -> None:
         sa.Column("provider_user_id", sa.String(length=255), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=True),
         sa.Column("link_method", sa.String(length=16), nullable=False),
+        sa.Column("provider_email", sa.String(length=320), nullable=True),
         sa.Column(
             "linked_at",
             sa.TIMESTAMP(timezone=True),

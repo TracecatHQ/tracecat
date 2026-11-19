@@ -31,7 +31,6 @@ from tracecat.agent.channel_users.service import (
     ChannelLinkRequired,
     check_channel_access,
     complete_channel_link,
-    read_link_details,
     resolve_channel_actor,
     start_provider_sign_in,
     unlink_channel_user,
@@ -43,7 +42,11 @@ from tracecat.agent.channel_users.tokens import (
     read_link_token,
     read_sign_in_state,
 )
-from tracecat.agent.channel_users.types import ChannelIdentity, ChannelSenderEvidence
+from tracecat.agent.channel_users.types import (
+    ChannelIdentity,
+    ChannelSenderEvidence,
+    ProviderSignIn,
+)
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,
@@ -319,6 +322,7 @@ async def test_email_match_stores_an_email_link(
         select(AgentChannelUser).where(AgentChannelUser.provider_user_id == "U1")
     )
     assert link is not None and link.link_method == ChannelLinkMethod.EMAIL
+    assert link.provider_email == user.email.upper()
 
 
 @pytest.mark.parametrize(
@@ -414,7 +418,7 @@ class _SignedInAs:
         self.identity = identity
 
     async def verify_provider_sign_in(self, *args: object, **kwargs: object):
-        return self.identity
+        return ProviderSignIn(self.identity, email="signed-in@example.com")
 
 
 def _sign_in(org: _Org, provider_user_id: str, user: User) -> str:
@@ -446,11 +450,13 @@ async def test_challenge_links_once_and_replaces_an_email_link(
         session, organization_id=org.organization_id, evidence=_evidence("U6")
     )
     assert actor.user_id == user.id
+    link = await session.scalar(
+        select(AgentChannelUser).where(AgentChannelUser.provider_user_id == "U6")
+    )
+    assert link is not None and link.provider_email == "signed-in@example.com"
     with pytest.raises(ChannelLinkInvalid, match="already used"):
         await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
     # A used link never reaches the provider again.
-    with pytest.raises(ChannelLinkInvalid, match="already used"):
-        await read_link_details(session, claims=sign_in.claims, user_id=user.id)
     with pytest.raises(ChannelLinkInvalid, match="already used"):
         await start_provider_sign_in(
             session, link_token=sign_in.link_token, user_id=user.id
@@ -621,15 +627,48 @@ async def test_callback_redirects_a_cancel_or_signed_out_browser_to_the_page(
 
     assert _redirect_query(cancelled) == (
         f"/channel-links/{token}",
-        {"result": ["error"], "error": ["cancelled"]},
+        {
+            "result": ["error"],
+            "error": ["cancelled"],
+            "provider": [PROVIDER],
+            "tenant": [TENANT],
+        },
     )
     assert _redirect_query(signed_out)[1] == {
         "result": ["error"],
         "error": ["signed_out"],
+        "provider": [PROVIDER],
+        "tenant": [TENANT],
     }
     assert _redirect_query(unreadable) == (
         "/channel-links/invalid",
         {"result": ["error"], "error": ["invalid"]},
+    )
+
+
+async def test_callback_names_the_provider_and_tenant_on_success(
+    org: _Org, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", APP_URL)
+    user = await _user(session, org)
+    state = _sign_in(org, "U11", user)
+    token = read_sign_in_state(state).link_token
+
+    async def _linked(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(channel_users_router, "complete_channel_link", _linked)
+    linked = await channel_users_router.handle_channel_link_callback(
+        user=user, state=state, code="c"
+    )
+
+    assert _redirect_query(linked) == (
+        f"/channel-links/{token}",
+        {
+            "result": ["linked"],
+            "provider": [PROVIDER],
+            "tenant": [TENANT],
+        },
     )
 
 

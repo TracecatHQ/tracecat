@@ -1907,6 +1907,17 @@ export const $AgentChannelUserRead = {
     link_method: {
       $ref: "#/components/schemas/ChannelLinkMethod",
     },
+    provider_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Email",
+    },
     linked_at: {
       type: "string",
       format: "date-time",
@@ -1921,6 +1932,7 @@ export const $AgentChannelUserRead = {
     "provider_user_id",
     "user_id",
     "link_method",
+    "provider_email",
     "linked_at",
   ],
   title: "AgentChannelUserRead",
@@ -14784,47 +14796,6 @@ export const $ChannelBotTransport = {
   title: "ChannelBotTransport",
   description:
     "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
-} as const
-
-export const $ChannelLinkDetails = {
-  properties: {
-    provider: {
-      type: "string",
-      title: "Provider",
-    },
-    provider_tenant_id: {
-      type: "string",
-      title: "Provider Tenant Id",
-    },
-    provider_user_id: {
-      type: "string",
-      title: "Provider User Id",
-    },
-    organization_name: {
-      type: "string",
-      title: "Organization Name",
-    },
-    user_email: {
-      type: "string",
-      title: "User Email",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-  },
-  type: "object",
-  required: [
-    "provider",
-    "provider_tenant_id",
-    "provider_user_id",
-    "organization_name",
-    "user_email",
-    "expires_at",
-  ],
-  title: "ChannelLinkDetails",
-  description: "What the confirm page shows before linking.",
 } as const
 
 export const $ChannelLinkMethod = {

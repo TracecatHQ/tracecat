@@ -6,6 +6,7 @@ export type SettingsSection =
   | "profile"
   | "appearance"
   | "security"
+  | "linked-accounts"
   | "workspace-general"
   | "workspace-runtime"
   | "workspace-cases"

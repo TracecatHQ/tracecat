@@ -14,19 +14,18 @@ from tracecat.agent.channel_users.schemas import (
     CHANNEL_LINK_CALLBACK_ROUTE,
     CHANNEL_LINKS_PREFIX,
     AgentChannelUserRead,
-    ChannelLinkDetails,
     ChannelLinkSignInRead,
     channel_link_page_url,
 )
 from tracecat.agent.channel_users.service import (
     complete_channel_link,
     list_channel_users,
-    read_link_details,
     start_provider_sign_in,
     unlink_channel_user,
 )
 from tracecat.agent.channel_users.tokens import (
     ChannelLinkInvalid,
+    ChannelLinkSignIn,
     read_link_token,
     read_sign_in_state,
 )
@@ -71,13 +70,16 @@ def _not_found() -> HTTPException:
 
 
 def _link_page(
-    link_token: str | None, error: ChannelLinkError | None
+    sign_in: ChannelLinkSignIn | None, error: ChannelLinkError | None
 ) -> RedirectResponse:
-    query = (
+    query: dict[str, str] = (
         {"result": "linked"} if error is None else {"result": "error", "error": error}
     )
+    if sign_in is not None:
+        identity = sign_in.claims.identity
+        query |= {"provider": identity.provider, "tenant": identity.provider_tenant_id}
     # An unreadable state has no token; the page shows the error without fetching.
-    page_url = channel_link_page_url(link_token or "invalid")
+    page_url = channel_link_page_url(sign_in.link_token if sign_in else "invalid")
     return RedirectResponse(f"{page_url}?{urlencode(query)}")
 
 
@@ -92,15 +94,15 @@ async def handle_channel_link_callback(
     code: str | None = None,
     error: str | None = None,
 ) -> RedirectResponse:
-    """The provider's return after sign-in: link, then back to the confirm page."""
+    """The provider's return after sign-in: link, then back to the link page."""
     try:
         sign_in = read_sign_in_state(state or "")
     except ChannelLinkInvalid as exc:
         return _link_page(None, exc.error)
     if error is not None or code is None:
-        return _link_page(sign_in.link_token, ChannelLinkError.CANCELLED)
+        return _link_page(sign_in, ChannelLinkError.CANCELLED)
     if user is None:
-        return _link_page(sign_in.link_token, ChannelLinkError.SIGNED_OUT)
+        return _link_page(sign_in, ChannelLinkError.SIGNED_OUT)
     try:
         async with get_async_session_tenant_context_manager(
             workspace_id=sign_in.claims.workspace_id
@@ -109,31 +111,18 @@ async def handle_channel_link_callback(
                 session, sign_in=sign_in, code=code, user_id=user.id
             )
     except ChannelLinkInvalid as exc:
-        return _link_page(sign_in.link_token, exc.error)
+        return _link_page(sign_in, exc.error)
     except (TracecatValidationError, EntitlementRequired):
-        return _link_page(sign_in.link_token, ChannelLinkError.FAILED)
+        return _link_page(sign_in, ChannelLinkError.FAILED)
     except Exception as exc:
         # The error can carry the sign-in code or provider response.
         logger.error("Channel link sign-in failed", error_type=type(exc).__name__)
-        return _link_page(sign_in.link_token, ChannelLinkError.FAILED)
-    return _link_page(sign_in.link_token, None)
+        return _link_page(sign_in, ChannelLinkError.FAILED)
+    return _link_page(sign_in, None)
 
 
-@link_router.get("/{token}", response_model=ChannelLinkDetails)
-async def get_channel_link(*, user: CurrentUser, token: str) -> ChannelLinkDetails:
-    """What linking this token would do, for the signed-in org member."""
-    try:
-        claims = read_link_token(token)
-        async with get_async_session_tenant_context_manager(
-            workspace_id=claims.workspace_id
-        ) as session:
-            return await read_link_details(session, claims=claims, user_id=user.id)
-    except ChannelLinkInvalid as exc:
-        raise _bad_request(exc) from exc
-
-
-@link_router.post("/{token}/confirm", response_model=ChannelLinkSignInRead)
-async def confirm_channel_link(
+@link_router.post("/{token}/sign-in", response_model=ChannelLinkSignInRead)
+async def start_channel_link_sign_in(
     *, user: CurrentUser, token: str
 ) -> ChannelLinkSignInRead:
     """Start the provider sign-in that proves the sender is this user."""
