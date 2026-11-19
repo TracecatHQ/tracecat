@@ -5,7 +5,6 @@ import {
   type EmbeddingConfigurationRead,
   searchGetEmbeddingConfiguration,
   type TableSearchConfiguration,
-  type TableSearchErrorResponse,
   tablesGetTableSearch,
   tablesRetryTableSearch,
   tablesSelectTableSearchColumn,
@@ -13,6 +12,7 @@ import {
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { getApiErrorCode } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /** Shared cache prefix for selection, status and bounded progress. */
@@ -92,12 +92,13 @@ export function useTableSearch(workspaceId: string, tableId: string) {
     ])
   }
   function mutationError(error: ApiError) {
-    const detail = (error.body as TableSearchErrorResponse | undefined)?.detail
-    if (detail?.retryable) {
-      // The table had writes in progress and the change gave up waiting.
+    if (getApiErrorCode(error) === "SOURCE_BUSY") {
+      // Writes were in progress and the change gave up waiting. Nothing
+      // changed, so the settings don't need a refresh.
       toast({
-        title: "Table is busy",
-        description: "Rows are being written to this table. Try again shortly.",
+        title: "Search settings are busy",
+        description:
+          "Other changes are in progress in this workspace. Try again shortly.",
         variant: "destructive",
       })
       return

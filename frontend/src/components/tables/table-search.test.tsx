@@ -522,17 +522,19 @@ test("conflicts refresh and preserve confirmed selection without a success toast
   ).toBeEnabled()
 })
 
-test("a busy table asks to try again without refreshing settings", async () => {
-  jest.mocked(tablesSelectTableSearchColumn).mockRejectedValue({
-    status: 409,
-    body: { detail: { code: "SOURCE_BUSY", retryable: true } },
-  })
+test("busy search settings ask to try again without refreshing", async () => {
+  jest.mocked(tablesSelectTableSearchColumn).mockRejectedValue(
+    Object.assign(new Error("busy"), {
+      status: 409,
+      body: { detail: { code: "SOURCE_BUSY" } },
+    })
+  )
   setup(menus())
   const dialog = await chooseSearchItem(ENABLE)
   fireEvent.click(within(dialog).getByRole("button", { name: ENABLE }))
   await waitFor(() =>
     expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Table is busy" })
+      expect.objectContaining({ title: "Search settings are busy" })
     )
   )
   expect(toast).toHaveBeenCalledTimes(1)

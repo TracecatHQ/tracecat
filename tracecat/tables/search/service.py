@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 import sqlalchemy as sa
-from asyncpg.exceptions import LockNotAvailableError
+from asyncpg.exceptions import DeadlockDetectedError, LockNotAvailableError
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import aliased, selectinload
 
@@ -47,8 +47,8 @@ from tracecat.tables.search.schemas import (
     TableSearchSelection,
 )
 
-# How long a selection change waits for a lock before giving up. A waiting
-# exclusive lock holds back every new row writer behind it.
+# How long a selection change waits for a lock before giving up. While it
+# waits, Postgres queues every later row writer behind it, so keep it short.
 SELECTION_LOCK_TIMEOUT = "5s"
 
 
@@ -98,12 +98,15 @@ class TableSearchService(SearchStorage):
     ) -> SearchCollection | None:
         """Apply an idempotent selection change with optimistic concurrency.
 
-        Each lock wait is bounded, so a busy table makes this fail fast instead
-        of holding back the workspace's row writers.
+        Each lock wait is bounded: the workspace lock, held shared by writers
+        to any table in the workspace, and this table's lock. So a busy
+        workspace makes this fail fast instead of holding back its row writers.
 
         Raises:
-            SearchError: SOURCE_BUSY if a lock wasn't granted in time. The
-                transaction is aborted and the caller can retry it.
+            SearchError: SOURCE_BUSY if a lock wasn't granted in time or the
+                wait deadlocked. The transaction is aborted and the caller can
+                retry it. On any error the lock timeout stays set for the rest
+                of the transaction, so callers must roll it back.
         """
         await self.session.execute(
             sa.text(f"SET LOCAL lock_timeout = '{SELECTION_LOCK_TIMEOUT}'")
@@ -111,14 +114,13 @@ class TableSearchService(SearchStorage):
         try:
             collection = await self._select_column(table_id, params)
         except DBAPIError as exc:
-            if find_db_error(exc, LockNotAvailableError) is None:
-                raise
-            busy = SearchError(SearchErrorCode.SOURCE_BUSY)
-        else:
-            await self.session.execute(sa.text("SET LOCAL lock_timeout TO DEFAULT"))
-            return collection
-        # Raise outside the handler so the database error is not chained.
-        raise busy
+            timed_out = find_db_error(exc, LockNotAvailableError) is not None
+            deadlocked = find_db_error(exc, DeadlockDetectedError) is not None
+            if timed_out or deadlocked:
+                raise SearchError(SearchErrorCode.SOURCE_BUSY) from exc
+            raise
+        await self.session.execute(sa.text("SET LOCAL lock_timeout TO DEFAULT"))
+        return collection
 
     async def _select_column(
         self, table_id: UUID, params: TableSearchSelection
@@ -170,14 +172,13 @@ class TableSearchService(SearchStorage):
         takes, and not with reads. So no row write to this table can commit
         between a selection change and the backfill it schedules.
         """
-        schema = f"tables_{WorkspaceUUID.new(self.scope.workspace_id).short()}"
-        name = sanitize_identifier(table.name)
-        await self.session.execute(
-            sa.text(
-                f"LOCK TABLE {quote_identifier(schema)}.{quote_identifier(name)}"
-                " IN SHARE MODE"
-            )
-        )
+        schema = quote_identifier(self.source_schema())
+        name = quote_identifier(sanitize_identifier(table.name))
+        await self.session.execute(sa.text(f"LOCK TABLE {schema}.{name} IN SHARE MODE"))
+
+    def source_schema(self) -> str:
+        """Name the schema that holds this workspace's source tables."""
+        return f"tables_{WorkspaceUUID.new(self.scope.workspace_id).short()}"
 
     async def record_rows(
         self,

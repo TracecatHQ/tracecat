@@ -48,10 +48,6 @@ class TableSearchErrorRead(BaseModel):
     """Safe domain failure, including a stale generation precondition."""
 
     code: SearchErrorCode | Literal["INVALID_SELECTION"]
-    retryable: bool = Field(
-        default=False,
-        description="Whether the same request can succeed if sent again.",
-    )
 
 
 class TableSearchDocumentProgress(BaseModel):

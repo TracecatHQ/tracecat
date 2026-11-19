@@ -12564,10 +12564,6 @@ export type TableSearchDocumentProgress = {
  */
 export type TableSearchErrorRead = {
   code: SearchErrorCode | "INVALID_SELECTION"
-  /**
-   * Whether the same request can succeed if sent again.
-   */
-  retryable?: boolean
 }
 
 export type TableSearchErrorResponse = {

@@ -2181,8 +2181,9 @@ class BaseTablesService(BaseWorkspaceService):
                 if row_id not in existing_ids or row_id in changed_ids
             )
 
-        # Record rows once, after every source write, so marking them for search
-        # is the batch's last step.
+        # Record rows once, after every source write. That holds the search
+        # document row locks for the shortest time, and it is the order writers
+        # need once they stop taking the workspace lock: write, then record.
         await self.search.record_rows(collection, recorded)
         # Flush once at the end to ensure changes are persisted within the transaction.
         await self.session.flush()

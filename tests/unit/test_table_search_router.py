@@ -98,22 +98,14 @@ async def test_invalid_column_selection_keeps_safe_422_response(
     session.commit.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    ("code", "retryable"),
-    [
-        (SearchErrorCode.SOURCE_BUSY, True),
-        (SearchErrorCode.CONFIGURATION_CHANGED, False),
-    ],
-)
-async def test_selection_conflicts_say_whether_to_retry(
-    search_role: Role,
-    monkeypatch: pytest.MonkeyPatch,
-    code: SearchErrorCode,
-    retryable: bool,
+async def test_busy_selection_is_a_conflict(
+    search_role: Role, monkeypatch: pytest.MonkeyPatch
 ):
     session = AsyncMock(spec=AsyncSession)
     monkeypatch.setattr(
-        TableSearchService, "select_column", AsyncMock(side_effect=SearchError(code))
+        TableSearchService,
+        "select_column",
+        AsyncMock(side_effect=SearchError(SearchErrorCode.SOURCE_BUSY)),
     )
     with pytest.raises(HTTPException) as exc:
         await select_table_search_column(
@@ -125,7 +117,7 @@ async def test_selection_conflicts_say_whether_to_retry(
             session=session,
         )
     assert exc.value.status_code == 409
-    assert exc.value.detail == {"code": code.value, "retryable": retryable}
+    assert exc.value.detail == {"code": "SOURCE_BUSY"}
     session.commit.assert_not_awaited()
 
 

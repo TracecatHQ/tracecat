@@ -6,7 +6,6 @@ from uuid import UUID
 import sqlalchemy as sa
 
 from tracecat.db.models import SearchDocument, Table, TableColumn
-from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.search.chunking_types import ChunkingIdentity, SourceSlice
 from tracecat.search.types import SearchError, SearchErrorCode
 from tracecat.tables.common import sanitize_identifier
@@ -37,7 +36,7 @@ class TableSearchSource(TableSearchService):
             sa.column("id", sa.UUID),
             sa.column("__tc_workspace_id", sa.UUID),
             *[sa.column(sanitize_identifier(c.name), sa.Text) for c in columns],
-            schema=f"tables_{WorkspaceUUID.new(self.scope.workspace_id).short()}",
+            schema=self.source_schema(),
         )
 
     async def scan_rows(

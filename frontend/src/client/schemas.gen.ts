@@ -41121,12 +41121,6 @@ export const $TableSearchErrorRead = {
       ],
       title: "Code",
     },
-    retryable: {
-      type: "boolean",
-      title: "Retryable",
-      description: "Whether the same request can succeed if sent again.",
-      default: false,
-    },
   },
   type: "object",
   required: ["code"],

@@ -44,10 +44,7 @@ router = APIRouter(
 def search_http_error(exc: SearchError) -> HTTPException:
     """Translate safe domain codes without catching unrelated route failures."""
     status = 404 if exc.code == SearchErrorCode.NOT_FOUND else 409
-    retryable = exc.code == SearchErrorCode.SOURCE_BUSY
-    return HTTPException(
-        status, detail={"code": exc.code.value, "retryable": retryable}
-    )
+    return HTTPException(status, detail={"code": exc.code.value})
 
 
 @router.get("")

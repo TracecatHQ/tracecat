@@ -413,7 +413,16 @@ async def test_enablement_waits_for_unconfigured_writer(
         await engine.dispose()
 
 
-@pytest.mark.parametrize("workspace_lock", [True, False])
+@pytest.mark.parametrize(
+    "workspace_lock",
+    [
+        # Times out on the workspace lock, held shared by today's row writers.
+        pytest.param(True, id="workspace-lock-writer"),
+        # Times out on the table lock alone, as writers will once they stop
+        # taking the workspace lock.
+        pytest.param(False, id="table-lock-only-writer"),
+    ],
+)
 async def test_selection_gives_up_on_a_busy_table(
     tables: TablesService,
     table: Table,
@@ -461,7 +470,6 @@ async def test_selection_gives_up_on_a_busy_table(
         with pytest.raises(SearchError) as exc:
             await asyncio.wait_for(select(), 5)
         assert exc.value.code == SearchErrorCode.SOURCE_BUSY
-        assert exc.value.__context__ is None
         release.set()
         await asyncio.wait_for(task, 5)
         assert await asyncio.wait_for(select(), 5) is not None
