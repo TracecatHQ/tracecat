@@ -12,8 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.db.engine import get_async_cancel_engine
 from tracecat.logger import logger
 
-# How long one cancel request may take, including opening its connection.
-_CANCEL_TIMEOUT_SECONDS = 5
 # How long to wait for the work to end before cancelling again.
 _RECANCEL_SECONDS = 1
 
@@ -56,8 +54,11 @@ async def cancel_statement_on_cancellation[T](
         # cancelled again, so the cleanup is shielded.
         with anyio.CancelScope(shield=True):
             while not task.done():
-                with anyio.move_on_after(_CANCEL_TIMEOUT_SECONDS):
-                    await _cancel_backend(pid)
+                # Not time-bounded on purpose: a cancel abandoned in flight
+                # could reach the backend after this session released it to
+                # another request. The session holds its connection until this
+                # returns, so a completed cancel only ever hits this search.
+                await _cancel_backend(pid)
                 await asyncio.wait({task}, timeout=_RECANCEL_SECONDS)
         # The work's own error (usually the cancelled statement) is dropped in
         # favour of the cancellation; reading it keeps asyncio from logging it.
