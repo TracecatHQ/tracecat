@@ -1,0 +1,18 @@
+docs/cheatsheets/connection-guides/connect-to-aws.mdx
+  h_5f9670feebc95f 9,85,88,91,112,114,160,163
+examples/connections/aws/README.md
+  h_5f9670feebc95f 3,11-12,39,41
+examples/connections/aws/terraform/main.tf
+  h_5f9670feebc95f 74,94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8d8d64ac2f6334329b9340c96f6e2ab1fdde811e",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
