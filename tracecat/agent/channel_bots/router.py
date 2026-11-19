@@ -227,7 +227,7 @@ async def install_platform_bot(
 async def get_bot_app_manifest(
     *,
     bot_id: uuid.UUID,
-    app_name: Annotated[str, Query(min_length=1, max_length=255)],
+    app_name: Annotated[str, Query(min_length=1, max_length=255, pattern=r"\S")],
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     admin: Admin,

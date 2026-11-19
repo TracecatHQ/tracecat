@@ -638,7 +638,9 @@ def test_a_bots_app_manifest_comes_from_the_admin_as_is(
     )
 
 
-@pytest.mark.parametrize("params", [{}, {"app_name": ""}, {"app_name": "x" * 256}])
+@pytest.mark.parametrize(
+    "params", [{}, {"app_name": ""}, {"app_name": "   "}, {"app_name": "x" * 256}]
+)
 def test_an_app_manifest_needs_a_name(
     client: TestClient, admin: AsyncMock, params: dict[str, str]
 ) -> None:
