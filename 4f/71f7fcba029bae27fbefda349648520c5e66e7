@@ -1,0 +1,40 @@
+docs/cheatsheets/connection-guides/connect-to-aws.mdx
+  h_5f9670feebc95f 6-10,27,29,31-39,41-46,49-70,73,76-78,85,88,90-91,99-100,102-103,111-112,114-115,124,126,132,178
+docs/cheatsheets/connection-guides/connect-to-slack.mdx
+  h_5f9670feebc95f 33,46-51,70
+examples/connections/aws/README.md
+  h_5f9670feebc95f 1-66
+examples/connections/aws/cloudformation/audit-role.yaml
+  h_5f9670feebc95f 1-19
+examples/connections/aws/cloudformation/entry-role.yaml
+  h_5f9670feebc95f 1-68
+examples/connections/aws/cloudformation/log-archive-kms-policy.yaml
+  h_5f9670feebc95f 1-36
+examples/connections/aws/cloudformation/log-archive-policy.yaml
+  h_5f9670feebc95f 1-38
+examples/connections/aws/pulumi/Pulumi.yaml
+  h_5f9670feebc95f 1-2
+examples/connections/aws/pulumi/index.ts
+  h_5f9670feebc95f 1-82
+examples/connections/aws/pulumi/package.json
+  h_5f9670feebc95f 1-13
+examples/connections/aws/pulumi/tsconfig.json
+  h_5f9670feebc95f 1-9
+examples/connections/aws/terraform/main.tf
+  h_5f9670feebc95f 1-145
+examples/connections/slack/README.md
+  h_5f9670feebc95f 1-9
+examples/connections/slack/slack-app-manifest.json
+  h_5f9670feebc95f 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4f71f7fcba029bae27fbefda349648520c5e66e7",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
