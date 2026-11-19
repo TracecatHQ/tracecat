@@ -1,0 +1,14 @@
+docs/cheatsheets/connection-guides/connect-to-aws.mdx
+  h_5f9670feebc95f 114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e58648c8955b3064864baf2f982716e0f6f87f8a",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
