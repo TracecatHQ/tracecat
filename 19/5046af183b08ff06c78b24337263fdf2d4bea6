@@ -1,0 +1,14 @@
+docs/cheatsheets/connection-guides/connect-to-slack.mdx
+  h_5f9670feebc95f 7,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "195046af183b08ff06c78b24337263fdf2d4bea6",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
