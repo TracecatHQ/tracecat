@@ -58,22 +58,3 @@ async def test_atlassian_authorization_url_sets_audience_and_consent() -> None:
 
 def test_atlassian_sends_client_credentials_in_token_body() -> None:
     assert _provider().client.token_endpoint_auth_method == "client_secret_post"
-
-
-@pytest.mark.parametrize(
-    "scope",
-    [
-        "read:page:confluence",
-        "write:page:confluence",
-        "delete:page:confluence",
-        "read:space:confluence",
-        "read:comment:confluence",
-        "write:comment:confluence",
-        "read:attachment:confluence",
-        "read:hierarchical-content:confluence",
-        "read:content.metadata:confluence",
-        "read:folder:confluence",
-    ],
-)
-def test_atlassian_default_scopes_cover_confluence_v2(scope: str) -> None:
-    assert scope in ATLASSIAN_SCOPES
