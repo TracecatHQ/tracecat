@@ -109,6 +109,10 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
 
 ## Grant read access to archived logs
 
+- Tracecat can list S3 buckets in each connected AWS account.
+- Tracecat can read bucket metadata, including location, encryption settings, and bucket policies.
+- Tracecat can read file contents only from approved log archive buckets.
+
 <Info>
   Attach the S3 policy to a Tracecat role whose S3 object access should be limited to the archive. The policy denies `s3:ListBucket` and `s3:GetObject` outside the allowlist across the entire role, even when another policy grants those actions. Deploy one S3 policy stack per role and update its allowlist when you add buckets.
 </Info>
