@@ -31,6 +31,7 @@ from tracecat.agent.channel_users.tokens import (
 )
 from tracecat.auth.credentials import OptionalUserDep
 from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.ip_allowlist_enforcement import enforce_org_ip_allowlist
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -104,6 +105,13 @@ async def handle_channel_link_callback(
     if user is None:
         return _link_page(sign_in, ChannelLinkError.SIGNED_OUT)
     try:
+        # These routes take the user, not an org role, so the org check runs here.
+        await enforce_org_ip_allowlist(
+            sign_in.claims.organization_id, bypass=user.is_superuser
+        )
+    except HTTPException:
+        return _link_page(sign_in, ChannelLinkError.BLOCKED_NETWORK)
+    try:
         async with get_async_session_tenant_context_manager(
             workspace_id=sign_in.claims.workspace_id
         ) as session:
@@ -128,6 +136,7 @@ async def start_channel_link_sign_in(
     """Start the provider sign-in that proves the sender is this user."""
     try:
         claims = read_link_token(token)
+        await enforce_org_ip_allowlist(claims.organization_id, bypass=user.is_superuser)
         async with get_async_session_tenant_context_manager(
             workspace_id=claims.workspace_id
         ) as session:

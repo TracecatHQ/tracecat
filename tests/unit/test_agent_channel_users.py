@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -670,6 +670,35 @@ async def test_callback_names_the_provider_and_tenant_on_success(
             "tenant": [TENANT],
         },
     )
+
+
+async def test_link_routes_enforce_the_org_ip_allowlist(
+    org: _Org, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", APP_URL)
+    user = await _user(session, org)
+    state = _sign_in(org, "U12", user)
+    checked: list[uuid.UUID] = []
+
+    async def _deny(organization_id: uuid.UUID, *, bypass: bool = False) -> None:
+        checked.append(organization_id)
+        raise HTTPException(status_code=403, detail="blocked")
+
+    async def _never(*_args, **_kwargs) -> None:
+        raise AssertionError("linked from a blocked network")
+
+    monkeypatch.setattr(channel_users_router, "enforce_org_ip_allowlist", _deny)
+    monkeypatch.setattr(channel_users_router, "complete_channel_link", _never)
+    blocked = await channel_users_router.handle_channel_link_callback(
+        user=user, state=state, code="c"
+    )
+    assert _redirect_query(blocked)[1]["error"] == ["blocked_network"]
+    with pytest.raises(HTTPException) as exc_info:
+        await channel_users_router.start_channel_link_sign_in(
+            user=user, token=read_sign_in_state(state).link_token
+        )
+    assert exc_info.value.status_code == 403
+    assert checked == [org.organization_id, org.organization_id]
 
 
 @asynccontextmanager
