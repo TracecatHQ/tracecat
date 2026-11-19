@@ -1,16 +1,14 @@
 "use client"
 
-import { CheckIcon, Copy, Download, ExternalLink } from "lucide-react"
+import { CheckIcon, ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
 import type { ChannelBotAppManifest } from "@/client"
 import {
+  AppManifestButton,
   CredentialField,
   EndpointField,
 } from "@/components/agents/external-channels/channel-bot-fields"
-import {
-  copyOrDownloadAppManifest,
-  isTextAppManifest,
-} from "@/components/agents/external-channels/channel-bot-utils"
+import { httpsUrlOrNull } from "@/components/agents/external-channels/channel-bot-utils"
 import { CopyField } from "@/components/copy-field"
 import { Button } from "@/components/ui/button"
 
@@ -115,7 +113,8 @@ export function CreateInSlackButton({
   disabled?: boolean
   onOpen?: () => void
 }) {
-  if (disabled || !createUrl) {
+  const href = httpsUrlOrNull(createUrl)
+  if (disabled || !href) {
     return (
       <Button type="button" size="sm" disabled>
         Create in Slack
@@ -125,7 +124,7 @@ export function CreateInSlackButton({
   }
   return (
     <Button type="button" size="sm" asChild>
-      <a href={createUrl} target="_blank" rel="noreferrer" onClick={onOpen}>
+      <a href={href} target="_blank" rel="noreferrer" onClick={onOpen}>
         Create in Slack
         <ExternalLink className="ml-2 size-4" />
       </a>
@@ -156,8 +155,6 @@ export function SlackManualSetup({
   oauthRedirectUrl: string
   manifest: ChannelBotAppManifest | null
 }) {
-  const text = manifest === null || isTextAppManifest(manifest)
-
   return (
     <details className="group text-xs">
       <summary className="cursor-pointer text-muted-foreground">
@@ -185,20 +182,7 @@ export function SlackManualSetup({
             Settings → Socket Mode; no request URL is needed.
           </p>
         )}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => manifest && copyOrDownloadAppManifest(manifest)}
-          disabled={!manifest}
-        >
-          {text ? (
-            <Copy className="mr-2 size-4" />
-          ) : (
-            <Download className="mr-2 size-4" />
-          )}
-          {text ? "Copy app manifest" : "Download app manifest"}
-        </Button>
+        <AppManifestButton manifest={manifest} />
       </div>
     </details>
   )

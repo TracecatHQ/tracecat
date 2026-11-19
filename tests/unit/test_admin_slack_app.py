@@ -48,6 +48,7 @@ pytestmark = pytest.mark.usefixtures("db")
 MANIFEST = ChannelBotAppManifest(
     filename="slack-app-manifest.json",
     media_type="application/json",
+    encoding="text",
     content='{"settings": {}}',
     create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
 )

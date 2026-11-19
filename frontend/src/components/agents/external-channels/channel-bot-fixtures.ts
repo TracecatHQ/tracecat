@@ -127,6 +127,7 @@ export function slackAppManifest(appName: string): ChannelBotAppManifest {
   return {
     filename: "slack-app-manifest.json",
     media_type: "application/json",
+    encoding: "text",
     content: JSON.stringify(body, null, 2),
     create_url: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(body))}`,
   }

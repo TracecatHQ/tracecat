@@ -468,7 +468,7 @@ function SlackAppCreateStep({
       <div className="flex flex-wrap items-center gap-3">
         <CreateInSlackButton
           createUrl={manifest?.create_url ?? null}
-          disabled={disabled || !botName.trim() || !manifest}
+          disabled={disabled || !botName.trim()}
           onOpen={onCreated}
         />
         <Button

@@ -606,6 +606,7 @@ def test_platform_routes_hand_the_request_to_the_admin(
         ChannelBotAppManifest(
             filename="slack-app-manifest.json",
             media_type="application/json",
+            encoding="text",
             content='{"display_information": {"name": "SOC bot"}}',
             create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
         ),
@@ -613,6 +614,7 @@ def test_platform_routes_hand_the_request_to_the_admin(
         ChannelBotAppManifest(
             filename="app-package.zip",
             media_type="application/zip",
+            encoding="base64",
             content="UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==",
             create_url=None,
         ),

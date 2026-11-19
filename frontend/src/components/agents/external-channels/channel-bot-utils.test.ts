@@ -187,6 +187,7 @@ describe("copyOrDownloadAppManifest", () => {
     copyOrDownloadAppManifest({
       filename: "slack-app-manifest.json",
       media_type: "application/json",
+      encoding: "text",
       content: '{\n  "a": 1\n}',
       create_url: null,
     })
@@ -204,16 +205,23 @@ describe("copyOrDownloadAppManifest", () => {
         expect(this.download).toBe("app-package.zip")
         expect(this.href).toBe("blob:app-package")
       })
+    jest.useFakeTimers()
 
     copyOrDownloadAppManifest({
       filename: "app-package.zip",
       media_type: "application/zip",
+      encoding: "base64",
       content: btoa("PK\u0005\u0006"),
       create_url: null,
     })
 
     expect(copyToClipboard).not.toHaveBeenCalled()
     expect(click).toHaveBeenCalledTimes(1)
+    // Revoked after the click returns, so the browser can start the download.
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    jest.runAllTimers()
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:app-package")
+    jest.useRealTimers()
     const blob = createObjectURL.mock.calls[0][0]
     expect(blob.type).toBe("application/zip")
     // jsdom's Blob has no arrayBuffer().
@@ -225,7 +233,6 @@ describe("copyOrDownloadAppManifest", () => {
     expect(new Uint8Array(bytes)).toEqual(
       new Uint8Array([0x50, 0x4b, 0x05, 0x06])
     )
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:app-package")
     click.mockRestore()
   })
 })

@@ -14391,6 +14391,11 @@ export const $ChannelBotAppManifest = {
       type: "string",
       title: "Media Type",
     },
+    encoding: {
+      type: "string",
+      enum: ["text", "base64"],
+      title: "Encoding",
+    },
     content: {
       type: "string",
       title: "Content",
@@ -14408,7 +14413,7 @@ export const $ChannelBotAppManifest = {
     },
   },
   type: "object",
-  required: ["filename", "media_type", "content", "create_url"],
+  required: ["filename", "media_type", "encoding", "content", "create_url"],
   title: "ChannelBotAppManifest",
   description: "What an admin takes to the provider to create a bot's app.",
 } as const

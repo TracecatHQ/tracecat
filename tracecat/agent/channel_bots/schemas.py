@@ -211,8 +211,8 @@ class ChannelBotAppManifest(BaseModel):
     """What an admin takes to the provider to create a bot's app."""
 
     filename: str
-    # A text type means `content` is that text; any other type means base64 bytes.
     media_type: str
+    encoding: Literal["text", "base64"]
     content: str
     # The provider page that creates the app from it, if the provider has one.
     create_url: str | None

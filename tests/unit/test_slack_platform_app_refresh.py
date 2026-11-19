@@ -214,6 +214,7 @@ async def test_an_admin_change_waits_for_an_in_flight_refresh_and_keeps_its_toke
         manifest=ChannelBotAppManifest(
             filename="slack-app-manifest.json",
             media_type="application/json",
+            encoding="text",
             content="{}",
             create_url=None,
         ),

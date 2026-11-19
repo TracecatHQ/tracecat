@@ -31,6 +31,7 @@ const REQUEST_URL = "https://api.example.com/platform-events"
 const MANIFEST: ChannelBotAppManifest = {
   filename: "slack-app-manifest.json",
   media_type: "application/json",
+  encoding: "text",
   content: '{\n  "display_information": {\n    "name": "Tracecat"\n  }\n}',
   create_url: "https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
 }

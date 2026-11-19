@@ -5,6 +5,7 @@ import type {
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
+import { downloadBlob } from "@/lib/download"
 import { getErrorStatus } from "@/lib/errors"
 import { copyToClipboard } from "@/lib/utils"
 
@@ -235,21 +236,11 @@ export function isUnreachableEndpoint(url: string): boolean {
   }
 }
 
-/** Whether an app manifest's content is text to copy rather than base64 bytes. */
-export function isTextAppManifest(manifest: ChannelBotAppManifest): boolean {
-  const type = manifest.media_type.split(";")[0].trim().toLowerCase()
-  return (
-    type.startsWith("text/") ||
-    type === "application/json" ||
-    type.endsWith("+json")
-  )
-}
-
 /** Copies a text app manifest, or downloads a binary one as its file. */
 export function copyOrDownloadAppManifest(
   manifest: ChannelBotAppManifest
 ): void {
-  if (isTextAppManifest(manifest)) {
+  if (manifest.encoding === "text") {
     void copyToClipboard({
       value: manifest.content,
       message: "App manifest copied",
@@ -259,17 +250,8 @@ export function copyOrDownloadAppManifest(
   const bytes = Uint8Array.from(atob(manifest.content), (char) =>
     char.charCodeAt(0)
   )
-  const url = URL.createObjectURL(
-    new Blob([bytes], { type: manifest.media_type })
+  downloadBlob(
+    new Blob([bytes], { type: manifest.media_type }),
+    manifest.filename
   )
-  const link = document.createElement("a")
-  try {
-    link.href = url
-    link.download = manifest.filename
-    document.body.appendChild(link)
-    link.click()
-  } finally {
-    link.remove()
-    URL.revokeObjectURL(url)
-  }
 }

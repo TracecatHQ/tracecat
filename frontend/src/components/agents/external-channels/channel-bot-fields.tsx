@@ -1,13 +1,15 @@
 "use client"
 
-import type { LucideIcon } from "lucide-react"
+import { Copy, Download, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
-import type { ChannelBotProvider } from "@/client"
+import type { ChannelBotAppManifest, ChannelBotProvider } from "@/client"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
+  copyOrDownloadAppManifest,
   isUnreachableEndpoint,
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { CopyField } from "@/components/copy-field"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -59,6 +61,28 @@ export function EndpointField({
           : null
       }
     />
+  )
+}
+
+/** Copies a text app manifest or downloads a base64 one; disabled until it loads. */
+export function AppManifestButton({
+  manifest,
+}: {
+  manifest: ChannelBotAppManifest | null
+}) {
+  const download = manifest?.encoding === "base64"
+  const Icon = download ? Download : Copy
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={() => manifest && copyOrDownloadAppManifest(manifest)}
+      disabled={!manifest}
+    >
+      <Icon className="mr-2 size-4" />
+      {download ? "Download app manifest" : "Copy app manifest"}
+    </Button>
   )
 }
 

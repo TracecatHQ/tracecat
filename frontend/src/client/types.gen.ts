@@ -3860,9 +3860,12 @@ export type CatalogMappingSelection = {
 export type ChannelBotAppManifest = {
   filename: string
   media_type: string
+  encoding: "text" | "base64"
   content: string
   create_url: string | null
 }
+
+export type encoding = "text" | "base64"
 
 /**
  * Who owns a bot's provider app.
@@ -8669,7 +8672,7 @@ export type ObjectRef = {
   created_at?: string
 }
 
-export type encoding = "json" | "json+zstd" | "json+gzip"
+export type encoding2 = "json" | "json+zstd" | "json+gzip"
 
 /**
  * A disjunction of one or more filters.
@@ -14235,7 +14238,7 @@ export type WorkflowExecutionObjectPreviewResponse = {
 /**
  * Encoding used to decode preview text
  */
-export type encoding2 = "utf-8" | "unknown"
+export type encoding3 = "utf-8" | "unknown"
 
 export type WorkflowExecutionObjectRequest = {
   /**
