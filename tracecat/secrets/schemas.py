@@ -629,9 +629,20 @@ SecretStoreUpdateConfig = Annotated[
 _STORE_CONFIG_ADAPTER: TypeAdapter[SecretStoreConfig] = TypeAdapter(SecretStoreConfig)
 
 
-def parse_secret_store_config(raw: Any) -> SecretStoreConfig:
-    """Validate a persisted store config blob into its provider's model."""
-    return _STORE_CONFIG_ADAPTER.validate_python(raw)
+def parse_secret_store_config(
+    raw: Any, *, provider: SecretStoreProvider | str | None = None
+) -> SecretStoreConfig:
+    """Validate a persisted store config blob into its provider's model.
+
+    With ``provider``, also refuse a blob whose own provider differs, so a
+    backend never receives another provider's config.
+    """
+    config = _STORE_CONFIG_ADAPTER.validate_python(raw)
+    if provider is not None and config.provider != provider:
+        raise ValueError(
+            f"Secret store config is for {config.provider}, not {provider}."
+        )
+    return config
 
 
 class SecretStoreCreate(BaseModel):

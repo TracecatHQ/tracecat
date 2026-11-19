@@ -202,6 +202,22 @@ async def _run_child(payload: bytes) -> tuple[bytes, int | None]:
         await terminate_process_group(process)
 
 
+async def server_resolves_public(server: str) -> bool:
+    """Whether a store's server is a Bitwarden cloud or resolves publicly.
+
+    The executor posts the machine account's credentials to this server, so a
+    private, loopback, link-local or metadata address would make it an
+    internal-network oracle. A name that does not resolve fails as well.
+    """
+    if server in BITWARDEN_CLOUD_SERVERS:
+        return True
+    try:
+        await validate_url_resolves_public_async(server)
+    except DisallowedUrlError:
+        return False
+    return True
+
+
 async def fetch_with_child(
     config: BitwardenSecretsManagerStoreConfig,
     access_token: str,
@@ -217,6 +233,15 @@ async def fetch_with_child(
     deadline = time.monotonic() + FETCH_TIMEOUT_SECONDS
     try:
         async with asyncio.timeout(FETCH_TIMEOUT_SECONDS):
+            # Checked on save, and again here because the name may resolve
+            # elsewhere by now. The SDK resolves it once more, so this narrows
+            # the rebinding window rather than closing it.
+            if not await server_resolves_public(config.server):
+                logger.warning("Bitwarden server did not resolve to a public address")
+                return _all(
+                    references,
+                    Failure(SecretResolutionErrorCode.UNAVAILABLE, "server_not_public"),
+                )
             await _acquire_slot(slots)
             try:
                 stdout, returncode = await _run_child(
@@ -326,19 +351,11 @@ class BitwardenSecretsManagerBackend:
     async def check_config(self, config: BitwardenSecretsManagerStoreConfig) -> None:
         """Refuse a self-hosted server that resolves to a non-public address.
 
-        The executor posts the machine account's credentials to this server,
-        so a private, loopback, link-local or metadata address would make it
-        an internal-network oracle. Reaching a private server would need a
-        tunnel, which this provider does not use.
+        Reaching a private server would need a tunnel, which this provider
+        does not use. Each fetch checks again (:func:`fetch_with_child`).
         """
-        if config.server in BITWARDEN_CLOUD_SERVERS:
-            return
-        try:
-            await validate_url_resolves_public_async(config.server)
-        except DisallowedUrlError:
-            raise ValueError(
-                "The Bitwarden server must resolve to a public address."
-            ) from None
+        if not await server_resolves_public(config.server):
+            raise ValueError("The Bitwarden server must resolve to a public address.")
 
     def validate_reference(
         self, config: BitwardenSecretsManagerStoreConfig, key: str

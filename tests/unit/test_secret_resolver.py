@@ -206,6 +206,35 @@ async def test_failed_resolution_leaves_no_values_in_the_environment(
     _assert_no_frame_holds_values(exc_info.value)
 
 
+async def test_provider_bug_fails_as_unknown_without_its_type_or_message(
+    fake: FakeKvBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a provider whose fetch raises instead of returning outcomes
+    async def explode(store: StoreContext, references: Sequence[str]) -> FetchResult:
+        raise RuntimeError("vendor text that must not surface")
+
+    monkeypatch.setattr(fake, "fetch", explode)
+
+    # When a run resolves a reference in its store
+    with pytest.raises(SecretResolutionError) as exc_info:
+        await runtime.resolve_external_references(
+            [_reference("app", "kv/app", {"USER": "user"})]
+        )
+
+    # Then it fails as unknown, naming neither the exception type nor its text
+    error = exc_info.value
+    assert error.code == SecretResolutionErrorCode.UNKNOWN
+    assert str(error) == (
+        "Failed to resolve FakeKV-backed secret 'app' in environment 'default': unknown"
+    )
+    assert error.detail == {
+        "secret_name": "app",
+        "environment": "default",
+        "error_code": "unknown",
+        "provider_error_code": None,
+    }
+
+
 async def test_field_map_projects_onto_declared_keys(fake: FakeKvBackend) -> None:
     resolved = await runtime.resolve_external_references(
         [_reference("app", "kv/app", {"USER": "user", "PASS": "pass"})]

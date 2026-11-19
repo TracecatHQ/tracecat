@@ -14,12 +14,16 @@ jest.mock("@/hooks/use-secret-stores", () => ({
   }),
 }))
 
-function renderCheck() {
+function renderCheck(
+  source:
+    | "aws_secrets_manager"
+    | "bitwarden_secrets_manager" = "aws_secrets_manager"
+) {
   render(
     <SecretReferenceCheckScope
       workspaceId="workspace-synthetic"
       secretId="secret-synthetic"
-      source="aws_secrets_manager"
+      source={source}
     >
       {(check) => (
         <>
@@ -56,6 +60,29 @@ describe("SecretReferenceCheckButton", () => {
       "title",
       expect.stringContaining("AccessDeniedException")
     )
+  })
+
+  it("shows the hint of the secret's provider", async () => {
+    mockCheckReference.mockResolvedValue({
+      ok: false,
+      error_code: "access_denied",
+      message:
+        "Reference check failed: access_denied (Bitwarden error code http_403)",
+    })
+    renderCheck("bitwarden_secrets_manager")
+
+    fireEvent.click(screen.getByRole("button", { name: "Check access" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Access denied" })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/machine account can read/)).toHaveAttribute(
+      "title",
+      expect.stringContaining("http_403")
+    )
+    expect(
+      screen.queryByText(/secretsmanager:GetSecretValue/)
+    ).not.toBeInTheDocument()
   })
 
   it("checks again from the result button", async () => {

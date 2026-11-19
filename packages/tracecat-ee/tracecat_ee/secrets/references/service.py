@@ -244,7 +244,11 @@ class SecretReferencesService(SecretsService):
             ),
             allowed_fields={"remote_reference"},
         )
-        if not is_external_reference(secret):
+        # A provider-specific alias refuses other providers' secrets as it
+        # refuses local ones, so it cannot move a secret between providers.
+        if not is_external_reference(secret) or (
+            provider is not None and secret.source != provider
+        ):
             raise ValueError(
                 NOT_EXTERNAL_MESSAGE if provider is None else NOT_AWS_MESSAGE
             )
@@ -293,7 +297,9 @@ class SecretReferencesService(SecretsService):
         self, secret: Secret, *, provider: SecretStoreProvider | None = None
     ) -> SecretReferenceCheckResult:
         """Verify an externally backed secret resolves. Never returns the value."""
-        if not is_external_reference(secret):
+        if not is_external_reference(secret) or (
+            provider is not None and secret.source != provider
+        ):
             raise ValueError(
                 NOT_EXTERNAL_MESSAGE if provider is None else NOT_AWS_MESSAGE
             )

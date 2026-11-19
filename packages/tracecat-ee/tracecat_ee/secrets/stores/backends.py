@@ -119,5 +119,5 @@ def get_backend(provider: SecretStoreProvider | str) -> AnyBackend:
 
 
 def parse_store_config(store: OrganizationSecretStore) -> SecretStoreConfig:
-    """Validate a stored config blob into its provider's config model."""
-    return parse_secret_store_config(store.config)
+    """Validate a stored config blob into the store's provider's config model."""
+    return parse_secret_store_config(store.config, provider=store.provider)

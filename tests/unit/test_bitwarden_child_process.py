@@ -15,6 +15,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from loguru import logger
@@ -116,6 +117,12 @@ def _assert_proc_clean(pid: int) -> None:
     assert TOKEN.encode() not in environ
     assert b"TRACECAT__" not in environ
     assert b"TRACECAT__" not in cmdline
+
+
+@pytest.fixture(autouse=True)
+def loopback_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The listener is on loopback, which the fetch-time address check refuses."""
+    monkeypatch.setattr(bw, "server_resolves_public", AsyncMock(return_value=True))
 
 
 def _assert_gone(pid: int) -> None:

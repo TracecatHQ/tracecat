@@ -941,9 +941,11 @@ export const SECRET_STORE_PROVIDERS: Record<
         not_found:
           "Bitwarden found no secret with this ID that the machine account can read. Check the ID, and that the machine account can read the secret's project.",
         access_denied:
-          "The secret belongs to another Bitwarden organization than the store.",
+          "Bitwarden denied the read, or the secret belongs to another organization than the store. Check that the machine account can read the secret's project, and that the secret is in the store's organization.",
+        invalid_reference:
+          "Bitwarden rejected the secret ID. Copy the ID again from Bitwarden Secrets Manager.",
         unavailable:
-          "Bitwarden could not be reached or refused the request, for example because of rate limits. Try again in a moment.",
+          "Bitwarden could not be reached or refused the request, for example because of rate limits, or a self-hosted server no longer resolves to a public address. Try again in a moment.",
         timeout: "Bitwarden did not respond in time. Try again in a moment.",
         credential_missing:
           "The store has no usable access token. Ask an organization admin to add or replace it.",

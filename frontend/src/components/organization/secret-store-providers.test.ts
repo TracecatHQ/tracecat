@@ -87,7 +87,12 @@ describe("Bitwarden provider entry", () => {
     const draft = entry.editState(store)
     expect(draft).toMatchObject({ access_token: "", access_token_set: "true" })
     expect(entry.toUpdate(draft)).not.toHaveProperty("access_token")
-    expect(entry.toUpdate({ ...draft, access_token: "new" })).toMatchObject({
+    expect(entry.toUpdate({ ...draft, access_token: "new" })).toEqual({
+      config: {
+        provider: "bitwarden_secrets_manager",
+        server: "eu",
+        organization_id: ID,
+      },
       access_token: "new",
     })
   })

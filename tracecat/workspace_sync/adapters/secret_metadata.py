@@ -451,10 +451,18 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         store: OrganizationSecretStore,
         paths: PathsByType,
     ) -> PullDiagnostic | None:
-        """Return why ``store`` can't read ``spec``'s reference, if it can't."""
+        """Return why ``store`` can't read ``spec``'s reference, if it can't.
+
+        Covers what import refuses, so preview reports it before apply.
+        """
         if spec.remote_reference is None:
             return None
         try:
+            if store.provider != spec.source:
+                raise ValueError(
+                    f"the secret reads from {spec.source}, but the store is a "
+                    f"{store.provider} store."
+                )
             SecretReferencesService.validate_reference(store, spec.remote_reference)
         except ValueError as e:
             return PullDiagnostic(

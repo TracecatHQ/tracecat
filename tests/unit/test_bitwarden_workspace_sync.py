@@ -243,3 +243,36 @@ async def test_yaml_exported_by_1_2_2_still_imports(
     assert secret.source == SecretSource.AWS_SECRETS_MANAGER
     assert secret.store_id == aws_store
     assert secret.remote_reference == AWS_ARN
+
+
+async def test_preview_reports_a_store_of_another_provider_as_import_would(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a Bitwarden reference whose YAML names the AWS store "prod". The
+    # Bitwarden ID is also a valid AWS secret name, so only the provider differs.
+    await _stores(session, svc_role)
+    monkeypatch.setattr(
+        WorkspaceSyncService, "has_entitlement", AsyncMock(return_value=True)
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    yaml = YAML_1_2_2.replace("legacy_api", "bw_api").replace(
+        f"source: aws_secrets_manager\nstore: prod\nremote_reference: {AWS_ARN}",
+        f"source: bitwarden_secrets_manager\nstore: prod\n"
+        f"remote_reference: {BW_SECRET_ID}",
+    )
+    assert "source: bitwarden_secrets_manager" in yaml
+    snapshot, diagnostics = await service.parse_files(
+        {
+            MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+            f"{SECRET_METADATA_ROOT}/default/bw_api.yml": yaml,
+        },
+        commit_sha="s" * 40,
+    )
+    assert diagnostics == []
+
+    # When the pull is previewed, then preview refuses the store before apply
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert [d.details["code"] for d in prepared.diagnostics] == [
+        "secret_store_reference_invalid"
+    ]
+    assert "reads from bitwarden_secrets_manager" in prepared.diagnostics[0].message

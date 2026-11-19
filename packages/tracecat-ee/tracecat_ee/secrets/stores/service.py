@@ -208,13 +208,13 @@ class SecretStoresService(BaseOrgService):
         config = backend.new_config(params.config)
         if params.enabled and not backend.is_ready(config):
             raise ValueError(_NOT_READY_MESSAGE)
-        await backend.check_config(config)
         self._check_access_token(
             params.provider,
             token=params.access_token,
             token_set=params.access_token is not None,
             enabled=params.enabled,
         )
+        await backend.check_config(config)
         store = OrganizationSecretStore(
             organization_id=self.organization_id,
             name=params.name,
@@ -247,11 +247,28 @@ class SecretStoresService(BaseOrgService):
         config: SecretStoreConfig | None = None
         if params.config is not None and params.config.provider != store.provider:
             raise ValueError("config.provider must match the store's provider")
+        enabled = fields.get("enabled", store.enabled)
+        self._check_access_token(
+            store.provider,
+            token=params.access_token,
+            token_set=(
+                params.access_token is not None
+                or store.encrypted_access_token is not None
+            ),
+            enabled=enabled,
+        )
         if params.config is not None:
+            backend = get_backend(store.provider)
+            # Only a changed config is checked, so an outage of the store's
+            # DNS cannot block renaming or disabling it. The check may resolve
+            # DNS, so it runs before the lock, which blocks reference writes.
+            saved = parse_store_config(store)
+            checked = backend.update_config(saved, params.config, references=())
+            if checked != saved:
+                await backend.check_config(checked)
             # Block concurrent reference creation between the check and commit.
             await self.session.refresh(store, with_for_update=True)
             current = parse_store_config(store)
-            backend = get_backend(store.provider)
             # First pass without references: most updates change nothing, and
             # then the references are never read. Only a real change is
             # re-run against them, because the provider decides which changes
@@ -263,25 +280,15 @@ class SecretStoresService(BaseOrgService):
                     params.config,
                     references=await self._saved_references(store.id),
                 )
-                # Only a changed config is checked, so an outage of the
-                # store's DNS cannot block renaming or disabling it.
-                await backend.check_config(config)
+                if config != checked:
+                    # The store changed between the check and the lock.
+                    await backend.check_config(config)
         # Parse the saved config only when needed, so a store with an
         # unparseable config can still be renamed or disabled.
-        enabled = fields.get("enabled", store.enabled)
         if enabled:
             ready_config = config if config is not None else parse_store_config(store)
             if not get_backend(store.provider).is_ready(ready_config):
                 raise ValueError(_NOT_READY_MESSAGE)
-        self._check_access_token(
-            store.provider,
-            token=params.access_token,
-            token_set=(
-                params.access_token is not None
-                or store.encrypted_access_token is not None
-            ),
-            enabled=enabled,
-        )
         if config is not None:
             store.config = config.model_dump(mode="json")
         if params.access_token is not None:

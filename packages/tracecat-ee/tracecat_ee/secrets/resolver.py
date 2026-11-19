@@ -156,7 +156,7 @@ async def _fetch_store(
             provider=str(store.provider),
             error_type=type(e).__name__,
         )
-        failure = Failure(SecretResolutionErrorCode.UNKNOWN, type(e).__name__)
+        failure = Failure(SecretResolutionErrorCode.UNKNOWN)
         return FetchResult(outcomes=dict.fromkeys(keys, failure))
 
 

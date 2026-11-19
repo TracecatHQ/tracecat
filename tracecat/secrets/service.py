@@ -110,7 +110,9 @@ def build_external_secret_reference(secret: Secret) -> ExternalSecretReference:
         store_id=secret.store.id,
         provider=SecretStoreProvider(secret.store.provider),
         store_enabled=secret.store.enabled,
-        store_config=parse_secret_store_config(secret.store.config),
+        store_config=parse_secret_store_config(
+            secret.store.config, provider=secret.store.provider
+        ),
         encrypted_access_token=secret.store.encrypted_access_token,
         key=secret.remote_reference,
         mapping=SecretKeyMapping.model_validate(secret.remote_key_mapping or {}),

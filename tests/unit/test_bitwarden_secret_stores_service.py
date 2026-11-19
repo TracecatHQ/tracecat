@@ -29,6 +29,7 @@ from tracecat.organization.management import delete_organization_with_cleanup
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.secrets.enums import SecretMappingMode, SecretSource, SecretStoreProvider
 from tracecat.secrets.schemas import (
+    AwsSecretReferenceUpdate,
     AwsSecretsManagerStoreCreate,
     BitwardenSecretsManagerStoreConfig,
     BitwardenSecretsManagerStoreCreate,
@@ -382,6 +383,41 @@ async def test_unchanged_config_is_not_rechecked(
         )
 
 
+async def test_config_check_runs_before_the_store_row_is_locked(
+    monkeypatch: pytest.MonkeyPatch, stores: SecretStoresService
+) -> None:
+    # The check may wait on DNS; the lock blocks reference writes to the store.
+    backend = get_backend(BITWARDEN)
+    monkeypatch.setattr(backend, "check_config", AsyncMock())
+    store = await stores.create_store(_create("bitwarden"))
+    order: list[str] = []
+    monkeypatch.setattr(
+        backend,
+        "check_config",
+        AsyncMock(side_effect=lambda config: order.append("check")),
+    )
+    refresh = stores.session.refresh
+
+    async def recording_refresh(instance: object, *args: object, **kwargs: object):
+        if kwargs.get("with_for_update"):
+            order.append("lock")
+        return await refresh(instance, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(stores.session, "refresh", recording_refresh)
+
+    await stores.update_store(
+        store,
+        SecretStoreUpdate(
+            config=BitwardenSecretsManagerStoreUpdate(
+                provider=BITWARDEN, server="https://vault.example.com"
+            )
+        ),
+    )
+
+    assert order == ["check", "lock"]
+    assert store.config["server"] == "https://vault.example.com"
+
+
 async def test_deprecated_aws_check_route_refuses_a_bitwarden_reference(
     session: AsyncSession,
     stores: SecretStoresService,
@@ -400,3 +436,53 @@ async def test_deprecated_aws_check_route_refuses_a_bitwarden_reference(
         )
     assert refused.value.status_code == 422
     assert refused.value.detail == NOT_AWS_MESSAGE
+
+
+async def test_deprecated_aws_update_route_cannot_move_a_bitwarden_secret_to_aws(
+    session: AsyncSession,
+    stores: SecretStoresService,
+    svc_admin_role: Role,
+    svc_workspace: Workspace,
+) -> None:
+    store = await stores.create_store(_create("bitwarden"))
+    reference = await _reference(session, svc_admin_role, svc_workspace, store)
+    aws_store = await stores.create_store(
+        SecretStoreCreate(
+            name="aws",
+            config=AwsSecretsManagerStoreCreate(
+                role_arn="arn:aws:iam::123456789012:role/reader", region="us-east-1"
+            ),
+        )
+    )
+    await stores.authorize_workspace(aws_store, svc_workspace.id)
+
+    # Pointing the Bitwarden secret at an AWS store through the AWS alias is
+    # refused as the check alias refuses it, and the secret is unchanged
+    with pytest.raises(HTTPException) as refused:
+        await references_router.update_aws_secret_reference(
+            role=svc_admin_role,
+            session=session,
+            secret_id=SecretUUID.new(reference.id),
+            params=AwsSecretReferenceUpdate(
+                store_id=aws_store.id, remote_reference="app/api"
+            ),
+        )
+    assert refused.value.status_code == 422
+    assert refused.value.detail == NOT_AWS_MESSAGE
+    await session.refresh(reference)
+    assert reference.source == SecretSource.BITWARDEN_SECRETS_MANAGER
+    assert reference.store_id == store.id
+
+
+def test_a_config_for_another_provider_is_refused() -> None:
+    # A row whose provider and config disagree never reaches a backend
+    row = OrganizationSecretStore(
+        provider=SecretStoreProvider.AWS_SECRETS_MANAGER,
+        config={
+            "provider": BITWARDEN,
+            "server": "eu",
+            "organization_id": str(uuid.uuid4()),
+        },
+    )
+    with pytest.raises(ValueError, match="not aws_secrets_manager"):
+        parse_store_config(row)

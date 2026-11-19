@@ -656,6 +656,24 @@ def test_sdk_message_never_leaves_the_child(message: str) -> None:
     assert set(result["results"][WHOLE_A]) == {"error", "vendor_code"}
 
 
+async def test_fetch_rechecks_that_a_self_hosted_server_is_public(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A name that passed the check on save can resolve elsewhere by fetch time
+    run_child = AsyncMock()
+    monkeypatch.setattr(bw, "_run_child", run_child)
+    private = BitwardenSecretsManagerStoreConfig(
+        server="https://127.0.0.1:8443", organization_id=ORG_ID
+    )
+
+    outcomes = await bw.fetch_with_child(private, TOKEN, [WHOLE_A])
+
+    assert outcomes == {
+        WHOLE_A: Failure(SecretResolutionErrorCode.UNAVAILABLE, "server_not_public")
+    }
+    run_child.assert_not_awaited()
+
+
 async def test_a_hung_server_does_not_starve_another_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -672,6 +690,7 @@ async def test_a_hung_server_does_not_starve_another_server(
         return orjson.dumps({"results": results, "fatal": None}), 0
 
     monkeypatch.setattr(bw, "_run_child", child_by_server)
+    monkeypatch.setattr(bw, "server_resolves_public", AsyncMock(return_value=True))
     hung = BitwardenSecretsManagerStoreConfig(
         server="https://hung.example", organization_id=ORG_ID
     )
