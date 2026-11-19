@@ -1,8 +1,15 @@
 """Transactional storage primitives for semantic search.
 
 Callers own commits. Never retain a transaction across provider calls. All
-writers acquire lock_scope BEFORE source-row locks, then access documents and
-chunks. The workspace advisory lock also covers not-yet-created collections.
+row writers acquire lock_scope BEFORE source-row locks, then access documents
+and chunks. The workspace advisory lock also covers not-yet-created collections.
+
+Table DDL that can't change a selected column's text (adding a column, creating
+or dropping a unique index) takes no workspace lock. A transaction that combines
+such DDL with anything that takes this lock exclusively must call lock_scope()
+before its first DDL. Otherwise it waits for the lock while holding a table
+lock, and deadlocks with a row writer that holds the lock shared and waits for
+that table.
 """
 
 import hashlib
@@ -101,7 +108,8 @@ class SearchStorage(BaseService):
         Source row writers and read-only search paths take the lock shared, so
         they run concurrently across tables in one workspace. Everything else
         takes it exclusive, so it still waits for in-flight row writes and
-        blocks new ones.
+        blocks new ones. Some table DDL skips it; see the module docstring for
+        the order a transaction mixing the two must follow.
 
         Repeat calls in one transaction skip the statements once the same or a
         stronger mode is held. Only locks taken outside a savepoint count:
@@ -196,7 +204,8 @@ class SearchStorage(BaseService):
         Indexer steps pass row_lock=True: the workspace lock shared plus the
         collection row FOR UPDATE, the same pair a row writer takes. They then
         exclude writers to this table only. Changes to the collection's
-        configuration and source DDL stay exclusive, so they still wait.
+        configuration, and source DDL that can change a selected column, stay
+        exclusive, so they still wait.
         """
         await self.lock_scope(shared=shared or row_lock)
         stmt = (
