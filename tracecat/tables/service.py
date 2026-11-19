@@ -23,7 +23,13 @@ from asyncpg.exceptions import (
 )
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
+from sqlalchemy.exc import (
+    DBAPIError,
+    IntegrityError,
+    InvalidRequestError,
+    NoResultFound,
+    ProgrammingError,
+)
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from sqlalchemy.orm import selectinload
 from tenacity import (
@@ -1233,7 +1239,11 @@ class BaseTablesService(BaseWorkspaceService):
         collection = await self.search.for_table(column.table_id)
         table = await self.search.table(column.table_id)
         # The caller may have read the column before a rename committed.
-        await self.session.refresh(column)
+        try:
+            await self.session.refresh(column)
+        except InvalidRequestError as exc:
+            # A concurrent request deleted the column first.
+            raise TracecatNotFoundError("Column not found") from exc
         await self.search.column_changed(collection, column, removed=True)
         self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(table.name)

@@ -658,6 +658,26 @@ async def test_table_sync_takes_the_search_lock_before_changing_a_table(
         await engine.dispose()
 
 
+async def test_deleting_a_column_another_request_deleted_is_not_found(
+    tables: TablesService, table: Table
+):
+    table_id = table.id
+    column_id = next(c.id for c in table.columns if c.name == "body")
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            stale = await service.get_column(table_id, column_id)
+            async with sessions.begin() as other:
+                peer = BaseTablesService(other, tables.role)
+                await peer.delete_column(await peer.get_column(table_id, column_id))
+            with pytest.raises(TracecatNotFoundError):
+                await service.delete_column(stale)
+    finally:
+        await engine.dispose()
+
+
 async def test_search_reads_wait_only_for_writers_to_the_same_table(
     tables: TablesService, table: Table
 ):
