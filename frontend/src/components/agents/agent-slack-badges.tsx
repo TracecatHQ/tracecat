@@ -142,6 +142,14 @@ export function AgentSlackBadges({
               items={overflow.map((placement) => ({
                 key: slackPlacementKey(placement),
                 label: slackPlacementLabel(placement),
+                icon:
+                  placement.kind === "channel" &&
+                  placement.channel.is_private ? (
+                    <Lock
+                      className="size-3 shrink-0"
+                      aria-label="Private channel"
+                    />
+                  ) : undefined,
               }))}
             />
             {overflow.some(needsReinstall) ? (
