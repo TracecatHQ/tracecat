@@ -485,6 +485,10 @@ export type AgentChannelBotRead = {
    * Inbound event URL; None when the bot's events arrive over a socket.
    */
   endpoint_url: string | null
+  /**
+   * Who may act in the bot's channels, for every agent it serves.
+   */
+  channel_access_policy: ChannelAccessPolicy
   created_at: string
   updated_at: string
   details: ChannelBotDetails
@@ -500,6 +504,10 @@ export type AgentChannelBotUpdate = {
    * Must name the bot's provider.
    */
   credentials?: ChannelBotCredentialsUpdate | null
+  /**
+   * Who may act in the bot's channels, for every agent it serves.
+   */
+  channel_access_policy?: ChannelAccessPolicy | null
 }
 
 export type AgentChannelRouteRead = {
@@ -852,13 +860,6 @@ export type AgentPresetCapability =
   | "internet_access"
 
 /**
- * Who may act on the agent through channels; live, never versioned.
- */
-export type AgentPresetChannelAccess = {
-  channel_access_policy: ChannelAccessPolicy
-}
-
-/**
  * Payload for creating a new agent preset.
  */
 export type AgentPresetCreate = {
@@ -949,7 +950,6 @@ export type AgentPresetRead = {
   current_version_id?: string | null
   folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
-  channel_access_policy: ChannelAccessPolicy
   created_at: string
   updated_at: string
 }
@@ -17208,15 +17208,6 @@ export type AgentPresetsPreviewToolPolicyData = {
 
 export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
-export type AgentPresetsSetAgentPresetChannelAccessData = {
-  presetId: string
-  requestBody: AgentPresetChannelAccess
-  workspaceId: string
-}
-
-export type AgentPresetsSetAgentPresetChannelAccessResponse =
-  AgentPresetChannelAccess
-
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
   workspaceId: string
@@ -24413,21 +24404,6 @@ export type $OpenApiTs = {
          * Invalid tool policy selections
          */
         400: AgentPresetValidationErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-access": {
-    put: {
-      req: AgentPresetsSetAgentPresetChannelAccessData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AgentPresetChannelAccess
         /**
          * Validation Error
          */

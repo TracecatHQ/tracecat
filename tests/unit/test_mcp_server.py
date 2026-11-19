@@ -150,7 +150,6 @@ async def _empty_oauth_inventory(_role: Any) -> set[ProviderKey]:
 def _build_preset_read(preset: Any) -> AgentPresetRead:
     data = dict(preset) if isinstance(preset, dict) else dict(vars(preset))
     data.setdefault("skills", [])
-    data.setdefault("channel_access_policy", "linked_approvals")
     return AgentPresetRead.model_validate(data)
 
 

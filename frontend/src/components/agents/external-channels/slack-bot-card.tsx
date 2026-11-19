@@ -9,6 +9,7 @@ import type {
   SlackBotCredentialsUpdate,
   SlackBotInstall,
 } from "@/client"
+import { ChannelAccessSelect } from "@/components/agents/external-channels/channel-access-select"
 import {
   ASK_AN_AGENT_EDITOR,
   ChannelBotCard,
@@ -329,12 +330,15 @@ function SlackBotDialog({
             />
           )}
           {status.installed ? (
-            <ChannelBotLifecycleActions
-              workspaceId={workspaceId}
-              bot={bot}
-              state={state}
-              onDisconnected={onClose}
-            />
+            <>
+              <ChannelAccessSelect workspaceId={workspaceId} bot={bot} />
+              <ChannelBotLifecycleActions
+                workspaceId={workspaceId}
+                bot={bot}
+                state={state}
+                onDisconnected={onClose}
+              />
+            </>
           ) : null}
         </>
       }

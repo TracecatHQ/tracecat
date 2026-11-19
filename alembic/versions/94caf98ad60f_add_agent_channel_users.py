@@ -1,11 +1,11 @@
-"""add agent channel users and preset channel access policy
+"""add agent channel users and bot channel access policy
 
 Revision ID: 94caf98ad60f
 Revises: 14588b612098
 Create Date: 2026-11-19 12:52:00.000000
 
-Additive only: creates agent_channel_user and adds agent_preset.channel_access_policy
-with a server default, so existing presets read linked_approvals and the previous app
+Additive only: creates agent_channel_user and adds agent_channel_bot.channel_access_policy
+with a server default, so existing bots read linked_approvals and the previous app
 version, which never reads either, keeps working.
 """
 
@@ -83,11 +83,11 @@ def upgrade() -> None:
         unique=False,
     )
     op.execute(enable_org_table_rls("agent_channel_user"))
-    # Fail fast instead of queueing preset reads behind a long transaction.
+    # Fail fast instead of queueing bot reads behind a long transaction.
     op.execute("SET LOCAL lock_timeout = '10s'")
     # A constant default is metadata-only: no table rewrite.
     op.add_column(
-        "agent_preset",
+        "agent_channel_bot",
         sa.Column(
             "channel_access_policy",
             sa.String(length=32),
@@ -96,17 +96,19 @@ def upgrade() -> None:
         ),
     )
     op.create_check_constraint(
-        op.f("ck_agent_preset_channel_access_policy"),
-        "agent_preset",
+        op.f("ck_agent_channel_bot_channel_access_policy"),
+        "agent_channel_bot",
         "channel_access_policy IN ('linked_only', 'linked_approvals', 'open')",
     )
 
 
 def downgrade() -> None:
     op.drop_constraint(
-        op.f("ck_agent_preset_channel_access_policy"), "agent_preset", type_="check"
+        op.f("ck_agent_channel_bot_channel_access_policy"),
+        "agent_channel_bot",
+        type_="check",
     )
-    op.drop_column("agent_preset", "channel_access_policy")
+    op.drop_column("agent_channel_bot", "channel_access_policy")
     op.execute(disable_org_table_rls("agent_channel_user"))
     op.drop_index(
         op.f("ix_agent_channel_user_user_id"), table_name="agent_channel_user"
