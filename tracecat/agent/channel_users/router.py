@@ -112,8 +112,9 @@ async def handle_channel_link_callback(
         return _link_page(sign_in.link_token, exc.error)
     except (TracecatValidationError, EntitlementRequired):
         return _link_page(sign_in.link_token, ChannelLinkError.FAILED)
-    except Exception:
-        logger.exception("Channel link sign-in failed")
+    except Exception as exc:
+        # The error can carry the sign-in code or provider response.
+        logger.error("Channel link sign-in failed", error_type=type(exc).__name__)
         return _link_page(sign_in.link_token, ChannelLinkError.FAILED)
     return _link_page(sign_in.link_token, None)
 
