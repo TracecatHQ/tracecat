@@ -390,10 +390,7 @@ async def complete_channel_link(
     await require_org_entitlement(
         session, claims.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
     )
-    ttl = max(1, claims.exp - int(datetime.now(UTC).timestamp()))
-    redis = await get_redis_client()
-    if not await redis.set_if_not_exists(_used_key(claims), "1", expire_seconds=ttl):
-        raise ChannelLinkInvalid("This link was already used")
+    await _ensure_unused(claims)
     identity = await require_channel_bot_admin().verify_provider_sign_in(
         session,
         _bot_service_role(claims),
@@ -406,6 +403,11 @@ async def complete_channel_link(
             "You signed in as a different provider user",
             error=ChannelLinkError.WRONG_ACCOUNT,
         )
+    # Claimed only after a matching sign-in, so a failed attempt can be retried.
+    ttl = max(1, claims.exp - int(datetime.now(UTC).timestamp()))
+    redis = await get_redis_client()
+    if not await redis.set_if_not_exists(_used_key(claims), "1", expire_seconds=ttl):
+        raise ChannelLinkInvalid("This link was already used")
     await _upsert_link(
         session,
         organization_id=claims.organization_id,

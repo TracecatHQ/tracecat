@@ -86,11 +86,12 @@ function ChannelLinkContent() {
   const { user, userIsLoading } = useAuth()
 
   useEffect(() => {
-    if (!userIsLoading && !user) {
+    // A callback outcome shows as is; its signed_out error says to reopen the link.
+    if (!userIsLoading && !user && !result) {
       const returnUrl = `/channel-links/${encodeURIComponent(token)}`
       router.replace(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
     }
-  }, [user, userIsLoading, token, router])
+  }, [user, userIsLoading, token, router, result])
 
   const details = useQuery({
     queryKey: ["channel-link", token],

@@ -481,6 +481,28 @@ async def test_challenge_refusals_write_nothing(
     assert await session.scalar(select(AgentChannelUser.id)) is None
 
 
+async def test_a_wrong_account_sign_in_leaves_the_link_usable(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _entitle(session, org.organization_id, monkeypatch)
+    user = await _user(session, org)
+    admin = _SignedInAs(ChannelIdentity(PROVIDER, TENANT, "U-other"))
+    monkeypatch.setattr(
+        channel_users_service, "require_channel_bot_admin", lambda: admin
+    )
+    sign_in = read_sign_in_state(_sign_in(org, "U11", user))
+
+    with pytest.raises(ChannelLinkInvalid, match="different provider user"):
+        await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
+    admin.identity = ChannelIdentity(PROVIDER, TENANT, "U11")
+    await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
+
+    actor = await resolve_channel_actor(
+        session, organization_id=org.organization_id, evidence=_evidence("U11")
+    )
+    assert actor.user_id == user.id
+
+
 async def test_challenge_needs_the_channels_preview(
     session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -644,8 +666,12 @@ async def test_a_plain_member_cannot_list_the_organization_links(
     await _entitle(session, org.organization_id, monkeypatch)
     async with _admin_client(session, org, frozenset({"org:member:read"})) as client:
         response = await client.get("/agent/channel-users")
+    async with _admin_client(session, org, frozenset({"org:member:remove"})) as client:
+        allowed = await client.get("/agent/channel-users")
 
     assert response.status_code == 403
+    assert response.json()["error"]["missing_scopes"] == ["org:member:remove"]
+    assert allowed.status_code == 200
 
 
 async def test_channel_user_routes_need_the_channels_preview(
