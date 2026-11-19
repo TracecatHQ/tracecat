@@ -701,6 +701,22 @@ async def test_link_routes_enforce_the_org_ip_allowlist(
     assert checked == [org.organization_id, org.organization_id]
 
 
+async def test_an_allowlist_lookup_failure_redirects_as_failed(
+    org: _Org, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", APP_URL)
+    user = await _user(session, org)
+
+    async def _broken(*_args, **_kwargs) -> None:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(channel_users_router, "enforce_org_ip_allowlist", _broken)
+    failed = await channel_users_router.handle_channel_link_callback(
+        user=user, state=_sign_in(org, "U13", user), code="c"
+    )
+    assert _redirect_query(failed)[1]["error"] == ["failed"]
+
+
 @asynccontextmanager
 async def _admin_client(
     session: AsyncSession, org: _Org, scopes: frozenset[str]

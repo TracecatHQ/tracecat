@@ -59,7 +59,8 @@ const LINK_FAILURES: Record<string, LinkFailure> = {
     retryable: true,
   },
   blocked_network: {
-    message: "Your organization's IP allowlist does not include this network.",
+    message:
+      "Your organization's IP allowlist does not include this network. Open the link from an allowed network.",
     retryable: true,
   },
 }
