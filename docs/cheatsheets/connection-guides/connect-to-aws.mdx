@@ -3,25 +3,36 @@ title: "Connect to AWS"
 description: "Connect Tracecat to AWS with IAM roles, then extend access to AWS Organizations, GuardDuty, and approved S3 log buckets."
 ---
 
-Give Tracecat agents and workflows one AWS entry role. This guide puts it in your security account, which already serves as the GuardDuty delegated administrator for the Regions you monitor.
+Give Tracecat agents and workflows one AWS entry role. This guide uses `SecurityAudit` for your security account, which serves as the GuardDuty delegated administrator for the Regions you monitor.
 
 <Prompt description="Set up the AWS connection with an AI assistant">
 Help me connect Tracecat to AWS using CloudFormation or Terraform. Start with the examples at https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws. Ask which deployment method and AWS profiles I use, whether I need one account or organization coverage, which member accounts and log buckets to approve, and whether to enable GuardDuty triage writes. Use my GuardDuty delegated administrator account for the entry role. For organization coverage, use a StackSets delegated administrator and a separate management stack if I need Organizations reads. Have me supply the Tracecat workspace External ID through a protected input. Verify the AWS account behind each profile and show me the plan or CloudFormation changes before applying. Then give me the entry role ARN and walk me through configuring the aws credential and testing it in Tracecat. If I added S3 logs, also walk me through configuring the amazon_s3 credential and running the DuckDB sample.
 </Prompt>
 
 ```mermaid
+---
+config:
+  flowchart:
+    nodeSpacing: 16
+    rankSpacing: 36
+    padding: 10
+---
 flowchart TD
+    accTitle: Tracecat AWS role chaining
+    accDescr: Tracecat assumes the entry role in SecurityAudit. That role can then assume separate audit roles in the management, member, and LogArchive accounts.
     W["Tracecat agents and workflows"]
-    E["Entry role in your security account"]
-    G["GuardDuty<br/>Read and triage findings"]
-    A["Separate audit roles<br/>Management account · Read OUs and SCPs<br/>Member accounts · Audit with SecurityAudit<br/>Log archive · Read approved logs"]
+    E["SecurityAudit<br/>TracecatSecOpsAccessRole<br/>GuardDuty reads and optional triage"]
+    M["Management<br/>Audit role<br/>Read OUs and SCPs"]
+    A["Member accounts<br/>One audit role each<br/>Audit configuration"]
+    L["LogArchive<br/>Audit role<br/>Read approved logs"]
     W -->|Assume with workspace External ID| E
-    E -->|Use the entry role| G
-    E -->|Assume only approved roles| A
+    E --> M
+    E --> A
+    E --> L
 ```
 
 <Info>
-  The entry role trusts your Tracecat executor and requires the workspace External ID. Tracecat uses temporary sessions and can assume only the audit roles you list. Each target role grants access for its account.
+  The Tracecat executor uses the workspace External ID to assume the entry role. Tracecat then uses temporary sessions to assume only the `TracecatSecOpsAuditRole` roles you approve.
 </Info>
 
 ## What you can do
@@ -59,13 +70,19 @@ sql: |
 
 <Steps>
   <Step title="Get the workspace trust settings">
-    In Tracecat, open **Credentials** and configure the AWS role credential. Copy **Principal ARN** and **External ID** from **Trust policy**. Use a protected deployment input for the External ID.
+    1. In Tracecat, open **Credentials** and configure the AWS role credential.
+    2. Copy **Principal ARN** and **External ID** from **Trust policy**.
+    3. Supply the External ID through a protected deployment input.
   </Step>
   <Step title="Choose the AWS accounts and Region">
-    Choose one deployment Region for the IAM stacks and StackSet. To cover multiple accounts, record your organization root ID (`r-…`) or OU ID (`ou-…`), the approved member account IDs, and the management account ID if you want organization reads. Run `aws sts get-caller-identity --profile <PROFILE>` for each AWS CLI profile you use.
+    - Choose one deployment Region for the IAM stacks and StackSet.
+    - For organization access, record your root ID (`r-…`) or OU ID (`ou-…`) and your approved member account IDs. Include the management account ID if you want organization reads.
+    - Run `aws sts get-caller-identity --profile <PROFILE>` for each AWS CLI profile you use.
   </Step>
   <Step title="Prepare StackSets for organization deployments">
-    In the AWS management account, confirm [all features](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_org_support-all-features.html) are enabled in AWS Organizations. Open **CloudFormation → StackSets** and [activate trusted access](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-activate-trusted-access.html) if prompted. Expand **Delegated administrators**. If your deployment account is absent, choose **Register delegated administrator** and enter its account ID.
+    1. In the AWS management account, confirm [all features](https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_org_support-all-features.html) are enabled in AWS Organizations.
+    2. Open **CloudFormation → StackSets** and [activate trusted access](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-activate-trusted-access.html) if prompted.
+    3. Expand **Delegated administrators**. If your deployment account is absent, choose **Register delegated administrator** and enter its account ID.
   </Step>
 </Steps>
 
@@ -82,13 +99,26 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
 
 <Steps>
   <Step title="Create the entry role">
-    In the security account, open **CloudFormation → Stacks** and create a stack from `cloudformation/tracecat-secops-access-role.yaml`. Set `TracecatPrincipalArn` and `ExternalId` from Tracecat. For organization access, set `TargetRoleArns` to a comma-separated list of `arn:aws:iam::<ACCOUNT_ID>:role/TracecatSecOpsAuditRole` for each approved member and the management account if needed. Leave it empty for a single account. Set `EnableGuardDutyTriage` to `true` only if you want triage writes. Acknowledge named IAM resources, create the stack, and copy the `RoleArn` output.
+    1. In `SecurityAudit`, open **CloudFormation → Stacks** and create a stack from `cloudformation/tracecat-secops-access-role.yaml`.
+    2. Set `TracecatPrincipalArn` and `ExternalId` from Tracecat.
+    3. For organization access, set `TargetRoleArns` to a comma-separated list of `arn:aws:iam::<ACCOUNT_ID>:role/TracecatSecOpsAuditRole` for your approved members and the management account if needed. Leave this field blank for a single account.
+    4. To allow GuardDuty triage writes, set `EnableGuardDutyTriage` to `true`.
+    5. Acknowledge named IAM resources and create the stack.
+    6. Copy `RoleArn` from the stack's outputs.
   </Step>
   <Step title="Deploy to approved member accounts">
-    In the StackSets delegated administrator account, create a StackSet from `cloudformation/tracecat-secops-audit-role.yaml` with **Service-managed permissions**. Paste the entry role ARN into `EntryRoleArns` and acknowledge named IAM resources. Under **Deployment targets**, choose **Deploy to organizational units (OUs)**, add the root or OU ID, select the **Intersection** filter, and enter the approved member account IDs. Select one Region and turn automatic deployment off. Verify the targets on the review screen and wait for the stack instances to be up to date.
+    1. In the StackSets delegated administrator account, open **CloudFormation → StackSets → Create StackSet**.
+    2. Choose **Service-managed permissions** and upload `cloudformation/tracecat-secops-audit-role.yaml`.
+    3. Paste the entry role ARN into `EntryRoleArns` and acknowledge named IAM resources.
+    4. Under **Deployment targets**, choose **Deploy to organizational units (OUs)** and enter the root or OU ID.
+    5. Select **Intersection** and enter the approved member account IDs.
+    6. Select one Region and turn automatic deployment off.
+    7. Review the targets, create the StackSet, and wait for the stack instances to be up to date.
   </Step>
   <Step title="Deploy the management audit role if needed">
-    In the management account, create a regular stack from `cloudformation/tracecat-secops-audit-role.yaml` with the same `EntryRoleArns`. Acknowledge named IAM resources and wait for the stack to complete.
+    1. For organization reads, sign in to the management account and open **CloudFormation → Stacks**.
+    2. Create a regular stack from `cloudformation/tracecat-secops-audit-role.yaml`. Use the entry role ARN for `EntryRoleArns`.
+    3. Acknowledge named IAM resources, create the stack, and wait for it to complete.
   </Step>
 </Steps>
 
@@ -97,10 +127,15 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
 
 <Steps>
   <Step title="Configure AWS profiles and Terraform inputs">
-    In `examples/connections/aws/terraform`, follow the [Terraform example](https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws#terraform) to configure AWS profiles and create `terraform.tfvars`. Set `organization` only for multi-account access. Supply `external_id` as a protected input and restrict access to your state.
+    - Follow the [Terraform example](https://github.com/TracecatHQ/tracecat/tree/main/examples/connections/aws#terraform) to configure AWS profiles and create `terraform.tfvars` in `examples/connections/aws/terraform`.
+    - Set `organization` only for multi-account access.
+    - Supply `external_id` as a protected input and restrict access to your state.
   </Step>
   <Step title="Plan and apply">
-    Run `terraform init` and `terraform plan`. Verify the selected accounts and IAM changes. Run `terraform apply`, then copy the output of `terraform output -raw role_arn`.
+    1. Run `terraform init`.
+    2. Run `terraform plan` and verify the selected accounts and IAM changes.
+    3. Run `terraform apply`.
+    4. Run `terraform output -raw role_arn` and copy the ARN.
   </Step>
 </Steps>
 
@@ -120,7 +155,7 @@ Clone the [Tracecat repository](https://github.com/TracecatHQ/tracecat) and open
 <Steps>
   <Step title="Choose the role that will read the logs">
     - If the buckets are in your entry account, use your entry role.
-    - If the buckets are in a separate account, include it in your approved member accounts and use `TracecatSecOpsAuditRole` in that account.
+    - If the buckets are in a separate `LogArchive` account, include that account in your approved members and use its `TracecatSecOpsAuditRole`.
   </Step>
   <Step title="Create the S3 policy stack">
     In the bucket owner's account, create a CloudFormation stack from the [log archive template](https://github.com/TracecatHQ/tracecat/blob/main/examples/connections/aws/cloudformation/tracecat-secops-log-archive-s3-policy.yaml). Follow this step for either deployment method.
