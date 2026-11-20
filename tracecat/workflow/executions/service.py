@@ -1960,6 +1960,12 @@ class WorkflowExecutionsService:
             return datetime.timedelta(0)
         return await StartPacer().reserve(self.role.organization_id)
 
+    async def _refund_start(self) -> None:
+        """Give back the role's org a start slot that made no run."""
+        if self.role is None or self.role.organization_id is None:
+            return
+        await StartPacer().refund(self.role.organization_id)
+
     @staticmethod
     def _apply_start_delay(
         kwargs: dict[str, Any], start_delay: datetime.timedelta
@@ -2110,6 +2116,12 @@ class WorkflowExecutionsService:
                 ),
                 timeout=start_timeout,
             )
+        except WorkflowAlreadyStartedError:
+            # A retried start with a fixed execution ID made no new run, so
+            # it gives its pacing slot back. Otherwise retries of runs that
+            # already started would use up the org's rate.
+            await self._refund_start()
+            raise
         except TimeoutError as e:
             self.logger.error(
                 "Timed out while dispatching workflow start",

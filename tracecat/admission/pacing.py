@@ -68,6 +68,25 @@ redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', ttl_ms)
 return {1, delay}
 """
 
+# Undo one reservation: move the org's theoretical arrival time back one
+# interval. KEYS[1] = pacing key, ARGV[1] = emission interval (µs).
+_REFUND_SCRIPT = """
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
+local tat = tonumber(redis.call('GET', KEYS[1]))
+if not tat then
+    return 0
+end
+local new_tat = tat - tonumber(ARGV[1])
+if new_tat <= now then
+    redis.call('DEL', KEYS[1])
+    return 1
+end
+local ttl_ms = math.ceil((new_tat - now) / 1000) + 1000
+redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', ttl_ms)
+return 1
+"""
+
 
 class StartRateLimited(Exception):
     """A workflow start was refused: the org's start rate is exhausted."""
@@ -156,6 +175,10 @@ def _pacing_key(org_id: OrganizationID) -> str:
     return f"concurrency:{org_id}:{_RESOURCE}"
 
 
+def _interval_us(rate: StartRate) -> int:
+    return max(1, round(_MICROS_PER_SECOND / rate.per_second))
+
+
 class StartPacer:
     """Paces workflow starts per org."""
 
@@ -172,7 +195,7 @@ class StartPacer:
         """
         if (rate := await resolve_start_rate(org_id)) is None:
             return timedelta(0)
-        interval_us = max(1, round(_MICROS_PER_SECOND / rate.per_second))
+        interval_us = _interval_us(rate)
         tolerance_us = (rate.burst - 1) * interval_us
         max_delay_us = int(self.max_delay.total_seconds() * _MICROS_PER_SECOND)
         try:
@@ -217,3 +240,25 @@ class StartPacer:
                 delay_seconds=value.total_seconds(),
             )
         return value
+
+    async def refund(self, org_id: OrganizationID) -> None:
+        """Give back a reserved slot whose start didn't create a run.
+
+        Call it only when the start certainly made no run, such as Temporal
+        rejecting a duplicate execution ID. Failures are logged, not raised.
+        """
+        if (rate := await resolve_start_rate(org_id)) is None:
+            return
+        try:
+            redis_client = await get_redis_client()
+            client = await redis_client._get_client()
+            script = client.register_script(_REFUND_SCRIPT)
+            async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
+                await script(keys=[_pacing_key(org_id)], args=[_interval_us(rate)])
+        except (RedisError, OSError, TimeoutError) as e:
+            logger.warning(
+                "concurrency.refund_failed",
+                resource=_RESOURCE,
+                org_id=str(org_id),
+                error_type=type(e).__name__,
+            )

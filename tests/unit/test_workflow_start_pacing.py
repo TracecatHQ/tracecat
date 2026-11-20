@@ -13,6 +13,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from temporalio.client import Client
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tracecat.admission.pacing import StartRateLimited
 from tracecat.api.common import (
@@ -89,12 +90,17 @@ def mock_storage() -> Iterator[MagicMock]:
 
 
 @pytest.fixture
-def reserve() -> Iterator[AsyncMock]:
+def refund() -> AsyncMock:
+    return AsyncMock(return_value=None)
+
+
+@pytest.fixture
+def reserve(refund: AsyncMock) -> Iterator[AsyncMock]:
     """Replace the pacer; tests set the delay or refusal on this mock."""
     mock = AsyncMock(return_value=datetime.timedelta(0))
     with patch(
         "tracecat.workflow.executions.service.StartPacer",
-        return_value=SimpleNamespace(reserve=mock),
+        return_value=SimpleNamespace(reserve=mock, refund=refund),
     ):
         yield mock
 
@@ -194,6 +200,52 @@ async def test_refused_start_stores_nothing_and_starts_nothing(
 
     mock_storage.store.assert_not_awaited()
     mock_client.start_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_duplicate_start_refunds_its_slot(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+    refund: AsyncMock,
+) -> None:
+    """A retried start whose run already exists gives its slot back."""
+    wf_exec_id = f"{_WF_ID.short()}/exec_fixed"
+    mock_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+        wf_exec_id, "DSLWorkflow"
+    )
+    with _timeout(service, None), pytest.raises(WorkflowAlreadyStartedError):
+        await service.create_workflow_execution_wait_for_start(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=wf_exec_id,
+            trigger_type=TriggerType.CASE,
+        )
+
+    reserve.assert_awaited_once_with(_ORG_ID)
+    refund.assert_awaited_once_with(_ORG_ID)
+
+
+@pytest.mark.anyio
+async def test_failed_start_of_unknown_outcome_keeps_its_slot(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+    refund: AsyncMock,
+) -> None:
+    """A timed-out start may have made a run, so it keeps its slot."""
+    mock_client.start_workflow.side_effect = TimeoutError()
+    with _timeout(service, None), pytest.raises(TimeoutError):
+        await service._start_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=f"{_WF_ID.short()}/exec_test",
+            trigger_type=TriggerType.WEBHOOK,
+        )
+
+    refund.assert_not_awaited()
 
 
 @pytest.mark.anyio

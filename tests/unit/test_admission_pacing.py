@@ -97,6 +97,55 @@ async def test_refused_start_does_not_take_a_slot(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("redis_client")
+async def test_refund_gives_back_one_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retried starts of runs that already exist don't use up the rate."""
+    _use_rate(monkeypatch, StartRate(per_second=10, burst=1))
+    pacer = StartPacer(max_delay=timedelta(milliseconds=150))
+    org_id = uuid.uuid4()
+
+    assert await pacer.reserve(org_id) == timedelta(0)
+    first_delay = await pacer.reserve(org_id)
+    assert abs(first_delay - timedelta(milliseconds=100)) < _TOLERANCE
+
+    # Give back the second slot, then retry five duplicates: each reserves,
+    # is rejected by Temporal, and refunds. None of them use up the rate.
+    await pacer.refund(org_id)
+    for _ in range(5):
+        await pacer.reserve(org_id)
+        await pacer.refund(org_id)
+
+    again = await pacer.reserve(org_id)
+    assert abs(again - timedelta(milliseconds=100)) < _TOLERANCE
+
+
+@pytest.mark.anyio
+async def test_refund_without_reservation_clears_nothing(
+    monkeypatch: pytest.MonkeyPatch, redis_client: redis.Redis
+) -> None:
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    org_id = uuid.uuid4()
+
+    await StartPacer().refund(org_id)
+
+    assert await redis_client.get(pacing._pacing_key(org_id)) is None
+
+
+@pytest.mark.anyio
+async def test_refund_with_redis_down_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    monkeypatch.setattr(
+        pacing,
+        "get_redis_client",
+        AsyncMock(side_effect=RedisConnectionError("connection refused")),
+    )
+
+    await StartPacer().refund(uuid.uuid4())
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("redis_client")
 async def test_orgs_are_paced_independently(monkeypatch: pytest.MonkeyPatch) -> None:
     _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
     pacer = StartPacer(max_delay=timedelta(milliseconds=100))
