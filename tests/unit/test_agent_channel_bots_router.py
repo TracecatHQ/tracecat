@@ -44,6 +44,7 @@ from tracecat.agent.channel_bots.schemas import (
     SlackBotInstall,
     oauth_callback_path,
 )
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.api import extensions
 from tracecat.api.app import (
     app,
@@ -211,6 +212,7 @@ def bot_read() -> AgentChannelBotRead:
         provider_tenant_id="T1",
         provider_app_id="A1",
         endpoint_url="https://api.example.com/agent/channels/slack/x",
+        channel_access_policy=ChannelAccessPolicy.LINKED_APPROVALS,
         created_at=now,
         updated_at=now,
         details=SlackBotDetails(
@@ -425,7 +427,8 @@ def test_routes_hand_the_request_to_the_installed_admin(
     admin.update_bot.return_value = expected
 
     response = client.patch(
-        f"/agent/channel-bots/{expected.id}", json={"status": "paused"}
+        f"/agent/channel-bots/{expected.id}",
+        json={"status": "paused", "channel_access_policy": "linked_only"},
     )
 
     assert response.status_code == 200
@@ -434,7 +437,10 @@ def test_routes_hand_the_request_to_the_installed_admin(
         SESSION,
         ROLE,
         expected.id,
-        AgentChannelBotUpdate(status=ChannelBotRunState.PAUSED),
+        AgentChannelBotUpdate(
+            status=ChannelBotRunState.PAUSED,
+            channel_access_policy=ChannelAccessPolicy.LINKED_ONLY,
+        ),
     )
 
 

@@ -22,6 +22,7 @@ let mockOpen = true
 let mockActiveSection: SettingsSection = "profile"
 let mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
 let mockScopesByWorkspaceId: Record<string, string[]> = {}
+let mockChannelsPreview = false
 
 jest.mock("@/components/settings/settings-modal-context", () => ({
   useSettingsModal: () => ({
@@ -84,6 +85,17 @@ jest.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
+jest.mock("@/components/settings/linked-accounts-settings", () => ({
+  LinkedAccountsSettings: () => <div>Linked accounts content</div>,
+}))
+
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({
+    hasEntitlement: (entitlement: string) =>
+      entitlement === "agent_channels_preview" && mockChannelsPreview,
+  }),
+}))
+
 jest.mock("@/hooks/use-auth", () => ({
   useAuthActions: () => ({
     logout: mockLogout,
@@ -123,6 +135,7 @@ describe("SettingsModal workspace navigation", () => {
     mockLastWorkspaceId = undefined
     mockOpen = true
     mockActiveSection = "profile"
+    mockChannelsPreview = false
     mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
     mockScopesByWorkspaceId = {}
   })
@@ -250,6 +263,28 @@ describe("SettingsModal workspace navigation", () => {
     })
     expect(screen.getByText("Workspace settings content")).toBeInTheDocument()
     expect(screen.queryByText("Profile content")).not.toBeInTheDocument()
+  })
+
+  it("shows linked accounts only with the channels preview", () => {
+    mockActiveSection = "linked-accounts"
+    mockChannelsPreview = true
+    render(<SettingsModal />)
+    expect(
+      screen.getByRole("button", { name: "Linked accounts" })
+    ).toBeInTheDocument()
+    expect(screen.getByText("Linked accounts content")).toBeInTheDocument()
+  })
+
+  it("falls back to profile for linked accounts without the channels preview", () => {
+    mockActiveSection = "linked-accounts"
+    render(<SettingsModal />)
+    expect(
+      screen.queryByRole("button", { name: "Linked accounts" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Linked accounts content")
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("Profile content")).toBeInTheDocument()
   })
 
   it("does not run workspace hooks while closed", () => {

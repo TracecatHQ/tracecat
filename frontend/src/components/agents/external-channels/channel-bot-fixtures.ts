@@ -75,6 +75,7 @@ export function slackBot(
     provider_tenant_id: "T1",
     provider_app_id: "A1",
     endpoint_url: SLACK_ENDPOINT,
+    channel_access_policy: "linked_approvals",
     created_at: "2026-11-12T00:00:00Z",
     updated_at: "2026-11-12T00:00:00Z",
     details: {

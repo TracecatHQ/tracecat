@@ -123,6 +123,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "external_group_member",
     "scim_connection",
     "invitation_group",
+    "agent_channel_user",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (

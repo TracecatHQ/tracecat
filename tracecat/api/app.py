@@ -59,6 +59,10 @@ from tracecat.agent.channel_bots.router import (
     public_router as agent_channel_bots_public_router,
 )
 from tracecat.agent.channel_bots.router import router as agent_channel_bots_router
+from tracecat.agent.channel_users.router import (
+    link_router as agent_channel_links_router,
+)
+from tracecat.agent.channel_users.router import router as agent_channel_users_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
@@ -769,6 +773,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(agent_channel_bots_public_router)
+    app.include_router(agent_channel_links_router)
+    app.include_router(agent_channel_users_router)
     app.include_router(workspaces_router)
     app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)

@@ -2,6 +2,7 @@
 
 import { Loader2 } from "lucide-react"
 import { useState } from "react"
+import { ChannelAccessSelect } from "@/components/agents/external-channels/channel-access-select"
 import {
   ChannelBotHeader,
   ChannelBotLifecycleActions,
@@ -160,6 +161,7 @@ export function SlackPlatformCard({
             install={install}
             canUpdate={canUpdateAgent}
           />
+          <ChannelAccessSelect workspaceId={workspaceId} bot={install} />
           {canUpdateAgent ? (
             <ChannelBotLifecycleActions
               workspaceId={workspaceId}
