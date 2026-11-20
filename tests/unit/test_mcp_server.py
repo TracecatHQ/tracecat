@@ -4093,6 +4093,7 @@ async def test_search_cases_forwards_canonical_request(
         include_payload=True,
         include_durations=True,
         include_count=False,
+        cap_broad_matches=True,
         order_by="short_id",
         sort="asc",
     )
@@ -4112,6 +4113,7 @@ async def test_search_cases_forwards_canonical_request(
         request.include_rows and request.include_payload and request.include_durations
     )
     assert request.include_count is False and request.field_ids == ["region"]
+    assert request.cap_broad_matches is True
     assert request.tags == ["synthetic-tag"] and request.dropdown == [
         "verdict:selected"
     ]

@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -177,8 +177,29 @@ class CaseStatusGroupCounts(Schema):
 
 
 class CaseSearchAggregateRead(Schema):
-    total: int
-    status_groups: CaseStatusGroupCounts
+    total: int = Field(
+        description=(
+            "Number of matching cases. When capped is true, more cases match "
+            "and this is the cap."
+        )
+    )
+    status_groups: CaseStatusGroupCounts | None = Field(
+        description="Matching cases per status. Null when capped is true."
+    )
+    capped: bool = Field(
+        default=False,
+        description=(
+            "True when a keyword search matched more cases than the count cap "
+            "(10,000), so counting stopped there."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def per_status_counts_unless_capped(self) -> Self:
+        """A capped count has no per-status counts; an exact one has them."""
+        if self.capped != (self.status_groups is None):
+            raise ValueError("status_groups must be null exactly when capped")
+        return self
 
 
 class CaseRead(Schema):

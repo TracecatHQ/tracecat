@@ -21,14 +21,17 @@ import type {
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseStatus,
+  CaseStatusGroupCounts,
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
+
 import { CaseItem } from "@/components/cases/case-item"
 import type {
   FilterMode,
   SortDirection,
 } from "@/components/filters/filter-multi-select"
+import { formatCaseCount } from "@/lib/cases/case-count"
 import { cn } from "@/lib/utils"
 
 type CaseFieldMetadata = Pick<CaseFieldReadMinimal, "display_name" | "type">
@@ -47,7 +50,7 @@ interface StatusGroupConfig {
   icon: ComponentType<{ className?: string }>
   statuses: CaseStatus[]
   iconColor: string
-  aggregateKey?: keyof CaseSearchAggregateRead["status_groups"]
+  aggregateKey?: keyof CaseStatusGroupCounts
 }
 
 const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
@@ -191,6 +194,8 @@ interface CasesAccordionProps {
   statusFilter?: CaseStatus[]
   statusMode?: FilterMode
   totalFilteredCaseEstimate?: number | null
+  /** totalFilteredCaseEstimate is the server's count cap; more cases match. */
+  isCountCapped?: boolean
   stageCounts?: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading?: boolean
   isCountsFetching?: boolean
@@ -375,6 +380,7 @@ export function CasesAccordion({
   statusFilter = [],
   statusMode = "include",
   totalFilteredCaseEstimate = null,
+  isCountCapped = false,
   stageCounts = null,
   isCountsLoading = false,
   isCountsFetching = false,
@@ -461,6 +467,7 @@ export function CasesAccordion({
             singleFilteredGroup === groupKey ? totalFilteredCaseEstimate : null
           const knownCount = filteredCount ?? globalCount
           const groupCount = knownCount ?? groupCases.length
+          const isGroupCountCapped = isCountCapped && filteredCount !== null
 
           return (
             <AccordionPrimitive.Item
@@ -501,7 +508,7 @@ export function CasesAccordion({
                     />
                     <span className="text-xs font-medium">{config.label}</span>
                     <span className="text-xs text-muted-foreground">
-                      {groupCount}
+                      {formatCaseCount(groupCount, isGroupCountCapped)}
                       {typeof knownCount !== "number" && " loaded"}
                     </span>
                     {(isCountsLoading || isCountsFetching) && (

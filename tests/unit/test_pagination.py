@@ -26,6 +26,7 @@ from tracecat.pagination import (
     _normalize_ordering,
     _seek_predicate,
     paginate,
+    read_cursor_anchor,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -859,6 +860,66 @@ class TestPaginate:
             )
 
         assert exc_info.value.code is PaginationErrorCode.CURSOR_MISMATCH
+
+    @pytest.mark.anyio
+    async def test_cursor_carries_its_anchor_and_rejects_another(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+    ) -> None:
+        items = await _create_page_items(session)
+        statement = sa.select(items.c.id)
+        order_by = (items.c.id.asc(),)
+        plain = await paginate(
+            session, statement, page=PageParams(limit=2), order_by=order_by
+        )
+        assert plain.next_cursor is not None
+        # A cursor without an anchor keeps the encoding older servers read.
+        payload = plain.next_cursor.split(".", maxsplit=1)[0]
+        decoded = json.loads(
+            base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+        )
+        assert "anchor" not in decoded
+        assert read_cursor_anchor(plain.next_cursor) is None
+
+        first = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2),
+            order_by=order_by,
+            anchor="synthetic-anchor",
+        )
+        assert first.next_cursor is not None
+        assert read_cursor_anchor(first.next_cursor) == "synthetic-anchor"
+        second = await paginate(
+            session,
+            statement,
+            page=PageParams(limit=2, cursor=first.next_cursor),
+            order_by=order_by,
+            anchor="synthetic-anchor",
+        )
+        assert second.items == [3, 4]
+        assert second.prev_cursor is not None
+        assert read_cursor_anchor(second.prev_cursor) == "synthetic-anchor"
+
+        for cursor, anchor in (
+            (first.next_cursor, None),
+            (first.next_cursor, "other-anchor"),
+            (plain.next_cursor, "synthetic-anchor"),
+        ):
+            with pytest.raises(PaginationError) as exc_info:
+                await paginate(
+                    session,
+                    statement,
+                    page=PageParams(limit=2, cursor=cursor),
+                    order_by=order_by,
+                    anchor=anchor,
+                )
+            assert exc_info.value.code is PaginationErrorCode.CURSOR_MISMATCH
+
+        with pytest.raises(PaginationError) as invalid:
+            read_cursor_anchor(first.next_cursor[:-2] + "AA")
+        assert invalid.value.code is PaginationErrorCode.INVALID_CURSOR
 
     @pytest.mark.anyio
     async def test_cursor_accepts_semantically_equivalent_in_filter_order(

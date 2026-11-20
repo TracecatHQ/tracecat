@@ -29,6 +29,7 @@ import type {
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
+
 import {
   PRIORITIES,
   SEVERITIES,
@@ -79,6 +80,7 @@ import {
   DEFAULT_CREATED_PRESET,
   type DropdownFilterState,
 } from "@/lib/case-query"
+import { formatCaseCount } from "@/lib/cases/case-count"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
@@ -296,6 +298,8 @@ interface CasesHeaderProps {
   // Selection props
   totalCaseCount?: number
   displayCaseCount?: number | null
+  /** displayCaseCount is the server's count cap; more cases match. */
+  isDisplayCaseCountCapped?: boolean
   isCountsError?: boolean
   selectedCount?: number
   onSelectAll?: () => void
@@ -375,6 +379,7 @@ export function CasesHeader({
   onDropdownSortDirectionChange,
   totalCaseCount = 0,
   displayCaseCount = null,
+  isDisplayCaseCountCapped = false,
   isCountsError = false,
   selectedCount = 0,
   onSelectAll,
@@ -633,7 +638,10 @@ export function CasesHeader({
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="text-xs tabular-nums text-muted-foreground">
-            {displayCaseCount ?? totalCaseCount}{" "}
+            {formatCaseCount(
+              displayCaseCount ?? totalCaseCount,
+              isDisplayCaseCountCapped && displayCaseCount !== null
+            )}{" "}
             {displayCaseCount === null ? "loaded" : countNoun}
           </span>
           {onSearchModeChange && (

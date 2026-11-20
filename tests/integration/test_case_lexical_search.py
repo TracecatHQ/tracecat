@@ -792,6 +792,7 @@ async def test_promoted_identity_and_native_mentions_share_one_stable_cursor(
         )
     )
     assert counts.total == 2
+    assert counts.status_groups is not None
     assert counts.status_groups.new == 2
 
 
@@ -845,6 +846,7 @@ async def test_literal_promotion_reports_ordinary_membership_for_group_counts(
         )
     )
     assert counts.total == 1
+    assert counts.status_groups is not None
     assert counts.status_groups.new == 1
 
 
@@ -1033,3 +1035,173 @@ async def test_disconnect_after_the_response_cancels_nothing(
     assert [item["summary"] for item in payload["items"]] == [
         "synthetic disconnect target"
     ]
+
+
+async def test_cap_broad_matches_ranks_newest_matches_and_caps_counts(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Broad searches rank and count a bounded set; opting out stays exact."""
+    monkeypatch.setattr("tracecat.cases.search_bounds.SEARCH_MATCH_CAP", 3)
+    base = datetime(2026, 3, 1, tzinfo=UTC)
+    # The oldest match is the most relevant one: its whole summary matches.
+    oldest = await add_case(lexical_service, created_at=base)
+    oldest.summary, oldest.description = "powershell", ""
+    newer: list[Case] = []
+    for minute, status in enumerate(
+        (CaseStatus.NEW, CaseStatus.CLOSED, CaseStatus.NEW, CaseStatus.RESOLVED),
+        start=1,
+    ):
+        case = await add_case(
+            lexical_service, status=status, created_at=base + timedelta(minutes=minute)
+        )
+        case.summary, case.description = "Synthetic alert", "powershell spawned"
+        newer.append(case)
+    unrelated = await add_case(lexical_service, created_at=base + timedelta(hours=1))
+    unrelated.summary, unrelated.description = "Synthetic alert", "nothing here"
+    await lexical_service.session.flush()
+    newest_three = {case.id for case in newer[1:]}
+
+    search: dict[str, Any] = {"search_term": "powershell", "search_mode": "full_text"}
+    capped = {**search, "cap_broad_matches": True}
+
+    exact = await lexical_client.post("/cases/search", json=search)
+    assert exact.status_code == 200, exact.text
+    assert exact.json()["items"][0]["id"] == str(oldest.id)
+    assert exact.json()["total_estimate"] == 5
+
+    ranked = await lexical_client.post("/cases/search", json=capped)
+    assert ranked.status_code == 200, ranked.text
+    assert {row["id"] for row in ranked.json()["items"]} == {
+        str(case_id) for case_id in newest_three
+    }
+    # The window bounds ranking only; the requested exact count is unchanged.
+    assert ranked.json()["total_estimate"] == 5
+
+    by_date = await lexical_client.post(
+        "/cases/search", json={**capped, "order_by": "created_at"}
+    )
+    assert by_date.status_code == 200, by_date.text
+    assert len(by_date.json()["items"]) == 5
+
+    counts = await lexical_client.post("/cases/search/aggregate", json=capped)
+    assert counts.status_code == 200, counts.text
+    assert counts.json() == {"total": 3, "status_groups": None, "capped": True}
+    exact_counts = await lexical_client.post("/cases/search/aggregate", json=search)
+    assert exact_counts.status_code == 200, exact_counts.text
+    assert exact_counts.json()["total"] == 5
+    assert exact_counts.json()["capped"] is False
+    assert exact_counts.json()["status_groups"]["new"] == 3
+
+    # Under the cap, counts stay exact and per status.
+    narrow = await lexical_client.post(
+        "/cases/search/aggregate",
+        json={**capped, "status": ["new", "resolved"], "search_term": "spawned"},
+    )
+    assert narrow.status_code == 200, narrow.text
+    assert narrow.json()["capped"] is False
+    assert narrow.json()["total"] == 3
+    assert narrow.json()["status_groups"]["resolved"] == 1
+
+    # A new match moves the window, but cursors issued before it stay valid.
+    first = await lexical_client.post(
+        "/cases/search", json={**capped, "limit": 2, "include_count": False}
+    )
+    assert first.status_code == 200, first.text
+    later = await add_case(lexical_service, created_at=base + timedelta(minutes=30))
+    later.summary, later.description = "Synthetic alert", "powershell again"
+    await lexical_service.session.flush()
+    second = await lexical_client.post(
+        "/cases/search",
+        json={
+            **capped,
+            "limit": 2,
+            "include_count": False,
+            "cursor": first.json()["next_cursor"],
+        },
+    )
+    assert second.status_code == 200, second.text
+    first_ids = [row["id"] for row in first.json()["items"]]
+    second_ids = [row["id"] for row in second.json()["items"]]
+    assert second_ids
+    assert not set(first_ids) & set(second_ids)
+    # Page two ranks the same window: the oldest match stays out.
+    assert set(first_ids + second_ids) <= {
+        str(case_id) for case_id in (*newest_three, later.id)
+    }
+
+
+@pytest.mark.parametrize("newest_cases_scan", [2, 100])
+async def test_cap_broad_matches_finds_the_cutoff_past_the_newest_cases(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    newest_cases_scan: int,
+) -> None:
+    """Reading the newest cases and sorting all matches give the same cutoff."""
+    monkeypatch.setattr("tracecat.cases.search_bounds.SEARCH_MATCH_CAP", 3)
+    monkeypatch.setattr(
+        "tracecat.cases.search_bounds.NEWEST_CASES_SCAN", newest_cases_scan
+    )
+    base = datetime(2026, 3, 1, tzinfo=UTC)
+    matches: list[Case] = []
+    for minute in range(5):
+        case = await add_case(
+            lexical_service, created_at=base + timedelta(minutes=minute)
+        )
+        case.summary, case.description = "Synthetic alert", "powershell spawned"
+        matches.append(case)
+    # The newest cases do not match, so a scan of two finds no cutoff there.
+    for minute in (10, 11, 12):
+        other = await add_case(
+            lexical_service, created_at=base + timedelta(minutes=minute)
+        )
+        other.summary, other.description = "Synthetic alert", "nothing here"
+    await lexical_service.session.flush()
+
+    response = await lexical_client.post(
+        "/cases/search",
+        json={
+            "search_term": "powershell",
+            "search_mode": "full_text",
+            "cap_broad_matches": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert {row["id"] for row in response.json()["items"]} == {
+        str(case.id) for case in matches[2:]
+    }
+
+
+async def test_cap_broad_matches_still_promotes_an_older_exact_case(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The window limits ordinary matches, not the promoted exact case."""
+    monkeypatch.setattr("tracecat.cases.search_bounds.SEARCH_MATCH_CAP", 1)
+    base = datetime(2026, 3, 1, tzinfo=UTC)
+    exact = await add_case(lexical_service, created_at=base)
+    exact.summary = "Synthetic exact"
+    for minute in (1, 2):
+        mention = await add_case(
+            lexical_service, created_at=base + timedelta(minutes=minute)
+        )
+        mention.summary, mention.description = "Synthetic", f"See {exact.id}"
+    await lexical_service.session.flush()
+
+    response = await lexical_client.post(
+        "/cases/search",
+        json={
+            "search_term": str(exact.id),
+            "search_mode": "full_text",
+            "promote_exact_match": True,
+            "cap_broad_matches": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert items[0]["id"] == str(exact.id)
+    assert items[0]["is_exact_match"] is True
+    assert len(items) == 2

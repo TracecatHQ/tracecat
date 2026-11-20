@@ -74,8 +74,75 @@ keeps cases whose stored word list contains one of them. A typo-matched field
 scores from its stored word list instead of its complete text: 1.0 when the
 term itself is one of its complete words (a keyword inside a file name or
 host), otherwise the 0.65 threshold. A field without a stored word list still
-scores by strict word similarity against its complete text. There is no
-capped initial candidate window.
+scores by strict word similarity against its complete text.
+
+### Broad searches
+
+Ranking costs a few microseconds per matching case, and an exact count reads
+every match, so a keyword that matches most of a large workspace grows
+without bound (about 9 s per relevance page at one million matches). A request
+with `cap_broad_matches` bounds the counts for `search_mode` searches, and the
+ranking for `full_text` searches in relevance order, in the common case (see
+step 3 below). The case UI sets it, and API, workflow and MCP callers keep the
+exact behavior unless they opt in. The code is in
+`tracecat/cases/search_bounds.py`.
+
+- Relevance order ranks only the 10,000 newest matches: the page adds
+  `created_at >= cutoff`, where the cutoff is the creation time of the
+  10,000th newest match. Cases created at that same instant are kept too.
+  Older matches are left out of relevance order; column orders (newest first
+  and the rest) still return every match.
+- `POST /cases/search/aggregate` reads at most 10,001 matches. Beyond 10,000 it
+  returns `total` 10,000, `capped` true and no per-status counts, which an
+  exact count would have to read every match to give. The UI shows
+  "10,000+ cases" and loaded counts per status group.
+- `include_count`'s `total_estimate` stays exact.
+- Column-ordered keyword pages (newest first and the rest) normally turn off
+  plain index scans, so a rare keyword finds its matches through the text
+  indexes and then sorts them instead of walking the date index. When the
+  capped count shows more than 10,000 matches, the page may walk the date
+  index instead: a page fills within its first rows (newest first at one
+  million matches went from 1.4 s to 0.1 s). Planner settings are not part of
+  the cursor fingerprint, so this can change from page to page safely.
+
+The first page finds the cutoff in up to three steps:
+
+1. Count at most 10,001 matches. With 10,000 or fewer there is no cutoff, and
+   every match is ranked as before.
+2. Read the 100,000 newest cases in date order, check each against the
+   search, and take the 10,000th match. A broad keyword usually reaches it
+   well before the end: one in every case needs 10,000 rows.
+3. If the newest 100,000 cases hold fewer than 10,000 matches, find the
+   matches through the text indexes and sort them by date. This step is not
+   bounded: it reads every match, though at about a third of the cost of
+   scoring them.
+
+The first page's cursors carry the cutoff (a signed `anchor` in the shared
+paginator), and later pages reuse it: every page ranks the matches created at
+or after the 10,000th newest match at the time of the first page. Matches
+created while paging can join later pages, as in any keyset pagination. A
+cursor is rejected if its anchor differs, so later pages must send the flag
+too. The request and cursor schemas reject unknown fields, so roll out the
+API before the UI: an older API answers the flag with 422 and rejects
+anchored cursors. Steps 1 and 3 turn
+off plain index and sequential scans for their statement: with a LIMIT or
+OFFSET, PostgreSQL favours plans that read the table in order and stop early,
+and for a keyword it overestimates, those read the whole workspace. Bitmap
+scans keep the text-index plan. Step 1 is the price of the bound: a search
+pays about one capped count to learn whether it is broad. That is 40 ms for a
+keyword with 8,000 matches, but for a search with many candidates and few
+matches, such as two common words that rarely appear together, it is as much
+as the page itself (about 0.2 s at one million cases).
+
+At one million cases (one workspace, local PostgreSQL 16, warm cache):
+
+| Search | Exact page / count | Capped page / count |
+| --- | --- | --- |
+| Keyword in every case | 8.6 s / 1.25 s | 0.26 s / 0.09 s |
+| Keyword only inside file names (25%) | 2.5 s / 0.73 s | 0.40 s / 0.08 s |
+| Keyword in 8% of cases | 0.97 s / 0.17 s | 0.81 s / 0.05 s |
+| Two keywords, no common case | 0.21 s / 0.21 s | 0.41 s / 0.21 s |
+| Rare keyword | 36 ms / 13 ms | 34 ms / 12 ms |
 
 The selected page retains narrow projections and independent detail flags.
 Match attribution and excerpts are fetched only for surviving returned IDs,
