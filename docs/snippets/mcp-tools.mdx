@@ -153,6 +153,8 @@
   Run a workflow from its draft state or a published definition.
 
   By default runs the current draft (unpublished edits) so changes can be tested before publishing. Draft runs reuse the result of every locked action (see `lock_workflow_action`) instead of running it. Set ``use_draft=False`` to run a published version instead; published runs ignore locks.
+
+  When the organization's workflow start rate is exhausted, the run isn't started and the tool fails with a ``rate_limited`` error carrying ``retry_after_seconds``; call it again after that many seconds.
 </ResponseField>
 
 <ResponseField name="list_workflow_action_runs" type="tool">

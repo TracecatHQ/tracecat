@@ -74,6 +74,13 @@ own embedded collection truncation behavior below.
 - Template validation uploads and CSV exports still use separate staged blob
   transfer tools.
 
+### Starting runs
+
+- `run_workflow` is subject to the organization's workflow start rate. When
+  the rate is exhausted it starts nothing and fails with a `rate_limited` error
+  (`{"type": "rate_limited", "message": ..., "status": "error",
+  "retry_after_seconds": N}`); call it again after `retry_after_seconds`.
+
 ### Execution results
 
 - `get_workflow_execution` inlines each event `result` only when its JSON is

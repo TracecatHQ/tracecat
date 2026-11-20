@@ -17,11 +17,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from sqlalchemy.exc import DBAPIError
 
+from tracecat.admission.pacing import StartRateLimited
 from tracecat.api.common import (
     database_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     serialize_validation_errors,
+    start_rate_limited_exception_handler,
     table_row_exception_handler,
     without_inputs,
 )
@@ -196,12 +198,10 @@ def _add_exception_handlers(app: FastAPI) -> None:
     from fastapi import HTTPException
     from temporalio.service import RPCError
 
-    from tracecat.admission.pacing import StartRateLimited
     from tracecat.api.common import (
         auth_pool_exhausted_exception_handler,
         generic_exception_handler,
         http_exception_handler,
-        start_rate_limited_exception_handler,
         temporal_rpc_exception_handler,
         tracecat_exception_handler,
     )

@@ -5839,6 +5839,10 @@ async def run_workflow(
     ``use_draft=False`` to run a published version instead; published runs
     ignore locks.
 
+    When the organization's workflow start rate is exhausted, the run isn't
+    started and the tool fails with a ``rate_limited`` error carrying
+    ``retry_after_seconds``; call it again after that many seconds.
+
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID.
@@ -5849,9 +5853,7 @@ async def run_workflow(
             ``use_draft`` is false; null runs the current published version.
             Ignored when ``use_draft`` is true.
 
-    Returns JSON with workflow_id, execution_id, and a message. When the
-    organization's workflow start rate is exhausted, fails with a
-    ``rate_limited`` error carrying ``retry_after_seconds``; retry after that.
+    Returns JSON with workflow_id, execution_id, and a message.
     """
 
     try:
