@@ -487,6 +487,7 @@ class TestAgentPresetService:
             "tools.test.test_action",
             "internal.workflows.start",
             "internal.workflows.get",
+            "internal.workflows.cancel",
         ]
 
         created_preset = await agent_preset_service.create_preset(

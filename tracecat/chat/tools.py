@@ -105,9 +105,9 @@ def filter_workspace_chat_tools_for_scopes(
     :func:`has_scope` semantics as the executor, including the ``"*"`` superuser
     bypass and wildcard grants (``action:*:execute``, ``action:core.*:execute``).
 
-    Workflow internal tools are not registry actions. They run under the MCP
-    service principal, so they are gated on the scope the matching MCP tool
-    requires (``workflow:execute``, ``workflow:read``, ``workflow:terminate``).
+    Workflow internal tools are not registry actions. They act as the caller,
+    so they are gated on the scope the matching MCP tool requires
+    (``workflow:execute``, ``workflow:read``, ``workflow:terminate``).
     """
     granted = role.scopes or frozenset()
     return [

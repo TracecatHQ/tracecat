@@ -881,6 +881,7 @@ async def test_workflow_tools_without_user_use_service_role(monkeypatch):
                 sha256="0" * 64,
             )
         ),
+        InlineObject(data="x" * (internal_tools.MAX_WORKFLOW_RESULT_BYTES + 1)),
         CollectionObject(
             manifest_ref=ObjectRef(
                 bucket="results", key="manifest.json", size_bytes=10, sha256="0" * 64

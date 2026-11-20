@@ -60,6 +60,7 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
+    InlineObject,
     StoredObject,
     retrieve_stored_object,
 )
@@ -666,6 +667,17 @@ async def _bounded_result(stored: StoredObject) -> dict[str, Any]:
                     "to return through this tool."
                 )
             }
+        case InlineObject(data=data):
+            # Inline results are usually small, but externalization can be off.
+            size = len(orjson.dumps(data, default=str))
+            if size > MAX_WORKFLOW_RESULT_BYTES:
+                return {
+                    "result_omitted": (
+                        f"The result is {size} bytes, over the "
+                        f"{MAX_WORKFLOW_RESULT_BYTES}-byte limit for this tool."
+                    )
+                }
+            return {"result": data}
         case _:
             return {"result": await retrieve_stored_object(stored)}
 
