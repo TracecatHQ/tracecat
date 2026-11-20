@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
 from temporalio.exceptions import ApplicationError
 
 CONCURRENCY_BUSY_TYPE: Final = "tracecat.concurrency.busy"
@@ -90,7 +90,11 @@ def parse_busy_result(result: Any) -> ConcurrencyBusyResult | None:
         case ConcurrencyBusyResult():
             return result
         case {"type": "tracecat.concurrency.busy"}:
-            return _BusyResultValidator.validate_python(result)
+            try:
+                return _BusyResultValidator.validate_python(result)
+            except ValidationError:
+                # Malformed: never hide history or skip work on a partial match.
+                return None
         case _:
             return None
 

@@ -7,7 +7,9 @@ run is *blocked*: one dispatch holds the probe token and waits on a durable
 timer before dispatching again; the run's other dispatches wait for the token
 instead of probing on their own timers. A probe that gets in hands the token to
 the next waiter, which probes at once. A probe that is still busy restarts the
-timer with a longer backoff. When nobody is waiting, the run is unblocked.
+timer with a longer backoff. A probe that hasn't answered within a short window
+was admitted and is running; it hands the token on then rather than when it
+finishes. When nobody is waiting, the run is unblocked.
 
 There is no wait limit: accepted work never fails for capacity. Only the run's
 own timeout or a cancellation ends a wait.
@@ -15,6 +17,7 @@ own timeout or a cancellation ends a wait.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any, Final
@@ -26,6 +29,9 @@ from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger
 
 BACKOFF_BASE_SECONDS: Final = 2.0
 BACKOFF_MAX_SECONDS: Final = 60.0
+PROBE_WINDOW_SECONDS: Final = 10.0
+"""A probe still out after this long was admitted (busy answers come back at once),
+so the next waiter probes without waiting for the admitted action to finish."""
 LONG_WAIT_SECONDS: Final = 15 * 60.0
 """A dispatch that has waited this long logs ``concurrency.long_wait`` once."""
 
@@ -54,6 +60,7 @@ class RunAdmission:
         self._logger = logger
         self._blocked = False
         self._token_held = False
+        self._token_generation = 0
         self._waiters = 0
         self._needs_timer = False
         self._backoff_step = 0
@@ -63,11 +70,11 @@ class RunAdmission:
         capped = min(exponential, BACKOFF_MAX_SECONDS)
         return timedelta(seconds=capped * workflow.random().uniform(0.8, 1.0))
 
-    async def _take_token(self) -> bool:
+    async def _take_token(self) -> int | None:
         """Wait until this dispatch holds the probe token or the run unblocks.
 
         Returns:
-            ``True`` if the token was taken, ``False`` if the run unblocked.
+            The token's generation if it was taken, ``None`` if the run unblocked.
         """
         self._waiters += 1
         try:
@@ -79,9 +86,15 @@ class RunAdmission:
         finally:
             self._waiters -= 1
         if not self._blocked:
-            return False
+            return None
         self._token_held = True
-        return True
+        self._token_generation += 1
+        return self._token_generation
+
+    def _release_token(self, generation: int) -> None:
+        """Release the token only if this holder still has it (not after a hand-off)."""
+        if self._token_held and self._token_generation == generation:
+            self._token_held = False
 
     def _on_progress(self) -> None:
         """An attempt was admitted: the next waiter probes without a timer."""
@@ -96,6 +109,22 @@ class RunAdmission:
             self._blocked = True
             self._backoff_step = 0
         self._needs_timer = True
+
+    async def _probe(self, dispatch: Dispatch, remaining: int, generation: int) -> Any:
+        """Dispatch while holding the token; hand it on if the probe was admitted."""
+        pending = asyncio.ensure_future(dispatch(remaining))
+        try:
+            await workflow.wait_condition(
+                pending.done, timeout=timedelta(seconds=PROBE_WINDOW_SECONDS)
+            )
+        except TimeoutError:
+            # No busy answer in time: admitted and running. Let the next waiter probe.
+            self._on_progress()
+            self._release_token(generation)
+        except BaseException:
+            pending.cancel()
+            raise
+        return await pending
 
     async def execute(self, dispatch: Dispatch, *, max_attempts: int) -> Any:
         """Dispatch until an attempt is admitted; return its result.
@@ -116,23 +145,26 @@ class RunAdmission:
         long_wait_logged = False
 
         while True:
-            probing = False
+            token: int | None = None
             if self._blocked:
                 waited_since = waited_since or workflow.now()
-                probing = await self._take_token()
+                token = await self._take_token()
             try:
-                if probing and self._needs_timer:
-                    delay = self._next_backoff()
-                    self._backoff_step += 1
-                    await workflow.sleep(delay)
-                result = await dispatch(remaining)
+                if token is not None:
+                    if self._needs_timer:
+                        delay = self._next_backoff()
+                        self._backoff_step += 1
+                        await workflow.sleep(delay)
+                    result = await self._probe(dispatch, remaining, token)
+                else:
+                    result = await dispatch(remaining)
             except Exception:
                 # Busy is a result, never an error: a failed attempt was admitted.
                 self._on_progress()
                 raise
             finally:
-                if probing:
-                    self._token_held = False
+                if token is not None:
+                    self._release_token(token)
             busy = parse_busy_result(result)
             if busy is None:
                 self._on_progress()

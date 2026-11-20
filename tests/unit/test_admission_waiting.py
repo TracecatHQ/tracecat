@@ -45,8 +45,15 @@ class FakeWorkflow:
             self.on_sleep()
         await asyncio.sleep(0)
 
-    async def wait_condition(self, fn: Callable[[], bool]) -> None:
+    async def wait_condition(
+        self, fn: Callable[[], bool], *, timeout: timedelta | None = None
+    ) -> None:
+        spins = 0
         while not fn():
+            if timeout is not None and spins >= 50:
+                self.clock += timeout
+                raise TimeoutError
+            spins += 1
             await asyncio.sleep(0)
 
 
@@ -231,3 +238,49 @@ async def test_busy_result_survives_the_temporal_data_converter() -> None:
 
     assert decoded["type"] == "tracecat.concurrency.busy"
     assert parse_busy_result(decoded) == busy
+
+
+def test_malformed_busy_payload_is_not_busy() -> None:
+    assert parse_busy_result({"type": "tracecat.concurrency.busy"}) is None
+    assert parse_busy_result({"type": "inline", "data": 1}) is None
+
+
+@pytest.mark.anyio
+async def test_admitted_probe_hands_off_while_still_running(fake: FakeWorkflow) -> None:
+    """Two units free up: the second waiter starts while the first still runs."""
+    free = 0
+    started: list[int] = []
+    release_first = asyncio.Event()
+
+    def free_two_units() -> None:
+        nonlocal free
+        if not started:
+            free = 2
+
+    fake.on_sleep = free_two_units
+
+    async def dispatch(_max_attempts: int) -> Any:
+        nonlocal free
+        await asyncio.sleep(0)
+        if free == 0:
+            return _busy()
+        free -= 1
+        index = len(started)
+        started.append(index)
+        if index == 0:
+            await release_first.wait()  # a long-running admitted action
+        return {"type": "inline", "data": index}
+
+    admission = _admission()
+    tasks = [
+        asyncio.create_task(admission.execute(dispatch, max_attempts=1))
+        for _ in range(2)
+    ]
+    async with asyncio.timeout(2):
+        while len(started) < 2:
+            await asyncio.sleep(0)
+
+    assert not release_first.is_set()
+    release_first.set()
+    results = await asyncio.gather(*tasks)
+    assert sorted(r["data"] for r in results) == [0, 1]

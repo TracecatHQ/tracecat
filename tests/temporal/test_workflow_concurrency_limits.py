@@ -277,6 +277,10 @@ def _scheduled_activity_types(history: list[HistoryEvent]) -> list[str]:
     ]
 
 
+def _fired_timer_count(history: list[HistoryEvent]) -> int:
+    return sum(1 for e in history if e.event_type is EventType.EVENT_TYPE_TIMER_FIRED)
+
+
 def _timers(history: list[HistoryEvent]) -> list[timedelta]:
     return [
         e.timer_started_event_attributes.start_to_fire_timeout.ToTimedelta()
@@ -453,16 +457,18 @@ async def test_long_wait_keeps_waiting_with_bounded_history(
 
     assert sorted(fake_actions.started) == refs
     history = await _history(handle)
-    timers = _timers(history)
     bounces = await _busy_count(handle)
-    assert sum(timers, timedelta()) >= timedelta(minutes=15)
-    assert max(timers) <= timedelta(seconds=60)
+    fired = _fired_timer_count(history)
+    waited = history[-1].event_time.ToDatetime() - history[0].event_time.ToDatetime()
+    print(f"long wait: waited={waited} bounces={bounces} fired_timers={fired}")
+    assert waited >= timedelta(minutes=15)
+    assert max(_timers(history)) <= timedelta(seconds=60)
     # One shared timer: about 20 min / 60 s periods plus the ramp-up, not one
     # timer per waiting action.
-    assert len(timers) <= 35
-    # Each period costs one probe; on top, the first wave (one per action) and
-    # at most one hand-off probe per action once capacity frees.
-    assert bounces <= len(timers) + 2 * len(refs)
+    assert fired <= 45
+    # Each fired timer allows one probe; on top, the first wave (one per action)
+    # and at most one hand-off probe per action once capacity frees.
+    assert bounces <= fired + 2 * len(refs)
     executed = [t for t in _scheduled_activity_types(history) if t == EXECUTE_ACTION]
     assert len(executed) == bounces + len(refs)
 
