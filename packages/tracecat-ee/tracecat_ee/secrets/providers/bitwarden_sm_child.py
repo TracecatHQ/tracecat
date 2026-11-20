@@ -1,31 +1,6 @@
-"""Short-lived child process that reads secrets from Bitwarden Secrets Manager.
+"""Child process that reads Bitwarden secrets for ``bitwarden_secrets_manager``.
 
-The parent (``bitwarden_secrets_manager.py``) starts one child per fetch with
-``python -I <this file>`` and an allow-listed environment, writes one JSON
-payload to stdin, and reads one JSON result from stdout. The child logs in
-once, reads every requested secret in one call, writes the result and exits.
-Nothing is written to disk and nothing outlives the process.
-
-Why a process: the Bitwarden SDK's native calls hold the GIL for the whole
-network round trip and have no timeout of their own, so in-process they would
-freeze the caller's event loop and could not be cancelled. A child can be
-killed.
-
-This module imports only the standard library and the SDK, so it starts fast
-and never loads Tracecat or its settings. The parent checks that the SDK is
-installed before starting a child. This is the only place that reads
-Bitwarden SDK error messages (see :func:`classify_sdk_error`).
-
-Payload (stdin)::
-
-    {"api_url": str, "identity_url": str, "access_token": str,
-     "secret_ids": [str, ...], "deadline_seconds": float}
-
-Result (stdout)::
-
-    {"results": {secret_id: {"value": str, "organization_id": str}
-                            | {"error": code, "vendor_code": str | null}},
-     "fatal": null | {"type": str}}
+It imports only the standard library and the SDK, so it never loads Tracecat.
 """
 
 from __future__ import annotations
@@ -41,7 +16,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal
 
 from bitwarden_sdk import BitwardenClient, ClientSettings, DeviceType
 
@@ -53,6 +28,7 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     ACCESS_DENIED = "access_denied"
     UNAVAILABLE = "unavailable"
+    THROTTLED = "throttled"
     INVALID_REFERENCE = "invalid_reference"
     UNKNOWN = "unknown"
 
@@ -64,31 +40,6 @@ _SERVER_STATUS = re.compile(r"^Received error message from server: \[(\d{3})\b")
 _RETRY_AFTER = re.compile(r"Try again in (\d+)\s*(s|m)\b")
 # The SDK's own errors for a malformed access token, raised before any request.
 _LOCAL_BAD_TOKEN = ("Doesn't contain a decryption key", "Invalid base64 length")
-
-
-class SecretsApi(Protocol):
-    """The part of the SDK's secrets client the child uses."""
-
-    def get(self, id: str, /) -> Any: ...
-
-    def get_by_ids(self, ids: list[Any], /) -> Any: ...
-
-
-class AuthApi(Protocol):
-    """The part of the SDK's auth client the child uses."""
-
-    def login_access_token(self, access_token: str, /) -> Any: ...
-
-
-class Client(Protocol):
-    """The part of ``BitwardenClient`` the child uses; the test seam."""
-
-    def auth(self) -> AuthApi: ...
-
-    def secrets(self) -> SecretsApi: ...
-
-
-type ClientFactory = Callable[[str, str], Client]
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +73,7 @@ def classify_sdk_error(message: str, *, phase: Phase) -> Classified:
             delay = None
             if retry:
                 delay = float(retry.group(1)) * (60 if retry.group(2) == "m" else 1)
-            return Classified(ErrorCode.UNAVAILABLE, vendor_code, delay)
+            return Classified(ErrorCode.THROTTLED, vendor_code, delay)
         if status == 401 or (phase == "login" and status in (400, 403)):
             # A rejected credential is the token's fault; any other status at
             # login (a wrong self-hosted path, a 5xx) is not.
@@ -141,14 +92,6 @@ def classify_sdk_error(message: str, *, phase: Phase) -> Classified:
     if phase == "login" and message.startswith(_LOCAL_BAD_TOKEN):
         return Classified(ErrorCode.AUTH_FAILED, "invalid_token")
     return Classified(ErrorCode.UNKNOWN, "unclassified")
-
-
-def _canonical(secret_id: str) -> str:
-    """The canonical lowercase form of a secret ID, or the input if it is not one."""
-    try:
-        return str(uuid.UUID(secret_id))
-    except ValueError:
-        return secret_id
 
 
 def _failure(classified: Classified) -> dict[str, Any]:
@@ -179,14 +122,24 @@ def _call_with_retry[T](
     raise AssertionError("unreachable")  # the loop always returns
 
 
-def run(payload: Mapping[str, Any], client_factory: ClientFactory) -> dict[str, Any]:
-    """Log in once and read every requested secret. Pure apart from the client.
+def run(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Log in once and read every requested secret. Never raises for an SDK failure.
 
-    Returns the result document. Never raises for an SDK failure.
+    ``payload`` holds ``api_url``, ``identity_url``, ``access_token``,
+    ``secret_ids`` and ``deadline_seconds``. The result maps each secret ID to
+    ``{"value", "organization_id"}`` or ``{"error", "vendor_code"}``, under
+    ``"results"``, with ``"fatal": false``.
     """
     deadline = time.monotonic() + float(payload["deadline_seconds"])
     secret_ids: Sequence[str] = payload["secret_ids"]
-    client = client_factory(payload["api_url"], payload["identity_url"])
+    client = BitwardenClient(
+        ClientSettings(
+            api_url=payload["api_url"],
+            identity_url=payload["identity_url"],
+            user_agent="Tracecat",
+            device_type=DeviceType.SDK,
+        )
+    )
 
     login = _call_with_retry(
         lambda: client.auth().login_access_token(payload["access_token"]),
@@ -194,27 +147,27 @@ def run(payload: Mapping[str, Any], client_factory: ClientFactory) -> dict[str, 
         deadline=deadline,
     )
     if isinstance(login, Classified):
-        return {"results": dict.fromkeys(secret_ids, _failure(login)), "fatal": None}
+        return {"results": dict.fromkeys(secret_ids, _failure(login)), "fatal": False}
 
     secrets = client.secrets()
     batch = _call_with_retry(
-        lambda: secrets.get_by_ids(list(secret_ids)),
+        lambda: secrets.get_by_ids([uuid.UUID(i) for i in secret_ids]),
         phase="read",
         deadline=deadline,
     )
     if not isinstance(batch, Classified):
-        found = {str(secret.id): _value(secret) for secret in batch.data.data}
-        # Bitwarden returns canonical lowercase IDs; match requests the same way.
+        # Saved IDs are canonical lowercase, as Bitwarden returns them.
+        listed = batch.data.data if batch.data is not None else []
+        found = {str(secret.id): _value(secret) for secret in listed}
         results = {
             secret_id: found.get(
-                _canonical(secret_id),
-                {"error": ErrorCode.NOT_FOUND, "vendor_code": "missing"},
+                secret_id, {"error": ErrorCode.NOT_FOUND, "vendor_code": "missing"}
             )
             for secret_id in secret_ids
         }
-        return {"results": results, "fatal": None}
+        return {"results": results, "fatal": False}
     if batch.code != ErrorCode.NOT_FOUND or len(secret_ids) == 1:
-        return {"results": dict.fromkeys(secret_ids, _failure(batch)), "fatal": None}
+        return {"results": dict.fromkeys(secret_ids, _failure(batch)), "fatal": False}
 
     # The batch fails as a whole when one ID is missing or unreadable. Read
     # the IDs one by one on the same login so the error names the right one.
@@ -240,21 +193,7 @@ def run(payload: Mapping[str, Any], client_factory: ClientFactory) -> dict[str, 
             failed = True
         else:
             results[secret_id] = _value(single.data)
-    return {"results": results, "fatal": None}
-
-
-def _sdk_client_factory(api_url: str, identity_url: str) -> Client:
-    # The SDK's annotations (``state_file: str = None``) do not match a
-    # strict protocol; the protocol only names what this module calls.
-    client = BitwardenClient(
-        ClientSettings(
-            api_url=api_url,
-            identity_url=identity_url,
-            user_agent="Tracecat",
-            device_type=DeviceType.SDK,
-        )
-    )
-    return cast(Client, client)
+    return {"results": results, "fatal": False}
 
 
 def main() -> int:
@@ -266,9 +205,9 @@ def main() -> int:
         # End on our own at the deadline, even if the parent was killed and
         # cannot reap us; SIGALRM's default action terminates the process.
         signal.alarm(math.ceil(float(payload["deadline_seconds"])) + 2)
-        result = run(payload, _sdk_client_factory)
-    except BaseException as e:  # noqa: BLE001 - a PyO3 panic is not an Exception
-        result = {"results": {}, "fatal": {"type": type(e).__name__}}
+        result = run(payload)
+    except BaseException:  # noqa: BLE001 - a PyO3 panic is not an Exception
+        result = {"results": {}, "fatal": True}
     sys.stdout.write(json.dumps(result))
     sys.stdout.flush()
     return 0

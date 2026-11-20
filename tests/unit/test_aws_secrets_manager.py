@@ -15,9 +15,11 @@ from botocore.exceptions import ClientError, EndpointConnectionError, NoCredenti
 from tracecat_ee.secrets.providers import aws_secrets_manager as asm
 from tracecat_ee.secrets.providers.aws_secrets_manager import (
     AwsSecretResolutionError,
-    check_aws_secret_reference,
-    project_secret_string,
-    resolve_aws_secret_references,
+)
+from tracecat_ee.secrets.resolver import (
+    check_external_reference,
+    project_value,
+    resolve_external_references,
 )
 
 from tracecat.secrets.enums import (
@@ -145,7 +147,7 @@ async def test_whole_string_exact_sdk_calls(fake_aws: type[_FakeSession]) -> Non
     fake_aws.sm_response = {"SecretString": '  {"looks": "json"} \n'}
     ref = make_reference()
 
-    resolved = await resolve_aws_secret_references([ref])
+    resolved = await resolve_external_references([ref])
 
     assert resolved == {"api": {"TOKEN": '  {"looks": "json"} \n'}}
     assert fake_aws.sts_calls == [
@@ -179,7 +181,7 @@ async def test_json_mapping_selects_declared_fields(
         ),
     )
 
-    resolved = await resolve_aws_secret_references([ref])
+    resolved = await resolve_external_references([ref])
 
     assert resolved == {"api": {"USER": "u", "PASS": "p"}}
 
@@ -200,18 +202,18 @@ def test_json_projection_failures(
         mode=SecretMappingMode.JSON,
         fields=(SecretJsonField(key="USER", field="username"),),
     )
-    assert project_secret_string(ref, secret_string) == expected
+    assert project_value(ref.mapping, secret_string) == expected
 
 
 def test_whole_string_projection_is_verbatim() -> None:
     ref = make_reference()
-    assert project_secret_string(ref, " a b ") == {"TOKEN": " a b "}
+    assert project_value(ref.mapping, " a b ") == {"TOKEN": " a b "}
 
 
 async def test_binary_value_rejected(fake_aws: type[_FakeSession]) -> None:
     fake_aws.sm_response = {"SecretBinary": b"\x00\x01"}
     with pytest.raises(AwsSecretResolutionError) as exc_info:
-        await resolve_aws_secret_references([make_reference()])
+        await resolve_external_references([make_reference()])
     assert exc_info.value.code == SecretResolutionErrorCode.BINARY_VALUE
 
 
@@ -219,15 +221,15 @@ async def test_disabled_incomplete_store_and_region_mismatch_skip_network(
     fake_aws: type[_FakeSession],
 ) -> None:
     with pytest.raises(AwsSecretResolutionError) as disabled:
-        await resolve_aws_secret_references([make_reference(store_enabled=False)])
+        await resolve_external_references([make_reference(store_enabled=False)])
     assert disabled.value.code == SecretResolutionErrorCode.STORE_DISABLED
 
     with pytest.raises(AwsSecretResolutionError) as incomplete:
-        await resolve_aws_secret_references([make_reference(role_arn=None)])
+        await resolve_external_references([make_reference(role_arn=None)])
     assert incomplete.value.code == SecretResolutionErrorCode.STORE_DISABLED
 
     with pytest.raises(AwsSecretResolutionError) as mismatch:
-        await resolve_aws_secret_references([make_reference(region="eu-west-1")])
+        await resolve_external_references([make_reference(region="eu-west-1")])
     assert mismatch.value.code == SecretResolutionErrorCode.REGION_MISMATCH
     assert fake_aws.sts_calls == []
     assert fake_aws.sm_calls == []
@@ -237,7 +239,7 @@ async def test_friendly_name_reference_skips_region_check(
     fake_aws: type[_FakeSession],
 ) -> None:
     fake_aws.sm_response = {"SecretString": "by-name"}
-    resolved = await resolve_aws_secret_references(
+    resolved = await resolve_external_references(
         [make_reference(secret_arn="prod/app/api-key", region="eu-west-1")]
     )
     assert resolved == {"api": {"TOKEN": "by-name"}}
@@ -306,7 +308,7 @@ async def test_sdk_errors_are_classified_by_type_and_code(
         fake_aws.sm_error = make_error()
 
     with pytest.raises(AwsSecretResolutionError) as exc_info:
-        await resolve_aws_secret_references([make_reference()])
+        await resolve_external_references([make_reference()])
 
     err = exc_info.value
     assert err.code == expected
@@ -325,7 +327,7 @@ async def test_failure_message_never_contains_payload(
         fields=(SecretJsonField(key="K", field="k"),),
     )
     with pytest.raises(AwsSecretResolutionError) as exc_info:
-        await resolve_aws_secret_references([ref])
+        await resolve_external_references([ref])
     err = exc_info.value
     assert err.code == SecretResolutionErrorCode.MALFORMED_JSON
     assert "super-secret-payload" not in str(err)
@@ -347,11 +349,11 @@ async def test_traceback_frame_locals_never_contain_payload(
         fields=(SecretJsonField(key="K", field="k"),),
     )
     with pytest.raises(AwsSecretResolutionError) as exc_info:
-        await resolve_aws_secret_references([ok, bad])
+        await resolve_external_references([ok, bad])
 
     tb = exc_info.value.__traceback__
     while tb is not None:
-        if tb.tb_frame.f_globals.get("__name__") != asm.__name__:
+        if not tb.tb_frame.f_globals.get("__name__", "").startswith("tracecat"):
             tb = tb.tb_next
             continue
         for name, value in tb.tb_frame.f_locals.items():
@@ -378,7 +380,7 @@ async def test_reads_deduplicated_per_store_and_reference(
     other_arn = SECRET_ARN.replace("app/api", "app/other")
     third = make_reference(alias="gamma", secret_arn=other_arn)
 
-    resolved = await resolve_aws_secret_references([first, second, third])
+    resolved = await resolve_external_references([first, second, third])
 
     assert resolved == {
         "alpha": {"A": "1"},
@@ -391,7 +393,7 @@ async def test_reads_deduplicated_per_store_and_reference(
     )
 
     # No cross-operation caching: a second call hits AWS again.
-    await resolve_aws_secret_references([first])
+    await resolve_external_references([first])
     assert len(fake_aws.sm_calls) == 3
 
 
@@ -415,7 +417,7 @@ async def test_stores_use_their_own_region_and_external_id(
         return {"SecretString": client._recorder.region_name or ""}
 
     monkeypatch.setattr(_FakeClient, "get_secret_value", get_secret_value)
-    resolved = await resolve_aws_secret_references([first, second])
+    resolved = await resolve_external_references([first, second])
     assert resolved == {"east": {"TOKEN": REGION}, "west": {"TOKEN": "eu-west-1"}}
     assert {call["ExternalId"] for call in fake_aws.sts_calls} == {
         EXTERNAL_ID,
@@ -427,7 +429,7 @@ async def test_stores_use_their_own_region_and_external_id(
 async def test_empty_references_do_not_touch_aws(
     fake_aws: type[_FakeSession],
 ) -> None:
-    assert await resolve_aws_secret_references([]) == {}
+    assert await resolve_external_references([]) == {}
     assert fake_aws.client_kwargs == []
 
 
@@ -439,11 +441,11 @@ async def test_check_reference_returns_keys_only(
         mode=SecretMappingMode.JSON,
         fields=(SecretJsonField(key="USER", field="username"),),
     )
-    result = await check_aws_secret_reference(ref)
+    result = await check_external_reference(ref)
     assert result == CheckResult(ok=True, resolved_keys=["USER"])
 
     fake_aws.sm_error = _client_error("ResourceNotFoundException")
-    result = await check_aws_secret_reference(ref)
+    result = await check_external_reference(ref)
     assert result == CheckResult(
         ok=False,
         error_code=SecretResolutionErrorCode.NOT_FOUND,
@@ -452,7 +454,7 @@ async def test_check_reference_returns_keys_only(
 
     fake_aws.sm_error = None
     fake_aws.sm_response = {"SecretString": '{"username": 1}'}
-    result = await check_aws_secret_reference(ref)
+    result = await check_external_reference(ref)
     assert result == CheckResult(
         ok=False, error_code=SecretResolutionErrorCode.NON_STRING_FIELD
     )

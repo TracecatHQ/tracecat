@@ -15,7 +15,7 @@ from tracecat.db.models import OrganizationSecretStore
 from tracecat.exceptions import TracecatValidationError
 from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import SecretStoreConfig, parse_secret_store_config
-from tracecat.secrets.types import FetchResult, StoreContext
+from tracecat.secrets.types import FetchOutcome, StoreContext
 from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
 from tracecat_ee.secrets.providers.bitwarden_secrets_manager import (
     BitwardenSecretsManagerBackend,
@@ -23,7 +23,7 @@ from tracecat_ee.secrets.providers.bitwarden_secrets_manager import (
 
 if TYPE_CHECKING:
     from tracecat.secrets.enums import SecretResolutionErrorCode
-    from tracecat_ee.secrets.resolver import SecretResolutionError
+    from tracecat_ee.secrets.errors import SecretResolutionError
 
 
 class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
@@ -36,26 +36,23 @@ class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
     provider: SecretStoreProvider
     display_name: str
     """Short vendor name used in sanitized error messages, e.g. ``"AWS"``."""
-    requires_access_token: bool
-    """Whether the store needs an access token before it can be enabled."""
 
     def new_config(self, params: CreateT) -> ConfigT:
         """Build a persisted config, generating server-owned fields."""
         ...
 
-    def update_config(
-        self,
-        config: ConfigT,
-        params: UpdateT,
-        *,
-        references: Collection[str],
-    ) -> ConfigT:
-        """Apply client-supplied updates, preserving server-owned fields.
+    def update_config(self, config: ConfigT, params: UpdateT) -> ConfigT:
+        """Apply client-supplied updates, preserving server-owned fields."""
+        ...
+
+    def check_change(
+        self, old: ConfigT, new: ConfigT, *, references: Collection[str]
+    ) -> None:
+        """Raise :class:`~tracecat.exceptions.TracecatConflictError` when the
+        change would break saved references.
 
         ``references`` are the distinct remote references saved against the
-        store. The provider decides whether the change is allowed while they
-        exist and raises :class:`~tracecat.exceptions.TracecatConflictError`
-        when it is not.
+        store.
         """
         ...
 
@@ -74,8 +71,8 @@ class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
         """
         ...
 
-    def is_ready(self, config: ConfigT) -> bool:
-        """Whether the config is complete enough for the store to be enabled."""
+    def is_ready(self, config: ConfigT, *, has_access_token: bool) -> bool:
+        """Whether the store can be enabled with this config and token state."""
         ...
 
     async def check_config(self, config: ConfigT) -> None:
@@ -91,7 +88,7 @@ class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
 
     async def fetch(
         self, store: StoreContext, references: Sequence[str]
-    ) -> FetchResult:
+    ) -> dict[str, FetchOutcome]:
         """Fetch every distinct reference of one store in one call.
 
         Returns one outcome per reference and never raises for a remote

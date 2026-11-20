@@ -46,7 +46,7 @@ from tracecat.secrets.service import (
     is_external_reference,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
-from tracecat_ee.secrets.runtime import check_external_reference
+from tracecat_ee.secrets.resolver import check_external_reference
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
 NOT_EXTERNAL_MESSAGE = "Secret is not backed by an external secret store."

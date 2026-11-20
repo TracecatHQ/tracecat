@@ -102,6 +102,8 @@ async def _stores(session: AsyncSession, role: Role) -> tuple[uuid.UUID, uuid.UU
             "organization_id": str(uuid.uuid4()),
         },
         all_workspaces=True,
+        # An enabled Bitwarden store has a token; sync never decrypts it.
+        encrypted_access_token=b"sealed-token",
     )
     session.add_all([aws, bitwarden])
     await session.flush()

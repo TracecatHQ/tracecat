@@ -22,11 +22,13 @@ import orjson
 import pytest
 from loguru import logger
 from pydantic import ValidationError
-from tracecat_ee.secrets import runtime
+from tracecat_ee.secrets.errors import SecretResolutionError
 from tracecat_ee.secrets.providers import bitwarden_secrets_manager as bw
 from tracecat_ee.secrets.providers import bitwarden_sm_child as child
-from tracecat_ee.secrets.resolver import SecretResolutionError, resolve_references
-from tracecat_ee.secrets.stores.backends import get_backend
+from tracecat_ee.secrets.resolver import (
+    decrypt_access_tokens,
+    resolve_external_references,
+)
 
 from tracecat.auth import sandbox as auth_sandbox
 from tracecat.auth.secrets import get_db_encryption_key
@@ -132,10 +134,9 @@ class RecordingClient:
             organization_id=self.organization_id,
         )
 
-    def get_by_ids(self, ids: list[str]) -> SimpleNamespace:
-        self.batches.append(list(ids))
-        # The SDK parses IDs as UUIDs, so the server sees canonical ones.
-        ids = [str(uuid.UUID(i)) for i in ids]
+    def get_by_ids(self, uuids: list[uuid.UUID]) -> SimpleNamespace:
+        ids = [str(i) for i in uuids]
+        self.batches.append(ids)
         if any(i in self.unreadable for i in ids):
             raise Exception(MESSAGE_DENIED)
         if any(secret_id not in self.values for secret_id in ids):
@@ -146,7 +147,6 @@ class RecordingClient:
 
     def get(self, secret_id: str) -> SimpleNamespace:
         self.singles.append(secret_id)
-        secret_id = str(uuid.UUID(secret_id))
         if secret_id in self.unreadable:
             raise Exception(MESSAGE_DENIED)
         if secret_id not in self.values:
@@ -192,7 +192,11 @@ REFERENCES = [
         ),
     ),
 ]
-ACCESS_TOKENS = {STORE_ID: TOKEN}
+
+
+def use_client(monkeypatch: pytest.MonkeyPatch, client: RecordingClient) -> None:
+    """Make the child's ``BitwardenClient`` the given fake."""
+    monkeypatch.setattr(child, "BitwardenClient", lambda settings: client)
 
 
 def run_child_in_process(
@@ -200,19 +204,30 @@ def run_child_in_process(
 ) -> list[dict[str, Any]]:
     """Replace the child process with ``child.run`` on a fake client."""
     payloads: list[dict[str, Any]] = []
+    use_client(monkeypatch, client)
 
     async def fake_run_child(payload: bytes) -> tuple[bytes, int]:
         document = orjson.loads(payload)
         payloads.append(document)
-        result = child.run(document, lambda api, identity: client)
-        return orjson.dumps(result), 0
+        return orjson.dumps(child.run(document)), 0
 
     monkeypatch.setattr(bw, "_run_child", fake_run_child)
     return payloads
 
 
+def with_token(
+    references: Sequence[ExternalSecretReference],
+) -> list[ExternalSecretReference]:
+    """The references with their store's token sealed on them, as loaded."""
+    sealed = encrypt_value(TOKEN.encode(), key=get_db_encryption_key())
+    return [
+        dataclasses.replace(reference, encrypted_access_token=sealed)
+        for reference in references
+    ]
+
+
 async def resolve(references: Sequence[ExternalSecretReference] = REFERENCES) -> Any:
-    return await resolve_references(references, get_backend, ACCESS_TOKENS)
+    return await resolve_external_references(with_token(references))
 
 
 @pytest.fixture
@@ -252,14 +267,10 @@ async def test_run_time_decrypts_the_token_stored_on_the_store(
     # Given references whose store holds the token encrypted
     client = RecordingClient()
     run_child_in_process(monkeypatch, client)
-    sealed = encrypt_value(TOKEN.encode(), key=get_db_encryption_key())
-    references = [
-        dataclasses.replace(reference, encrypted_access_token=sealed)
-        for reference in REFERENCES
-    ]
+    references = with_token(REFERENCES)
 
     # When a run resolves them through the run-time entry point
-    resolved = await runtime.resolve_external_references(references)
+    resolved = await resolve_external_references(references)
 
     # Then the child logged in with the decrypted token
     assert client.logins == [TOKEN]
@@ -275,13 +286,13 @@ async def test_run_time_skips_tokens_it_does_not_need_or_cannot_decrypt(
         REFERENCES[0], encrypted_access_token=b"not-a-token", store_enabled=False
     )
     # A disabled store's token is never decrypted
-    assert runtime.decrypt_access_tokens([disabled]) == {}
+    assert decrypt_access_tokens([disabled]) == {}
 
     # A token that does not decrypt fails the run sanitized, not with the
     # cryptography error
     corrupt = dataclasses.replace(REFERENCES[0], encrypted_access_token=sealed[:-4])
     with pytest.raises(SecretResolutionError) as exc_info:
-        await runtime.resolve_external_references([corrupt])
+        await resolve_external_references([corrupt])
     assert exc_info.value.code == SecretResolutionErrorCode.CREDENTIAL_MISSING
     assert "could not be decrypted" in "\n".join(captured_logs)
 
@@ -329,7 +340,7 @@ async def test_token_reaches_the_child_on_stdin_only(
         secret_id: {"value": value, "organization_id": str(ORG_ID)}
         for secret_id, value in VALUES.items()
     }
-    stdout = orjson.dumps({"results": ok, "fatal": None})
+    stdout = orjson.dumps({"results": ok, "fatal": False})
     calls = record_spawns(monkeypatch, lambda: FakeProcess(stdout))
 
     await resolve()
@@ -391,7 +402,7 @@ async def test_throttled_read_is_retried_within_the_deadline(
     real_get_by_ids = client.get_by_ids
     attempts: list[int] = []
 
-    def flaky(ids: list[str]) -> SimpleNamespace:
+    def flaky(ids: list[uuid.UUID]) -> SimpleNamespace:
         attempts.append(1)
         if len(attempts) == 1:
             raise Exception(MESSAGE_THROTTLED)
@@ -413,7 +424,7 @@ async def test_missing_access_token_fails_before_the_provider_runs(
     calls = record_spawns(monkeypatch, lambda: FakeProcess(b""))
 
     with pytest.raises(SecretResolutionError) as exc_info:
-        await resolve_references(REFERENCES, get_backend, {})
+        await resolve_external_references(REFERENCES)
 
     assert exc_info.value.code == SecretResolutionErrorCode.CREDENTIAL_MISSING
     assert calls == []
@@ -444,6 +455,8 @@ async def test_broken_child_fails_every_reference_unavailable(
     with pytest.raises(SecretResolutionError) as exc_info:
         await resolve()
     assert exc_info.value.code == SecretResolutionErrorCode.UNAVAILABLE
+    # A child's exception type is never forwarded as the vendor code
+    assert "PanicException" not in str(exc_info.value)
     assert TOKEN not in str(exc_info.value) + "\n".join(captured_logs)
 
 
@@ -502,9 +515,10 @@ async def test_entitlement_off_fails_before_any_sdk_call(
     assert calls == []
 
 
-async def test_concurrent_fetches_never_exceed_the_cap(
+async def test_concurrent_fetches_never_exceed_one_cap_across_servers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(bw, "_SLOTS", asyncio.Semaphore(bw.MAX_CONCURRENT_FETCHES))
     running = 0
     peak = 0
 
@@ -516,11 +530,22 @@ async def test_concurrent_fetches_never_exceed_the_cap(
         running -= 1
         ids = orjson.loads(payload)["secret_ids"]
         results = {i: {"value": "v", "organization_id": str(ORG_ID)} for i in ids}
-        return orjson.dumps({"results": results, "fatal": None}), 0
+        return orjson.dumps({"results": results, "fatal": False}), 0
 
     monkeypatch.setattr(bw, "_run_child", slow_child)
+    monkeypatch.setattr(bw, "server_resolves_public", AsyncMock(return_value=True))
+    servers = ["us", "eu"] + [f"https://vault{i}.example" for i in range(10)]
     await asyncio.gather(
-        *(bw.fetch_with_child(BW_CONFIG, TOKEN, [str(uuid.uuid4())]) for _ in range(12))
+        *(
+            bw.fetch_with_child(
+                BitwardenSecretsManagerStoreConfig(
+                    server=server, organization_id=ORG_ID
+                ),
+                TOKEN,
+                [str(uuid.uuid4())],
+            )
+            for server in servers
+        )
     )
     assert peak == bw.MAX_CONCURRENT_FETCHES
 
@@ -534,20 +559,6 @@ def test_only_canonical_secret_ids_are_saved(reference: str) -> None:
     with pytest.raises(ValueError, match="lowercase"):
         backend.validate_reference(BW_CONFIG, reference)
     backend.validate_reference(BW_CONFIG, WHOLE_A)
-
-
-def test_child_matches_ids_case_insensitively() -> None:
-    result = child.run(
-        {
-            "api_url": "https://api.example",
-            "identity_url": "https://identity.example",
-            "access_token": TOKEN,
-            "secret_ids": [WHOLE_A.upper()],
-            "deadline_seconds": 5,
-        },
-        lambda api, identity: RecordingClient(),
-    )
-    assert result["results"][WHOLE_A.upper()]["value"] == "value-a"
 
 
 @pytest.mark.parametrize(
@@ -595,8 +606,8 @@ def test_self_hosted_server_is_stored_normalized(server: str, stored: str) -> No
         (MESSAGE_BAD_KEY, "login", "auth_failed", "invalid_token"),
         (MESSAGE_NOT_FOUND, "read", "not_found", "http_404"),
         (MESSAGE_NOT_FOUND, "login", "unknown", "http_404"),
-        (MESSAGE_THROTTLED, "login", "unavailable", "http_429"),
-        (MESSAGE_THROTTLED, "read", "unavailable", "http_429"),
+        (MESSAGE_THROTTLED, "login", "throttled", "http_429"),
+        (MESSAGE_THROTTLED, "read", "throttled", "http_429"),
         (MESSAGE_UNREACHABLE, "login", "unavailable", "connection"),
         (MESSAGE_UNREACHABLE, "read", "unavailable", "connection"),
         (MESSAGE_PLAIN_HTTP, "login", "unavailable", "connection"),
@@ -640,7 +651,10 @@ def test_http_status_maps_by_phase(
     "message",
     [MESSAGE_BAD_TOKEN, MESSAGE_NO_KEY, MESSAGE_PLAIN_HTTP, MESSAGE_UNRECOGNIZED],
 )
-def test_sdk_message_never_leaves_the_child(message: str) -> None:
+def test_sdk_message_never_leaves_the_child(
+    monkeypatch: pytest.MonkeyPatch, message: str
+) -> None:
+    use_client(monkeypatch, RecordingClient(login_error=message))
     result = child.run(
         {
             "api_url": "https://api.bitwarden.eu",
@@ -648,8 +662,7 @@ def test_sdk_message_never_leaves_the_child(message: str) -> None:
             "access_token": TOKEN,
             "secret_ids": [WHOLE_A],
             "deadline_seconds": 5,
-        },
-        lambda api, identity: RecordingClient(login_error=message),
+        }
     )
 
     assert message not in orjson.dumps(result).decode()
@@ -672,41 +685,6 @@ async def test_fetch_rechecks_that_a_self_hosted_server_is_public(
         WHOLE_A: Failure(SecretResolutionErrorCode.UNAVAILABLE, "server_not_public")
     }
     run_child.assert_not_awaited()
-
-
-async def test_a_hung_server_does_not_starve_another_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    release = asyncio.Event()
-
-    async def child_by_server(payload: bytes) -> tuple[bytes, int]:
-        document = orjson.loads(payload)
-        if "hung.example" in document["api_url"]:
-            await release.wait()
-        results = {
-            i: {"value": "v", "organization_id": str(ORG_ID)}
-            for i in document["secret_ids"]
-        }
-        return orjson.dumps({"results": results, "fatal": None}), 0
-
-    monkeypatch.setattr(bw, "_run_child", child_by_server)
-    monkeypatch.setattr(bw, "server_resolves_public", AsyncMock(return_value=True))
-    hung = BitwardenSecretsManagerStoreConfig(
-        server="https://hung.example", organization_id=ORG_ID
-    )
-    stuck = [
-        asyncio.create_task(bw.fetch_with_child(hung, TOKEN, [WHOLE_A]))
-        for _ in range(bw.MAX_CONCURRENT_FETCHES)
-    ]
-    await asyncio.sleep(0.05)
-
-    healthy = await asyncio.wait_for(
-        bw.fetch_with_child(BW_CONFIG, TOKEN, [WHOLE_B]), timeout=2
-    )
-
-    assert healthy == {WHOLE_B: "v"}
-    release.set()
-    await asyncio.gather(*stuck)
 
 
 @pytest.mark.slow
@@ -754,8 +732,11 @@ async def test_child_ends_itself_at_the_deadline_without_a_parent() -> None:
     assert returncode != 0
 
 
-def test_per_id_fallback_stops_at_the_first_failure() -> None:
+def test_per_id_fallback_stops_at_the_first_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = RecordingClient(values={WHOLE_B: "b", JSON_C: "{}"})
+    use_client(monkeypatch, client)
     result = child.run(
         {
             "api_url": "https://api.example",
@@ -763,8 +744,7 @@ def test_per_id_fallback_stops_at_the_first_failure() -> None:
             "access_token": TOKEN,
             "secret_ids": [WHOLE_A, WHOLE_B, JSON_C],
             "deadline_seconds": 5,
-        },
-        lambda api, identity: client,
+        }
     )
     assert client.singles == [WHOLE_A]
     assert result["results"][WHOLE_A]["error"] == "not_found"

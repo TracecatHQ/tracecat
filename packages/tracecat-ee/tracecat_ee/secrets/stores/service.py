@@ -32,7 +32,11 @@ from tracecat.secrets.schemas import (
     SecretStoreWorkspaceUsage,
 )
 from tracecat.service import BaseOrgService
-from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
+from tracecat_ee.secrets.stores.backends import (
+    AnyBackend,
+    get_backend,
+    parse_store_config,
+)
 
 _NOT_READY_MESSAGE = "Finish setting up the store before enabling it."
 _MAX_ACCESS_TOKEN_LENGTH = 4096
@@ -180,25 +184,33 @@ class SecretStoresService(BaseOrgService):
 
     @staticmethod
     def _check_access_token(
-        provider: str, *, token: SecretStr | None, token_set: bool, enabled: bool
+        backend: AnyBackend,
+        config: SecretStoreConfig,
+        *,
+        token: SecretStr | None,
+        token_set: bool,
+        enabled: bool,
     ) -> None:
-        """Check an access token fits the provider, and is set before enabling.
+        """Check a new access token fits the store, and the store can be enabled.
 
-        A store whose provider needs a token can be saved disabled without
-        one, but cannot be enabled until one is set. The length is checked
-        here rather than in the schema, whose 422 would echo the token.
+        The length is checked here rather than in the schema, whose 422 would
+        echo the token. A provider whose readiness never depends on a token
+        does not use one, so it refuses one.
         """
-        if token is not None and not (
-            1 <= len(token.get_secret_value()) <= _MAX_ACCESS_TOKEN_LENGTH
-        ):
-            raise ValueError(
-                f"The access token must be 1 to {_MAX_ACCESS_TOKEN_LENGTH} characters."
-            )
-        requires_token = get_backend(provider).requires_access_token
-        if token is not None and not requires_token:
-            raise ValueError("This store's provider does not use an access token.")
-        if enabled and requires_token and not token_set:
-            raise ValueError("Set an access token before enabling this store.")
+        if token is not None:
+            if not 1 <= len(token.get_secret_value()) <= _MAX_ACCESS_TOKEN_LENGTH:
+                raise ValueError(
+                    f"The access token must be 1 to {_MAX_ACCESS_TOKEN_LENGTH}"
+                    " characters."
+                )
+            if backend.is_ready(config, has_access_token=False) == backend.is_ready(
+                config, has_access_token=True
+            ):
+                raise ValueError("This store's provider does not use an access token.")
+        if enabled and not backend.is_ready(config, has_access_token=token_set):
+            if not token_set and backend.is_ready(config, has_access_token=True):
+                raise ValueError("Set an access token before enabling this store.")
+            raise ValueError(_NOT_READY_MESSAGE)
 
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret_store", action="create")
@@ -206,10 +218,9 @@ class SecretStoresService(BaseOrgService):
         """Create a store. Server-owned config fields are generated here."""
         backend = get_backend(params.provider)
         config = backend.new_config(params.config)
-        if params.enabled and not backend.is_ready(config):
-            raise ValueError(_NOT_READY_MESSAGE)
         self._check_access_token(
-            params.provider,
+            backend,
+            config,
             token=params.access_token,
             token_set=params.access_token is not None,
             enabled=params.enabled,
@@ -244,52 +255,43 @@ class SecretStoresService(BaseOrgService):
         fields.pop("config", None)
         # Written to its encrypted column below, never set as given.
         fields.pop("access_token", None)
-        config: SecretStoreConfig | None = None
         if params.config is not None and params.config.provider != store.provider:
             raise ValueError("config.provider must match the store's provider")
+        backend = get_backend(store.provider)
         enabled = fields.get("enabled", store.enabled)
-        self._check_access_token(
-            store.provider,
-            token=params.access_token,
-            token_set=(
-                params.access_token is not None
-                or store.encrypted_access_token is not None
-            ),
-            enabled=enabled,
-        )
-        if params.config is not None:
-            backend = get_backend(store.provider)
+        saved: SecretStoreConfig | None = None
+        config: SecretStoreConfig | None = None
+        # Parse the saved config only when needed, so a store with an
+        # unparseable config can still be renamed or disabled.
+        if enabled or params.config is not None or params.access_token is not None:
+            saved = current = parse_store_config(store)
+            if params.config is not None:
+                current = backend.update_config(saved, params.config)
+            config = current
+            self._check_access_token(
+                backend,
+                current,
+                token=params.access_token,
+                token_set=(
+                    params.access_token is not None
+                    or store.encrypted_access_token is not None
+                ),
+                enabled=enabled,
+            )
+        if config is not None and config != saved:
             # Only a changed config is checked, so an outage of the store's
             # DNS cannot block renaming or disabling it. The check may resolve
             # DNS, so it runs before the lock, which blocks reference writes.
-            saved = parse_store_config(store)
-            checked = backend.update_config(saved, params.config, references=())
-            if checked != saved:
-                await backend.check_config(checked)
-            # Block concurrent reference creation between the check and commit.
+            await backend.check_config(config)
+            # Block concurrent reference creation between the checks and commit.
             await self.session.refresh(store, with_for_update=True)
-            current = parse_store_config(store)
-            # First pass without references: most updates change nothing, and
-            # then the references are never read. Only a real change is
-            # re-run against them, because the provider decides which changes
-            # they block (AWS: a region change, and only for ARN references).
-            config = backend.update_config(current, params.config, references=())
-            if config != current:
-                config = backend.update_config(
-                    current,
-                    params.config,
-                    references=await self._saved_references(store.id),
+            if parse_store_config(store) != saved:
+                raise TracecatConflictError(
+                    "The store changed while it was being saved. Try again."
                 )
-                if config != checked:
-                    # The store changed between the check and the lock.
-                    await backend.check_config(config)
-        # Parse the saved config only when needed, so a store with an
-        # unparseable config can still be renamed or disabled.
-        if enabled:
-            ready_config = config if config is not None else parse_store_config(store)
-            if not get_backend(store.provider).is_ready(ready_config):
-                raise ValueError(_NOT_READY_MESSAGE)
-        if config is not None:
+            backend.check_change(
+                saved, config, references=await self._saved_references(store.id)
+            )
             store.config = config.model_dump(mode="json")
         if params.access_token is not None:
             store.encrypted_access_token = _encrypt_access_token(params.access_token)

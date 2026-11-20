@@ -68,6 +68,4 @@ class SecretResolutionErrorCode(StrEnum):
     AUTH_FAILED = "auth_failed"
     UNAVAILABLE = "unavailable"
     INVALID_REFERENCE = "invalid_reference"
-    UNSUPPORTED_VALUE = "unsupported_value"
     CREDENTIAL_MISSING = "credential_missing"
-    PROVIDER_NOT_INSTALLED = "provider_not_installed"

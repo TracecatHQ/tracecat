@@ -96,17 +96,9 @@ export const CHECK_ERROR_MESSAGES: Record<
     label: "Invalid reference",
     hint: "The secret reference is not in the format this store expects.",
   },
-  unsupported_value: {
-    label: "Unsupported value",
-    hint: "The secret's value cannot be mapped this way. Try the JSON field mapping.",
-  },
   credential_missing: {
     label: "Credential missing",
     hint: "The store's credential secret is missing a required key. Ask an organization admin to fix the store's setup.",
-  },
-  provider_not_installed: {
-    label: "Provider not installed",
-    hint: "This Tracecat deployment cannot reach this kind of store. Ask your administrator to install the provider.",
   },
 }
 

@@ -418,6 +418,35 @@ async def test_config_check_runs_before_the_store_row_is_locked(
     assert store.config["server"] == "https://vault.example.com"
 
 
+async def test_a_store_changed_before_the_lock_is_a_conflict(
+    monkeypatch: pytest.MonkeyPatch, stores: SecretStoresService
+) -> None:
+    # Another save lands between the config check and the lock, so the
+    # config about to be committed was checked against a stale store.
+    backend = get_backend(BITWARDEN)
+    monkeypatch.setattr(backend, "check_config", AsyncMock())
+    store = await stores.create_store(_create("bitwarden"))
+    refresh = stores.session.refresh
+
+    async def concurrent_save(instance: object, *args: object, **kwargs: object):
+        result = await refresh(instance, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+        if kwargs.get("with_for_update"):
+            store.config = {**store.config, "server": "https://other.example.com"}
+        return result
+
+    monkeypatch.setattr(stores.session, "refresh", concurrent_save)
+
+    with pytest.raises(TracecatConflictError, match="changed"):
+        await stores.update_store(
+            store,
+            SecretStoreUpdate(
+                config=BitwardenSecretsManagerStoreUpdate(
+                    provider=BITWARDEN, server="https://vault.example.com"
+                )
+            ),
+        )
+
+
 async def test_deprecated_aws_check_route_refuses_a_bitwarden_reference(
     session: AsyncSession,
     stores: SecretStoresService,

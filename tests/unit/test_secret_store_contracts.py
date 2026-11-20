@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.secrets import runtime
+from tracecat_ee.secrets import resolver
 from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
 from tracecat_ee.secrets.references import router, workflows
 from tracecat_ee.secrets.references.service import SecretReferencesService
@@ -41,7 +41,6 @@ from tracecat.secrets.schemas import (
     SecretReferenceCheckResult,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.secrets.types import FetchResult
 from tracecat.tiers.enums import Entitlement
 
 
@@ -292,8 +291,7 @@ def _fake_backend(outcomes: dict[str, str]) -> MagicMock:
     """A provider whose ``fetch`` returns ``outcomes`` and records its calls."""
     return MagicMock(
         display_name="AWS",
-        requires_access_token=False,
-        fetch=AsyncMock(side_effect=lambda *_: FetchResult(outcomes=dict(outcomes))),
+        fetch=AsyncMock(side_effect=lambda *_: dict(outcomes)),
     )
 
 
@@ -341,7 +339,7 @@ async def test_failed_sandbox_entry_clears_fetched_values(
         AsyncMock(return_value=[_external_secret("remote"), undecryptable]),
     )
     backend = _fake_backend({"synthetic-key": "synthetic-value"})
-    monkeypatch.setattr(runtime, "get_backend", lambda _: backend)
+    monkeypatch.setattr(resolver, "get_backend", lambda _: backend)
 
     sandbox = auth_sandbox.AuthSandbox(role=role, secrets=["remote", "local"])
     with pytest.raises(InvalidToken):
@@ -396,7 +394,7 @@ async def test_runtime_entitlement_precedes_external_fetch(
     backend = _fake_backend({"synthetic-key": "synthetic-value"})
     module = auth_sandbox if caller == "sandbox" else agent_service
     monkeypatch.setattr(module, "check_entitlement", entitlement)
-    monkeypatch.setattr(runtime, "get_backend", lambda _: backend)
+    monkeypatch.setattr(resolver, "get_backend", lambda _: backend)
 
     @asynccontextmanager
     async def with_session(*, role: Role):

@@ -945,7 +945,8 @@ export const SECRET_STORE_PROVIDERS: Record<
         invalid_reference:
           "Bitwarden rejected the secret ID. Copy the ID again from Bitwarden Secrets Manager.",
         unavailable:
-          "Bitwarden could not be reached or refused the request, for example because of rate limits, or a self-hosted server no longer resolves to a public address. Try again in a moment.",
+          "Bitwarden could not be reached, or a self-hosted server no longer resolves to a public address. Try again in a moment.",
+        throttled: "Bitwarden rate-limited the request. Try again in a moment.",
         timeout: "Bitwarden did not respond in time. Try again in a moment.",
         credential_missing:
           "The store has no usable access token. Ask an organization admin to add or replace it.",

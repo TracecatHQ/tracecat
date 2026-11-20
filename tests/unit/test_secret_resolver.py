@@ -1,8 +1,7 @@
 """Core resolution of externally backed secrets, independent of any provider.
 
-A fake key-value provider (field maps and a cleanup step, as HashiCorp Vault
-would return) stands in for a second provider, so the shared safety rules are
-proven without AWS.
+A fake provider stands in for a second provider, so the shared safety rules
+are proven without AWS.
 """
 
 from __future__ import annotations
@@ -13,13 +12,14 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import aioboto3
+import orjson
 import pytest
 from botocore.exceptions import ClientError
-from tracecat_ee.secrets import runtime
+from tracecat_ee.secrets import resolver
+from tracecat_ee.secrets.errors import SecretResolutionError
 from tracecat_ee.secrets.providers.aws_secrets_manager import (
     AwsSecretResolutionError,
 )
-from tracecat_ee.secrets.resolver import SecretResolutionError
 
 from tests.unit.test_aws_secrets_manager import _FakeSession
 from tests.unit.test_aws_secrets_manager import make_reference as make_aws_reference
@@ -34,7 +34,7 @@ from tracecat.secrets.schemas import SecretJsonField, SecretKeyMapping
 from tracecat.secrets.types import (
     ExternalSecretReference,
     Failure,
-    FetchResult,
+    FetchOutcome,
     StoreContext,
 )
 
@@ -50,16 +50,14 @@ STORE_ID = uuid.uuid4()
 
 
 class FakeKvBackend:
-    """A provider that returns field maps and needs a cleanup step."""
+    """A provider that records its calls and keeps the outcomes it returned."""
 
     provider = FAKE_PROVIDER
     display_name = "FakeKV"
-    requires_access_token = False
 
     def __init__(self) -> None:
         self.calls: list[tuple[StoreContext, list[str]]] = []
-        self.release = AsyncMock()
-        self.outcomes: dict[str, Any] = {}
+        self.outcomes: dict[str, FetchOutcome] = {}
 
     def resolution_error(
         self,
@@ -79,13 +77,13 @@ class FakeKvBackend:
 
     async def fetch(
         self, store: StoreContext, references: Sequence[str]
-    ) -> FetchResult:
+    ) -> dict[str, FetchOutcome]:
         self.calls.append((store, list(references)))
         self.outcomes = {
-            "kv/app": {"user": USER_VALUE, "pass": PASS_VALUE},
+            "kv/app": orjson.dumps({"user": USER_VALUE, "pass": PASS_VALUE}).decode(),
             "kv/missing": Failure(SecretResolutionErrorCode.NOT_FOUND, "http_404"),
         }
-        return FetchResult(outcomes=self.outcomes, release=self.release)
+        return self.outcomes
 
 
 def _reference(alias: str, key: str, fields: dict[str, str]) -> ExternalSecretReference:
@@ -121,7 +119,7 @@ def role() -> Role:
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeKvBackend:
     backend = FakeKvBackend()
     registry = {FAKE_PROVIDER: backend}
-    monkeypatch.setattr(runtime, "get_backend", registry.__getitem__)
+    monkeypatch.setattr(resolver, "get_backend", registry.__getitem__)
     return backend
 
 
@@ -151,10 +149,10 @@ def _assert_no_frame_holds_values(error: BaseException) -> None:
 async def test_second_provider_fails_whole_batch_sanitized_and_cleaned_up(
     fake: FakeKvBackend, references: list[ExternalSecretReference]
 ) -> None:
-    # Given a fake provider returning a field map, a not_found and a cleanup step
+    # Given a fake provider returning a JSON value and a not_found
     # When a run resolves three keys from two references in that store
     with pytest.raises(SecretResolutionError) as exc_info:
-        await runtime.resolve_external_references(references)
+        await resolver.resolve_external_references(references)
 
     # Then core fetched once with the two distinct references
     assert [(store.store_id, refs) for store, refs in fake.calls] == [
@@ -170,8 +168,7 @@ async def test_second_provider_fails_whole_batch_sanitized_and_cleaned_up(
     assert error.__cause__ is None and error.__context__ is None
     for payload in (USER_VALUE, PASS_VALUE):
         assert payload not in str(error) and payload not in repr(error.detail)
-    # and the cleanup step ran, the fetched values were dropped,
-    fake.release.assert_awaited_once()
+    # and the fetched values were dropped,
     assert fake.outcomes == {}
     # and no frame in the traceback holds a fetched value
     _assert_no_frame_holds_values(error)
@@ -202,7 +199,7 @@ async def test_failed_resolution_leaves_no_values_in_the_environment(
 
     assert sandbox.secrets == {}
     assert sandbox._external_values == {}
-    fake.release.assert_awaited_once()
+    assert fake.outcomes == {}
     _assert_no_frame_holds_values(exc_info.value)
 
 
@@ -210,14 +207,16 @@ async def test_provider_bug_fails_as_unknown_without_its_type_or_message(
     fake: FakeKvBackend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given a provider whose fetch raises instead of returning outcomes
-    async def explode(store: StoreContext, references: Sequence[str]) -> FetchResult:
+    async def explode(
+        store: StoreContext, references: Sequence[str]
+    ) -> dict[str, FetchOutcome]:
         raise RuntimeError("vendor text that must not surface")
 
     monkeypatch.setattr(fake, "fetch", explode)
 
     # When a run resolves a reference in its store
     with pytest.raises(SecretResolutionError) as exc_info:
-        await runtime.resolve_external_references(
+        await resolver.resolve_external_references(
             [_reference("app", "kv/app", {"USER": "user"})]
         )
 
@@ -235,13 +234,12 @@ async def test_provider_bug_fails_as_unknown_without_its_type_or_message(
     }
 
 
-async def test_field_map_projects_onto_declared_keys(fake: FakeKvBackend) -> None:
-    resolved = await runtime.resolve_external_references(
+async def test_json_value_projects_onto_declared_keys(fake: FakeKvBackend) -> None:
+    resolved = await resolver.resolve_external_references(
         [_reference("app", "kv/app", {"USER": "user", "PASS": "pass"})]
     )
     assert resolved == {"app": {"USER": USER_VALUE, "PASS": PASS_VALUE}}
     assert fake.calls[0][1] == ["kv/app"]
-    fake.release.assert_awaited_once()
 
 
 async def test_aws_run_time_error_keeps_the_aws_error_type_and_detail(
@@ -255,7 +253,7 @@ async def test_aws_run_time_error_keeps_the_aws_error_type_and_detail(
     monkeypatch.setattr(aioboto3, "Session", _FakeSession)
 
     with pytest.raises(AwsSecretResolutionError) as exc_info:
-        await runtime.resolve_external_references([make_aws_reference()])
+        await resolver.resolve_external_references([make_aws_reference()])
 
     # The run's error record carries the type name, as it did before.
     assert type(exc_info.value).__name__ == "AwsSecretResolutionError"

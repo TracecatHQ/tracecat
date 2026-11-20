@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.secrets import runtime
+from tracecat_ee.secrets import resolver
 from tracecat_registry._internal import secrets as registry_secrets
 
 import tracecat.agent.service as agent_service
@@ -48,7 +48,7 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.types import FetchResult, StoreContext
+from tracecat.secrets.types import StoreContext
 
 
 @pytest.fixture
@@ -109,18 +109,17 @@ async def test_workspace_provider_credentials_resolve_source_and_preserve_fallba
         """Local-source secrets must never reach a store backend."""
 
         display_name = "AWS"
-        requires_access_token = False
 
         async def fetch(
             self, store: StoreContext, references: Sequence[str]
-        ) -> FetchResult:
+        ) -> dict[str, str]:
             assert source == "aws"
             assert secret.store is not None
             assert store.store_id == secret.store.id
             assert list(references) == ["test-provider-key"]
-            return FetchResult(outcomes={"test-provider-key": "remote-key"})
+            return {"test-provider-key": "remote-key"}
 
-    monkeypatch.setattr(runtime, "get_backend", lambda provider: _StubBackend())
+    monkeypatch.setattr(resolver, "get_backend", lambda provider: _StubBackend())
     assert service.presets is not None
     monkeypatch.setattr(
         service.presets,

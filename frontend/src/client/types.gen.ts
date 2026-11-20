@@ -11020,9 +11020,7 @@ export type SecretResolutionErrorCode =
   | "auth_failed"
   | "unavailable"
   | "invalid_reference"
-  | "unsupported_value"
   | "credential_missing"
-  | "provider_not_installed"
 
 /**
  * Where a workspace secret's values live.

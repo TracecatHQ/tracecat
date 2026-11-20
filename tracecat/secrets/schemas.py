@@ -500,11 +500,8 @@ class AwsSecretsManagerStoreUpdate(BaseModel):
     region: str | None = Field(default=None, pattern=AWS_REGION_PATTERN, max_length=64)
 
 
-BITWARDEN_CLOUD_SERVERS: dict[str, tuple[str, str]] = {
-    "us": ("https://api.bitwarden.com", "https://identity.bitwarden.com"),
-    "eu": ("https://api.bitwarden.eu", "https://identity.bitwarden.eu"),
-}
-"""Bitwarden cloud regions and their ``(api_url, identity_url)``."""
+BITWARDEN_CLOUD_REGIONS = frozenset({"us", "eu"})
+"""Bitwarden cloud regions; the provider maps each to its endpoints."""
 
 
 _BITWARDEN_HOSTNAME = re.compile(
@@ -519,7 +516,7 @@ def _check_bitwarden_server(value: str) -> str:
     must use HTTPS. The host is lowercased, and a default port and a trailing
     slash are dropped, so one server has one spelling.
     """
-    if value in BITWARDEN_CLOUD_SERVERS:
+    if value in BITWARDEN_CLOUD_REGIONS:
         return value
     if any(c.isspace() or not c.isprintable() for c in value):
         raise ValueError("server URL must not contain whitespace")
@@ -545,13 +542,6 @@ BitwardenServer = Annotated[
     StringConstraints(min_length=2, max_length=2048),
     AfterValidator(_check_bitwarden_server),
 ]
-
-
-def bitwarden_endpoints(server: str) -> tuple[str, str]:
-    """Return the ``(api_url, identity_url)`` the SDK needs for a server."""
-    if server in BITWARDEN_CLOUD_SERVERS:
-        return BITWARDEN_CLOUD_SERVERS[server]
-    return f"{server}/api", f"{server}/identity"
 
 
 class BitwardenSecretsManagerStoreConfig(BaseModel):

@@ -3,9 +3,7 @@
 Only this module talks to AWS. It assumes the store role with the Tracecat
 workload identity (IRSA / task role) and a persisted external ID and reads
 the ``AWSCURRENT`` version of a secret. Mapping values onto keys, sanitizing
-failures and clearing values is core's job (:mod:`tracecat_ee.secrets.resolver`);
-the functions below that predate the provider interface are thin wrappers
-over it, kept so their public names and behaviour stay as they were.
+failures and clearing values is core's job (:mod:`tracecat_ee.secrets.resolver`).
 """
 
 from __future__ import annotations
@@ -40,19 +38,12 @@ from tracecat.secrets.schemas import (
     check_aws_partition,
 )
 from tracecat.secrets.types import (
-    CheckResult,
     ExternalSecretReference,
     Failure,
     FetchOutcome,
-    FetchResult,
     StoreContext,
 )
-from tracecat_ee.secrets.resolver import (
-    SecretResolutionError,
-    check_reference,
-    fetch_and_project,
-    project_value,
-)
+from tracecat_ee.secrets.errors import SecretResolutionError
 
 _CONNECT_TIMEOUT_SECONDS = 5
 _READ_TIMEOUT_SECONDS = 10
@@ -227,46 +218,6 @@ def _as_outcome(outcome: _FetchOutcome) -> FetchOutcome:
     return outcome.value
 
 
-def project_secret_string(
-    reference: ExternalSecretReference, secret_string: str
-) -> dict[str, str] | SecretResolutionErrorCode:
-    """Map a SecretString onto declared output keys (see ``project_value``)."""
-    return project_value(reference.mapping, secret_string)
-
-
-def _lookup(_: SecretStoreProvider) -> AwsSecretsManagerBackend:
-    return _BACKEND
-
-
-async def resolve_aws_secret_references(
-    references: Sequence[ExternalSecretReference],
-) -> dict[str, dict[str, str]]:
-    """Resolve AWS-backed aliases to ``{alias: {key: value}}``.
-
-    Any failure raises a sanitized :class:`AwsSecretResolutionError` with no
-    chained cause.
-    """
-    if not references:
-        return {}
-    resolved, failure = await fetch_and_project(references, _lookup)
-    if failure is not None:
-        error = AwsSecretResolutionError(
-            failure.failure.code,
-            alias=failure.reference.alias,
-            environment=failure.reference.environment,
-            aws_error_code=failure.failure.vendor_code,
-        )
-        raise error
-    return resolved
-
-
-async def check_aws_secret_reference(
-    reference: ExternalSecretReference,
-) -> CheckResult:
-    """Verify a reference resolves without returning its value."""
-    return await check_reference(reference, _lookup)
-
-
 def collect_output_keys(references: Iterable[ExternalSecretReference]) -> list[str]:
     """Return declared output keys across references without remote access."""
     keys: list[str] = []
@@ -285,8 +236,6 @@ class AwsSecretsManagerBackend:
 
     provider = SecretStoreProvider.AWS_SECRETS_MANAGER
     display_name = "AWS"
-    # AWS uses the workload identity.
-    requires_access_token = False
 
     def new_config(
         self, params: AwsSecretsManagerStoreCreate
@@ -302,15 +251,8 @@ class AwsSecretsManagerBackend:
         self,
         config: AwsSecretsManagerStoreConfig,
         params: AwsSecretsManagerStoreUpdate,
-        *,
-        references: Collection[str] = (),
     ) -> AwsSecretsManagerStoreConfig:
-        """Apply role/region updates. The external ID is never changed.
-
-        Saved ARN references were validated against the current region, so
-        the region cannot change while any exist. Friendly names follow the
-        store's region and do not block the change.
-        """
+        """Apply role/region updates. The external ID is never changed."""
         updated = config.model_copy(
             update=params.model_dump(
                 exclude_unset=True, exclude_none=True, exclude={"provider"}
@@ -318,14 +260,26 @@ class AwsSecretsManagerBackend:
         )
         if updated.role_arn is not None:
             check_aws_partition(updated.role_arn, updated.region)
-        if updated.region != config.region and any(
+        return updated
+
+    def check_change(
+        self,
+        old: AwsSecretsManagerStoreConfig,
+        new: AwsSecretsManagerStoreConfig,
+        *,
+        references: Collection[str],
+    ) -> None:
+        """Saved ARN references were validated against the current region, so
+        the region cannot change while any exist. Friendly names follow the
+        store's region and do not block the change.
+        """
+        if new.region != old.region and any(
             is_secret_arn(reference) for reference in references
         ):
             raise TracecatConflictError(
                 "Update or remove secrets that reference this store by ARN"
                 " before changing its region."
             )
-        return updated
 
     def resolution_error(
         self,
@@ -340,8 +294,11 @@ class AwsSecretsManagerBackend:
             code, alias=alias, environment=environment, aws_error_code=vendor_code
         )
 
-    def is_ready(self, config: AwsSecretsManagerStoreConfig) -> bool:
-        """A store can be enabled only once its role ARN is set."""
+    def is_ready(
+        self, config: AwsSecretsManagerStoreConfig, *, has_access_token: bool
+    ) -> bool:
+        """A store can be enabled once its role ARN is set. AWS reads with the
+        workload identity, so a token does not matter."""
         return config.role_arn is not None
 
     async def check_config(self, config: AwsSecretsManagerStoreConfig) -> None:
@@ -373,17 +330,12 @@ class AwsSecretsManagerBackend:
 
     async def fetch(
         self, store: StoreContext, references: Sequence[str]
-    ) -> FetchResult:
+    ) -> dict[str, FetchOutcome]:
         """Read every distinct reference concurrently, one AssumeRole each."""
         outcomes = await asyncio.gather(
             *(_fetch_secret_string(store, reference) for reference in references)
         )
-        return FetchResult(
-            outcomes={
-                reference: _as_outcome(outcome)
-                for reference, outcome in zip(references, outcomes, strict=True)
-            }
-        )
-
-
-_BACKEND = AwsSecretsManagerBackend()
+        return {
+            reference: _as_outcome(outcome)
+            for reference, outcome in zip(references, outcomes, strict=True)
+        }

@@ -23,7 +23,7 @@ from tracecat_ee.secrets.references import router, workflows
 from tracecat_ee.secrets.references.service import SecretReferencesService
 from tracecat_ee.secrets.stores.service import SecretStoresService
 
-from tests.unit.test_bitwarden_secrets_manager import RecordingClient
+from tests.unit.test_bitwarden_secrets_manager import RecordingClient, use_client
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import Workspace
@@ -80,9 +80,10 @@ async def executor_queue(
 
 
 def fake_bitwarden(monkeypatch: pytest.MonkeyPatch, client: RecordingClient) -> None:
+    use_client(monkeypatch, client)
+
     async def run_child(payload: bytes) -> tuple[bytes, int]:
-        result = child.run(orjson.loads(payload), lambda api, identity: client)
-        return orjson.dumps(result), 0
+        return orjson.dumps(child.run(orjson.loads(payload))), 0
 
     monkeypatch.setattr(bw, "_run_child", run_child)
 

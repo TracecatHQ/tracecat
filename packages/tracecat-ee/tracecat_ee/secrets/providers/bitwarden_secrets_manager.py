@@ -17,14 +17,11 @@ kept after a fetch: no values, no login.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import os
 import re
 import sys
-import threading
 import time
 from collections.abc import Collection, Sequence
-from functools import cache
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -37,26 +34,26 @@ from tracecat.network import DisallowedUrlError, validate_url_resolves_public_as
 from tracecat.sandbox.utils import terminate_process_group
 from tracecat.secrets.enums import SecretResolutionErrorCode, SecretStoreProvider
 from tracecat.secrets.schemas import (
-    BITWARDEN_CLOUD_SERVERS,
     BitwardenSecretsManagerStoreConfig,
     BitwardenSecretsManagerStoreCreate,
     BitwardenSecretsManagerStoreUpdate,
-    bitwarden_endpoints,
 )
-from tracecat.secrets.types import Failure, FetchOutcome, FetchResult, StoreContext
-from tracecat_ee.secrets.resolver import SecretResolutionError
+from tracecat.secrets.types import Failure, FetchOutcome, StoreContext
+from tracecat_ee.secrets.errors import SecretResolutionError
 
 FETCH_TIMEOUT_SECONDS = 20.0
 """One deadline for waiting for a slot, starting the child, and its work."""
 
 MAX_CONCURRENT_FETCHES = 4
-"""Children one process runs at once per Bitwarden server.
+"""Children one process runs at once, across all Bitwarden servers."""
 
-Per server, so a server that hangs cannot starve stores on other servers.
-"""
+BITWARDEN_CLOUD_SERVERS: dict[str, tuple[str, str]] = {
+    "us": ("https://api.bitwarden.com", "https://identity.bitwarden.com"),
+    "eu": ("https://api.bitwarden.eu", "https://identity.bitwarden.eu"),
+}
+"""Bitwarden cloud regions and their ``(api_url, identity_url)``."""
 
 _CHILD_SCRIPT = Path(__file__).with_name("bitwarden_sm_child.py")
-_SLOT_POLL_SECONDS = 0.02
 _CHILD_ENV_ALLOWLIST = (
     "PATH",
     "SSL_CERT_FILE",
@@ -78,29 +75,23 @@ _CHILD_CODES = frozenset(
         SecretResolutionErrorCode.NOT_FOUND,
         SecretResolutionErrorCode.ACCESS_DENIED,
         SecretResolutionErrorCode.UNAVAILABLE,
+        SecretResolutionErrorCode.THROTTLED,
         SecretResolutionErrorCode.TIMEOUT,
         SecretResolutionErrorCode.INVALID_REFERENCE,
         SecretResolutionErrorCode.UNKNOWN,
     }
 )
 
-# Threading semaphores, not asyncio ones: executors run actions on more than
-# one event loop, and the cap must hold across all of them.
-_SLOTS: dict[str, threading.BoundedSemaphore] = {}
-_SLOTS_LOCK = threading.Lock()
+# Every fetch runs on its process's main event loop, so one asyncio
+# semaphore caps the children the process runs.
+_SLOTS = asyncio.Semaphore(MAX_CONCURRENT_FETCHES)
 
 
-def _slots_for(api_url: str) -> threading.BoundedSemaphore:
-    with _SLOTS_LOCK:
-        if api_url not in _SLOTS:
-            _SLOTS[api_url] = threading.BoundedSemaphore(MAX_CONCURRENT_FETCHES)
-        return _SLOTS[api_url]
-
-
-@cache
-def sdk_installed() -> bool:
-    """Whether ``bitwarden-sdk`` can be imported by a child process."""
-    return importlib.util.find_spec("bitwarden_sdk") is not None
+def bitwarden_endpoints(server: str) -> tuple[str, str]:
+    """Return the ``(api_url, identity_url)`` the SDK needs for a server."""
+    if server in BITWARDEN_CLOUD_SERVERS:
+        return BITWARDEN_CLOUD_SERVERS[server]
+    return f"{server}/api", f"{server}/identity"
 
 
 def _child_env() -> dict[str, str]:
@@ -139,16 +130,8 @@ def _parse_child_output(
         return _all(
             references, Failure(SecretResolutionErrorCode.UNAVAILABLE, "unparseable")
         )
-    if fatal is not None or not isinstance(results, dict):
-        name = fatal.get("type") if isinstance(fatal, dict) else None
-        vendor = _vendor_code(name)
-        return _all(
-            references,
-            Failure(
-                SecretResolutionErrorCode.UNAVAILABLE,
-                f"fatal:{vendor}" if vendor else "fatal",
-            ),
-        )
+    if fatal or not isinstance(results, dict):
+        return _all(references, Failure(SecretResolutionErrorCode.UNAVAILABLE, "fatal"))
 
     outcomes: dict[str, FetchOutcome] = {}
     for reference in references:
@@ -175,12 +158,6 @@ def _parse_child_output(
                 _vendor_code(entry.get("vendor_code")),
             )
     return outcomes
-
-
-async def _acquire_slot(slots: threading.BoundedSemaphore) -> None:
-    """Wait for a fetch slot without blocking the event loop."""
-    while not slots.acquire(blocking=False):
-        await asyncio.sleep(_SLOT_POLL_SECONDS)
 
 
 async def _run_child(payload: bytes) -> tuple[bytes, int | None]:
@@ -224,12 +201,7 @@ async def fetch_with_child(
     references: Sequence[str],
 ) -> dict[str, FetchOutcome]:
     """Read every reference in one child process within one deadline."""
-    if not sdk_installed():
-        return _all(
-            references, Failure(SecretResolutionErrorCode.PROVIDER_NOT_INSTALLED)
-        )
     api_url, identity_url = bitwarden_endpoints(config.server)
-    slots = _slots_for(api_url)
     deadline = time.monotonic() + FETCH_TIMEOUT_SECONDS
     try:
         async with asyncio.timeout(FETCH_TIMEOUT_SECONDS):
@@ -242,8 +214,7 @@ async def fetch_with_child(
                     references,
                     Failure(SecretResolutionErrorCode.UNAVAILABLE, "server_not_public"),
                 )
-            await _acquire_slot(slots)
-            try:
+            async with _SLOTS:
                 stdout, returncode = await _run_child(
                     orjson.dumps(
                         {
@@ -258,8 +229,6 @@ async def fetch_with_child(
                         }
                     )
                 )
-            finally:
-                slots.release()
     except TimeoutError:
         logger.warning(
             "Bitwarden fetch timed out",
@@ -287,7 +256,6 @@ class BitwardenSecretsManagerBackend:
 
     provider = SecretStoreProvider.BITWARDEN_SECRETS_MANAGER
     display_name = "Bitwarden"
-    requires_access_token = True
 
     def new_config(
         self, params: BitwardenSecretsManagerStoreCreate
@@ -301,31 +269,32 @@ class BitwardenSecretsManagerBackend:
         self,
         config: BitwardenSecretsManagerStoreConfig,
         params: BitwardenSecretsManagerStoreUpdate,
-        *,
-        references: Collection[str] = (),
     ) -> BitwardenSecretsManagerStoreConfig:
-        """Apply server/organization updates.
-
-        Saved references are secret IDs in one organization; moving the store
-        to another server or organization would point them at other secrets,
-        so neither can change while references exist. The linked credential
-        is not part of the config and may change at any time.
-        """
-        updated = config.model_copy(
+        """Apply server/organization updates."""
+        return config.model_copy(
             update=params.model_dump(
                 exclude_unset=True, exclude_none=True, exclude={"provider"}
             )
         )
-        moved = (
-            updated.server != config.server
-            or updated.organization_id != config.organization_id
-        )
+
+    def check_change(
+        self,
+        old: BitwardenSecretsManagerStoreConfig,
+        new: BitwardenSecretsManagerStoreConfig,
+        *,
+        references: Collection[str],
+    ) -> None:
+        """Saved references are secret IDs in one organization; moving the
+        store to another server or organization would point them at other
+        secrets, so neither can change while references exist. The access
+        token is not part of the config and may change at any time.
+        """
+        moved = new.server != old.server or new.organization_id != old.organization_id
         if moved and references:
             raise TracecatConflictError(
                 "Update or remove secrets that reference this store before"
                 " changing its server or organization."
             )
-        return updated
 
     def resolution_error(
         self,
@@ -344,9 +313,11 @@ class BitwardenSecretsManagerBackend:
             vendor_code=vendor_code,
         )
 
-    def is_ready(self, config: BitwardenSecretsManagerStoreConfig) -> bool:
-        """The config is complete once created; the credential is checked apart."""
-        return True
+    def is_ready(
+        self, config: BitwardenSecretsManagerStoreConfig, *, has_access_token: bool
+    ) -> bool:
+        """The config is complete once created; the store needs its token."""
+        return has_access_token
 
     async def check_config(self, config: BitwardenSecretsManagerStoreConfig) -> None:
         """Refuse a self-hosted server that resolves to a non-public address.
@@ -376,14 +347,14 @@ class BitwardenSecretsManagerBackend:
 
     async def fetch(
         self, store: StoreContext, references: Sequence[str]
-    ) -> FetchResult:
+    ) -> dict[str, FetchOutcome]:
         """Read every reference of the store in one child process."""
         if store.access_token is None:
-            # Core checks this before fetching; kept for direct callers.
-            failure = Failure(SecretResolutionErrorCode.CREDENTIAL_MISSING)
-            return FetchResult(outcomes=dict.fromkeys(references, failure))
-        return FetchResult(
-            outcomes=await fetch_with_child(
-                _bitwarden_config(store.config), store.access_token, references
+            # The store was enabled with a token, but it may no longer
+            # decrypt (for example after a failed key rotation).
+            return _all(
+                references, Failure(SecretResolutionErrorCode.CREDENTIAL_MISSING)
             )
+        return await fetch_with_child(
+            _bitwarden_config(store.config), store.access_token, references
         )

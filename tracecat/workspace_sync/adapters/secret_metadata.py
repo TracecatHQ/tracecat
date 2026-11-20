@@ -824,7 +824,10 @@ def _is_usable_store(store: OrganizationSecretStore) -> bool:
     if not store.enabled:
         return False
     try:
-        return get_backend(store.provider).is_ready(parse_store_config(store))
+        return get_backend(store.provider).is_ready(
+            parse_store_config(store),
+            has_access_token=store.encrypted_access_token is not None,
+        )
     except (TracecatValidationError, ValueError):
         # Unknown provider or a config that no longer parses.
         return False

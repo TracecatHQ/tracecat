@@ -35996,9 +35996,7 @@ export const $SecretResolutionErrorCode = {
     "auth_failed",
     "unavailable",
     "invalid_reference",
-    "unsupported_value",
     "credential_missing",
-    "provider_not_installed",
   ],
   title: "SecretResolutionErrorCode",
   description: `Sanitized failure classes for external secret resolution.

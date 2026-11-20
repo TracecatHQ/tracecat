@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -98,20 +97,8 @@ class Failure:
     vendor_code: str | None = None
 
 
-type FetchOutcome = str | Mapping[str, object] | Failure
-"""One fetched value: a string, a field map (KV stores), or a failure."""
-
-
-@dataclass(frozen=True, slots=True)
-class FetchResult:
-    """Outcomes of one provider fetch, keyed by remote reference.
-
-    ``release`` is an optional cleanup step (for example revoking a lease)
-    that core awaits once the operation is done, on success and failure.
-    """
-
-    outcomes: Mapping[str, FetchOutcome] = field(repr=False)
-    release: Callable[[], Awaitable[None]] | None = None
+type FetchOutcome = str | Failure
+"""One fetched value, or why it could not be fetched."""
 
 
 @dataclass(frozen=True, slots=True)
