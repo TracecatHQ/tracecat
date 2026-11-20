@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -57,6 +58,8 @@ def _retry_after_seconds(response: httpx.Response) -> float:
     try:
         seconds = float(response.headers.get("Retry-After", "1"))
     except ValueError:
+        seconds = 1.0
+    if not math.isfinite(seconds):
         seconds = 1.0
     return min(max(seconds, 0.0), TENANT_BUSY_MAX_RETRY_AFTER_SECONDS)
 

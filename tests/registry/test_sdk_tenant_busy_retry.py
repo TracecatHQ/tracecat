@@ -121,6 +121,8 @@ async def test_other_errors_are_not_retried(
         pytest.param("2", 2.0, id="seconds"),
         pytest.param(None, 1.0, id="missing"),
         pytest.param("soon", 1.0, id="unparseable"),
+        pytest.param("nan", 1.0, id="nan"),
+        pytest.param("inf", 1.0, id="inf"),
         pytest.param("600", 10.0, id="capped"),
         pytest.param("-5", 0.0, id="negative"),
     ],

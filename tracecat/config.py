@@ -520,10 +520,11 @@ TRACECAT__DB_ORG_SESSION_CAP = (
 )
 """Concurrent action gateway operations one organization may run per process.
 
-Each operation holds at most a database connection or two, so this bounds the
-backends one org can hold through this process. Unset means no limit. Size it
-so that cap x maximum replicas <= pool size x PgDog replicas for the workload
-class the process connects through.
+A unit is one gateway operation, which usually holds one database connection
+(some open a second). Sessions outside the gateway are not counted, so this
+limits an org's gateway traffic, not every backend it can hold. Unset means no
+limit. Size it so that cap x maximum replicas <= pool size x PgDog replicas for
+the workload class the process connects through.
 """
 TRACECAT__DB_ORG_SESSION_WAIT_SECONDS = float(
     os.environ.get("TRACECAT__DB_ORG_SESSION_WAIT_SECONDS") or 5.0

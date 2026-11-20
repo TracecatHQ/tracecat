@@ -50,7 +50,13 @@ async def hold_org_db_session_unit(request: Request) -> AsyncGenerator[None]:
 
 
 def tenant_busy_exception_handler(_request: Request, exc: Exception) -> ORJSONResponse:
-    """Map a tenant-busy refusal to a retryable 503 with ``Retry-After``."""
+    """Map a tenant-busy refusal to a retryable 503 with ``Retry-After``.
+
+    The SDK retries this code, which is safe only because the gate dependency
+    is the sole raiser and refuses before the route runs. If session factories
+    are gated later, a refusal raised mid-operation must map to a different,
+    non-retryable error.
+    """
     retry_after = exc.retry_after_seconds if isinstance(exc, TenantBusyError) else 1
     return ORJSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
