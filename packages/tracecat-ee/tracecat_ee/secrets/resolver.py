@@ -83,14 +83,16 @@ def decrypt_access_tokens(
     """
     key: str | None = None
     tokens: dict[uuid.UUID, str] = {}
+    seen: set[uuid.UUID] = set()
     for reference in references:
         encrypted = reference.encrypted_access_token
         if (
             encrypted is None
             or not reference.store_enabled
-            or reference.store_id in tokens
+            or reference.store_id in seen
         ):
             continue
+        seen.add(reference.store_id)
         key = key or get_db_encryption_key()
         try:
             tokens[reference.store_id] = decrypt_value(encrypted, key=key).decode(

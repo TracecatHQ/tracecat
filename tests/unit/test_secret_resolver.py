@@ -240,6 +240,8 @@ async def test_json_value_projects_onto_declared_keys(fake: FakeKvBackend) -> No
     )
     assert resolved == {"app": {"USER": USER_VALUE, "PASS": PASS_VALUE}}
     assert fake.calls[0][1] == ["kv/app"]
+    # The provider's outcomes are dropped on success too
+    assert fake.outcomes == {}
 
 
 async def test_aws_run_time_error_keeps_the_aws_error_type_and_detail(

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 from pydantic import SecretStr, ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.references import router as references_router
 from tracecat_ee.secrets.references.service import (
@@ -426,13 +426,18 @@ async def test_a_store_changed_before_the_lock_is_a_conflict(
     backend = get_backend(BITWARDEN)
     monkeypatch.setattr(backend, "check_config", AsyncMock())
     store = await stores.create_store(_create("bitwarden"))
+    saved_elsewhere = {**store.config, "server": "https://other.example.com"}
     refresh = stores.session.refresh
 
     async def concurrent_save(instance: object, *args: object, **kwargs: object):
-        result = await refresh(instance, *args, **kwargs)  # pyright: ignore[reportArgumentType]
         if kwargs.get("with_for_update"):
-            store.config = {**store.config, "server": "https://other.example.com"}
-        return result
+            # The row changes in the database; the locking refresh reloads it.
+            await stores.session.execute(
+                update(OrganizationSecretStore)
+                .where(OrganizationSecretStore.id == store.id)
+                .values(config=saved_elsewhere)
+            )
+        return await refresh(instance, *args, **kwargs)  # pyright: ignore[reportArgumentType]
 
     monkeypatch.setattr(stores.session, "refresh", concurrent_save)
 
@@ -445,6 +450,7 @@ async def test_a_store_changed_before_the_lock_is_a_conflict(
                 )
             ),
         )
+    assert store.config == saved_elsewhere
 
 
 async def test_deprecated_aws_check_route_refuses_a_bitwarden_reference(

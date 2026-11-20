@@ -43,6 +43,7 @@ from tracecat.secrets.enums import (
     SecretStoreProvider,
 )
 from tracecat.secrets.schemas import (
+    BITWARDEN_CLOUD_REGIONS,
     BitwardenSecretsManagerStoreConfig,
     SecretJsonField,
     SecretKeyMapping,
@@ -289,12 +290,15 @@ async def test_run_time_skips_tokens_it_does_not_need_or_cannot_decrypt(
     assert decrypt_access_tokens([disabled]) == {}
 
     # A token that does not decrypt fails the run sanitized, not with the
-    # cryptography error
-    corrupt = dataclasses.replace(REFERENCES[0], encrypted_access_token=sealed[:-4])
+    # cryptography error, and is tried and logged once per store
+    corrupt = [
+        dataclasses.replace(reference, encrypted_access_token=sealed[:-4])
+        for reference in REFERENCES
+    ]
     with pytest.raises(SecretResolutionError) as exc_info:
-        await resolve_external_references([corrupt])
+        await resolve_external_references(corrupt)
     assert exc_info.value.code == SecretResolutionErrorCode.CREDENTIAL_MISSING
-    assert "could not be decrypted" in "\n".join(captured_logs)
+    assert "\n".join(captured_logs).count("could not be decrypted") == 1
 
 
 class FakeProcess:
@@ -559,6 +563,11 @@ def test_only_canonical_secret_ids_are_saved(reference: str) -> None:
     with pytest.raises(ValueError, match="lowercase"):
         backend.validate_reference(BW_CONFIG, reference)
     backend.validate_reference(BW_CONFIG, WHOLE_A)
+
+
+def test_cloud_regions_match_the_provider_endpoints() -> None:
+    # Core validates the region names; the provider maps them to endpoints.
+    assert set(bw.BITWARDEN_CLOUD_SERVERS) == BITWARDEN_CLOUD_REGIONS
 
 
 @pytest.mark.parametrize(
