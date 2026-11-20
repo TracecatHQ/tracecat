@@ -31,7 +31,11 @@ from tracecat import config
 from tracecat.admission import gate
 from tracecat.admission.leases import LeaseStore
 from tracecat.admission.limits import clear_limits_cache
-from tracecat.admission.types import ConcurrencyResource, parse_busy_result
+from tracecat.admission.types import (
+    ADMISSION_ACK_SIGNAL,
+    ConcurrencyResource,
+    parse_busy_result,
+)
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -277,6 +281,16 @@ def _scheduled_activity_types(history: list[HistoryEvent]) -> list[str]:
     ]
 
 
+def _admission_signals(history: list[HistoryEvent]) -> int:
+    return sum(
+        1
+        for e in history
+        if e.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED
+        and e.workflow_execution_signaled_event_attributes.signal_name
+        == ADMISSION_ACK_SIGNAL
+    )
+
+
 def _fired_timer_count(history: list[HistoryEvent]) -> int:
     return sum(1 for e in history if e.event_type is EventType.EVENT_TYPE_TIMER_FIRED)
 
@@ -348,6 +362,8 @@ async def test_cap_one_second_action_waits_then_runs_and_bounces_are_hidden(
         "ACTIVITY_TASK_COMPLETED",
     ]
     assert await _busy_count(waiter) >= 1  # raw history still has the bounce
+    # The admitted probe told the run it got in.
+    assert _admission_signals(await _history(waiter)) == 1
 
 
 @pytest.mark.anyio
@@ -528,6 +544,7 @@ async def test_uncontended_run_records_no_extra_activities(
     assert limited_types.count(EXECUTE_ACTION) == 2
     assert "get_tier_limits_activity" not in limited_types
     assert _timers(limited_history) == []
+    assert _admission_signals(limited_history) == 0
     assert len(limited_history) == len(baseline_history)
 
 
@@ -605,3 +622,50 @@ async def test_rerun_never_reuses_a_busy_answer(
     service.require_execution = AsyncMock()
     source = await service.get_rerun_source(handle.id)
     assert source.actions["waits"].fixed is None
+
+
+@pytest.mark.anyio
+async def test_lost_admission_signal_still_completes(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no admission signal, the probe token passes on when the probe completes."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    monkeypatch.setattr(executor_activities, "_ack_admission", AsyncMock())
+    store = await LeaseStore.create()
+    await store.try_acquire(
+        org_id,
+        ConcurrencyResource.ACTIONS,
+        "external-holder",
+        units=2,
+        limit=2,
+        ttl_seconds=90,
+    )
+    refs = ["p1", "p2"]
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    try:
+        async with dsl_worker, executor_worker:
+            handle = await _start(env, test_role, _dsl("lost", refs), "lost")
+
+            async def both_bounced() -> bool:
+                return await _busy_count(handle) >= len(refs)
+
+            await _wait_until(both_bounced)
+            await store.release(
+                org_id, ConcurrencyResource.ACTIONS, "external-holder", units=2
+            )
+            await handle.result()
+    finally:
+        await store.release(
+            org_id, ConcurrencyResource.ACTIONS, "external-holder", units=2
+        )
+
+    assert sorted(fake_actions.started) == refs
+    assert _admission_signals(await _history(handle)) == 0

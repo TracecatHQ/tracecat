@@ -7,9 +7,11 @@ run is *blocked*: one dispatch holds the probe token and waits on a durable
 timer before dispatching again; the run's other dispatches wait for the token
 instead of probing on their own timers. A probe that gets in hands the token to
 the next waiter, which probes at once. A probe that is still busy restarts the
-timer with a longer backoff. A probe that hasn't answered within a short window
-was admitted and is running; it hands the token on then rather than when it
-finishes. When nobody is waiting, the run is unblocked.
+timer with a longer backoff. Because a busy answer is the activity's result, the
+workflow can't see admission directly: a probe carries ``ack_admission`` and the
+executor signals the run when it admits it, so the token passes on then rather
+than when the action finishes. A lost signal costs only time: the token also
+passes on when the probe completes. When nobody is waiting, the run is unblocked.
 
 There is no wait limit: accepted work never fails for capacity. Only the run's
 own timeout or a cancellation ends a wait.
@@ -29,14 +31,12 @@ from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger
 
 BACKOFF_BASE_SECONDS: Final = 2.0
 BACKOFF_MAX_SECONDS: Final = 60.0
-PROBE_WINDOW_SECONDS: Final = 10.0
-"""A probe still out after this long was admitted (busy answers come back at once),
-so the next waiter probes without waiting for the admitted action to finish."""
 LONG_WAIT_SECONDS: Final = 15 * 60.0
 """A dispatch that has waited this long logs ``concurrency.long_wait`` once."""
 
-type Dispatch = Callable[[int], Awaitable[Any]]
-"""Dispatches one activity, given the user's remaining attempts (0 = unlimited)."""
+type Dispatch = Callable[[int, str | None], Awaitable[Any]]
+"""Dispatches one activity, given the user's remaining attempts (0 = unlimited) and,
+for a probe that wants an admission signal, the activity ID to use."""
 
 
 def remaining_attempts_after_busy(remaining: int, busy_attempt: int) -> int:
@@ -54,10 +54,17 @@ class RunAdmission:
     """Per-run wait state for one resource."""
 
     def __init__(
-        self, *, resource: ConcurrencyResource, logger: WorkflowRuntimeLogger
+        self,
+        *,
+        resource: ConcurrencyResource,
+        logger: WorkflowRuntimeLogger,
+        acks_enabled: bool = False,
     ) -> None:
         self.resource = resource
+        self.acks_enabled = acks_enabled
+        """Whether probes ask for an admission signal (off for pre-patch histories)."""
         self._logger = logger
+        self._acked: set[str] = set()
         self._blocked = False
         self._token_held = False
         self._token_generation = 0
@@ -110,21 +117,31 @@ class RunAdmission:
             self._backoff_step = 0
         self._needs_timer = True
 
+    def acknowledge(self, activity_id: str) -> None:
+        """Record an executor's admission signal for a probe."""
+        self._acked.add(activity_id)
+
     async def _probe(self, dispatch: Dispatch, remaining: int, generation: int) -> Any:
-        """Dispatch while holding the token; hand it on if the probe was admitted."""
-        pending = asyncio.ensure_future(dispatch(remaining))
+        """Dispatch while holding the token; hand it on once the probe is admitted."""
+        if not self.acks_enabled:
+            return await dispatch(remaining, None)
+        probe_id = f"admission-probe-{workflow.uuid4()}"
+        pending = asyncio.ensure_future(dispatch(remaining, probe_id))
         try:
             await workflow.wait_condition(
-                pending.done, timeout=timedelta(seconds=PROBE_WINDOW_SECONDS)
+                lambda: pending.done() or probe_id in self._acked
             )
-        except TimeoutError:
-            # No busy answer in time: admitted and running. Let the next waiter probe.
-            self._on_progress()
-            self._release_token(generation)
         except BaseException:
             pending.cancel()
             raise
-        return await pending
+        if probe_id in self._acked and not pending.done():
+            # Admitted and running: let the next waiter probe now.
+            self._on_progress()
+            self._release_token(generation)
+        try:
+            return await pending
+        finally:
+            self._acked.discard(probe_id)
 
     async def execute(self, dispatch: Dispatch, *, max_attempts: int) -> Any:
         """Dispatch until an attempt is admitted; return its result.
@@ -157,7 +174,7 @@ class RunAdmission:
                         await workflow.sleep(delay)
                     result = await self._probe(dispatch, remaining, token)
                 else:
-                    result = await dispatch(remaining)
+                    result = await dispatch(remaining, None)
             except Exception:
                 # Busy is a result, never an error: a failed attempt was admitted.
                 self._on_progress()

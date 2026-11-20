@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -37,6 +38,9 @@ class FakeWorkflow:
 
     def random(self) -> random.Random:
         return self._random
+
+    def uuid4(self) -> uuid.UUID:
+        return uuid.UUID(int=self._random.getrandbits(128), version=4)
 
     async def sleep(self, duration: timedelta) -> None:
         self.sleeps.append(duration.total_seconds())
@@ -97,7 +101,7 @@ async def test_attempts_are_preserved_across_bounces(fake: FakeWorkflow) -> None
     results: list[Any] = [_busy(attempt=2), _busy(attempt=1), {"type": "inline"}]
     seen_attempts: list[int] = []
 
-    async def dispatch(max_attempts: int) -> Any:
+    async def dispatch(max_attempts: int, _probe_id: str | None) -> Any:
         seen_attempts.append(max_attempts)
         return results.pop(0)
 
@@ -112,7 +116,7 @@ async def test_attempts_are_preserved_across_bounces(fake: FakeWorkflow) -> None
 async def test_backoff_grows_and_caps_near_60_seconds(fake: FakeWorkflow) -> None:
     bounces = 12
 
-    async def dispatch(_max_attempts: int) -> Any:
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
         return _busy() if len(fake.sleeps) < bounces else {"type": "inline"}
 
     await _admission().execute(dispatch, max_attempts=1)
@@ -139,7 +143,7 @@ async def test_one_probe_per_run_while_blocked(fake: FakeWorkflow) -> None:
 
     fake.on_sleep = free_one_unit
 
-    async def dispatch(_max_attempts: int) -> Any:
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
         nonlocal free, in_flight, dispatches, max_in_flight_after_first_wave
         dispatches += 1
         in_flight += 1
@@ -171,7 +175,7 @@ async def test_one_probe_per_run_while_blocked(fake: FakeWorkflow) -> None:
 async def test_failed_probe_releases_the_token(fake: FakeWorkflow) -> None:
     calls = 0
 
-    async def dispatch(_max_attempts: int) -> Any:
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
         nonlocal calls
         calls += 1
         if calls <= 2:
@@ -193,7 +197,7 @@ async def test_failed_probe_releases_the_token(fake: FakeWorkflow) -> None:
 
 @pytest.mark.anyio
 async def test_uncontended_dispatch_has_no_timer(fake: FakeWorkflow) -> None:
-    async def dispatch(_max_attempts: int) -> Any:
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
         return {"type": "inline"}
 
     assert await _admission().execute(dispatch, max_attempts=3) == {"type": "inline"}
@@ -207,7 +211,7 @@ async def test_long_wait_logs_once_and_keeps_waiting(fake: FakeWorkflow) -> None
     long_wait = timedelta(seconds=waiting.LONG_WAIT_SECONDS)
     start = fake.clock
 
-    async def dispatch(_max_attempts: int) -> Any:
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
         # Busy for twice the long-wait threshold, then admitted.
         return _busy() if fake.clock - start < 2 * long_wait else {"type": "inline"}
 
@@ -245,42 +249,86 @@ def test_malformed_busy_payload_is_not_busy() -> None:
     assert parse_busy_result({"type": "inline", "data": 1}) is None
 
 
-@pytest.mark.anyio
-async def test_admitted_probe_hands_off_while_still_running(fake: FakeWorkflow) -> None:
-    """Two units free up: the second waiter starts while the first still runs."""
+async def _two_waiters_with_one_long_action(
+    fake: FakeWorkflow, *, send_ack: bool
+) -> tuple[list[str], asyncio.Event, list[asyncio.Task[Any]]]:
+    """Block two dispatches, free two units, and hold the first admitted action.
+
+    Returns the event log, the event that lets the first action finish, and the
+    two execute tasks.
+    """
     free = 0
-    started: list[int] = []
+    busy_answers = 0
+    log: list[str] = []
     release_first = asyncio.Event()
+    admission = RunAdmission(
+        resource=ConcurrencyResource.ACTIONS,
+        logger=get_workflow_logger(),
+        acks_enabled=True,
+    )
 
     def free_two_units() -> None:
         nonlocal free
-        if not started:
+        # Only once both dispatches are waiting, so neither gets in un-probed.
+        if not log and busy_answers >= 2:
             free = 2
 
     fake.on_sleep = free_two_units
 
-    async def dispatch(_max_attempts: int) -> Any:
-        nonlocal free
+    async def dispatch(_max_attempts: int, probe_id: str | None) -> Any:
+        nonlocal free, busy_answers
         await asyncio.sleep(0)
         if free == 0:
+            busy_answers += 1
             return _busy()
         free -= 1
-        index = len(started)
-        started.append(index)
+        index = sum(1 for entry in log if entry.startswith("start"))
+        log.append(f"start {index}")
+        if send_ack and probe_id is not None:
+            admission.acknowledge(probe_id)  # what the executor's signal does
         if index == 0:
             await release_first.wait()  # a long-running admitted action
+        log.append(f"finish {index}")
         return {"type": "inline", "data": index}
 
-    admission = _admission()
     tasks = [
         asyncio.create_task(admission.execute(dispatch, max_attempts=1))
         for _ in range(2)
     ]
+    return log, release_first, tasks
+
+
+@pytest.mark.anyio
+async def test_admission_ack_hands_off_while_the_action_runs(
+    fake: FakeWorkflow,
+) -> None:
+    """Two units free up: the second waiter starts while the first still runs."""
+    log, release_first, tasks = await _two_waiters_with_one_long_action(
+        fake, send_ack=True
+    )
     async with asyncio.timeout(2):
-        while len(started) < 2:
+        while "start 1" not in log:
             await asyncio.sleep(0)
 
-    assert not release_first.is_set()
+    assert log == ["start 0", "start 1", "finish 1"]
     release_first.set()
     results = await asyncio.gather(*tasks)
     assert sorted(r["data"] for r in results) == [0, 1]
+
+
+@pytest.mark.anyio
+async def test_lost_admission_ack_still_hands_off_on_completion(
+    fake: FakeWorkflow,
+) -> None:
+    """Without the signal, the token passes on when the probe completes."""
+    log, release_first, tasks = await _two_waiters_with_one_long_action(
+        fake, send_ack=False
+    )
+    for _ in range(200):
+        await asyncio.sleep(0)
+    assert log == ["start 0"]
+
+    release_first.set()
+    results = await asyncio.gather(*tasks)
+    assert sorted(r["data"] for r in results) == [0, 1]
+    assert log[:2] == ["start 0", "finish 0"]

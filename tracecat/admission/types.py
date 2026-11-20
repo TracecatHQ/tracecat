@@ -16,6 +16,9 @@ from temporalio.exceptions import ApplicationError
 CONCURRENCY_BUSY_TYPE: Final = "tracecat.concurrency.busy"
 """Discriminator of the result an executor returns when an org is at its limit."""
 
+ADMISSION_ACK_SIGNAL: Final = "admission_ack"
+"""Signal an executor sends a run when it admits a probe; carries the activity ID."""
+
 
 class ConcurrencyResource(StrEnum):
     """A resource with a per-organization concurrency limit."""

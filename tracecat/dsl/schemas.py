@@ -585,6 +585,8 @@ class RunActionInput(BaseModel):
     """ID for a streamable session, if any."""
     agent_session_id: uuid.UUID | None = None
     """Trusted agent session provenance supplied by the MCP execution boundary."""
+    ack_admission: bool = False
+    """Signal the run when this attempt is admitted (set on admission probes only)."""
     registry_lock: RegistryLock
     """Registry version lock from workflow definition. Required and must be non-empty."""
 

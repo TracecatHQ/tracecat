@@ -15,7 +15,11 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.admission.gate import ConcurrencyBusyError
-from tracecat.admission.types import ConcurrencyBusyResult, ConcurrencyResource
+from tracecat.admission.types import (
+    ADMISSION_ACK_SIGNAL,
+    ConcurrencyBusyResult,
+    ConcurrencyResource,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
@@ -264,3 +268,54 @@ def test_lease_id_and_deadline_fall_back_when_fields_are_missing() -> None:
     assert executor_activities._lease_deadline(info) == STARTED + timedelta(  # pyright: ignore[reportArgumentType]
         seconds=30
     )
+
+
+def _probe_input() -> RunActionInput:
+    return _run_input().model_copy(update={"ack_admission": True})
+
+
+@pytest.mark.anyio
+async def test_admitted_probe_signals_the_run(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    mocks.acquire.return_value = _lease()
+    handle = MagicMock()
+    handle.signal = AsyncMock(return_value=None)
+    mocks.activity.client.return_value.get_workflow_handle.return_value = handle
+
+    await ExecutorActivities.execute_action_activity(_probe_input(), role)
+
+    mocks.activity.client.return_value.get_workflow_handle.assert_called_once_with(
+        "wf_x/exec_y", run_id="run-1"
+    )
+    handle.signal.assert_awaited_once_with(ADMISSION_ACK_SIGNAL, "7")
+
+
+@pytest.mark.anyio
+async def test_busy_probe_and_plain_dispatch_send_no_signal(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    mocks.acquire.return_value = _lease()
+    await ExecutorActivities.execute_action_activity(_run_input(), role)
+
+    mocks.acquire.side_effect = ConcurrencyBusyError(
+        resource=ConcurrencyResource.ACTIONS, in_use=1, limit=1
+    )
+    await ExecutorActivities.execute_action_activity(_probe_input(), role)
+
+    mocks.activity.client.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_failed_admission_signal_does_not_fail_the_action(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    mocks.acquire.return_value = _lease()
+    handle = MagicMock()
+    handle.signal = AsyncMock(side_effect=RuntimeError("temporal unreachable"))
+    mocks.activity.client.return_value.get_workflow_handle.return_value = handle
+
+    result = await ExecutorActivities.execute_action_activity(_probe_input(), role)
+
+    assert not isinstance(result, ConcurrencyBusyResult)
+    mocks.dispatch.assert_awaited_once()

@@ -10299,6 +10299,7 @@ export type RunActionInput = {
   stream_id?: string
   session_id?: string | null
   agent_session_id?: string | null
+  ack_admission?: boolean
   registry_lock: RegistryLock
 }
 

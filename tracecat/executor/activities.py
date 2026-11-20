@@ -23,7 +23,11 @@ from tenacity import (
 from tracecat import config
 from tracecat.admission import gate
 from tracecat.admission.gate import ConcurrencyBusyError, Lease
-from tracecat.admission.types import ConcurrencyBusyResult, ConcurrencyResource
+from tracecat.admission.types import (
+    ADMISSION_ACK_SIGNAL,
+    ConcurrencyBusyResult,
+    ConcurrencyResource,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
@@ -58,6 +62,9 @@ from tracecat.temporal.errors import (
 
 LEASE_RENEW_INTERVAL_SECONDS: Final = 30
 """Longest gap between lease renewals; well under the 90 s lease expiry."""
+
+ADMISSION_ACK_TIMEOUT_SECONDS: Final = 2.0
+"""Ceiling for the admission signal; the run falls back to probe completion."""
 
 
 async def _heartbeat_loop(
@@ -104,6 +111,25 @@ def _lease_deadline(info: activity.Info) -> datetime:
         seconds=config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
         + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
     )
+
+
+async def _ack_admission(info: activity.Info) -> None:
+    """Tell a waiting run that its probe was admitted. Never raises."""
+    if not info.workflow_id:
+        return
+    try:
+        handle = activity.client().get_workflow_handle(
+            info.workflow_id, run_id=info.workflow_run_id
+        )
+        async with asyncio.timeout(ADMISSION_ACK_TIMEOUT_SECONDS):
+            await handle.signal(ADMISSION_ACK_SIGNAL, info.activity_id)
+    except Exception as e:
+        logger.warning(
+            "concurrency.ack_failed",
+            workflow_id=info.workflow_id,
+            activity_id=info.activity_id,
+            error=str(e),
+        )
 
 
 def _for_each_width() -> int:
@@ -243,6 +269,8 @@ class ExecutorActivities:
                     limit=e.limit,
                     attempt=act_attempt,
                 )
+            if input.ack_admission:
+                await _ack_admission(act_info)
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
         send_heartbeats = heartbeat_interval > 0

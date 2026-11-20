@@ -33545,6 +33545,11 @@ export const $RunActionInput = {
       ],
       title: "Agent Session Id",
     },
+    ack_admission: {
+      type: "boolean",
+      title: "Ack Admission",
+      default: false,
+    },
     registry_lock: {
       $ref: "#/components/schemas/RegistryLock",
     },
