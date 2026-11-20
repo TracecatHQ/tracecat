@@ -51,11 +51,46 @@ import enum
 import importlib
 import inspect
 import json
+import math
 import os
+import random
 import sys
 import traceback
 import uuid
 from pathlib import Path
+
+_TENANT_BUSY_ERROR_CODE = "tenant_db_busy"
+_TENANT_BUSY_MIN_RETRY_AFTER_SECONDS = 1.0
+_TENANT_BUSY_MAX_RETRY_AFTER_SECONDS = 10.0
+
+
+def _is_tenant_busy(response):
+    # The Action Gateway's pre-route capacity refusal; safe to retry.
+    if response.status_code != 503:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return isinstance(detail, dict) and detail.get("code") == _TENANT_BUSY_ERROR_CODE
+
+
+def _tenant_busy_delay(response, retries):
+    # Jittered backoff, never under Retry-After, capped (as the SDK does).
+    try:
+        floor = float(response.headers.get("Retry-After", "1"))
+    except ValueError:
+        floor = 1.0
+    if not math.isfinite(floor):
+        floor = 1.0
+    floor = min(
+        max(floor, _TENANT_BUSY_MIN_RETRY_AFTER_SECONDS),
+        _TENANT_BUSY_MAX_RETRY_AFTER_SECONDS,
+    )
+    ceiling = min(floor * 2 ** min(retries, 10), _TENANT_BUSY_MAX_RETRY_AFTER_SECONDS)
+    return random.uniform(floor, max(floor, ceiling))
+
 
 def _install_action_gateway_sdk_transport():
     socket_path = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
@@ -73,11 +108,14 @@ def _install_action_gateway_sdk_transport():
     if tracecat_client_cls is None:
         return
 
-    if hasattr(tracecat_client_cls, "_request_url_and_transport"):
+    if getattr(sdk_client, "TENANT_BUSY_ERROR_CODE", None) is not None:
+        # This SDK retries the gateway's capacity refusal itself.
         return
 
     if getattr(tracecat_client_cls, "_tracecat_action_gateway_transport", False):
         return
+
+    has_native_transport = hasattr(tracecat_client_cls, "_request_url_and_transport")
 
     async def request(
         self,
@@ -88,21 +126,35 @@ def _install_action_gateway_sdk_transport():
         json=None,
         headers=None,
     ):
+        if has_native_transport:
+            url, transport = self._request_url_and_transport(path)
+        else:
+            url = "http://tracecat-action-gateway/internal" + path
+            transport = httpx.AsyncHTTPTransport(uds=socket_path)
         request_headers = self._get_headers()
         if headers:
             request_headers.update(headers)
 
         async with httpx.AsyncClient(
-            transport=httpx.AsyncHTTPTransport(uds=socket_path),
+            transport=transport,
             timeout=getattr(self, "_timeout", 120.0),
         ) as client:
-            response = await client.request(
-                method,
-                "http://tracecat-action-gateway/internal" + path,
-                params=params,
-                json=json,
-                headers=request_headers,
-            )
+            # Retry only the pre-route capacity refusal, with no count limit;
+            # the action's own timeout ends the wait.
+            retries = 0
+            while True:
+                response = await client.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json,
+                    headers=request_headers,
+                )
+                if not _is_tenant_busy(response):
+                    break
+                delay = _tenant_busy_delay(response, retries)
+                retries += 1
+                await asyncio.sleep(delay)
 
         if not response.is_success:
             self._handle_error_response(response)
