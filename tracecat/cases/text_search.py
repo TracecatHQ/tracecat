@@ -358,11 +358,25 @@ def _field_clause(
             ),
         ),
     )
-    similarity = sa.func.strict_word_similarity(term, _full_normalized(source))
+    # A typo match scores from the field's stored word list: 1.0 when the term
+    # itself is a complete word of the field (a keyword inside a file name or
+    # host, such as invoice in invoice-17.pdf), else the typo threshold. Only
+    # a field without a list compares the term with its whole text.
+    # ``IS NOT TRUE`` also covers a NULL ``fuzzy``, which scores 0.
+    term_is_listed = field.words.op("@>")(sa.literal([term], ARRAY(sa.Text())))
     return (
         exact,
         sa.or_(exact, fuzzy),
-        sa.case((exact, rank), (fuzzy, similarity), else_=0.0),
+        sa.case(
+            (exact, rank),
+            (fuzzy.is_not(sa.true()), 0.0),
+            (
+                fallback_words,
+                sa.func.strict_word_similarity(term, _full_normalized(source)),
+            ),
+            (term_is_listed, 1.0),
+            else_=FUZZY_THRESHOLD,
+        ),
     )
 
 

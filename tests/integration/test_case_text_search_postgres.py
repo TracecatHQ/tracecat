@@ -26,6 +26,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from tests.database import TEST_DB_CONFIG
 from tracecat.cases.enums import CaseStatus
 from tracecat.cases.text_search import (
+    FUZZY_THRESHOLD,
     MAX_EXCERPT_LENGTH,
     CaseTextQuery,
     build_case_text_expressions,
@@ -1095,6 +1096,38 @@ def test_safe_vector_exception_boundary_disables_parallel_operations(
             )
             == "u"
         )
+
+
+def test_typo_score_comes_from_the_stored_word_list(
+    search_database: Engine,
+) -> None:
+    """A listed typo match scores 1.0 for the term itself, else the threshold."""
+    with search_database.begin() as conn:
+        # "invoice" is only inside a file-name token, so it is a typo-tier
+        # match, and the term itself is a complete word of the field. The
+        # parser keeps "invoice-17.pdf" as one host token, so there is no
+        # exact full-text match to take the native rank path instead.
+        assert not conn.scalar(
+            sa.text(
+                "SELECT to_tsvector('pg_catalog.simple', 'see invoice-17.pdf now')"
+                " @@ to_tsquery('pg_catalog.simple', 'invoice')"
+            )
+        )
+        file_name = seed_case(conn, 1, "synthetic one", "see invoice-17.pdf now")
+        # "invoices" is a typo-distance word, not the term.
+        plural = seed_case(conn, 2, "synthetic two", "several invoices were sent")
+        scores = {
+            row.id: row.score
+            for row in conn.execute(
+                search_statement("invoice").order_by(None).limit(None)
+            )
+        }
+    # Both contain "invoice" as contiguous text (tier 3); the subscore carries
+    # the description weight of 0.3.
+    assert scores == {
+        file_name: 3_000_000 + int(1.0 * 0.3 * 999_999),
+        plural: 3_000_000 + int(FUZZY_THRESHOLD * 0.3 * 999_999),
+    }
 
 
 def test_typo_matching_uses_complete_words_and_over_budget_fallback(
