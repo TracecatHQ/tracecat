@@ -40,7 +40,8 @@ const CASE: CaseReadMinimal = {
 function setup(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
-  })
+  }),
+  { autoRefresh = false }: { autoRefresh?: boolean } = {}
 ) {
   let workspaceId = WORKSPACE_ID
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -50,7 +51,7 @@ function setup(
       </WorkspaceIdProvider>
     </QueryClientProvider>
   )
-  const hook = renderHook(() => useCases({ autoRefresh: false }), { wrapper })
+  const hook = renderHook(() => useCases({ autoRefresh }), { wrapper })
   return {
     ...hook,
     client,
@@ -567,6 +568,29 @@ describe("case search ordering", () => {
         }),
       })
     )
+  })
+})
+
+describe("auto-refresh", () => {
+  it("refreshes the plain list but not an applied keyword search", async () => {
+    const { result } = setup(undefined, { autoRefresh: true })
+    await advance()
+    const listCalls = searchCases.mock.calls.length
+    const listCountCalls = searchAggregates.mock.calls.length
+    await advance(120_000)
+    // The plain case list and its counts refresh on the interval.
+    expect(searchCases.mock.calls.length).toBeGreaterThan(listCalls)
+    expect(searchAggregates.mock.calls.length).toBeGreaterThan(listCountCalls)
+
+    act(() => result.current.setSearchQuery("powershell"))
+    await advance(301)
+    expect(searchTerms(searchCases).at(-1)).toBe("powershell")
+    const searchCalls = searchCases.mock.calls.length
+    const countCalls = searchAggregates.mock.calls.length
+    await advance(240_000)
+    // A keyword search is not re-run while the user reads its results.
+    expect(searchCases.mock.calls.length).toBe(searchCalls)
+    expect(searchAggregates.mock.calls.length).toBe(countCalls)
   })
 })
 
