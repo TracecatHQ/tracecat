@@ -579,6 +579,7 @@ async def test_send_message_continue_attaches_rotated_stream_or_finishes(
     )
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -662,6 +663,7 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream(
     )
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -753,6 +755,7 @@ async def test_send_message_new_turn_preserves_only_uncertain_dispatch(
 
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -830,6 +833,7 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
 
     fake_svc = SimpleNamespace(
         session=Mock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(
             return_value=_agent_session_stub(curr_run_id=None, created_by=None)
@@ -910,6 +914,7 @@ async def test_send_message_maps_missing_provider_credentials_to_409(
 
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -970,6 +975,7 @@ async def test_send_message_rejects_teammate_session() -> None:
     )
     fake_svc = SimpleNamespace(
         session=Mock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(
             return_value=SimpleNamespace(
@@ -1041,6 +1047,7 @@ async def test_a_teammate_may_message_or_decide_only_on_shared_sessions(
     allowed = may_decide if deciding else may_message
     fake_svc = SimpleNamespace(
         session=Mock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         # Reaching the turn is enough: the access gate already passed.
@@ -1246,6 +1253,7 @@ async def test_send_message_requires_entitlement_for_workspace_chat_parent(
 
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=child_session),
         get_session=AsyncMock(return_value=parent_session),
@@ -1492,6 +1500,7 @@ async def test_stream_session_events_lifecycle(
     )
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=fake_session),
         get_stream_resume_state=AsyncMock(
             return_value=_stream_state(
@@ -1568,6 +1577,7 @@ async def test_stream_session_events_reads_legacy_workspace_chat_without_entitle
     )
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=None),
         get_legacy_chat=AsyncMock(return_value=legacy_chat),
     )
@@ -2145,6 +2155,7 @@ def test_stream_session_events_releases_request_session_before_streaming() -> No
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=agent_session),
+        is_channel_session=AsyncMock(return_value=False),
         get_stream_resume_state=AsyncMock(
             return_value=_stream_state(
                 lifecycle=TurnLifecycle.RUNNING,
@@ -2228,6 +2239,7 @@ def test_send_message_releases_request_session_before_streaming() -> None:
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
     fake_svc = SimpleNamespace(
         session=AsyncMock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(
@@ -2378,6 +2390,7 @@ def test_messaging_a_builder_session_requires_agent_update(
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
     fake_svc = SimpleNamespace(
         session=Mock(),
+        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=session_stub),
         run_turn=AsyncMock(

@@ -3949,6 +3949,21 @@ export type ChannelBotStatus =
  */
 export type ChannelBotTransport = "http" | "socket"
 
+export type ChannelMessage = {
+  provider: ChannelBotProvider
+  text: string
+  sender: ChannelMessageSender
+  thread?: EarlierThread | null
+  quoted?: Array<QuotedMessage>
+  quoted_omitted?: number
+}
+
+export type ChannelMessageSender = {
+  provider_user_id: string
+  provider_team_id?: string | null
+  name?: string | null
+}
+
 /**
  * Supported external channel types.
  */
@@ -4004,6 +4019,10 @@ export type ChatMessage = {
    * When the agent runtime recorded the message
    */
   created_at?: string | null
+  /**
+   * The channel message a user message's text renders, decoded
+   */
+  channel_message?: ChannelMessage | null
 }
 
 /**
@@ -5581,6 +5600,21 @@ export type DynamicToolUIPartOutputError = {
       [key: string]: unknown
     }
   }
+}
+
+/**
+ * The thread before the bot was summoned, parent first.
+ */
+export type EarlierThread = {
+  messages: Array<EarlierThreadMessage>
+  older_omitted?: boolean
+  later_omitted?: boolean
+}
+
+export type EarlierThreadMessage = {
+  author: string
+  is_bot?: boolean
+  text: string
 }
 
 export type EditorActionRead = {
@@ -9584,6 +9618,20 @@ export type PullResult = {
  * Status of a push/commit operation.
  */
 export type PushStatus = "committed" | "no_op"
+
+/**
+ * A message attached to this one, such as a forward.
+ */
+export type QuotedMessage = {
+  kind: QuotedMessageKind
+  author: string
+  text: string
+  is_preview?: boolean
+  where?: string | null
+  link?: string | null
+}
+
+export type QuotedMessageKind = "forwarded" | "quoted_reply"
 
 export type RateLimitEvent = {
   rate_limit_info: RateLimitInfo

@@ -5,6 +5,7 @@ import type {
   AgentSessionReadVercel,
   ApprovalRead,
   ApprovalStatus,
+  ChannelMessage,
   ChatReadMinimal,
   ChatReadVercel,
   UIMessage,
@@ -574,6 +575,8 @@ export type UserMessageData = {
   /** The ID the client sent the message under, if it had one. */
   id: string | null
   text: string
+  /** The forwards and earlier thread a channel message carried. */
+  channelMessage: ChannelMessageData | null
 }
 
 /** A `data-user-message` payload, or null if malformed. */
@@ -582,7 +585,35 @@ export function getUserMessageData(data: unknown): UserMessageData | null {
   const text = "text" in data ? data.text : undefined
   const id = "id" in data ? data.id : undefined
   if (typeof text !== "string") return null
-  return { id: typeof id === "string" ? id : null, text }
+  return {
+    id: typeof id === "string" ? id : null,
+    text,
+    channelMessage:
+      "channel_message" in data
+        ? getChannelMessageData(data.channel_message)
+        : null,
+  }
+}
+
+/**
+ * UI data part identifier for a channel message's sender, forwards and
+ * earlier thread. Its text renders as the message's text part.
+ */
+export const CHANNEL_MESSAGE_DATA_PART_TYPE = "data-channel-message"
+
+/** Payload of a {@link CHANNEL_MESSAGE_DATA_PART_TYPE} part. */
+export type ChannelMessageData = Omit<ChannelMessage, "text">
+
+/** A channel message payload, or null if malformed. */
+export function getChannelMessageData(
+  data: unknown
+): ChannelMessageData | null {
+  if (!data || typeof data !== "object") return null
+  if (!("quoted" in data) || !Array.isArray(data.quoted)) return null
+  if (!("sender" in data) || !data.sender || typeof data.sender !== "object") {
+    return null
+  }
+  return data as ChannelMessageData
 }
 
 /**
@@ -851,7 +882,10 @@ export function isUserPrompt(
 ): boolean {
   return (
     message.role === "user" &&
-    message.parts.some((part) => part.type === "text")
+    message.parts.some(
+      (part) =>
+        part.type === "text" || part.type === CHANNEL_MESSAGE_DATA_PART_TYPE
+    )
   )
 }
 
