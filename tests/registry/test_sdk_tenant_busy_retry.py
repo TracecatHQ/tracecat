@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 import httpx
@@ -65,6 +66,34 @@ async def test_tenant_busy_is_retried_then_succeeds(
     assert result == {"ok": 1}
     assert len(requests) == 3
     assert len({request.content for request in requests}) == 1
+
+
+async def test_tenant_busy_retry_sleeps_for_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def busy(retry_after: str) -> httpx.Response:
+        return httpx.Response(
+            503,
+            headers={"Retry-After": retry_after},
+            json={"detail": {"code": TENANT_BUSY_ERROR_CODE}},
+        )
+
+    responses = [busy("2"), busy("600"), httpx.Response(200, json={"ok": 1})]
+    client, _ = _client_with(monkeypatch, lambda _: responses.pop(0))
+    # Restore the real cap; the helper zeroes it.
+    monkeypatch.setattr(sdk_client, "TENANT_BUSY_MAX_RETRY_AFTER_SECONDS", 10.0)
+    delays: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", record_sleep)
+
+    assert await client.post("/tables/rows", json={"a": 1}) == {"ok": 1}
+    # Retry-After as sent, then capped at 10 s.
+    assert delays == [2.0, 10.0]
 
 
 async def test_tenant_busy_raises_after_bounded_retries(

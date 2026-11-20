@@ -29,19 +29,19 @@ TENANT_BUSY_RETRY_AFTER_SECONDS = 1
 
 
 @dataclass(frozen=True, slots=True)
-class _HeldUnit:
-    organization_id: OrganizationID
+class _HeldUnits:
     task: asyncio.Task[object] | None
+    organization_ids: frozenset[OrganizationID]
 
 
-_ctx_held_unit: ContextVar[_HeldUnit | None] = ContextVar(
-    "org_session_gate_held_unit",
+_ctx_held_units: ContextVar[_HeldUnits | None] = ContextVar(
+    "org_session_gate_held_units",
     default=None,
 )
-"""The unit the current task holds.
+"""The orgs whose units the current task holds.
 
-Spawned tasks inherit a copy of this value, so a holder also records its task:
-only that task treats the unit as held. A child task takes its own unit.
+Spawned tasks inherit a copy of this value, so it also records the holder's
+task: only that task treats the units as held. A child task takes its own.
 """
 
 
@@ -76,12 +76,13 @@ class OrgSessionGate:
             TenantBusyError: The org stayed at its cap for ``wait_seconds``.
         """
         task = asyncio.current_task()
-        held = _ctx_held_unit.get()
-        if (
-            held is not None
-            and held.organization_id == organization_id
-            and held.task is task
-        ):
+        held = _ctx_held_units.get()
+        held_by_task = (
+            held.organization_ids
+            if held is not None and held.task is task
+            else frozenset[OrganizationID]()
+        )
+        if organization_id in held_by_task:
             yield
             return
 
@@ -93,12 +94,12 @@ class OrgSessionGate:
         try:
             await self._acquire(organization_id, entry.semaphore)
             try:
-                _ctx_held_unit.set(_HeldUnit(organization_id, task))
+                _ctx_held_units.set(_HeldUnits(task, held_by_task | {organization_id}))
                 yield
             finally:
                 # Restore by value, not by token: the exit may run in a copy
                 # of the context, where a token reset raises.
-                _ctx_held_unit.set(held)
+                _ctx_held_units.set(held)
                 entry.semaphore.release()
         finally:
             entry.users -= 1

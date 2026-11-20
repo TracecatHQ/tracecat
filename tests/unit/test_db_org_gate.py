@@ -98,6 +98,21 @@ async def test_nested_holds_in_same_task_take_one_unit() -> None:
     assert gate._entries == {}
 
 
+async def test_reentry_survives_an_interleaved_org() -> None:
+    # hold(A) -> hold(B) -> hold(A): the inner A must reuse the outer unit,
+    # or with a cap of 1 it would wait on itself and be refused.
+    gate = OrgSessionGate(cap=1, wait_seconds=0.1)
+    org_a, org_b = uuid.uuid4(), uuid.uuid4()
+
+    async with gate.hold(org_a):
+        async with gate.hold(org_b):
+            async with gate.hold(org_a):
+                async with gate.hold(org_b):
+                    pass
+
+    assert gate._entries == {}
+
+
 async def test_spawned_task_does_not_inherit_the_unit() -> None:
     gate = OrgSessionGate(cap=1, wait_seconds=0.1)
     org = uuid.uuid4()

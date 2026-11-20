@@ -518,6 +518,11 @@ TRACECAT__DB_AUTH_MAX_OVERFLOW = int(
 TRACECAT__DB_ORG_SESSION_CAP = (
     int(cap) if (cap := os.environ.get("TRACECAT__DB_ORG_SESSION_CAP")) else None
 )
+if TRACECAT__DB_ORG_SESSION_CAP is not None and TRACECAT__DB_ORG_SESSION_CAP < 1:
+    raise ValueError(
+        "TRACECAT__DB_ORG_SESSION_CAP must be at least 1 "
+        f"(got {TRACECAT__DB_ORG_SESSION_CAP}); unset it for no limit"
+    )
 """Concurrent action gateway operations one organization may run per process.
 
 A unit is one gateway operation, which usually holds one database connection

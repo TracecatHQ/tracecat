@@ -14,6 +14,7 @@ from tracecat_registry.sdk.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatSDKError,
+    TracecatTenantBusyError,
     TracecatValidationError,
 )
 from tracecat_registry.sdk.types import (
@@ -38,6 +39,7 @@ __all__ = [
     "TracecatConflictError",
     "TracecatNotFoundError",
     "TracecatSDKError",
+    "TracecatTenantBusyError",
     "TracecatValidationError",
     # Sentinel types and helpers
     "UNSET",
