@@ -3,10 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from pydantic import ValidationError
+from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.audit.logger import AuditEventDetails, audit_log
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -332,38 +335,40 @@ class CaseTriggersService(BaseWorkspaceService):
     async def _resolve_tag_filters(
         self, tag_filters: Iterable[str], *, create_missing: bool = False
     ) -> list[str]:
-        refs = [ref.strip() for ref in tag_filters if ref and ref.strip()]
+        refs = list(dict.fromkeys(f.strip() for f in tag_filters if f and f.strip()))
         if not refs:
             return []
-        # Deduplicate while preserving order
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for ref in refs:
-            if ref in seen:
-                continue
-            seen.add(ref)
-            deduped.append(ref)
 
-        stmt = select(CaseTag).where(
-            CaseTag.workspace_id == self.workspace_id,
-            CaseTag.ref.in_(deduped),
-        )
-        result = await self.session.execute(stmt)
-        existing = {tag.ref for tag in result.scalars().all()}
-        missing = [ref for ref in deduped if ref not in existing]
-
-        if missing and not create_missing:
-            raise TracecatNotFoundError(f"Case tag(s) not found: {', '.join(missing)}")
-
-        if missing and create_missing:
-            for ref in missing:
-                tag = CaseTag(
-                    workspace_id=self.workspace_id,
-                    name=ref,
-                    ref=ref,
-                    color=None,
+        # Stored refs pass through; only unmatched entries resolve by name or ID.
+        existing = set(
+            await self.session.scalars(
+                select(CaseTag.ref)
+                .where(
+                    CaseTag.workspace_id == self.workspace_id,
+                    CaseTag.ref.in_(refs),
                 )
-                self.session.add(tag)
-            await self.session.flush()
-
-        return deduped
+                .order_by(CaseTag.id)
+                # Block a concurrent rename until this trigger's refs are saved.
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        misses = [ref for ref in refs if ref not in existing]
+        if not misses:
+            return refs
+        if create_missing and (blank := [r for r in misses if not slugify(r)]):
+            raise TracecatValidationError(
+                f"Case tag filters need letters or digits: {', '.join(blank)}"
+            )
+        try:
+            tags = await CaseTagsService(self.session, role=self.role).resolve_tags(
+                misses, create_if_missing=create_missing
+            )
+        except NoResultFound as exc:
+            raise TracecatNotFoundError(str(exc)) from exc
+        except ValidationError as exc:
+            value = exc.errors()[0]["input"]
+            raise TracecatValidationError(
+                f"Case tag names must be 1-50 characters: {value!r}"
+            ) from exc
+        resolved = {miss: tag.ref for miss, tag in zip(misses, tags, strict=True)}
+        return list(dict.fromkeys(resolved.get(ref, ref) for ref in refs))
