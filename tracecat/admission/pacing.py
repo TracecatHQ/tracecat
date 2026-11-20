@@ -19,8 +19,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from redis.exceptions import RedisError
-
 from tracecat import config
 from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.logger import logger
@@ -230,9 +228,11 @@ class StartPacer:
     """Paces workflow starts per org."""
 
     def __init__(self, *, max_delay: timedelta | None = None) -> None:
-        self.max_delay = max_delay or timedelta(
-            seconds=config.TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS
-        )
+        if max_delay is None:
+            max_delay = timedelta(
+                seconds=config.TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS
+            )
+        self.max_delay = max_delay
 
     async def reserve(self, org_id: OrganizationID) -> StartSlot:
         """Reserve a start slot; its ``delay`` is how long the start waits.
@@ -254,7 +254,9 @@ class StartPacer:
                     keys=[_pacing_key(org_id)],
                     args=[interval_us, tolerance_us, max_delay_us],
                 )
-        except (RedisError, OSError, TimeoutError) as e:
+        except Exception as e:
+            # Any Redis-side failure, including client setup (URL secret,
+            # connection pool), fails open: the start goes through at once.
             logger.warning(
                 "concurrency.fail_open",
                 resource=_RESOURCE,
@@ -308,7 +310,7 @@ class StartPacer:
                     keys=[_pacing_key(org_id)],
                     args=[slot.interval_us, slot.tat_us],
                 )
-        except (RedisError, OSError, TimeoutError) as e:
+        except Exception as e:
             logger.warning(
                 "concurrency.refund_failed",
                 resource=_RESOURCE,

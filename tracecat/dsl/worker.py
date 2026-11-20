@@ -152,13 +152,16 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
     if max_concurrent_activities < _MIN_CONCURRENT_ACTIVITIES:
         raise ValueError("TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1.")
-    if max_concurrent_workflow_tasks < _MIN_CONCURRENT_WORKFLOW_TASKS:
-        raise ValueError(
-            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
-        )
     max_cached_workflows = config.TEMPORAL__MAX_CACHED_WORKFLOWS
     if max_cached_workflows < 0:
         raise ValueError("TEMPORAL__MAX_CACHED_WORKFLOWS must be at least 0.")
+    if (
+        max_cached_workflows > 0
+        and max_concurrent_workflow_tasks < _MIN_CONCURRENT_WORKFLOW_TASKS
+    ):
+        raise ValueError(
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
+        )
 
     try:
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:

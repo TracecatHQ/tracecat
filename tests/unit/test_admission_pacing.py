@@ -27,8 +27,9 @@ from tracecat.admission.pacing import (
 )
 from tracecat.tiers.schemas import EffectiveLimits
 
-# Real starts take a few milliseconds between calls; allow for that drift.
-_TOLERANCE = timedelta(milliseconds=50)
+# Real Redis calls take time between reservations. Intervals are a full
+# second so slow CI workers stay well inside this margin.
+_TOLERANCE = timedelta(milliseconds=300)
 
 
 def _limits(**values: int) -> EffectiveLimits:
@@ -61,23 +62,23 @@ async def test_reserve_delay_grows_then_refuses_past_max_delay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Burst goes at once, then each start waits one more interval, then 429."""
-    _use_rate(monkeypatch, StartRate(per_second=10, burst=2))
-    pacer = StartPacer(max_delay=timedelta(milliseconds=250))
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=2))
+    pacer = StartPacer(max_delay=timedelta(milliseconds=2500))
     org_id = uuid.uuid4()
 
     delays = [(await pacer.reserve(org_id)).delay for _ in range(4)]
 
     assert delays[0] == timedelta(0)
     assert delays[1] == timedelta(0)
-    for got, want_ms in zip(delays[2:], [100, 200], strict=True):
+    for got, want_ms in zip(delays[2:], [1000, 2000], strict=True):
         assert abs(got - timedelta(milliseconds=want_ms)) < _TOLERANCE
 
     with pytest.raises(StartRateLimited) as exc_info:
         await pacer.reserve(org_id)
-    # The next slot is 300 ms out; it fits 250 ms after about 50 ms.
-    assert exc_info.value.retry_after <= timedelta(milliseconds=50)
+    # The next slot is 3 s out; it fits the 2.5 s maximum within 0.5 s.
+    assert exc_info.value.retry_after <= timedelta(milliseconds=500)
     assert exc_info.value.retry_after_seconds == 1
-    assert exc_info.value.rate == 10
+    assert exc_info.value.rate == 1
     assert exc_info.value.burst == 2
 
 
@@ -105,8 +106,8 @@ async def test_refund_gives_back_the_latest_slot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Retried starts of runs that already exist don't use up the rate."""
-    _use_rate(monkeypatch, StartRate(per_second=10, burst=1))
-    pacer = StartPacer(max_delay=timedelta(milliseconds=150))
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    pacer = StartPacer(max_delay=timedelta(milliseconds=1500))
     org_id = uuid.uuid4()
 
     assert (await pacer.reserve(org_id)).delay == timedelta(0)
@@ -115,11 +116,11 @@ async def test_refund_gives_back_the_latest_slot(
     # refunds while it is still the latest reservation.
     for _ in range(5):
         duplicate = await pacer.reserve(org_id)
-        assert abs(duplicate.delay - timedelta(milliseconds=100)) < _TOLERANCE
+        assert abs(duplicate.delay - timedelta(seconds=1)) < _TOLERANCE
         await pacer.refund(org_id, duplicate)
 
     again = await pacer.reserve(org_id)
-    assert abs(again.delay - timedelta(milliseconds=100)) < _TOLERANCE
+    assert abs(again.delay - timedelta(seconds=1)) < _TOLERANCE
 
 
 @pytest.mark.anyio
@@ -128,8 +129,8 @@ async def test_refund_after_a_later_reservation_keeps_the_slot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Overlapping duplicates can't hand out a slot a later start holds."""
-    _use_rate(monkeypatch, StartRate(per_second=10, burst=1))
-    pacer = StartPacer(max_delay=timedelta(seconds=5))
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    pacer = StartPacer(max_delay=timedelta(seconds=10))
     org_id = uuid.uuid4()
 
     first_duplicate = await pacer.reserve(org_id)
@@ -141,7 +142,7 @@ async def test_refund_after_a_later_reservation_keeps_the_slot(
     runs.append(await pacer.reserve(org_id))
 
     # Each real run keeps its own slot, one interval apart.
-    for got, want_ms in zip(runs, [200, 300, 400], strict=True):
+    for got, want_ms in zip(runs, [2000, 3000, 4000], strict=True):
         assert abs(got.delay - timedelta(milliseconds=want_ms)) < _TOLERANCE
 
 
@@ -209,6 +210,37 @@ async def test_redis_down_gives_zero_delay(monkeypatch: pytest.MonkeyPatch) -> N
 
     for _ in range(3):
         assert (await pacer.reserve(org_id)).delay == timedelta(0)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("redis_client")
+async def test_zero_max_delay_is_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A zero maximum admits the burst and refuses everything after it."""
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    pacer = StartPacer(max_delay=timedelta(0))
+    org_id = uuid.uuid4()
+
+    assert pacer.max_delay == timedelta(0)
+    assert (await pacer.reserve(org_id)).delay == timedelta(0)
+    with pytest.raises(StartRateLimited):
+        await pacer.reserve(org_id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("Redis client not initialized"), ValueError("bad REDIS_URL")],
+)
+async def test_redis_client_setup_error_gives_zero_delay(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """A misconfigured Redis client fails open instead of failing starts."""
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    monkeypatch.setattr(pacing, "get_redis_client", AsyncMock(side_effect=error))
+
+    slot = await StartPacer().reserve(uuid.uuid4())
+
+    assert slot == UNPACED
 
 
 @pytest.mark.anyio

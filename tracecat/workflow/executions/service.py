@@ -1832,7 +1832,8 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
-        self._apply_start_delay(kwargs, (await self._reserve_start()).delay)
+        start_slot = await self._reserve_start()
+        self._apply_start_delay(kwargs, start_slot.delay)
 
         # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
@@ -1846,12 +1847,9 @@ class WorkflowExecutionsService:
             time_anchor = datetime.datetime.now(datetime.UTC)
 
         # Storing the trigger inputs as a StoredObject
-        trigger_inputs_ref: StoredObject | None = None
-        if trigger_inputs is not None:
-            storage = get_object_storage()
-            trigger_inputs_ref = await storage.store(
-                f"{wf_exec_id}/trigger.json", trigger_inputs
-            )
+        trigger_inputs_ref = await self._store_trigger_inputs(
+            wf_exec_id, trigger_inputs, start_slot
+        )
 
         logger.info(
             "Executing DSL workflow",
@@ -1906,6 +1904,10 @@ class WorkflowExecutionsService:
                 search_attributes=search_attrs,
                 **kwargs,
             )
+        except WorkflowAlreadyStartedError:
+            # The execution ID is taken, so this call made no run.
+            await self._refund_start(start_slot)
+            raise
         except WorkflowFailureError as e:
             if isinstance(e.cause, TerminatedError):
                 self.logger.info(
@@ -1965,6 +1967,24 @@ class WorkflowExecutionsService:
         if self.role is None or self.role.organization_id is None:
             return
         await StartPacer().refund(self.role.organization_id, start_slot)
+
+    async def _store_trigger_inputs(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        trigger_inputs: TriggerInputs | None,
+        start_slot: StartSlot,
+    ) -> StoredObject | None:
+        """Store a start's trigger inputs; a failure gives back its start slot."""
+        if trigger_inputs is None:
+            return None
+        try:
+            return await get_object_storage().store(
+                f"{wf_exec_id}/trigger.json", trigger_inputs
+            )
+        except Exception:
+            # Nothing reached Temporal, so the start made no run.
+            await self._refund_start(start_slot)
+            raise
 
     @staticmethod
     def _apply_start_delay(
@@ -2031,12 +2051,9 @@ class WorkflowExecutionsService:
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 
-        trigger_inputs_ref: StoredObject | None = None
-        if trigger_inputs is not None:
-            storage = get_object_storage()
-            trigger_inputs_ref = await storage.store(
-                f"{wf_exec_id}/trigger.json", trigger_inputs
-            )
+        trigger_inputs_ref = await self._store_trigger_inputs(
+            wf_exec_id, trigger_inputs, start_slot
+        )
 
         try:
             dispatch_timeout_seconds = float(config.TEMPORAL__CLIENT_RPC_TIMEOUT)

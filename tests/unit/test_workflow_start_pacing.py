@@ -228,6 +228,53 @@ async def test_duplicate_start_refunds_its_slot(
 
 
 @pytest.mark.anyio
+async def test_trigger_input_storage_failure_refunds_its_slot(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+    refund: AsyncMock,
+) -> None:
+    """A start that never reached Temporal gives its slot back."""
+    reserve.return_value = StartSlot(delay=datetime.timedelta(seconds=1))
+    mock_storage.store.side_effect = OSError("object storage unavailable")
+    with _timeout(service, None), pytest.raises(OSError):
+        await service._start_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=f"{_WF_ID.short()}/exec_test",
+            trigger_inputs={"x": 1},
+            trigger_type=TriggerType.WEBHOOK,
+        )
+
+    refund.assert_awaited_once_with(_ORG_ID, reserve.return_value)
+    mock_client.start_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_duplicate_wait_for_result_dispatch_refunds_its_slot(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+    refund: AsyncMock,
+) -> None:
+    wf_exec_id = f"{_WF_ID.short()}/exec_fixed"
+    mock_client.execute_workflow.side_effect = WorkflowAlreadyStartedError(
+        wf_exec_id, "DSLWorkflow"
+    )
+    with _timeout(service, None), pytest.raises(WorkflowAlreadyStartedError):
+        await service._dispatch_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=wf_exec_id,
+            trigger_type=TriggerType.WEBHOOK,
+        )
+
+    refund.assert_awaited_once_with(_ORG_ID, reserve.return_value)
+
+
+@pytest.mark.anyio
 async def test_failed_start_of_unknown_outcome_keeps_its_slot(
     service: WorkflowExecutionsService,
     mock_client: MagicMock,

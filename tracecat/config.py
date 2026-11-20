@@ -1337,15 +1337,19 @@ Applies to workspace, agent preset, preset builder, case and external channel
 entitled to non-default backends. Workflow runs keep the built-in backend."""
 
 # === Workflow start pacing === #
-TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS") or 30.0
+TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS = max(
+    0.0,
+    float(os.environ.get("TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS") or 30.0),
 )
 """Longest delay a paced workflow start may wait in Temporal before the start
 is refused with HTTP 429. The per-org rate comes from the tier's
 `api_rate_limit` and `api_burst_capacity`; with no rate set, starts aren't paced."""
 
-TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS") or 30.0
+TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS = max(
+    0.0,
+    float(
+        os.environ.get("TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS") or 30.0
+    ),
 )
 """How long the API process caches an org's start rate and burst."""
 
