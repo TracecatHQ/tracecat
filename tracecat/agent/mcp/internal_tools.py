@@ -408,7 +408,20 @@ async def list_available_tools(
                     already_in_preset=action_name in preset_action_set,
                 )
             )
-        return {"tools": tools}
+    # Workflow tools are not in the registry index, so match them here.
+    needle = query.lower()
+    for name, definition in get_workflow_internal_tool_definitions().items():
+        if needle in name.lower() or needle in definition.description.lower():
+            tools.append(
+                AgentToolSummary(
+                    action_id=name,
+                    description=definition.description,
+                    configured=True,
+                    missing_requirements=[],
+                    already_in_preset=name in preset_action_set,
+                )
+            )
+    return {"tools": tools}
 
 
 async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
@@ -444,7 +457,10 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
         if params.actions is not None:
             current_actions = set(preset.actions or [])
             proposed_actions = set(params.actions)
-            added_actions = sorted(proposed_actions - current_actions)
+            # Workflow tools are not registry actions and need no secrets.
+            added_actions = sorted(
+                proposed_actions - current_actions - set(WORKFLOW_INTERNAL_TOOL_NAMES)
+            )
             if added_actions:
                 workspace_inventory, org_inventory = await _load_secret_inventory(role)
                 oauth_inventory = await _load_oauth_inventory(role)

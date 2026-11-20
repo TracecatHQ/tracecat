@@ -987,3 +987,81 @@ def test_mcp_token_carries_service_account():
         service_account_id=service_account_id,
     )
     assert verify_mcp_token(token).service_account_id == service_account_id
+
+
+def _patch_builder_services(monkeypatch, *, preset_actions, entries, updates):
+    async def _get_preset(_preset_id):
+        return SimpleNamespace(actions=preset_actions)
+
+    async def _update_preset(preset, params):
+        updates.append(params)
+        return preset
+
+    async def _build_preset(_preset):
+        return SimpleNamespace(model_dump=lambda mode: {"updated": True})
+
+    async def _search_actions(_query):
+        return entries
+
+    async def _no_inventory(_role):
+        return {}, {}
+
+    async def _no_oauth(_role):
+        return set()
+
+    async def _registry_lookup(*_args, **_kwargs):
+        raise AssertionError("workflow tools must not hit the registry check")
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.AgentPresetService.with_session",
+        lambda role: _AsyncContext(
+            SimpleNamespace(
+                get_preset=_get_preset,
+                update_preset=_update_preset,
+                build_preset_read=_build_preset,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.mcp.internal_tools.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(
+            SimpleNamespace(search_actions_from_index=_search_actions)
+        ),
+    )
+    monkeypatch.setattr(internal_tools, "_load_secret_inventory", _no_inventory)
+    monkeypatch.setattr(internal_tools, "_load_oauth_inventory", _no_oauth)
+    monkeypatch.setattr(internal_tools, "_get_action_configuration", _registry_lookup)
+
+
+@pytest.mark.anyio
+async def test_builder_can_add_workflow_tools(monkeypatch):
+    """Workflow tools have no registry entry or secrets, so the builder adds them."""
+    updates: list[object] = []
+    _patch_builder_services(monkeypatch, preset_actions=[], entries=[], updates=updates)
+
+    result = await internal_tools.update_preset(
+        {"actions": ["internal.workflows.start", "internal.workflows.get"]},
+        _build_claims(uuid.uuid4()),
+    )
+
+    assert result == {"updated": True}
+    assert len(updates) == 1
+
+
+@pytest.mark.anyio
+async def test_builder_discovers_workflow_tools(monkeypatch):
+    _patch_builder_services(
+        monkeypatch,
+        preset_actions=["internal.workflows.get"],
+        entries=[],
+        updates=[],
+    )
+
+    result = await internal_tools.list_available_tools(
+        {"query": "workflow"}, _build_claims(uuid.uuid4())
+    )
+
+    by_id = {tool["action_id"]: tool for tool in result["tools"]}
+    assert set(by_id) == set(internal_tools.WORKFLOW_INTERNAL_TOOL_NAMES)
+    assert by_id["internal.workflows.start"]["configured"] is True
+    assert by_id["internal.workflows.get"]["already_in_preset"] is True
