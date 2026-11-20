@@ -38,7 +38,8 @@ _MICROS_PER_SECOND = 1_000_000
 # KEYS[1] = pacing key (holds the org's theoretical arrival time, in µs)
 # ARGV[1] = emission interval (µs), ARGV[2] = burst tolerance (µs),
 # ARGV[3] = maximum delay (µs)
-# Returns {1, delay_us} when reserved, {0, retry_after_us} when refused.
+# Returns {1, delay_us, new_tat_us} when reserved, {0, retry_after_us} when
+# refused.
 # Redis TIME keeps every API replica on one clock. Values stay in µs integers
 # (below 2^53) and are written with %.0f so Lua's number formatting keeps
 # every digit.
@@ -65,19 +66,22 @@ end
 local new_tat = tat + interval
 local ttl_ms = math.ceil((new_tat - now) / 1000) + 1000
 redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', ttl_ms)
-return {1, delay}
+return {1, delay, new_tat}
 """
 
-# Undo one reservation: move the org's theoretical arrival time back one
-# interval. KEYS[1] = pacing key, ARGV[1] = emission interval (µs).
+# Undo a reservation, only while it is still the org's latest: move the
+# theoretical arrival time back one interval. Once a later start has reserved,
+# its delay is already with Temporal, and moving the time back would hand the
+# same slot out twice, so the refund is skipped.
+# KEYS[1] = pacing key, ARGV[1] = emission interval (µs), ARGV[2] = the
+# arrival time the reservation set (µs). Returns 1 when refunded, else 0.
 _REFUND_SCRIPT = """
 local t = redis.call('TIME')
 local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
-local tat = tonumber(redis.call('GET', KEYS[1]))
-if not tat then
+if redis.call('GET', KEYS[1]) ~= ARGV[2] then
     return 0
 end
-local new_tat = tat - tonumber(ARGV[1])
+local new_tat = tonumber(ARGV[2]) - tonumber(ARGV[1])
 if new_tat <= now then
     redis.call('DEL', KEYS[1])
     return 1
@@ -105,6 +109,22 @@ class StartRateLimited(Exception):
     def retry_after_seconds(self) -> int:
         """Whole seconds for a ``Retry-After`` header (at least 1)."""
         return max(1, math.ceil(self.retry_after.total_seconds()))
+
+
+@dataclass(frozen=True, slots=True)
+class StartSlot:
+    """A reserved start: how long it waits, and what a refund needs.
+
+    ``tat_us`` and ``interval_us`` are set only when Redis recorded the
+    reservation; an unpaced or fail-open start has nothing to refund.
+    """
+
+    delay: timedelta
+    tat_us: int | None = None
+    interval_us: int | None = None
+
+
+UNPACED = StartSlot(delay=timedelta(0))
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,14 +207,14 @@ class StartPacer:
             seconds=config.TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS
         )
 
-    async def reserve(self, org_id: OrganizationID) -> timedelta:
-        """Reserve a start slot and return how long the start must wait.
+    async def reserve(self, org_id: OrganizationID) -> StartSlot:
+        """Reserve a start slot; its ``delay`` is how long the start waits.
 
         Raises:
             StartRateLimited: The delay would pass the maximum delay.
         """
         if (rate := await resolve_start_rate(org_id)) is None:
-            return timedelta(0)
+            return UNPACED
         interval_us = _interval_us(rate)
         tolerance_us = (rate.burst - 1) * interval_us
         max_delay_us = int(self.max_delay.total_seconds() * _MICROS_PER_SECOND)
@@ -203,7 +223,7 @@ class StartPacer:
             client = await redis_client._get_client()
             script = client.register_script(_RESERVE_SCRIPT)
             async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
-                reserved, value_us = await script(
+                reserved, value_us, *new_tat_us = await script(
                     keys=[_pacing_key(org_id)],
                     args=[interval_us, tolerance_us, max_delay_us],
                 )
@@ -215,7 +235,7 @@ class StartPacer:
                 reason="redis_unavailable",
                 error_type=type(e).__name__,
             )
-            return timedelta(0)
+            return UNPACED
 
         value = timedelta(microseconds=int(value_us))
         if not int(reserved):
@@ -239,22 +259,28 @@ class StartPacer:
                 burst=rate.burst,
                 delay_seconds=value.total_seconds(),
             )
-        return value
+        return StartSlot(
+            delay=value, tat_us=int(new_tat_us[0]), interval_us=interval_us
+        )
 
-    async def refund(self, org_id: OrganizationID) -> None:
+    async def refund(self, org_id: OrganizationID, slot: StartSlot) -> None:
         """Give back a reserved slot whose start didn't create a run.
 
         Call it only when the start certainly made no run, such as Temporal
-        rejecting a duplicate execution ID. Failures are logged, not raised.
+        rejecting a duplicate execution ID. The slot comes back only while no
+        later start has reserved. Failures are logged, not raised.
         """
-        if (rate := await resolve_start_rate(org_id)) is None:
+        if slot.tat_us is None or slot.interval_us is None:
             return
         try:
             redis_client = await get_redis_client()
             client = await redis_client._get_client()
             script = client.register_script(_REFUND_SCRIPT)
             async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
-                await script(keys=[_pacing_key(org_id)], args=[_interval_us(rate)])
+                await script(
+                    keys=[_pacing_key(org_id)],
+                    args=[slot.interval_us, slot.tat_us],
+                )
         except (RedisError, OSError, TimeoutError) as e:
             logger.warning(
                 "concurrency.refund_failed",

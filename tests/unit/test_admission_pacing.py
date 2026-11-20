@@ -16,9 +16,11 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 from tracecat.admission import pacing
 from tracecat.admission.pacing import (
+    UNPACED,
     StartPacer,
     StartRate,
     StartRateLimited,
+    StartSlot,
     resolve_start_rate,
     start_rate_from_limits,
 )
@@ -61,7 +63,7 @@ async def test_reserve_delay_grows_then_refuses_past_max_delay(
     pacer = StartPacer(max_delay=timedelta(milliseconds=250))
     org_id = uuid.uuid4()
 
-    delays = [await pacer.reserve(org_id) for _ in range(4)]
+    delays = [(await pacer.reserve(org_id)).delay for _ in range(4)]
 
     assert delays[0] == timedelta(0)
     assert delays[1] == timedelta(0)
@@ -85,7 +87,7 @@ async def test_refused_start_does_not_take_a_slot(
     pacer = StartPacer(max_delay=timedelta(milliseconds=100))
     org_id = uuid.uuid4()
 
-    assert await pacer.reserve(org_id) == timedelta(0)
+    assert (await pacer.reserve(org_id)).delay == timedelta(0)
     key = pacing._pacing_key(org_id)
     tat_after_first = await redis_client.get(key)
     for _ in range(3):
@@ -97,51 +99,74 @@ async def test_refused_start_does_not_take_a_slot(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("redis_client")
-async def test_refund_gives_back_one_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_refund_gives_back_the_latest_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Retried starts of runs that already exist don't use up the rate."""
     _use_rate(monkeypatch, StartRate(per_second=10, burst=1))
     pacer = StartPacer(max_delay=timedelta(milliseconds=150))
     org_id = uuid.uuid4()
 
-    assert await pacer.reserve(org_id) == timedelta(0)
-    first_delay = await pacer.reserve(org_id)
-    assert abs(first_delay - timedelta(milliseconds=100)) < _TOLERANCE
+    assert (await pacer.reserve(org_id)).delay == timedelta(0)
 
-    # Give back the second slot, then retry five duplicates: each reserves,
-    # is rejected by Temporal, and refunds. None of them use up the rate.
-    await pacer.refund(org_id)
+    # Five duplicates in turn: each reserves, is rejected by Temporal, and
+    # refunds while it is still the latest reservation.
     for _ in range(5):
-        await pacer.reserve(org_id)
-        await pacer.refund(org_id)
+        duplicate = await pacer.reserve(org_id)
+        assert abs(duplicate.delay - timedelta(milliseconds=100)) < _TOLERANCE
+        await pacer.refund(org_id, duplicate)
 
     again = await pacer.reserve(org_id)
-    assert abs(again - timedelta(milliseconds=100)) < _TOLERANCE
+    assert abs(again.delay - timedelta(milliseconds=100)) < _TOLERANCE
 
 
 @pytest.mark.anyio
-async def test_refund_without_reservation_clears_nothing(
-    monkeypatch: pytest.MonkeyPatch, redis_client: redis.Redis
+@pytest.mark.usefixtures("redis_client")
+async def test_refund_after_a_later_reservation_keeps_the_slot(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    """Overlapping duplicates can't hand out a slot a later start holds."""
+    _use_rate(monkeypatch, StartRate(per_second=10, burst=1))
+    pacer = StartPacer(max_delay=timedelta(seconds=5))
     org_id = uuid.uuid4()
 
-    await StartPacer().refund(org_id)
+    first_duplicate = await pacer.reserve(org_id)
+    second_duplicate = await pacer.reserve(org_id)
+    runs = [await pacer.reserve(org_id)]
+    await pacer.refund(org_id, first_duplicate)
+    runs.append(await pacer.reserve(org_id))
+    await pacer.refund(org_id, second_duplicate)
+    runs.append(await pacer.reserve(org_id))
 
-    assert await redis_client.get(pacing._pacing_key(org_id)) is None
+    # Each real run keeps its own slot, one interval apart.
+    for got, want_ms in zip(runs, [200, 300, 400], strict=True):
+        assert abs(got.delay - timedelta(milliseconds=want_ms)) < _TOLERANCE
+
+
+@pytest.mark.anyio
+async def test_refund_of_an_unpaced_start_makes_no_redis_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_client = AsyncMock(side_effect=AssertionError("Redis must not be called"))
+    monkeypatch.setattr(pacing, "get_redis_client", get_client)
+
+    await StartPacer().refund(uuid.uuid4(), UNPACED)
+
+    get_client.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_refund_with_redis_down_does_not_raise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
     monkeypatch.setattr(
         pacing,
         "get_redis_client",
         AsyncMock(side_effect=RedisConnectionError("connection refused")),
     )
+    slot = StartSlot(delay=timedelta(0), tat_us=1, interval_us=1)
 
-    await StartPacer().refund(uuid.uuid4())
+    await StartPacer().refund(uuid.uuid4(), slot)
 
 
 @pytest.mark.anyio
@@ -151,10 +176,10 @@ async def test_orgs_are_paced_independently(monkeypatch: pytest.MonkeyPatch) -> 
     pacer = StartPacer(max_delay=timedelta(milliseconds=100))
     busy_org, other_org = uuid.uuid4(), uuid.uuid4()
 
-    assert await pacer.reserve(busy_org) == timedelta(0)
+    assert (await pacer.reserve(busy_org)).delay == timedelta(0)
     with pytest.raises(StartRateLimited):
         await pacer.reserve(busy_org)
-    assert await pacer.reserve(other_org) == timedelta(0)
+    assert (await pacer.reserve(other_org)).delay == timedelta(0)
 
 
 @pytest.mark.anyio
@@ -165,7 +190,7 @@ async def test_unlimited_org_makes_no_redis_call(
     get_client = AsyncMock(side_effect=AssertionError("Redis must not be called"))
     monkeypatch.setattr(pacing, "get_redis_client", get_client)
 
-    assert await StartPacer().reserve(uuid.uuid4()) == timedelta(0)
+    assert (await StartPacer().reserve(uuid.uuid4())).delay == timedelta(0)
     get_client.assert_not_awaited()
 
 
@@ -181,7 +206,7 @@ async def test_redis_down_gives_zero_delay(monkeypatch: pytest.MonkeyPatch) -> N
     org_id = uuid.uuid4()
 
     for _ in range(3):
-        assert await pacer.reserve(org_id) == timedelta(0)
+        assert (await pacer.reserve(org_id)).delay == timedelta(0)
 
 
 @pytest.mark.anyio
@@ -196,7 +221,7 @@ async def test_redis_script_error_gives_zero_delay(
     wrapper = SimpleNamespace(_get_client=AsyncMock(return_value=client))
     monkeypatch.setattr(pacing, "get_redis_client", AsyncMock(return_value=wrapper))
 
-    assert await StartPacer().reserve(uuid.uuid4()) == timedelta(0)
+    assert (await StartPacer().reserve(uuid.uuid4())).delay == timedelta(0)
 
 
 @pytest.mark.parametrize(

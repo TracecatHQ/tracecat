@@ -31,7 +31,7 @@ from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
-from tracecat.admission.pacing import StartPacer
+from tracecat.admission.pacing import UNPACED, StartPacer, StartSlot
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -1543,7 +1543,7 @@ class WorkflowExecutionsService:
         wf_exec_id = generate_exec_id(wf_id)
         # Reserve before returning so a refused start reaches the caller
         # instead of failing in the background task.
-        start_delay = await self._reserve_start_delay()
+        start_slot = await self._reserve_start()
         coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -1555,7 +1555,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
             correlation_id=correlation_id,
-            start_delay=start_delay,
+            start_slot=start_slot,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1686,7 +1686,7 @@ class WorkflowExecutionsService:
             StartRateLimited: The org's start rate is exhausted.
         """
         wf_exec_id = generate_exec_id(wf_id)
-        start_delay = await self._reserve_start_delay()
+        start_slot = await self._reserve_start()
         coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -1697,7 +1697,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
             fixed_action_results=fixed_action_results,
-            start_delay=start_delay,
+            start_slot=start_slot,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1832,7 +1832,7 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
-        self._apply_start_delay(kwargs, await self._reserve_start_delay())
+        self._apply_start_delay(kwargs, (await self._reserve_start()).delay)
 
         # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
@@ -1954,17 +1954,17 @@ class WorkflowExecutionsService:
         self.logger.debug("Workflow result", result=result)
         return WorkflowDispatchResponse(wf_id=wf_id, result=result)
 
-    async def _reserve_start_delay(self) -> datetime.timedelta:
-        """Reserve one paced start for the role's org and return its delay."""
+    async def _reserve_start(self) -> StartSlot:
+        """Reserve one paced start for the role's org."""
         if self.role is None or self.role.organization_id is None:
-            return datetime.timedelta(0)
+            return UNPACED
         return await StartPacer().reserve(self.role.organization_id)
 
-    async def _refund_start(self) -> None:
+    async def _refund_start(self, start_slot: StartSlot) -> None:
         """Give back the role's org a start slot that made no run."""
         if self.role is None or self.role.organization_id is None:
             return
-        await StartPacer().refund(self.role.organization_id)
+        await StartPacer().refund(self.role.organization_id, start_slot)
 
     @staticmethod
     def _apply_start_delay(
@@ -1994,13 +1994,13 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
         correlation_id: str | None = None,
-        start_delay: datetime.timedelta | None = None,
+        start_slot: StartSlot | None = None,
         **kwargs: Any,
     ) -> None:
         """Start a DSL workflow run.
 
         Args:
-            start_delay: A start slot the caller already reserved. When
+            start_slot: A start slot the caller already reserved. When
                 ``None``, this call reserves one.
 
         Raises:
@@ -2019,9 +2019,9 @@ class WorkflowExecutionsService:
         ):
             kwargs["execution_timeout"] = execution_timeout
         # Reserve before storing trigger inputs, so a refused start stores nothing.
-        if start_delay is None:
-            start_delay = await self._reserve_start_delay()
-        self._apply_start_delay(kwargs, start_delay)
+        if start_slot is None:
+            start_slot = await self._reserve_start()
+        self._apply_start_delay(kwargs, start_slot.delay)
 
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
@@ -2120,7 +2120,7 @@ class WorkflowExecutionsService:
             # A retried start with a fixed execution ID made no new run, so
             # it gives its pacing slot back. Otherwise retries of runs that
             # already started would use up the org's rate.
-            await self._refund_start()
+            await self._refund_start(start_slot)
             raise
         except TimeoutError as e:
             self.logger.error(

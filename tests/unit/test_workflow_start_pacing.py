@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from tracecat.admission.pacing import StartRateLimited
+from tracecat.admission.pacing import UNPACED, StartRateLimited, StartSlot
 from tracecat.api.common import (
     TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS,
     start_rate_limited_exception_handler,
@@ -97,7 +97,7 @@ def refund() -> AsyncMock:
 @pytest.fixture
 def reserve(refund: AsyncMock) -> Iterator[AsyncMock]:
     """Replace the pacer; tests set the delay or refusal on this mock."""
-    mock = AsyncMock(return_value=datetime.timedelta(0))
+    mock = AsyncMock(return_value=UNPACED)
     with patch(
         "tracecat.workflow.executions.service.StartPacer",
         return_value=SimpleNamespace(reserve=mock, refund=refund),
@@ -125,7 +125,7 @@ async def test_start_passes_delay_and_extends_execution_timeout(
     reserve: AsyncMock,
 ) -> None:
     """Temporal counts start_delay against the execution timeout, so it grows."""
-    reserve.return_value = datetime.timedelta(seconds=2)
+    reserve.return_value = StartSlot(delay=datetime.timedelta(seconds=2))
     with _timeout(service, 10):
         await service._start_workflow(
             dsl=DSLInput(**_DSL_CONTENT),
@@ -168,7 +168,7 @@ async def test_delay_without_execution_timeout_sets_no_timeout(
     mock_storage: MagicMock,
     reserve: AsyncMock,
 ) -> None:
-    reserve.return_value = datetime.timedelta(seconds=1)
+    reserve.return_value = StartSlot(delay=datetime.timedelta(seconds=1))
     with _timeout(service, None):
         await service._start_workflow(
             dsl=DSLInput(**_DSL_CONTENT),
@@ -224,7 +224,7 @@ async def test_duplicate_start_refunds_its_slot(
         )
 
     reserve.assert_awaited_once_with(_ORG_ID)
-    refund.assert_awaited_once_with(_ORG_ID)
+    refund.assert_awaited_once_with(_ORG_ID, reserve.return_value)
 
 
 @pytest.mark.anyio
@@ -280,7 +280,7 @@ async def test_nowait_start_reserves_once_and_passes_the_delay(
     mock_storage: MagicMock,
     reserve: AsyncMock,
 ) -> None:
-    reserve.return_value = datetime.timedelta(seconds=3)
+    reserve.return_value = StartSlot(delay=datetime.timedelta(seconds=3))
     scheduled: list[Any] = []
     with (
         _timeout(service, None),
@@ -307,7 +307,7 @@ async def test_wait_for_result_dispatch_is_paced(
     mock_storage: MagicMock,
     reserve: AsyncMock,
 ) -> None:
-    reserve.return_value = datetime.timedelta(seconds=4)
+    reserve.return_value = StartSlot(delay=datetime.timedelta(seconds=4))
     with _timeout(service, 60):
         await service._dispatch_workflow(
             dsl=DSLInput(**_DSL_CONTENT),
