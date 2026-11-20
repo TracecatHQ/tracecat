@@ -1,7 +1,7 @@
 """Store an external secret store's access token on the store, encrypted.
 
 Revision ID: 42ffaf47af2e
-Revises: 14588b612098
+Revises: 0f1e1d98e9c0
 Create Date: 2026-11-17 12:00:00.000000
 
 Additive: a nullable column. Existing stores (AWS) need no token and keep it null.
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "42ffaf47af2e"
-down_revision: str | None = "14588b612098"
+down_revision: str | None = "0f1e1d98e9c0"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
