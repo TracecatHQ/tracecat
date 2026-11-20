@@ -31,6 +31,7 @@ from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
+from tracecat.admission.types import ConcurrencyBusyResult, parse_busy_result
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -75,6 +76,7 @@ from tracecat.workflow.executions.common import (
     get_result,
     get_source_event_id,
     get_stored_result,
+    is_busy_completion,
     is_close_event,
     is_error_event,
     is_scheduled_event,
@@ -804,8 +806,13 @@ class WorkflowExecutionsService:
                 if is_start_event(event):
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
-                    source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     raw_result = await get_result(event)
+                    if isinstance(raw_result, ConcurrencyBusyResult):
+                        # The executor was at the org's limit and ran nothing;
+                        # the workflow dispatches again.
+                        del id2event[source_id]
+                        continue
+                    source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = _sanitize_action_result(
                         source.should_mask_output, raw_result
                     )
@@ -1015,6 +1022,9 @@ class WorkflowExecutionsService:
                     continue
                 entry = latest.get(source.action_ref)
                 if entry is None or entry[0] != source_id:
+                    continue
+                if await is_busy_completion(event):
+                    # The executor was at the org's limit; the action never ran.
                     continue
                 entry[1].fixed = FixedActionResult(
                     result=await _task_result_from_completed_event(event),
@@ -1249,6 +1259,8 @@ class WorkflowExecutionsService:
         )
         event_group_names: dict[int, EventGroup | None] = {}
         events: list[WorkflowExecutionEvent] = []
+        # Scheduled/started event IDs of attempts the executor answered busy.
+        busy_event_ids: set[int] = set()
         for event in history.events:
             match event.event_type:
                 # === Child Workflow Execution Events ===
@@ -1438,6 +1450,13 @@ class WorkflowExecutionsService:
                     raw_result = await extract_first(
                         event.activity_task_completed_event_attributes.result
                     )
+                    if parse_busy_result(raw_result) is not None:
+                        # The executor ran nothing; hide the whole attempt.
+                        busy_event_ids.add(gparent_event_id)
+                        busy_event_ids.add(
+                            event.activity_task_completed_event_attributes.started_event_id
+                        )
+                        continue
                     result = _sanitize_action_result(
                         group.should_mask_output,
                         raw_result,
@@ -1497,6 +1516,8 @@ class WorkflowExecutionsService:
                     )
                 case _:
                     logger.trace("Unhandled event type", event_type=event.event_type)
+        if busy_event_ids:
+            events = [e for e in events if e.event_id not in busy_event_ids]
         return events
 
     async def iter_list_workflow_execution_event_history(

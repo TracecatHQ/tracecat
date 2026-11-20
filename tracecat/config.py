@@ -169,36 +169,6 @@ TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW = bound_env(
 )
 """Hard cap on concurrent child workflow dispatches for looped subflow execution."""
 
-TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS = int(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS") or 300
-)
-"""Maximum seconds to wait for a workflow concurrency permit before failing."""
-
-TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS") or 1
-)
-"""Base backoff in seconds when retrying workflow permit acquisition."""
-
-TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS") or 30
-)
-"""Maximum backoff in seconds when retrying workflow permit acquisition."""
-
-TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS") or 60
-)
-"""Interval in seconds between workflow permit heartbeat refreshes."""
-
-TRACECAT__PERMIT_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__PERMIT_TTL_SECONDS") or 300
-)
-"""TTL in seconds for workflow/action concurrency permits before stale pruning."""
-
-TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS = int(
-    os.environ.get("TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS") or 120
-)
-"""Maximum seconds to wait for an action concurrency permit before failing."""
-
 TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS = int(
     os.environ.get("TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS") or 30
 )
