@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import ANY, AsyncMock, MagicMock
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from tenacity import Future, RetryError
 
+from tracecat.admission.pacing import StartRateLimited
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
@@ -783,6 +785,13 @@ def test_build_explicit_comment_payload_includes_reply_context() -> None:
             "SUCCESS",
             id="already-started-is-success",
         ),
+        # A refused start stays pending and is retried, not marked failed.
+        pytest.param(
+            StartRateLimited(retry_after=timedelta(seconds=2), rate=1, burst=1),
+            CaseCommentWorkflowStatus.RUNNING,
+            None,
+            id="rate-limited-is-retried",
+        ),
     ],
 )
 async def test_dispatch_selected_workflow_start_outcomes(
@@ -791,7 +800,7 @@ async def test_dispatch_selected_workflow_start_outcomes(
     monkeypatch: pytest.MonkeyPatch,
     start_error: Exception,
     expected_status: CaseCommentWorkflowStatus,
-    expected_audit: str,
+    expected_audit: str | None,
 ) -> None:
     test_case = await CasesService(session=session, role=svc_role).create_case(
         CaseCreate(
@@ -856,7 +865,7 @@ async def test_dispatch_selected_workflow_start_outcomes(
     )
     monkeypatch.setattr(AuditService, "create_event", mock_audit_create_event)
 
-    processed = await consumer._dispatch_selected_workflow(
+    dispatch = consumer._dispatch_selected_workflow(
         session=session,
         role=role,
         workflow_id=workflow.id,
@@ -886,6 +895,14 @@ async def test_dispatch_selected_workflow_start_outcomes(
         },
         comment_id=comment.id,
     )
+    if expected_audit is None:
+        with pytest.raises(type(start_error)):
+            await dispatch
+        await session.refresh(comment)
+        assert comment.workflow_status == expected_status.value
+        assert audit_calls == []
+        return
+    processed = await dispatch
 
     assert processed is True
     get_definition.assert_awaited_once_with(ANY, load_relationships=False)

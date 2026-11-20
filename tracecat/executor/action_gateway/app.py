@@ -196,10 +196,12 @@ def _add_exception_handlers(app: FastAPI) -> None:
     from fastapi import HTTPException
     from temporalio.service import RPCError
 
+    from tracecat.admission.pacing import StartRateLimited
     from tracecat.api.common import (
         auth_pool_exhausted_exception_handler,
         generic_exception_handler,
         http_exception_handler,
+        start_rate_limited_exception_handler,
         temporal_rpc_exception_handler,
         tracecat_exception_handler,
     )
@@ -221,6 +223,8 @@ def _add_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+    # Internal workflow starts (SDK, agents, core.workflow.execute) land here.
+    app.add_exception_handler(StartRateLimited, start_rate_limited_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

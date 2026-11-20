@@ -906,7 +906,7 @@ async def execute_workflow(
             message=response["message"],
         )
     except StartRateLimited:
-        # The API maps it to 429 with Retry-After.
+        # The action gateway maps it to 429 with Retry-After.
         raise
     except Exception as e:
         logger.error("Failed to start workflow execution", error=str(e))

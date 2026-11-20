@@ -17,6 +17,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from tenacity import RetryError
 
 from tracecat import config
+from tracecat.admission.pacing import StartRateLimited
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
@@ -836,6 +837,10 @@ class CaseTriggerConsumer:
                 event_id=str(event.id),
                 wf_exec_id=wf_exec_id,
             )
+        except StartRateLimited:
+            # The org's start rate is exhausted: leave the comment's run
+            # pending and the message unacked so it is retried later.
+            raise
         except Exception as e:
             logger.error(
                 "Failed to dispatch explicit case comment workflow",
