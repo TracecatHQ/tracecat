@@ -26,6 +26,9 @@ from tracecat.logger import logger
 
 TENANT_BUSY_RETRY_AFTER_SECONDS = 1
 """``Retry-After`` sent with a tenant-busy refusal."""
+TENANT_BUSY_WAIT_SECONDS = 5.0
+"""How long an operation over the org's cap waits, holding nothing, before it
+is refused. The SDK then retries the refusal until the action ends."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +144,6 @@ def get_org_session_gate() -> OrgSessionGate | None:
     if _gate is None:
         _gate = OrgSessionGate(
             cap=cap,
-            wait_seconds=config.TRACECAT__DB_ORG_SESSION_WAIT_SECONDS,
+            wait_seconds=TENANT_BUSY_WAIT_SECONDS,
         )
     return _gate

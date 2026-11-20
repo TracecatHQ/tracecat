@@ -6,6 +6,8 @@ import uuid
 import httpx
 import pytest
 from fastapi import Depends, FastAPI
+from tracecat_registry.sdk import client as sdk_client
+from tracecat_registry.sdk.client import TracecatClient
 
 from tests._route_utils import iter_effective_api_routes
 from tracecat import config
@@ -161,6 +163,79 @@ async def test_requests_without_a_valid_token_pass_to_route_auth(
     assert invalid.status_code == 200
     assert calls == ["operation", "operation"]
     assert gate._entries == {}
+
+
+class _StatusRecordingTransport(httpx.AsyncBaseTransport):
+    def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
+        self.inner = inner
+        self.statuses: list[int] = []
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        response = await self.inner.handle_async_request(request)
+        self.statuses.append(response.status_code)
+        return response
+
+
+async def test_sdk_waits_out_a_long_capacity_hold_and_mutates_once(
+    busy_org_setup: tuple[
+        FastAPI, OrgSessionGate, dict[uuid.UUID, uuid.UUID], list[str]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accepted work never fails for capacity, and a refusal never runs twice.
+
+    The org stays at its cap for many more refusals than the old SDK limit
+    (4 attempts), then frees up; the action completes and its mutation ran
+    exactly once.
+    """
+    app, gate, workspace_orgs, calls = busy_org_setup
+    workspace, org = uuid.uuid4(), uuid.uuid4()
+    workspace_orgs[workspace] = org
+    # Short timings: 20 ms server-side wait, no client sleep between attempts.
+    gate.wait_seconds = 0.02
+    monkeypatch.setattr(sdk_client, "TENANT_BUSY_MIN_RETRY_AFTER_SECONDS", 0.0)
+    monkeypatch.setattr(sdk_client, "TENANT_BUSY_MAX_RETRY_AFTER_SECONDS", 0.0)
+
+    holder_entered = asyncio.Event()
+    release_holder = asyncio.Event()
+
+    async def hold_org() -> None:
+        async with gate.hold(org):
+            holder_entered.set()
+            await release_holder.wait()
+
+    holder = asyncio.create_task(hold_org())
+    await holder_entered.wait()
+
+    transport = _StatusRecordingTransport(httpx.ASGITransport(app=app))
+    client = TracecatClient(
+        action_gateway_socket="/tmp/action-gateway.sock",
+        token=_token(workspace),
+        workspace_id=str(workspace),
+    )
+    monkeypatch.setattr(
+        client,
+        "_request_url_and_transport",
+        lambda path: (f"http://gateway/internal{path}", transport),
+    )
+    action = asyncio.create_task(client.post("/tables/rows", json={"row": 1}))
+
+    refusals_past_old_limit = 10
+    async with asyncio.timeout(10):
+        while transport.statuses.count(503) < refusals_past_old_limit:
+            assert not action.done(), "the action gave up while the org was busy"
+            await asyncio.sleep(0.01)
+    assert calls == []
+
+    release_holder.set()
+    await holder
+    async with asyncio.timeout(10):
+        result = await action
+
+    assert result == {"ok": True}
+    assert calls == ["operation"]
+    assert transport.statuses.count(503) >= refusals_past_old_limit
+    assert transport.statuses[-1] == 200
 
 
 def test_no_cap_configured_means_no_gate(monkeypatch: pytest.MonkeyPatch) -> None:

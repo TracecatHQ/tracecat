@@ -518,24 +518,22 @@ TRACECAT__DB_AUTH_MAX_OVERFLOW = int(
 TRACECAT__DB_ORG_SESSION_CAP = (
     int(cap) if (cap := os.environ.get("TRACECAT__DB_ORG_SESSION_CAP")) else None
 )
+"""Concurrent action gateway operations one organization may run per process.
+
+Unset (the default) means no limit. A unit is one gateway operation; budget up
+to 2 connections per operation, and leave headroom for other orgs:
+
+    cap x peak executor processes (including surge and draining) x 2
+        <= PgDog backends - headroom
+
+Sessions outside the gateway are not counted. Regions differ: EU is tightest
+(PgDog 2 x 30 = 60 backends).
+"""
 if TRACECAT__DB_ORG_SESSION_CAP is not None and TRACECAT__DB_ORG_SESSION_CAP < 1:
     raise ValueError(
         "TRACECAT__DB_ORG_SESSION_CAP must be at least 1 "
         f"(got {TRACECAT__DB_ORG_SESSION_CAP}); unset it for no limit"
     )
-"""Concurrent action gateway operations one organization may run per process.
-
-A unit is one gateway operation, which usually holds one database connection
-(some open a second). Sessions outside the gateway are not counted, so this
-limits an org's gateway traffic, not every backend it can hold. Unset means no
-limit. Size it so that cap x maximum replicas <= pool size x PgDog replicas for
-the workload class the process connects through.
-"""
-TRACECAT__DB_ORG_SESSION_WAIT_SECONDS = float(
-    os.environ.get("TRACECAT__DB_ORG_SESSION_WAIT_SECONDS") or 5.0
-)
-"""How long an operation over the org's cap waits, holding nothing, before it
-is refused with a retryable tenant-busy error."""
 
 
 # === Auth config === #

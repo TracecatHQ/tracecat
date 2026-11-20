@@ -5,16 +5,18 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import random
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from tracecat_registry._internal.logger import logger
 from tracecat_registry.sdk.exceptions import (
     TracecatAPIError,
     TracecatAuthError,
     TracecatConflictError,
     TracecatNotFoundError,
-    TracecatTenantBusyError,
     TracecatValidationError,
 )
 
@@ -30,8 +32,11 @@ if TYPE_CHECKING:
 TENANT_BUSY_ERROR_CODE = "tenant_db_busy"
 """The Action Gateway's pre-effect capacity refusal. The gateway sends it
 before the operation runs, so retrying it cannot repeat an effect."""
-TENANT_BUSY_MAX_RETRIES = 3
+TENANT_BUSY_MIN_RETRY_AFTER_SECONDS = 1.0
 TENANT_BUSY_MAX_RETRY_AFTER_SECONDS = 10.0
+TENANT_BUSY_FIRST_LOG_SECONDS = 30.0
+"""Total wait after which a still-refused request logs a warning."""
+TENANT_BUSY_LOG_INTERVAL_SECONDS = 60.0
 
 
 def _is_tenant_busy(response: httpx.Response) -> bool:
@@ -61,7 +66,21 @@ def _retry_after_seconds(response: httpx.Response) -> float:
         seconds = 1.0
     if not math.isfinite(seconds):
         seconds = 1.0
-    return min(max(seconds, 0.0), TENANT_BUSY_MAX_RETRY_AFTER_SECONDS)
+    return min(
+        max(seconds, TENANT_BUSY_MIN_RETRY_AFTER_SECONDS),
+        TENANT_BUSY_MAX_RETRY_AFTER_SECONDS,
+    )
+
+
+def _tenant_busy_delay(response: httpx.Response, retries: int) -> float:
+    """Jittered backoff before retry ``retries``: never under ``Retry-After``.
+
+    The ceiling doubles with each retry up to the cap, and the delay is drawn
+    between ``Retry-After`` and that ceiling.
+    """
+    floor = _retry_after_seconds(response)
+    ceiling = min(floor * 2 ** min(retries, 10), TENANT_BUSY_MAX_RETRY_AFTER_SECONDS)
+    return random.uniform(floor, max(floor, ceiling))
 
 
 class TracecatClient:
@@ -223,8 +242,6 @@ class TracecatClient:
         status_code = response.status_code
         detail = self._extract_error_detail(response)
 
-        if _is_tenant_busy(response):
-            raise TracecatTenantBusyError(detail=detail)
         if status_code == 401:
             raise TracecatAuthError(detail=detail, status_code=401)
         elif status_code == 403:
@@ -267,8 +284,6 @@ class TracecatClient:
             TracecatAuthError: For 401/403 responses
             TracecatNotFoundError: For 404 responses
             TracecatValidationError: For 400/422 responses
-            TracecatTenantBusyError: The org stayed at its database capacity
-                through every retry
             TracecatAPIError: For other error responses
         """
         url, transport = self._request_url_and_transport(path)
@@ -280,8 +295,12 @@ class TracecatClient:
             transport=transport,
             timeout=self._timeout,
         ) as client:
-            # Retry only the gateway's pre-effect tenant-busy refusal.
+            # Retry only the gateway's pre-effect tenant-busy refusal, with no
+            # count limit: capacity waits never fail accepted work. The
+            # action's own timeout or cancellation ends the wait.
             retries = 0
+            started = time.monotonic()
+            next_log_at = TENANT_BUSY_FIRST_LOG_SECONDS
             while True:
                 response = await client.request(
                     method,
@@ -290,10 +309,21 @@ class TracecatClient:
                     json=json,
                     headers=request_headers,
                 )
-                if retries == TENANT_BUSY_MAX_RETRIES or not _is_tenant_busy(response):
+                if not _is_tenant_busy(response):
                     break
+                if (waited := time.monotonic() - started) >= next_log_at:
+                    logger.warning(
+                        "Action Gateway at the organization's database capacity; "
+                        "still retrying %s %s after %.0f s (%d refusals)",
+                        method,
+                        path,
+                        waited,
+                        retries + 1,
+                    )
+                    next_log_at += TENANT_BUSY_LOG_INTERVAL_SECONDS
+                delay = _tenant_busy_delay(response, retries)
                 retries += 1
-                await asyncio.sleep(_retry_after_seconds(response))
+                await asyncio.sleep(delay)
 
         if not response.is_success:
             self._handle_error_response(response)
