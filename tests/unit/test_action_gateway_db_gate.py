@@ -18,8 +18,9 @@ from tracecat.executor.action_gateway import db_gate
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.executor.action_gateway.db_gate import (
     TENANT_BUSY_ERROR_CODE,
+    GatewayAdmissionRefusedError,
+    admission_refused_exception_handler,
     hold_org_db_session_unit,
-    tenant_busy_exception_handler,
 )
 
 pytestmark = pytest.mark.anyio
@@ -50,7 +51,9 @@ def busy_org_setup(
 
     calls: list[str] = []
     app = FastAPI(dependencies=[Depends(hold_org_db_session_unit)])
-    app.add_exception_handler(TenantBusyError, tenant_busy_exception_handler)
+    app.add_exception_handler(
+        GatewayAdmissionRefusedError, admission_refused_exception_handler
+    )
 
     async def operation() -> dict[str, bool]:
         calls.append("operation")
@@ -238,6 +241,39 @@ async def test_sdk_waits_out_a_long_capacity_hold_and_mutates_once(
     assert transport.statuses[-1] == 200
 
 
+async def test_capacity_error_after_admission_is_not_retryable(
+    busy_org_setup: tuple[
+        FastAPI, OrgSessionGate, dict[uuid.UUID, uuid.UUID], list[str]
+    ],
+) -> None:
+    """Only a pre-route refusal is ``tenant_db_busy``; a later one is a 500."""
+    app, _, workspace_orgs, _ = busy_org_setup
+    workspace = uuid.uuid4()
+    workspace_orgs[workspace] = uuid.uuid4()
+
+    async def mutates_then_hits_capacity() -> dict[str, bool]:
+        raise TenantBusyError(
+            "Organization is at its database session cap",
+            organization_id=uuid.uuid4(),
+            cap=1,
+            retry_after_seconds=1,
+        )
+
+    app.add_api_route("/internal/cases", mutates_then_hits_capacity, methods=["POST"])
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://gateway"
+    ) as client:
+        response = await client.post(
+            "/internal/cases",
+            headers={"Authorization": f"Bearer {_token(workspace)}"},
+        )
+
+    assert response.status_code == 500
+    assert TENANT_BUSY_ERROR_CODE not in response.text
+
+
 def test_no_cap_configured_means_no_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__DB_ORG_SESSION_CAP", None)
     assert db_gate.get_org_session_gate() is None
@@ -246,7 +282,12 @@ def test_no_cap_configured_means_no_gate(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_all_action_gateway_routes_hold_an_org_db_session_unit() -> None:
     app = create_app()
 
-    assert app.exception_handlers[TenantBusyError] is tenant_busy_exception_handler
+    assert (
+        app.exception_handlers[GatewayAdmissionRefusedError]
+        is admission_refused_exception_handler
+    )
+    # A capacity error raised after admission must not get the retryable code.
+    assert TenantBusyError not in app.exception_handlers
     for route in iter_effective_api_routes(app):
         dependency_calls = [
             dependency.call for dependency in route.dependant.dependencies

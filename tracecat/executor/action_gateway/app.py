@@ -26,10 +26,10 @@ from tracecat.api.common import (
     without_inputs,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.exceptions import TenantBusyError
 from tracecat.executor.action_gateway.db_gate import (
+    GatewayAdmissionRefusedError,
+    admission_refused_exception_handler,
     hold_org_db_session_unit,
-    tenant_busy_exception_handler,
 )
 from tracecat.executor.action_gateway.policy import (
     enforce_agent_script_gateway_access,
@@ -221,7 +221,10 @@ def _add_exception_handlers(app: FastAPI) -> None:
         AuthPoolExhaustedError,
         auth_pool_exhausted_exception_handler,
     )
-    app.add_exception_handler(TenantBusyError, tenant_busy_exception_handler)
+    app.add_exception_handler(
+        GatewayAdmissionRefusedError,
+        admission_refused_exception_handler,
+    )
     app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)

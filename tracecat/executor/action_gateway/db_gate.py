@@ -18,6 +18,19 @@ TENANT_BUSY_ERROR_CODE = "tenant_db_busy"
 this code (``tracecat_registry.sdk.client``)."""
 
 
+class GatewayAdmissionRefusedError(Exception):
+    """The org gate refused an operation before its route ran.
+
+    Only this error maps to the retryable ``tenant_db_busy`` code, so a
+    retried request has never had an effect. A ``TenantBusyError`` raised once
+    the operation is admitted is not this error and is not retried.
+    """
+
+    def __init__(self, *, retry_after_seconds: int) -> None:
+        super().__init__("Organization is at its database session cap")
+        self.retry_after_seconds = retry_after_seconds
+
+
 async def hold_org_db_session_unit(request: Request) -> AsyncGenerator[None]:
     """Hold one of the org's DB session units for the whole operation.
 
@@ -28,7 +41,8 @@ async def hold_org_db_session_unit(request: Request) -> AsyncGenerator[None]:
     authentication rejects them.
 
     Raises:
-        TenantBusyError: The org stayed at its cap; nothing has run yet.
+        GatewayAdmissionRefusedError: The org stayed at its cap; nothing has
+            run yet.
     """
     gate = get_org_session_gate()
     if gate is None or request.url.path == ACTION_GATEWAY_HEALTH_PATH:
@@ -45,19 +59,28 @@ async def hold_org_db_session_unit(request: Request) -> AsyncGenerator[None]:
     if (organization_id := await _get_workspace_org_id(claims.workspace_id)) is None:
         yield
         return
-    async with gate.hold(organization_id):
-        yield
+    admitted = False
+    try:
+        async with gate.hold(organization_id):
+            admitted = True
+            yield
+    except TenantBusyError as exc:
+        if admitted:
+            # Raised after admission, so the operation may have had effects:
+            # leave it to the generic, non-retryable handler.
+            raise
+        raise GatewayAdmissionRefusedError(
+            retry_after_seconds=exc.retry_after_seconds
+        ) from exc
 
 
-def tenant_busy_exception_handler(_request: Request, exc: Exception) -> ORJSONResponse:
-    """Map a tenant-busy refusal to a retryable 503 with ``Retry-After``.
-
-    The SDK retries this code, which is safe only because the gate dependency
-    is the sole raiser and refuses before the route runs. If session factories
-    are gated later, a refusal raised mid-operation must map to a different,
-    non-retryable error.
-    """
-    retry_after = exc.retry_after_seconds if isinstance(exc, TenantBusyError) else 1
+def admission_refused_exception_handler(
+    _request: Request, exc: Exception
+) -> ORJSONResponse:
+    """Map a pre-route capacity refusal to a retryable 503 with ``Retry-After``."""
+    retry_after = (
+        exc.retry_after_seconds if isinstance(exc, GatewayAdmissionRefusedError) else 1
+    )
     return ORJSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         headers={"Retry-After": str(retry_after)},
