@@ -73,7 +73,7 @@ def _retry_after_seconds(response: httpx.Response) -> float:
 
 
 def _tenant_busy_delay(response: httpx.Response, retries: int) -> float:
-    """Jittered backoff before retry ``retries``: never under ``Retry-After``.
+    """Jittered backoff before retry ``retries``, from ``Retry-After`` (capped at 10 s) up.
 
     The ceiling doubles with each retry up to the cap, and the delay is drawn
     between ``Retry-After`` and that ceiling.

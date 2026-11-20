@@ -107,7 +107,7 @@ def _is_tenant_busy(response: Any) -> bool:
 
 
 def _tenant_busy_delay(response: Any, retries: int) -> float:
-    """Jittered backoff, never under ``Retry-After``, capped (as the SDK does)."""
+    """Jittered backoff from ``Retry-After`` (capped at 10 s) up, as the SDK does."""
     try:
         floor = float(response.headers.get("Retry-After", "1"))
     except ValueError:
