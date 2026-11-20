@@ -135,6 +135,9 @@ def _execution_origin_for_role(role: Role) -> ExecutionOrigin:
 
 ACTION_TOKEN_TTL_MARGIN_SECONDS = 60
 """How long an action's SDK token outlives the action's own timeout."""
+ACTION_TOKEN_MAX_TTL_SECONDS = 24 * 60 * 60
+"""Ceiling on an action's SDK token lifetime. Action timeouts are unbounded, so
+without it a workflow author could mint a token valid for years."""
 
 
 def _action_token_ttl_seconds(input: RunActionInput) -> int:
@@ -142,12 +145,14 @@ def _action_token_ttl_seconds(input: RunActionInput) -> int:
 
     The SDK retries the Action Gateway's capacity refusal until the action ends,
     so the token must outlive the action, or a long capacity wait would fail on
-    an expired token. The deployment TTL stays the floor.
+    an expired token. The lifetime is capped at ``ACTION_TOKEN_MAX_TTL_SECONDS``;
+    the deployment TTL stays the floor.
     """
     action_lifetime = (
         math.ceil(_action_timeout(input)) + ACTION_TOKEN_TTL_MARGIN_SECONDS
     )
-    return max(config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS, action_lifetime)
+    capped = min(action_lifetime, ACTION_TOKEN_MAX_TTL_SECONDS)
+    return max(config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS, capped)
 
 
 def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:

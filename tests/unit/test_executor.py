@@ -314,6 +314,8 @@ def _token_lifetime_seconds(token: str) -> int:
         ),
         # A short action keeps the deployment TTL as the floor.
         pytest.param(300, 900, id="short"),
+        # An unbounded timeout can't mint a token valid for years.
+        pytest.param(10**9, executor_service.ACTION_TOKEN_MAX_TTL_SECONDS, id="capped"),
     ],
 )
 def test_action_token_outlives_the_action_timeout(
