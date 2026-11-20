@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from tracecat_registry.sdk.exceptions import (
     TracecatAuthError,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatTenantBusyError,
     TracecatValidationError,
 )
 
@@ -23,6 +25,40 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.tables import TablesClient
     from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
+
+TENANT_BUSY_ERROR_CODE = "tenant_db_busy"
+"""The Action Gateway's pre-effect capacity refusal. The gateway sends it
+before the operation runs, so retrying it cannot repeat an effect."""
+TENANT_BUSY_MAX_RETRIES = 3
+TENANT_BUSY_MAX_RETRY_AFTER_SECONDS = 10.0
+
+
+def _is_tenant_busy(response: httpx.Response) -> bool:
+    """Whether a response is the gateway's tenant-busy refusal.
+
+    Matches only the dedicated code: any other 503 may come after an effect,
+    and retrying it could repeat a mutation.
+    """
+    if response.status_code != 503:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    match body:
+        case {"detail": {"code": str(code)}}:
+            return code == TENANT_BUSY_ERROR_CODE
+        case _:
+            return False
+
+
+def _retry_after_seconds(response: httpx.Response) -> float:
+    """``Retry-After`` in seconds, bounded; 1 s when absent or unparseable."""
+    try:
+        seconds = float(response.headers.get("Retry-After", "1"))
+    except ValueError:
+        seconds = 1.0
+    return min(max(seconds, 0.0), TENANT_BUSY_MAX_RETRY_AFTER_SECONDS)
 
 
 class TracecatClient:
@@ -184,6 +220,8 @@ class TracecatClient:
         status_code = response.status_code
         detail = self._extract_error_detail(response)
 
+        if _is_tenant_busy(response):
+            raise TracecatTenantBusyError(detail=detail)
         if status_code == 401:
             raise TracecatAuthError(detail=detail, status_code=401)
         elif status_code == 403:
@@ -226,6 +264,8 @@ class TracecatClient:
             TracecatAuthError: For 401/403 responses
             TracecatNotFoundError: For 404 responses
             TracecatValidationError: For 400/422 responses
+            TracecatTenantBusyError: The org stayed at its database capacity
+                through every retry
             TracecatAPIError: For other error responses
         """
         url, transport = self._request_url_and_transport(path)
@@ -237,13 +277,20 @@ class TracecatClient:
             transport=transport,
             timeout=self._timeout,
         ) as client:
-            response = await client.request(
-                method,
-                url,
-                params=params,
-                json=json,
-                headers=request_headers,
-            )
+            # Retry only the gateway's pre-effect tenant-busy refusal.
+            retries = 0
+            while True:
+                response = await client.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json,
+                    headers=request_headers,
+                )
+                if retries == TENANT_BUSY_MAX_RETRIES or not _is_tenant_busy(response):
+                    break
+                retries += 1
+                await asyncio.sleep(_retry_after_seconds(response))
 
         if not response.is_success:
             self._handle_error_response(response)

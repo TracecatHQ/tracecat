@@ -514,6 +514,23 @@ TRACECAT__DB_AUTH_MAX_OVERFLOW = int(
 )
 """The maximum number of overflow connections for the authentication pool."""
 
+# === Per-org DB session gate === #
+TRACECAT__DB_ORG_SESSION_CAP = (
+    int(cap) if (cap := os.environ.get("TRACECAT__DB_ORG_SESSION_CAP")) else None
+)
+"""Concurrent action gateway operations one organization may run per process.
+
+Each operation holds at most a database connection or two, so this bounds the
+backends one org can hold through this process. Unset means no limit. Size it
+so that cap x maximum replicas <= pool size x PgDog replicas for the workload
+class the process connects through.
+"""
+TRACECAT__DB_ORG_SESSION_WAIT_SECONDS = float(
+    os.environ.get("TRACECAT__DB_ORG_SESSION_WAIT_SECONDS") or 5.0
+)
+"""How long an operation over the org's cap waits, holding nothing, before it
+is refused with a retryable tenant-busy error."""
+
 
 # === Auth config === #
 # Infrastructure config

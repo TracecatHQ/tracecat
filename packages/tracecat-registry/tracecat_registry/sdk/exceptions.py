@@ -89,3 +89,18 @@ class TracecatConflictError(TracecatAPIError):
             status_code=409,
             detail=detail,
         )
+
+
+class TracecatTenantBusyError(TracecatAPIError):
+    """The organization is at its database capacity in this executor (503).
+
+    The request did not run. The client retries it a few times before raising
+    this; callers may retry it again later.
+    """
+
+    def __init__(self, detail: Any | None = None) -> None:
+        super().__init__(
+            message="Organization at database capacity",
+            status_code=503,
+            detail=detail,
+        )
