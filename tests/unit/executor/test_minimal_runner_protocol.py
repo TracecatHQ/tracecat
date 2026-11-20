@@ -151,6 +151,8 @@ def test_action_gateway_sdk_transport_leaves_current_tracecat_client_unpatched(
         raise ImportError(name)
 
     sdk_client.TracecatClient = CurrentTracecatClient
+    # Current SDKs retry the gateway's capacity refusal themselves.
+    sdk_client.TENANT_BUSY_ERROR_CODE = "tenant_db_busy"
     monkeypatch.setattr(
         minimal_runner,
         "_ACTION_GATEWAY_SOCKET",
@@ -161,6 +163,112 @@ def test_action_gateway_sdk_transport_leaves_current_tracecat_client_unpatched(
     minimal_runner._install_action_gateway_sdk_transport()
 
     assert asyncio.run(CurrentTracecatClient().request()) == "original"
+
+
+def _busy_gateway_response() -> httpx.Response:
+    return httpx.Response(
+        503,
+        headers={"Retry-After": "1"},
+        json={"detail": {"code": "tenant_db_busy"}},
+    )
+
+
+def _locked_sdk_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    responses: list[httpx.Response],
+) -> tuple[type, list[str], list[httpx.Response]]:
+    """An SDK from a locked artifact: native transport, no capacity retry."""
+    sdk_client: Any = types.ModuleType("tracecat_registry.sdk.client")
+    sent: list[str] = []
+    errors: list[httpx.Response] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return responses.pop(0)
+
+    transport = httpx.MockTransport(handler)
+
+    class LockedTracecatClient:
+        _timeout = 5.0
+
+        def _request_url_and_transport(
+            self, path: str
+        ) -> tuple[str, httpx.AsyncBaseTransport]:
+            return f"http://tracecat-action-gateway/internal{path}", transport
+
+        def _get_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer executor-token"}
+
+        def _handle_error_response(self, response: httpx.Response) -> None:
+            errors.append(response)
+            raise RuntimeError(f"gateway error {response.status_code}")
+
+        async def request(self, *args: object, **kwargs: object) -> str:
+            return "original single-shot request"
+
+    def import_module(name: str) -> Any:
+        if name == "tracecat_registry.sdk.client":
+            return sdk_client
+        raise ImportError(name)
+
+    sdk_client.TracecatClient = LockedTracecatClient
+    monkeypatch.setattr(
+        minimal_runner,
+        "_ACTION_GATEWAY_SOCKET",
+        "/var/run/tracecat/action-gateway.sock",
+    )
+    monkeypatch.setattr(minimal_runner.importlib, "import_module", import_module)
+    # No sleeping between retries.
+    monkeypatch.setattr(minimal_runner, "_TENANT_BUSY_MIN_RETRY_AFTER_SECONDS", 0.0)
+    monkeypatch.setattr(minimal_runner, "_TENANT_BUSY_MAX_RETRY_AFTER_SECONDS", 0.0)
+    return LockedTracecatClient, sent, errors
+
+
+def test_action_gateway_sdk_shim_retries_capacity_for_locked_sdks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A locked artifact's SDK waits out capacity refusals instead of failing."""
+    responses = [_busy_gateway_response() for _ in range(20)]
+    responses.append(httpx.Response(200, json={"ok": True}))
+    client_cls, sent, errors = _locked_sdk_without_retry(monkeypatch, responses)
+
+    minimal_runner._install_action_gateway_sdk_transport()
+    result = asyncio.run(client_cls().request("POST", "/tables/rows", json={"a": 1}))
+
+    assert result == {"ok": True}
+    assert len(sent) == 21
+    assert set(sent) == {"http://tracecat-action-gateway/internal/tables/rows"}
+    assert errors == []
+
+
+def test_action_gateway_sdk_shim_does_not_retry_other_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [httpx.Response(503, json={"detail": "Service unavailable"})]
+    client_cls, sent, errors = _locked_sdk_without_retry(monkeypatch, responses)
+
+    minimal_runner._install_action_gateway_sdk_transport()
+    with pytest.raises(RuntimeError, match="gateway error 503"):
+        asyncio.run(client_cls().request("POST", "/tables/rows", json={"a": 1}))
+
+    assert len(sent) == 1
+    assert len(errors) == 1
+
+
+@pytest.mark.parametrize(
+    ("header", "low", "high"),
+    [
+        pytest.param("2", 2.0, 2.0, id="seconds"),
+        pytest.param("nan", 1.0, 1.0, id="nan"),
+        pytest.param("soon", 1.0, 1.0, id="unparseable"),
+        pytest.param("600", 10.0, 10.0, id="capped"),
+    ],
+)
+def test_action_gateway_sdk_shim_backoff_bounds(
+    header: str, low: float, high: float
+) -> None:
+    response = httpx.Response(503, headers={"Retry-After": header})
+    assert low <= minimal_runner._tenant_busy_delay(response, 0) <= high
 
 
 def test_run_udf_supports_legacy_registry_context_and_sdk_gateway_transport(
