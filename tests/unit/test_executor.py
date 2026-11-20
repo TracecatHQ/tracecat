@@ -307,13 +307,13 @@ def _token_lifetime_seconds(token: str) -> int:
 @pytest.mark.parametrize(
     ("action_timeout", "expected_lifetime"),
     [
-        # A long action: its token outlives the action, so a capacity wait
-        # (retried until the action ends) never meets an expired token.
-        pytest.param(
-            1800, 1800 + executor_service.ACTION_TOKEN_TTL_MARGIN_SECONDS, id="long"
-        ),
+        # A long action: its token outlives the whole executor activity (action
+        # timeout + 600 s platform allowance for sandbox preparation), so a
+        # capacity wait retried until the action ends never meets an expired
+        # token.
+        pytest.param(1800, 1800 + 600, id="long"),
         # A short action keeps the deployment TTL as the floor.
-        pytest.param(300, 900, id="short"),
+        pytest.param(60, 900, id="short"),
         # An unbounded timeout can't mint a token valid for years.
         pytest.param(10**9, executor_service.ACTION_TOKEN_MAX_TTL_SECONDS, id="capped"),
     ],
@@ -326,6 +326,7 @@ def test_action_token_outlives_the_action_timeout(
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS", 900)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT", 600.0)
     workspace_id = uuid.uuid4()
     role = Role(
         type="service",
