@@ -36,6 +36,8 @@ docker run --rm -i \
 - `ca.pem`: the CA bundle that signed the database's certificate, so `verify-full` can check it (for RDS, the [global bundle](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem)).
 - `--login`: how `app`, `migrator` and `agent_runtime` log in. `password` sets the passwords from `TRACECAT__DB_MIGRATOR_PASSWORD` and `TRACECAT__DB_APP_PASSWORD` (and `TRACECAT__DB_AGENT_RUNTIME_PASSWORD` if set). `aws_iam` grants `rds_iam` instead, so the roles log in with IAM tokens; leave the password variables unset. `azure_entra` expects you to create `migrator`, `app` and `agent_runtime` first, each mapped to the identity that logs in as it with `pgaadauth_create_principal_with_oid` (see [Database IAM login](/self-hosting/database-iam)); leave the password variables unset.
 
+With the Helm chart or a manual `tracecat db roles` run, the login roles can have other names (for example, existing Entra principals): set `TRACECAT__DB_MIGRATOR_ROLE`, `TRACECAT__DB_APP_ROLE` and `TRACECAT__DB_AGENT_RUNTIME_ROLE` when you run `tracecat db roles`, and give the migrations container the same values. Docker Compose doesn't pass these to its `migrations` service. Names may contain hyphens. Renaming a role on an existing install creates the new role and leaves the old one in place with its grants (`app` keeps its table privileges and default privileges), so revoke those and drop the old role by hand once nothing logs in as it. The rest of this page uses the default names.
+
 Then give each part its login:
 
 1. Point the migrations at `migrator`: `TRACECAT__DB_USER=migrator` and `TRACECAT__DB_PASS`, or `TRACECAT__DB_URI`.
