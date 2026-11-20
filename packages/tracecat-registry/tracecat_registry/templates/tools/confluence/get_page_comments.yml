@@ -1,9 +1,10 @@
 type: action
 definition:
   title: Get page comments
-  description: Retrieve comments for a Confluence page with pagination support. Use start/limit to iterate through all comments.
+  description: >-
+    Returns the root footer comments of a specific page.
   display_group: Confluence
-  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content/{id}/child-commentsOfContent
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-comment/#api-pages-id-footer-comments-get
   namespace: tools.confluence
   name: get_page_comments
   secrets:
@@ -17,41 +18,55 @@ definition:
   expects:
     page_id:
       type: str
-      description: Confluence page ID to fetch comments for.
-    depth:
-      type: str
-      description: Depth of comments to return (e.g., all, root).
-      default: all
-    expand:
-      type: str
-      description: Fields to expand on each comment (e.g., body.view, body.storage, version).
-      default: body.view,version
+      description: >-
+        The ID of the page for which footer comments should be returned.
+    body_format:
+      type: str | None
+      description: >-
+        The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format.
+      default: storage
+    status:
+      type: str | None
+      description: >-
+        Filter the results to footer comments based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, trashed, deleted, historical, draft.
+      default: null
+    sort:
+      type: str | None
+      description: >-
+        Used to sort the result by a particular field. One of: created-date, -created-date, modified-date, -modified-date.
+      default: null
+    cursor:
+      type: str | None
+      description: >-
+        Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header and in `_links.next`. Use the relevant `cursor` value from that URL to fetch the next page of footer comments.
+      default: null
     limit:
-      type: int
-      description: Maximum number of comments to return per request (1-50).
+      type: int | None
+      description: >-
+        Maximum number of footer comments per result to return. If more results exist, use the `Link` header or `_links.next` to retrieve a relative URL that will return the next set of results. Maximum 250.
       default: 25
-    start:
-      type: int
-      description: Starting index for pagination (0-based). Use _links.next from response to get next page.
-      default: 0
     base_url:
       type: str | None
       description: >-
-        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
-        Do not append /rest/api.
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
       default: null
   steps:
-    - ref: get_comments
+    - ref: get_page_comments
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}/child/comment
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages/${{ FN.url_encode(inputs.page_id) }}/footer-comments
         method: GET
         headers:
           Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
         params:
-          expand: ${{ inputs.expand }}
-          depth: ${{ inputs.depth }}
+          body-format: ${{ inputs.body_format }}
+          status: ${{ inputs.status }}
+          sort: ${{ inputs.sort }}
+          cursor: ${{ inputs.cursor }}
           limit: ${{ inputs.limit }}
-          start: ${{ inputs.start }}
-  returns: ${{ steps.get_comments.result.data }}
+  returns: ${{ steps.get_page_comments.result.data }}

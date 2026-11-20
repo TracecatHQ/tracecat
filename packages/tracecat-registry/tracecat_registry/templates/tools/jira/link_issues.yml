@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Link issues
+  description: Create a link between two Jira issues, for example to mark one as a duplicate of another.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-links/#api-rest-api-3-issuelink-post
+  namespace: tools.jira
+  name: link_issues
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+      optional: true
+  expects:
+    type:
+      type: dict[str, Any]
+      description: >-
+        The type of link, by name or ID (e.g. {"name": "Duplicate"}). Use
+        list_issue_link_types to find the available types.
+    inwardIssue:
+      type: dict[str, Any]
+      description: >-
+        The issue on the inward side of the link, by key or ID (e.g. {"key":
+        "PROJ-1"}).
+    outwardIssue:
+      type: dict[str, Any]
+      description: >-
+        The issue on the outward side of the link, by key or ID (e.g. {"key":
+        "PROJ-2"}).
+    base_url:
+      type: str | None
+      description: >-
+        Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian
+        OAuth, use https://api.atlassian.com/ex/jira/{cloudId}.
+      default: null
+  steps:
+    - ref: link_issues
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/api/3/issueLink
+        method: POST
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.jira.JIRA_USEREMAIL, SECRETS.jira.JIRA_API_TOKEN))) }}
+        payload:
+          type: ${{ inputs.type }}
+          inwardIssue: ${{ inputs.inwardIssue }}
+          outwardIssue: ${{ inputs.outwardIssue }}
+  returns: ${{ steps.link_issues.result }}

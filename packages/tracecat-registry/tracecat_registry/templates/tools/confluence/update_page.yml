@@ -1,9 +1,10 @@
 type: action
 definition:
   title: Update page
-  description: Update an existing Confluence page, incrementing the version automatically.
+  description: >-
+    Update an existing Confluence page's title and body, incrementing the version automatically.
   display_group: Confluence
-  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-update
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-put
   namespace: tools.confluence
   name: update_page
   secrets:
@@ -17,47 +18,54 @@ definition:
   expects:
     page_id:
       type: str
-      description: ID of the page to update.
+      description: >-
+        The ID of the page to be updated.
     title:
       type: str
-      description: New title for the page.
+      description: >-
+        Title of the page.
     content:
       type: str
-      description: >
-        Updated page body in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+      description: >-
+        Updated page body in the selected representation. Convert Markdown to Confluence storage (XHTML) before sending if needed.
     content_representation:
       type: str
-      description: Content representation for the body (storage or wiki).
+      description: >-
+        The representation of the body content. One of: storage (Confluence XHTML), wiki (wiki markup), atlas_doc_format (ADF JSON string).
       default: storage
-    is_minor_edit:
-      type: bool
-      description: Whether this is a minor edit for versioning purposes.
-      default: false
     version_comment:
-      type: str
-      description: Optional version comment to record with the update.
-      default: ""
+      type: str | None
+      description: >-
+        Optional message to record with the new version.
+      default: null
     parent_id:
       type: str | None
-      description: Optional new parent page ID to set on update.
+      description: >-
+        ID of the parent content. This allows the page to be moved under a different parent within the same space.
       default: null
+    status:
+      type: str
+      description: >-
+        The updated status of the page. One of: current, draft.
+      default: current
     base_url:
       type: str | None
       description: >-
-        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
-        Do not append /rest/api.
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
       default: null
   steps:
     - ref: fetch_page
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages/${{ FN.url_encode(inputs.page_id) }}
         method: GET
         headers:
           Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
-        params:
-          expand: version,space
     - ref: build_payload
       action: core.script.run_python
       args:
@@ -66,43 +74,28 @@ definition:
           title: ${{ inputs.title }}
           content: ${{ inputs.content }}
           representation: ${{ inputs.content_representation }}
-          is_minor_edit: ${{ inputs.is_minor_edit }}
           version_comment: ${{ inputs.version_comment }}
           parent_id: ${{ inputs.parent_id }}
+          status: ${{ inputs.status }}
         script: |
-          def main(page, title, content, representation, is_minor_edit, version_comment, parent_id):
-              payload = {
-                  "type": "page",
-                  "title": title,
-                  "version": {
-                      "number": int(page.get("version", {}).get("number", 0)) + 1,
-                      "minorEdit": is_minor_edit,
-                  },
-                  "body": {
-                      representation: {
-                          "value": content,
-                          "representation": representation,
-                      }
-                  },
-              }
-              # Add space key if present
-              space_key = page.get("space", {}).get("key")
-              if space_key:
-                  payload["space"] = {"key": space_key}
-
-              # Add version comment if provided
+          def main(page, title, content, representation, version_comment, parent_id, status):
+              version = {"number": int(page["version"]["number"]) + 1}
               if version_comment:
-                  payload["version"]["message"] = version_comment
-
-              # Add ancestors if parent_id is provided
+                  version["message"] = version_comment
+              payload = {
+                  "id": str(page["id"]),
+                  "status": status,
+                  "title": title,
+                  "body": {"representation": representation, "value": content},
+                  "version": version,
+              }
               if parent_id:
-                  payload["ancestors"] = [{"id": str(parent_id)}]
-
+                  payload["parentId"] = str(parent_id)
               return payload
     - ref: update_page
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages/${{ FN.url_encode(inputs.page_id) }}
         method: PUT
         headers:
           Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}

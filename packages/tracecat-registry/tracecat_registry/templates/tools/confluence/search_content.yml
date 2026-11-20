@@ -3,7 +3,7 @@ definition:
   title: Search content
   description: Search Confluence content with Confluence Query Language (CQL) and optional space filters.
   display_group: Confluence
-  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#search-search
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-search/#api-wiki-rest-api-search-get
   namespace: tools.confluence
   name: search_content
   secrets:
@@ -31,9 +31,12 @@ definition:
     base_url:
       type: str | None
       description: >-
-        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
-        Do not append /rest/api.
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
       default: null
   steps:
     - ref: build_cql

@@ -1,9 +1,10 @@
 type: action
 definition:
   title: Create page
-  description: Create a new Confluence page in a space, optionally under a parent.
+  description: >-
+    Create a Confluence page in a space, optionally nested under a parent page or folder.
   display_group: Confluence
-  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-createContent
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-post
   namespace: tools.confluence
   name: create_page
   secrets:
@@ -17,62 +18,91 @@ definition:
   expects:
     space_key:
       type: str
-      description: Space key for the page (e.g., DEV, TEAM).
+      description: >-
+        Space key for the page (e.g., DEV, TEAM).
     title:
       type: str
-      description: Title of the new page.
+      description: >-
+        Title of the page, required if page status is not draft.
     content:
       type: str
-      description: >
-        Page body in Confluence storage (XHTML) or wiki markup. Convert Markdown to storage before sending if needed.
+      description: >-
+        Page body in the selected representation. Convert Markdown to Confluence storage (XHTML) before sending if needed.
     content_representation:
       type: str
-      description: Content representation for the body (storage or wiki).
+      description: >-
+        The representation of the body content. One of: storage (Confluence XHTML), wiki (wiki markup), atlas_doc_format (ADF JSON string).
       default: storage
     parent_id:
       type: str | None
-      description: Optional parent page ID to nest under.
+      description: >-
+        The parent content ID of the page. If not provided, the page is created under the space homepage.
+      default: null
+    status:
+      type: str | None
+      description: >-
+        The status of the page, published or draft. One of: current, draft.
+      default: null
+    private:
+      type: bool | None
+      description: >-
+        The page will be private. Only the user who creates this page will have permission to view and edit one.
       default: null
     base_url:
       type: str | None
       description: >-
-        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
-        Do not append /rest/api.
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
       default: null
   steps:
+    - ref: get_space
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/spaces
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          keys: ${{ inputs.space_key }}
+          limit: 1
     - ref: build_payload
       action: core.script.run_python
       args:
         inputs:
+          spaces: ${{ steps.get_space.result.data.results }}
           space_key: ${{ inputs.space_key }}
           title: ${{ inputs.title }}
           content: ${{ inputs.content }}
           representation: ${{ inputs.content_representation }}
           parent_id: ${{ inputs.parent_id }}
+          status: ${{ inputs.status }}
         script: |
-          def main(space_key, title, content, representation, parent_id):
+          def main(spaces, space_key, title, content, representation, parent_id, status):
+              if not spaces:
+                  raise ValueError(f"Confluence space not found: {space_key}")
               payload = {
-                  "type": "page",
+                  "spaceId": spaces[0]["id"],
                   "title": title,
-                  "space": {"key": space_key},
-                  "body": {
-                      representation: {
-                          "value": content,
-                          "representation": representation,
-                      }
-                  },
+                  "body": {"representation": representation, "value": content},
               }
               if parent_id:
-                  payload["ancestors"] = [{"id": str(parent_id)}]
+                  payload["parentId"] = str(parent_id)
+              if status:
+                  payload["status"] = status
               return payload
     - ref: create_page
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages
         method: POST
         headers:
           Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
           Content-Type: application/json
+        params:
+          private: ${{ inputs.private }}
         payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.create_page.result.data }}

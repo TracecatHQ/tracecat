@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Get page ancestors
+  description: >-
+    Returns all ancestors of a page, ordered from the top-level ancestor down to the direct parent.
+  display_group: Confluence
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-ancestors/#api-pages-id-ancestors-get
+  namespace: tools.confluence
+  name: get_page_ancestors
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+      optional: true
+    - name: confluence
+      keys: ["CONFLUENCE_USERNAME", "CONFLUENCE_API_TOKEN"]
+      optional: true
+  expects:
+    page_id:
+      type: str
+      description: >-
+        The ID of the page.
+    limit:
+      type: int | None
+      description: >-
+        Maximum number of pages per result to return. If more results exist, call this endpoint with the highest ancestor's ID to fetch the next set of results. Maximum 250.
+      default: null
+    base_url:
+      type: str | None
+      description: >-
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
+      default: null
+  steps:
+    - ref: get_page_ancestors
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages/${{ FN.url_encode(inputs.page_id) }}/ancestors
+        method: GET
+        headers:
+          Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
+        params:
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.get_page_ancestors.result }}

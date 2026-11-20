@@ -1,9 +1,10 @@
 type: action
 definition:
   title: Get page by ID
-  description: Retrieve a Confluence page by its numeric ID with optional expanded fields.
+  description: >-
+    Returns a specific page by its ID, optionally including its body in the requested format.
   display_group: Confluence
-  doc_url: https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/#content-getContentById
+  doc_url: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/#api-pages-id-get
   namespace: tools.confluence
   name: get_page
   secrets:
@@ -17,30 +18,73 @@ definition:
   expects:
     page_id:
       type: str
-      description: >
-        Confluence page ID (numeric). In URLs like
-        https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title the ID is 123456789.
-    expand:
-      type: str
-      description: >
-        Comma-separated fields to expand (e.g., body.storage, body.view, version, space, ancestors,
-        children.attachment).
-      default: body.storage,version,space
+      description: >-
+        The ID of the page. In URLs like https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title the ID is 123456789.
+    body_format:
+      type: str | None
+      description: >-
+        The content format types to be returned in the `body` field of the response. If available, the representation will be available under a response field of the same name under the `body` field. One of: storage, atlas_doc_format, view, export_view, anonymous_export_view, styled_view, editor.
+      default: storage
+    get_draft:
+      type: bool | None
+      description: >-
+        Retrieve the draft version of this page.
+      default: null
+    status:
+      type: str | None
+      description: >-
+        Filter the results to the page based on their status. Multiple statuses can be specified as a comma-separated list. One of: current, archived, trashed, deleted, historical, draft.
+      default: null
+    version:
+      type: int | None
+      description: >-
+        Allows you to retrieve a previously published version. Specify the previous version's number to retrieve its details.
+      default: null
+    include_labels:
+      type: bool | None
+      description: >-
+        Includes labels associated with this page in the response. The number of results will be limited to 50.
+      default: null
+    include_properties:
+      type: bool | None
+      description: >-
+        Includes content properties associated with this page in the response. The number of results will be limited to 50.
+      default: null
+    include_versions:
+      type: bool | None
+      description: >-
+        Includes versions associated with this page in the response. The number of results will be limited to 50.
+      default: null
+    include_direct_children:
+      type: bool | None
+      description: >-
+        Includes direct children of the page.
+      default: null
     base_url:
       type: str | None
       description: >-
-        Confluence site base URL (e.g. https://example.atlassian.net/wiki). With
-        Atlassian OAuth, use https://api.atlassian.com/ex/confluence/{cloudId}.
-        Do not append /rest/api.
+        Confluence base URL. With an API token, use your site URL (e.g.
+        https://example.atlassian.net/wiki). With Atlassian OAuth, use the
+        Atlassian API gateway URL for your site (e.g.
+        https://api.atlassian.com/ex/confluence/{cloudId}). See
+        https://developer.atlassian.com/cloud/confluence/oauth-2-3lo-apps/ for
+        how to find your cloudId and build OAuth request URLs.
       default: null
   steps:
     - ref: get_page
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/content/${{ FN.url_encode(inputs.page_id) }}
+        url: ${{ inputs.base_url || VARS.confluence.base_url }}/api/v2/pages/${{ FN.url_encode(inputs.page_id) }}
         method: GET
         headers:
           Authorization: ${{ FN.format("Bearer {}", SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN) if SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN else FN.format("Basic {}", FN.to_base64(FN.format("{}:{}", SECRETS.confluence.CONFLUENCE_USERNAME, SECRETS.confluence.CONFLUENCE_API_TOKEN))) }}
         params:
-          expand: ${{ inputs.expand }}
+          body-format: ${{ inputs.body_format }}
+          get-draft: ${{ inputs.get_draft }}
+          status: ${{ inputs.status }}
+          version: ${{ inputs.version }}
+          include-labels: ${{ inputs.include_labels }}
+          include-properties: ${{ inputs.include_properties }}
+          include-versions: ${{ inputs.include_versions }}
+          include-direct-children: ${{ inputs.include_direct_children }}
   returns: ${{ steps.get_page.result.data }}
