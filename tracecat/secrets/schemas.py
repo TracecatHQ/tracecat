@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 import botocore.session
@@ -13,12 +15,17 @@ from cryptography.hazmat.primitives.serialization import (
     load_ssh_private_key,
 )
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     JsonValue,
     SecretStr,
     StringConstraints,
+    Tag,
+    TypeAdapter,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -33,8 +40,8 @@ from tracecat.db.models import (
 from tracecat.identifiers import OrganizationID, SecretID, WorkspaceID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import (
-    AwsSecretMappingMode,
-    AwsSecretResolutionErrorCode,
+    SecretMappingMode,
+    SecretResolutionErrorCode,
     SecretSource,
     SecretStoreProvider,
     SecretType,
@@ -352,12 +359,12 @@ class SecretRead(SecretReadBase):
     source: SecretSource = SecretSource.LOCAL
     store_id: UUID | None = None
     remote_reference: str | None = None
-    remote_key_mapping: AwsSecretKeyMapping | None = None
+    remote_key_mapping: SecretKeyMapping | None = None
 
     @staticmethod
     def from_database(obj: Secret) -> SecretRead:
         mapping = (
-            AwsSecretKeyMapping.model_validate(obj.remote_key_mapping)
+            SecretKeyMapping.model_validate(obj.remote_key_mapping)
             if obj.remote_key_mapping is not None
             else None
         )
@@ -379,7 +386,7 @@ class SecretRead(SecretReadBase):
         )
 
 
-# === External secret stores (AWS Secrets Manager) ===
+# === External secret stores ===
 SecretKey = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")]
 
 AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
@@ -403,7 +410,7 @@ def check_aws_partition(role_arn: str, region: str) -> None:
         )
 
 
-class AwsSecretJsonField(BaseModel):
+class SecretJsonField(BaseModel):
     """One declared output key sourced from a top-level JSON field."""
 
     model_config = ConfigDict(frozen=True)
@@ -412,22 +419,22 @@ class AwsSecretJsonField(BaseModel):
     field: str = Field(..., min_length=1, max_length=255)
 
 
-class AwsSecretKeyMapping(BaseModel):
-    """Declares how a remote AWS secret value maps onto output keys.
+class SecretKeyMapping(BaseModel):
+    """Declares how a remote secret value maps onto output keys.
 
-    ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+    ``whole_string`` maps the entire remote string onto exactly one key.
     ``json`` maps selected top-level string fields onto declared keys.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    mode: AwsSecretMappingMode
+    mode: SecretMappingMode
     keys: list[SecretKey] = Field(default_factory=list, max_length=100)
-    fields: list[AwsSecretJsonField] = Field(default_factory=list, max_length=100)
+    fields: list[SecretJsonField] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
-    def validate_mapping(self) -> AwsSecretKeyMapping:
-        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+    def validate_mapping(self) -> SecretKeyMapping:
+        if self.mode == SecretMappingMode.WHOLE_STRING:
             if len(self.keys) != 1 or self.fields:
                 raise ValueError(
                     "whole_string mappings declare exactly one output key and no fields"
@@ -441,8 +448,8 @@ class AwsSecretKeyMapping(BaseModel):
         return self
 
     def output_keys(self) -> list[str]:
-        """Return the declared output key names without touching AWS."""
-        if self.mode == AwsSecretMappingMode.WHOLE_STRING:
+        """Return the declared output key names without touching the store."""
+        if self.mode == SecretMappingMode.WHOLE_STRING:
             return list(self.keys)
         return [entry.key for entry in self.fields]
 
@@ -484,18 +491,148 @@ class AwsSecretsManagerStoreCreate(BaseModel):
 class AwsSecretsManagerStoreUpdate(BaseModel):
     """Client-supplied fields when updating an AWS Secrets Manager store."""
 
+    provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
+        SecretStoreProvider.AWS_SECRETS_MANAGER
+    )
     role_arn: str | None = Field(
         default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
     )
     region: str | None = Field(default=None, pattern=AWS_REGION_PATTERN, max_length=64)
 
 
-# Becomes a discriminated union on `provider` when a second provider lands.
-SecretStoreConfig = AwsSecretsManagerStoreConfig
-# Becomes a discriminated union on `provider` when a second provider lands.
-SecretStoreCreateConfig = AwsSecretsManagerStoreCreate
-# Becomes a discriminated union on `provider` when a second provider lands.
-SecretStoreUpdateConfig = AwsSecretsManagerStoreUpdate
+BITWARDEN_CLOUD_REGIONS = frozenset({"us", "eu"})
+"""Bitwarden cloud regions; the provider maps each to its endpoints."""
+
+
+_BITWARDEN_HOSTNAME = re.compile(
+    r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*"
+)
+
+
+def _check_bitwarden_server(value: str) -> str:
+    """Accept a cloud region or the HTTPS base URL of a self-hosted server.
+
+    The Bitwarden SDK refuses plain ``http://`` URLs, so self-hosted servers
+    must use HTTPS. The host is lowercased, and a default port and a trailing
+    slash are dropped, so one server has one spelling.
+    """
+    if value in BITWARDEN_CLOUD_REGIONS:
+        return value
+    if any(c.isspace() or not c.isprintable() for c in value):
+        raise ValueError("server URL must not contain whitespace")
+    parts = urlsplit(value)
+    if parts.scheme != "https" or not parts.hostname:
+        raise ValueError(
+            "server must be 'us', 'eu', or the https:// base URL of a"
+            " self-hosted Bitwarden server"
+        )
+    if "?" in value or "#" in value or "@" in parts.netloc:
+        raise ValueError("server URL must not carry credentials, a query or a fragment")
+    # To Python a backslash is part of the host; to the SDK's URL parser it
+    # ends the host. The address checked would not be the one dialled.
+    if "\\" in value or not _BITWARDEN_HOSTNAME.fullmatch(parts.hostname):
+        raise ValueError("server URL must name a DNS hostname or an IPv4 address")
+    port = parts.port
+    netloc = parts.hostname if port in (None, 443) else f"{parts.hostname}:{port}"
+    return urlunsplit(("https", netloc, parts.path.rstrip("/"), "", ""))
+
+
+BitwardenServer = Annotated[
+    str,
+    StringConstraints(min_length=2, max_length=2048),
+    AfterValidator(_check_bitwarden_server),
+]
+
+
+class BitwardenSecretsManagerStoreConfig(BaseModel):
+    """Persisted provider configuration for a Bitwarden Secrets Manager store.
+
+    The machine-account access token is not part of the config; it is stored
+    encrypted in the store's ``encrypted_access_token`` column.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    provider: Literal[SecretStoreProvider.BITWARDEN_SECRETS_MANAGER] = (
+        SecretStoreProvider.BITWARDEN_SECRETS_MANAGER
+    )
+    server: BitwardenServer
+    organization_id: UUID
+
+
+class BitwardenSecretsManagerStoreCreate(BaseModel):
+    """Client-supplied fields when creating a Bitwarden Secrets Manager store."""
+
+    provider: Literal[SecretStoreProvider.BITWARDEN_SECRETS_MANAGER]
+    server: BitwardenServer
+    organization_id: UUID
+
+
+class BitwardenSecretsManagerStoreUpdate(BaseModel):
+    """Client-supplied fields when updating a Bitwarden Secrets Manager store."""
+
+    provider: Literal[SecretStoreProvider.BITWARDEN_SECRETS_MANAGER]
+    server: BitwardenServer | None = None
+    organization_id: UUID | None = None
+
+
+def _config_provider(value: Any) -> str:
+    """Discriminate store configs; configs without ``provider`` predate it (AWS)."""
+    if isinstance(value, dict):
+        return str(value.get("provider") or SecretStoreProvider.AWS_SECRETS_MANAGER)
+    # Pydantic may hand the discriminator an already-built model of any of the
+    # union's config types; getattr reads `provider` from whichever it is.
+    return str(getattr(value, "provider", SecretStoreProvider.AWS_SECRETS_MANAGER))
+
+
+SecretStoreConfig = Annotated[
+    Annotated[
+        AwsSecretsManagerStoreConfig, Tag(SecretStoreProvider.AWS_SECRETS_MANAGER)
+    ]
+    | Annotated[
+        BitwardenSecretsManagerStoreConfig,
+        Tag(SecretStoreProvider.BITWARDEN_SECRETS_MANAGER),
+    ],
+    Discriminator(_config_provider),
+]
+SecretStoreCreateConfig = Annotated[
+    Annotated[
+        AwsSecretsManagerStoreCreate, Tag(SecretStoreProvider.AWS_SECRETS_MANAGER)
+    ]
+    | Annotated[
+        BitwardenSecretsManagerStoreCreate,
+        Tag(SecretStoreProvider.BITWARDEN_SECRETS_MANAGER),
+    ],
+    Discriminator(_config_provider),
+]
+SecretStoreUpdateConfig = Annotated[
+    Annotated[
+        AwsSecretsManagerStoreUpdate, Tag(SecretStoreProvider.AWS_SECRETS_MANAGER)
+    ]
+    | Annotated[
+        BitwardenSecretsManagerStoreUpdate,
+        Tag(SecretStoreProvider.BITWARDEN_SECRETS_MANAGER),
+    ],
+    Discriminator(_config_provider),
+]
+
+_STORE_CONFIG_ADAPTER: TypeAdapter[SecretStoreConfig] = TypeAdapter(SecretStoreConfig)
+
+
+def parse_secret_store_config(
+    raw: Any, *, provider: SecretStoreProvider | str | None = None
+) -> SecretStoreConfig:
+    """Validate a persisted store config blob into its provider's model.
+
+    With ``provider``, also refuse a blob whose own provider differs, so a
+    backend never receives another provider's config.
+    """
+    config = _STORE_CONFIG_ADAPTER.validate_python(raw)
+    if provider is not None and config.provider != provider:
+        raise ValueError(
+            f"Secret store config is for {config.provider}, not {provider}."
+        )
+    return config
 
 
 class SecretStoreCreate(BaseModel):
@@ -509,6 +646,24 @@ class SecretStoreCreate(BaseModel):
     all_workspaces: bool = Field(
         default=False, description="Allow all current and future workspaces."
     )
+    # Its length is checked by the service: a validation error here would
+    # echo the token back in the 422 response.
+    access_token: SecretStr | None = Field(
+        default=None,
+        description="Access token, for providers that need one. Stored encrypted and never returned.",
+    )
+
+    @field_validator("config")
+    @classmethod
+    def config_matches_provider(
+        cls, config: SecretStoreCreateConfig, info: ValidationInfo
+    ) -> SecretStoreCreateConfig:
+        # A field error, not a model error: a model error's 422 response
+        # carries the whole request body, access token included.
+        provider = info.data.get("provider")
+        if provider is not None and config.provider != provider:
+            raise ValueError("config.provider must match provider")
+        return config
 
 
 class SecretStoreUpdate(BaseModel):
@@ -521,11 +676,17 @@ class SecretStoreUpdate(BaseModel):
     all_workspaces: bool = Field(
         default=False, description="Allow all current and future workspaces."
     )
+    access_token: SecretStr | None = Field(
+        default=None,
+        description="Replace the access token. Omit to leave it unchanged. Never returned.",
+    )
 
-    @field_validator("name", "enabled")
+    @field_validator("name", "enabled", "access_token")
     @classmethod
-    def reject_explicit_null(cls, value: str | bool | None) -> str | bool | None:
-        # Omit the field to leave it unchanged; the columns are NOT NULL.
+    def reject_explicit_null(
+        cls, value: str | bool | SecretStr | None
+    ) -> str | bool | SecretStr | None:
+        # Omit the field to leave it unchanged.
         if value is None:
             raise ValueError("must not be null")
         return value
@@ -549,6 +710,10 @@ class SecretStoreRead(BaseModel):
     config: SecretStoreConfig
     enabled: bool
     all_workspaces: bool
+    access_token_set: bool = Field(
+        default=False,
+        description="Whether the store has an access token. The token itself is never returned.",
+    )
     tracecat_aws_account_id: str | None = None
     tracecat_aws_principal_arn: str | None = None
     aws_partition: str | None = Field(
@@ -573,7 +738,7 @@ class SecretStoreRead(BaseModel):
         tracecat_aws_account_id: str | None,
         tracecat_aws_principal_arn: str | None,
     ) -> SecretStoreRead:
-        config = SecretStoreConfig.model_validate(obj.config)
+        config = parse_secret_store_config(obj.config)
         return SecretStoreRead(
             id=obj.id,
             organization_id=obj.organization_id,
@@ -583,9 +748,14 @@ class SecretStoreRead(BaseModel):
             config=config,
             enabled=obj.enabled,
             all_workspaces=obj.all_workspaces,
+            access_token_set=obj.encrypted_access_token is not None,
             tracecat_aws_account_id=tracecat_aws_account_id,
             tracecat_aws_principal_arn=tracecat_aws_principal_arn,
-            aws_partition=aws_partition_for_region(config.region),
+            aws_partition=(
+                aws_partition_for_region(config.region)
+                if isinstance(config, AwsSecretsManagerStoreConfig)
+                else None
+            ),
             authorized_workspace_ids=authorized_workspace_ids,
             reference_count=sum(u.secret_count for u in workspace_usage),
             workspace_usage=workspace_usage,
@@ -641,23 +811,33 @@ class WorkspaceSecretStoreRead(BaseModel):
     name: str
     description: str | None = None
     provider: SecretStoreProvider
-    region: str
+    region: str | None = Field(
+        default=None, description="AWS region of the store. Set for AWS stores only."
+    )
     enabled: bool
 
     @staticmethod
     def from_database(obj: OrganizationSecretStore) -> WorkspaceSecretStoreRead:
+        config = parse_secret_store_config(obj.config)
         return WorkspaceSecretStoreRead(
             id=obj.id,
             name=obj.name,
             description=obj.description,
             provider=SecretStoreProvider(obj.provider),
-            region=SecretStoreConfig.model_validate(obj.config).region,
+            region=(
+                config.region
+                if isinstance(config, AwsSecretsManagerStoreConfig)
+                else None
+            ),
             enabled=obj.enabled,
         )
 
 
-class AwsSecretReferenceCreate(BaseModel):
-    """Create a workspace custom secret backed by AWS Secrets Manager."""
+class SecretReferenceCreate(BaseModel):
+    """Create a workspace custom secret backed by an external store.
+
+    The store's provider validates ``remote_reference`` when it is saved.
+    """
 
     name: str = Field(..., max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN)
     description: str | None = Field(default=None, min_length=0, max_length=255)
@@ -666,12 +846,12 @@ class AwsSecretReferenceCreate(BaseModel):
     )
     tags: dict[str, str] | None = None
     store_id: UUID
-    remote_reference: str = Field(..., pattern=AWS_SECRET_ID_PATTERN, max_length=2048)
-    key_mapping: AwsSecretKeyMapping
+    remote_reference: str = Field(..., min_length=1, max_length=2048)
+    key_mapping: SecretKeyMapping
 
 
-class AwsSecretReferenceUpdate(BaseModel):
-    """Update an AWS-backed workspace secret. Values are never accepted."""
+class SecretReferenceUpdate(BaseModel):
+    """Update an externally backed workspace secret. Values are never accepted."""
 
     name: str | None = Field(
         default=None, max_length=100, pattern=EXPRESSION_SECRET_NAME_PATTERN
@@ -680,10 +860,8 @@ class AwsSecretReferenceUpdate(BaseModel):
     environment: str | None = Field(default=None, min_length=1, max_length=100)
     tags: dict[str, str] | None = None
     store_id: UUID | None = None
-    remote_reference: str | None = Field(
-        default=None, pattern=AWS_SECRET_ID_PATTERN, max_length=2048
-    )
-    key_mapping: AwsSecretKeyMapping | None = None
+    remote_reference: str | None = Field(default=None, min_length=1, max_length=2048)
+    key_mapping: SecretKeyMapping | None = None
 
     @field_validator("name", "environment")
     @classmethod
@@ -692,6 +870,26 @@ class AwsSecretReferenceUpdate(BaseModel):
         if value is None:
             raise ValueError("must not be null")
         return value
+
+
+class AwsSecretReferenceCreate(SecretReferenceCreate):
+    """Create a workspace custom secret backed by AWS Secrets Manager.
+
+    Deprecated: use :class:`SecretReferenceCreate`.
+    """
+
+    remote_reference: str = Field(..., pattern=AWS_SECRET_ID_PATTERN, max_length=2048)
+
+
+class AwsSecretReferenceUpdate(SecretReferenceUpdate):
+    """Update an AWS-backed workspace secret. Values are never accepted.
+
+    Deprecated: use :class:`SecretReferenceUpdate`.
+    """
+
+    remote_reference: str | None = Field(
+        default=None, pattern=AWS_SECRET_ID_PATTERN, max_length=2048
+    )
 
 
 class SecretReferenceCheckRequest(BaseModel):
@@ -705,7 +903,7 @@ class SecretReferenceCheckResult(BaseModel):
     """Outcome of a reference check. Never contains the remote value."""
 
     ok: bool
-    error_code: AwsSecretResolutionErrorCode | None = None
+    error_code: SecretResolutionErrorCode | None = None
     message: str | None = None
     resolved_keys: list[str] = Field(default_factory=list)
 

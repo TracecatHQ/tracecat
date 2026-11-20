@@ -12,27 +12,43 @@ class SecretType(StrEnum):
 
 
 class SecretSource(StrEnum):
-    """Where a workspace secret's values live."""
+    """Where a workspace secret's values live.
+
+    Every external member has the same value as its store's
+    :class:`SecretStoreProvider`, so rows, API responses and synced YAML name
+    the provider.
+    """
 
     LOCAL = "local"
     AWS_SECRETS_MANAGER = "aws_secrets_manager"
+    BITWARDEN_SECRETS_MANAGER = "bitwarden_secrets_manager"
+
+
+def is_external_source(source: str | None) -> bool:
+    """Whether a ``secret.source`` value names an external store provider."""
+    return (source or SecretSource.LOCAL) != SecretSource.LOCAL
 
 
 class SecretStoreProvider(StrEnum):
     """Supported external secret store providers."""
 
     AWS_SECRETS_MANAGER = "aws_secrets_manager"
+    BITWARDEN_SECRETS_MANAGER = "bitwarden_secrets_manager"
 
 
-class AwsSecretMappingMode(StrEnum):
-    """How an AWS Secrets Manager value maps onto declared secret keys."""
+class SecretMappingMode(StrEnum):
+    """How an external secret value maps onto declared secret keys."""
 
     WHOLE_STRING = "whole_string"
     JSON = "json"
 
 
-class AwsSecretResolutionErrorCode(StrEnum):
-    """Sanitized failure classes for AWS Secrets Manager resolution."""
+class SecretResolutionErrorCode(StrEnum):
+    """Sanitized failure classes for external secret resolution.
+
+    Values appear in API responses and the generated client, so existing
+    members are never renamed or merged; providers add codes instead.
+    """
 
     STORE_DISABLED = "store_disabled"
     STORE_NOT_AUTHORIZED = "store_not_authorized"
@@ -49,3 +65,7 @@ class AwsSecretResolutionErrorCode(StrEnum):
     INVALID_MAPPING = "invalid_mapping"
     REGION_MISMATCH = "region_mismatch"
     UNKNOWN = "unknown"
+    AUTH_FAILED = "auth_failed"
+    UNAVAILABLE = "unavailable"
+    INVALID_REFERENCE = "invalid_reference"
+    CREDENTIAL_MISSING = "credential_missing"

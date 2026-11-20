@@ -3,13 +3,13 @@ import userEvent from "@testing-library/user-event"
 import type { PropsWithChildren } from "react"
 import {
   type SecretRead,
-  secretsCheckAwsSecretReference,
-  secretsCreateAwsSecretReference,
+  secretsCheckSecretReference,
+  secretsCreateSecretReference,
   secretsListAuthorizedSecretStores,
   secretsSearchSecrets,
-  secretsUpdateAwsSecretReference,
+  secretsUpdateSecretReference,
 } from "@/client"
-import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
+import { SecretReferenceForm } from "@/components/workspaces/secret-reference-form"
 import { WorkspaceCredentialsInventory } from "@/components/workspaces/workspace-credentials-inventory"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -29,9 +29,9 @@ jest.mock("@/hooks/use-managed-resources", () => ({
 jest.mock("@/client", () => ({
   secretsSearchSecrets: jest.fn(),
   secretsListAuthorizedSecretStores: jest.fn(),
-  secretsUpdateAwsSecretReference: jest.fn(),
-  secretsCreateAwsSecretReference: jest.fn(),
-  secretsCheckAwsSecretReference: jest.fn(),
+  secretsUpdateSecretReference: jest.fn(),
+  secretsCreateSecretReference: jest.fn(),
+  secretsCheckSecretReference: jest.fn(),
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
 jest.mock("@/providers/workspace-id", () => ({
@@ -105,7 +105,7 @@ beforeEach(() => {
     ],
     next_cursor: null,
   })
-  jest.mocked(secretsUpdateAwsSecretReference).mockResolvedValue(undefined)
+  jest.mocked(secretsUpdateSecretReference).mockResolvedValue(undefined)
 })
 
 async function openEditor() {
@@ -145,10 +145,10 @@ test.each(["whole_string", "json"] as const)(
     })
     expect(screen.getByLabelText("Environment")).toHaveValue("staging")
     expect(
-      screen.getByRole("combobox", { name: "AWS secret store" })
+      screen.getByRole("combobox", { name: "Secret store" })
     ).toHaveTextContent("Original store")
     const storeSelect = screen.getByRole("combobox", {
-      name: "AWS secret store",
+      name: "Secret store",
     })
     storeSelect.focus()
     await user.keyboard("{Enter}")
@@ -173,7 +173,7 @@ test.each(["whole_string", "json"] as const)(
     }
     await user.click(screen.getByRole("button", { name: "Save changes" }))
     await waitFor(() =>
-      expect(secretsUpdateAwsSecretReference).toHaveBeenCalledWith({
+      expect(secretsUpdateSecretReference).toHaveBeenCalledWith({
         workspaceId: "example-workspace",
         secretId: "example-secret",
         requestBody: {
@@ -192,14 +192,14 @@ test.each(["whole_string", "json"] as const)(
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
-    expect(secretsCreateAwsSecretReference).not.toHaveBeenCalled()
-    expect(secretsCheckAwsSecretReference).not.toHaveBeenCalled()
+    expect(secretsCreateSecretReference).not.toHaveBeenCalled()
+    expect(secretsCheckSecretReference).not.toHaveBeenCalled()
   }
 )
 
 test("a failed update preserves the edit draft for retry", async () => {
   jest
-    .mocked(secretsUpdateAwsSecretReference)
+    .mocked(secretsUpdateSecretReference)
     .mockRejectedValueOnce(new Error("Update failed"))
   const user = await openEditor()
   await screen.findByDisplayValue("example/old-key")
@@ -210,7 +210,7 @@ test("a failed update preserves the edit draft for retry", async () => {
   )
   await user.click(screen.getByRole("button", { name: "Save changes" }))
   await waitFor(() =>
-    expect(secretsUpdateAwsSecretReference).toHaveBeenCalledTimes(1)
+    expect(secretsUpdateSecretReference).toHaveBeenCalledTimes(1)
   )
   expect(screen.getByLabelText("Secret name or ARN")).toHaveValue(
     "example/corrected-key"
@@ -222,7 +222,7 @@ test("a failed update preserves the edit draft for retry", async () => {
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   )
-  expect(secretsUpdateAwsSecretReference).toHaveBeenCalledTimes(2)
+  expect(secretsUpdateSecretReference).toHaveBeenCalledTimes(2)
 })
 
 test("a metadata load failure does not offer an empty form that could overwrite the reference", async () => {
@@ -232,7 +232,7 @@ test("a metadata load failure does not offer an empty form that could overwrite 
   expect(
     screen.queryByRole("button", { name: "Save changes" })
   ).not.toBeInTheDocument()
-  expect(secretsUpdateAwsSecretReference).not.toHaveBeenCalled()
+  expect(secretsUpdateSecretReference).not.toHaveBeenCalled()
 })
 
 test("the shared form still creates references from credential templates", async () => {
@@ -243,7 +243,7 @@ test("the shared form still creates references from credential templates", async
   })
   render(
     <QueryClientProvider client={client}>
-      <AwsSecretReferenceForm
+      <SecretReferenceForm
         initialName="new_api"
         initialKeys={["TOKEN"]}
         onSaved={onSaved}
@@ -251,7 +251,7 @@ test("the shared form still creates references from credential templates", async
     </QueryClientProvider>
   )
   const storeSelect = await screen.findByRole("combobox", {
-    name: "AWS secret store",
+    name: "Secret store",
   })
   storeSelect.focus()
   await user.keyboard("{Enter}")
@@ -268,7 +268,7 @@ test("the shared form still creates references from credential templates", async
   expect(screen.getByLabelText("Name")).toHaveAttribute("readonly")
   await user.click(screen.getByRole("button", { name: "Save reference" }))
   await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
-  expect(secretsCreateAwsSecretReference).toHaveBeenCalledWith({
+  expect(secretsCreateSecretReference).toHaveBeenCalledWith({
     workspaceId: "example-workspace",
     requestBody: {
       name: "new_api",
@@ -279,5 +279,5 @@ test("the shared form still creates references from credential templates", async
       key_mapping: { mode: "whole_string", keys: ["TOKEN"] },
     },
   })
-  expect(secretsUpdateAwsSecretReference).not.toHaveBeenCalled()
+  expect(secretsUpdateSecretReference).not.toHaveBeenCalled()
 })

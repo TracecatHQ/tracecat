@@ -2,8 +2,6 @@
 
 import {
   type ApiError,
-  type AwsSecretReferenceCreate,
-  type AwsSecretReferenceUpdate,
   organizationSecretStoresAuthorizeSecretStoreWorkspace,
   organizationSecretStoresCreateSecretStore,
   organizationSecretStoresDeleteSecretStore,
@@ -11,14 +9,16 @@ import {
   organizationSecretStoresRevokeSecretStoreWorkspace,
   organizationSecretStoresUpdateSecretStore,
   type SecretReferenceCheckResult,
+  type SecretReferenceCreate,
+  type SecretReferenceUpdate,
   type SecretStoreCreate,
   type SecretStoreRead,
   type SecretStoreUpdate,
-  secretsCheckAwsSecretReference,
-  secretsCreateAwsSecretReference,
+  secretsCheckSecretReference,
+  secretsCreateSecretReference,
   secretsListAuthorizedSecretStores,
   secretsSearchSecrets,
-  secretsUpdateAwsSecretReference,
+  secretsUpdateSecretReference,
   type WorkspaceSecretStoreRead,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -228,8 +228,8 @@ export function useAuthorizedSecretStores(
   return { stores, isLoading, error }
 }
 
-/** Load reference metadata for an editor without fetching values from AWS. */
-export function useAwsSecretReference(
+/** Load reference metadata for an editor without fetching remote values. */
+export function useSecretReference(
   workspaceId: string,
   secretId: string,
   environment: string
@@ -243,8 +243,8 @@ export function useAwsSecretReference(
         environment,
       })
       const secret = secrets.find((item) => item.id === secretId)
-      if (!secret || secret.source !== "aws_secrets_manager") {
-        throw new Error("AWS secret reference not found")
+      if (!secret || !secret.source || secret.source === "local") {
+        throw new Error("External secret reference not found")
       }
       return secret
     },
@@ -254,10 +254,10 @@ export function useAwsSecretReference(
 }
 
 /**
- * Create, update, and check AWS-backed workspace secret references.
+ * Create, update, and check externally backed workspace secret references.
  * These calls send references and key mappings only, never values.
  */
-export function useAwsSecretReferences(workspaceId: string) {
+export function useSecretReferences(workspaceId: string) {
   const queryClient = useQueryClient()
 
   function invalidateSecrets() {
@@ -268,21 +268,22 @@ export function useAwsSecretReferences(workspaceId: string) {
   }
 
   const { mutateAsync: createReference } = useMutation({
-    mutationFn: async (params: AwsSecretReferenceCreate) =>
-      await secretsCreateAwsSecretReference({
+    mutationFn: async (params: SecretReferenceCreate) =>
+      await secretsCreateSecretReference({
         workspaceId,
         requestBody: params,
       }),
     onSuccess: () => {
       toast({
-        title: "Added AWS-backed secret",
-        description: "The reference was saved. Values stay in AWS.",
+        title: "Added external secret reference",
+        description:
+          "The reference was saved. Values stay in the external store.",
       })
       invalidateSecrets()
     },
     onError: (err: ApiError) => {
       toast({
-        title: "Failed to add AWS-backed secret",
+        title: "Failed to add external secret reference",
         description: describeApiError(err),
       })
     },
@@ -294,20 +295,20 @@ export function useAwsSecretReferences(workspaceId: string) {
       params,
     }: {
       secretId: string
-      params: AwsSecretReferenceUpdate
+      params: SecretReferenceUpdate
     }) =>
-      await secretsUpdateAwsSecretReference({
+      await secretsUpdateSecretReference({
         workspaceId,
         secretId,
         requestBody: params,
       }),
     onSuccess: () => {
-      toast({ title: "Updated AWS-backed secret" })
+      toast({ title: "Updated external secret reference" })
       invalidateSecrets()
     },
     onError: (err: ApiError) => {
       toast({
-        title: "Failed to update AWS-backed secret",
+        title: "Failed to update external secret reference",
         description: describeApiError(err),
       })
     },
@@ -316,7 +317,7 @@ export function useAwsSecretReferences(workspaceId: string) {
   const { mutateAsync: checkReference, isPending: checkReferencePending } =
     useMutation<SecretReferenceCheckResult, ApiError, string>({
       mutationFn: async (secretId: string) =>
-        await secretsCheckAwsSecretReference({ workspaceId, secretId }),
+        await secretsCheckSecretReference({ workspaceId, secretId }),
     })
 
   return {
@@ -331,7 +332,7 @@ const VALIDATION_FIELD_LABELS: Record<string, string> = {
   role_arn: "Role ARN",
   region: "Region",
   name: "Name",
-  remote_reference: "Secret name or ARN",
+  remote_reference: "Secret reference",
   key: "Output key",
   field: "JSON field",
 }

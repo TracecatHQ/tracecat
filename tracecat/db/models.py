@@ -1138,7 +1138,12 @@ class Secret(WorkspaceModel, BaseSecret):
 
 
 class OrganizationSecretStore(OrganizationModel):
-    """Organization-owned external secret store (AWS Secrets Manager)."""
+    """Organization-owned external secret store.
+
+    ``encrypted_access_token`` holds the store's access token, for providers
+    that need one (Bitwarden Secrets Manager). It is write-only: the API only
+    reports whether it is set.
+    """
 
     __tablename__ = "organization_secret_store"
     __table_args__ = (
@@ -1168,6 +1173,9 @@ class OrganizationSecretStore(OrganizationModel):
     )
     all_workspaces: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    encrypted_access_token: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
     )
 
     secrets: Mapped[list[Secret]] = relationship(

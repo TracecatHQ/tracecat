@@ -3,21 +3,34 @@
 import { CheckCheckIcon, CopyIcon } from "lucide-react"
 import React from "react"
 import type {
+  AwsSecretsManagerStoreConfig,
+  BitwardenSecretsManagerStoreConfig,
+  SecretResolutionErrorCode,
+  SecretSource,
   SecretStoreCreate,
   SecretStoreProvider,
   SecretStoreRead,
   SecretStoreUpdate,
+  WorkspaceSecretStoreRead,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
-import { AwsIcon } from "@/components/icons"
+import { AwsIcon, BitwardenIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   EXAMPLE_ROLE_ARN,
   validateAwsRegion,
   validateAwsRoleArn,
+  validateAwsSecretId,
 } from "@/lib/aws-secret-validation"
 import { cn, copyToClipboard } from "@/lib/utils"
 
@@ -62,17 +75,57 @@ export type SecretStoreProviderEntry = {
     }
   >
   validateSetup: (config: CreateConfigState) => CreateConfigErrors
-  toSetupConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
+  /** The update that finishes setup; the caller also enables the store. */
+  toSetupUpdate: (config: CreateConfigState) => SecretStoreUpdate
+  editDescription: string
+  /** Draft edit state for an existing store. */
+  editState: (store: SecretStoreRead) => CreateConfigState
   EditFields: React.ComponentType<ConfigFieldsProps>
   validateEdit: (
     config: CreateConfigState,
     store: SecretStoreRead
   ) => CreateConfigErrors
-  toUpdateConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
+  /** The update an edit sends, apart from the name. */
+  toUpdate: (config: CreateConfigState) => SecretStoreUpdate
   Details: React.ComponentType<{
     store: SecretStoreRead
     usage: React.ReactNode
   }>
+  /** How a workspace secret points at a secret in this store. */
+  reference: SecretReferenceProviderEntry
+}
+
+/** Provider-specific parts of the workspace secret reference form and check. */
+export type SecretReferenceProviderEntry = {
+  /** Label of the remote reference input, e.g. "Secret name or ARN". */
+  label: string
+  description: string
+  placeholder: string
+  /** Explain why a remote reference is malformed, or null when it is valid. */
+  validate: (value: string) => string | null
+  /** Short store detail shown next to its name in pickers, e.g. the region. */
+  storeHint: (store: WorkspaceSecretStoreRead) => string | null
+  /** Fix hints that replace the generic hint for a failed check. */
+  checkHints: Partial<Record<SecretResolutionErrorCode, string>>
+}
+
+/** The store's config, which must be an AWS Secrets Manager config. */
+function awsConfig(store: SecretStoreRead): AwsSecretsManagerStoreConfig {
+  if (store.provider !== "aws_secrets_manager") {
+    throw new Error("Expected an AWS Secrets Manager store")
+  }
+  // The store's provider decides its config's shape.
+  return store.config as AwsSecretsManagerStoreConfig
+}
+
+/** The store's config, which must be a Bitwarden Secrets Manager config. */
+function bitwardenConfig(
+  store: SecretStoreRead
+): BitwardenSecretsManagerStoreConfig {
+  if (store.provider !== "bitwarden_secrets_manager") {
+    throw new Error("Expected a Bitwarden Secrets Manager store")
+  }
+  return store.config as BitwardenSecretsManagerStoreConfig
 }
 
 /**
@@ -91,7 +144,7 @@ function buildStoreTrustPolicy(store: SecretStoreRead): string {
           },
           Action: "sts:AssumeRole",
           Condition: {
-            StringEquals: { "sts:ExternalId": store.config.external_id },
+            StringEquals: { "sts:ExternalId": awsConfig(store).external_id },
           },
         },
       ],
@@ -106,8 +159,9 @@ function buildStoreTrustPolicy(store: SecretStoreRead): string {
  * write, delete, or rotation permissions are requested.
  */
 export function buildStorePermissionPolicy(store: SecretStoreRead): string {
+  const config = awsConfig(store)
   const partition =
-    store.config.role_arn?.split(":")[1] ?? store.aws_partition ?? "aws"
+    config.role_arn?.split(":")[1] ?? store.aws_partition ?? "aws"
   return JSON.stringify(
     {
       Version: "2012-10-17",
@@ -115,7 +169,7 @@ export function buildStorePermissionPolicy(store: SecretStoreRead): string {
         {
           Effect: "Allow",
           Action: ["secretsmanager:GetSecretValue"],
-          Resource: `arn:${partition}:secretsmanager:${store.config.region}:*:secret:*`,
+          Resource: `arn:${partition}:secretsmanager:${config.region}:*:secret:*`,
         },
         {
           Effect: "Allow",
@@ -125,7 +179,7 @@ export function buildStorePermissionPolicy(store: SecretStoreRead): string {
             StringEquals: {
               // KMS ViaService uses amazonaws.com in every partition, including China.
               // https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html#conditions-kms-via-service
-              "kms:ViaService": `secretsmanager.${store.config.region}.amazonaws.com`,
+              "kms:ViaService": `secretsmanager.${config.region}.amazonaws.com`,
             },
           },
         },
@@ -440,12 +494,12 @@ function AwsSecretsManagerDetails({
       <dl className="grid gap-x-8 gap-y-4 border-t pt-4 sm:grid-cols-3">
         <DetailItem
           label="Role ARN"
-          value={store.config.role_arn}
+          value={awsConfig(store).role_arn}
           copyLabel="role ARN"
         />
         <DetailItem
           label="External ID"
-          value={store.config.external_id}
+          value={awsConfig(store).external_id}
           copyLabel="external ID"
         />
         <div className="min-w-0 space-y-1">
@@ -455,6 +509,281 @@ function AwsSecretsManagerDetails({
       </dl>
     </>
   )
+}
+
+const BITWARDEN_CLOUD_SERVERS: Record<string, string> = {
+  us: "US cloud (bitwarden.com)",
+  eu: "EU cloud (bitwarden.eu)",
+}
+const SELF_HOSTED = "self_hosted"
+// Bitwarden shows and returns secret IDs in lowercase, and secrets are matched
+// by it. Organization IDs are normalized by the backend, so any case is fine.
+const SECRET_ID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const ORGANIZATION_ID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const EXAMPLE_UUID = "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
+
+/** Explain why a value is not a Bitwarden secret ID. */
+export function validateBitwardenSecretId(value: string): string | null {
+  return SECRET_ID_REGEX.test(value.trim())
+    ? null
+    : `Enter the secret ID in lowercase, e.g. ${EXAMPLE_UUID}`
+}
+
+/** Explain why a value is not a Bitwarden organization ID. */
+export function validateBitwardenOrganizationId(value: string): string | null {
+  return ORGANIZATION_ID_REGEX.test(value.trim())
+    ? null
+    : `Enter the organization ID, e.g. ${EXAMPLE_UUID}`
+}
+
+/** Explain why a self-hosted server address is not one the backend accepts. */
+export function validateBitwardenServer(
+  config: CreateConfigState
+): string | null {
+  const choice = config.server_choice ?? "us"
+  if (choice !== SELF_HOSTED) return null
+  const raw = (config.server_url ?? "").trim()
+  const example = "e.g. https://vault.example.com"
+  if (/[?#@\\\s]/.test(raw)) {
+    return `Enter only the server's base address, without credentials, a query or a fragment, ${example}`
+  }
+  try {
+    const url = new URL(raw)
+    return url.protocol === "https:" && url.hostname
+      ? null
+      : `Enter the https:// address of your Bitwarden server, ${example}`
+  } catch {
+    return `Enter the https:// address of your Bitwarden server, ${example}`
+  }
+}
+
+function bitwardenServer(config: CreateConfigState): string {
+  const choice = config.server_choice ?? "us"
+  return choice === SELF_HOSTED
+    ? (config.server_url ?? "").trim().replace(/\/+$/, "")
+    : choice
+}
+
+function describeBitwardenServer(server: string): string {
+  return BITWARDEN_CLOUD_SERVERS[server] ?? server
+}
+
+function BitwardenServerFields({
+  config,
+  onChange,
+  errors,
+}: ConfigFieldsProps) {
+  const choice = config.server_choice ?? "us"
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="bitwarden-server">Server</Label>
+        <Select
+          value={choice}
+          onValueChange={(server_choice) =>
+            onChange({ ...config, server_choice })
+          }
+        >
+          <SelectTrigger id="bitwarden-server">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(BITWARDEN_CLOUD_SERVERS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+            <SelectItem value={SELF_HOSTED}>Self-hosted</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {choice === SELF_HOSTED && (
+        <div className="space-y-2">
+          <Label htmlFor="bitwarden-server-url">Server address</Label>
+          <Input
+            id="bitwarden-server-url"
+            value={config.server_url ?? ""}
+            onChange={(e) =>
+              onChange({ ...config, server_url: e.target.value })
+            }
+            placeholder="https://vault.example.com"
+            aria-invalid={Boolean(errors.server_url)}
+            aria-describedby={
+              errors.server_url ? "bitwarden-server-url-error" : undefined
+            }
+          />
+          {errors.server_url && (
+            <p
+              id="bitwarden-server-url-error"
+              className="text-xs text-destructive"
+            >
+              {errors.server_url}
+            </p>
+          )}
+        </div>
+      )}
+      <div className="space-y-2">
+        <Label htmlFor="bitwarden-organization-id">Organization ID</Label>
+        <Input
+          id="bitwarden-organization-id"
+          value={config.organization_id ?? ""}
+          onChange={(e) =>
+            onChange({ ...config, organization_id: e.target.value })
+          }
+          placeholder={EXAMPLE_UUID}
+          aria-invalid={Boolean(errors.organization_id)}
+          aria-describedby={
+            errors.organization_id
+              ? "bitwarden-organization-id-error"
+              : "bitwarden-organization-id-hint"
+          }
+        />
+        <p
+          id="bitwarden-organization-id-hint"
+          className="text-xs text-muted-foreground"
+        >
+          Shown in the Secrets Manager URL and under organization settings in
+          Bitwarden.
+        </p>
+        {errors.organization_id && (
+          <p
+            id="bitwarden-organization-id-error"
+            className="text-xs text-destructive"
+          >
+            {errors.organization_id}
+          </p>
+        )}
+      </div>
+    </>
+  )
+}
+
+function AccessTokenField({ config, onChange, errors }: ConfigFieldsProps) {
+  // Set by editState: a token is stored, and an empty field keeps it.
+  const replacing = config.access_token_set === "true"
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="bitwarden-access-token">
+        {replacing ? "Replace access token" : "Access token"}
+      </Label>
+      <Input
+        id="bitwarden-access-token"
+        type="password"
+        autoComplete="off"
+        value={config.access_token ?? ""}
+        onChange={(e) => onChange({ ...config, access_token: e.target.value })}
+        placeholder={replacing ? "Leave empty to keep the current token" : ""}
+        aria-invalid={Boolean(errors.access_token)}
+        aria-describedby={
+          errors.access_token
+            ? "bitwarden-access-token-error"
+            : "bitwarden-access-token-hint"
+        }
+      />
+      <p
+        id="bitwarden-access-token-hint"
+        className="text-xs text-muted-foreground"
+      >
+        Stored encrypted in Tracecat and never shown again. It is only read when
+        a workflow resolves a secret.
+      </p>
+      {errors.access_token && (
+        <p
+          id="bitwarden-access-token-error"
+          className="text-xs text-destructive"
+        >
+          {errors.access_token}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function BitwardenSecretsManagerSetupFields({
+  config,
+  onChange,
+  errors,
+  canEdit,
+}: ConfigFieldsProps & {
+  store: SecretStoreRead
+  canEdit: boolean | undefined
+}) {
+  return (
+    <>
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+        <li>
+          In Bitwarden Secrets Manager, create a machine account and give it
+          read access to the projects whose secrets Tracecat should use.
+        </li>
+        <li>Create an access token for the machine account.</li>
+        <li>Paste the token below.</li>
+      </ol>
+      {canEdit === true && (
+        <AccessTokenField config={config} onChange={onChange} errors={errors} />
+      )}
+      {canEdit === false && (
+        <p className="text-xs text-muted-foreground">
+          You need permission to update secret stores to set the access token.
+          Share these steps with an organization admin to finish setup.
+        </p>
+      )}
+    </>
+  )
+}
+
+function BitwardenSecretsManagerEditFields(props: ConfigFieldsProps) {
+  return (
+    <>
+      <BitwardenServerFields {...props} />
+      <AccessTokenField {...props} />
+    </>
+  )
+}
+
+function BitwardenSecretsManagerDetails({
+  store,
+  usage,
+}: {
+  store: SecretStoreRead
+  usage: React.ReactNode
+}) {
+  const config = bitwardenConfig(store)
+  return (
+    <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-3">
+      <div className="min-w-0 space-y-1">
+        <dt className="text-xs font-medium">Server</dt>
+        <dd className="break-all text-xs text-muted-foreground">
+          {describeBitwardenServer(config.server)}
+        </dd>
+      </div>
+      <DetailItem
+        label="Organization ID"
+        value={config.organization_id}
+        copyLabel="organization ID"
+      />
+      <div className="min-w-0 space-y-1">
+        <dt className="text-xs font-medium">Access token</dt>
+        <dd className="text-xs text-muted-foreground">
+          {store.access_token_set ? "Set" : "Not set"}
+        </dd>
+      </div>
+      <div className="min-w-0 space-y-1">
+        <dt className="text-xs font-medium">Used by</dt>
+        <dd>{usage}</dd>
+      </div>
+    </dl>
+  )
+}
+
+function bitwardenServerErrors(config: CreateConfigState): CreateConfigErrors {
+  return compactErrors({
+    server_url: validateBitwardenServer(config),
+    organization_id: validateBitwardenOrganizationId(
+      config.organization_id ?? ""
+    ),
+  })
 }
 
 /** Provider-specific rendering and payload building, keyed by provider. */
@@ -467,7 +796,7 @@ export const SECRET_STORE_PROVIDERS: Record<
     method: "IAM role with an external ID",
     locationLabel: "Region",
     Icon: ({ className }) => <AwsIcon className={className} />,
-    summary: (store) => store.config.region,
+    summary: (store) => awsConfig(store).region,
     createTitle: "Add AWS Secrets Manager store",
     createDescription:
       "Enter a name and the region that holds your secrets. Saving generates the external ID and trust policy.",
@@ -481,25 +810,157 @@ export const SECRET_STORE_PROVIDERS: Record<
     setupTitle: "Connect the AWS role",
     setupDescription:
       "Create an IAM role in AWS with these policies, then enter its ARN.",
-    isSetupComplete: (store) => Boolean(store.config.role_arn),
+    isSetupComplete: (store) => Boolean(awsConfig(store).role_arn),
     SetupFields: AwsSecretsManagerSetupFields,
     validateSetup: (config) =>
       compactErrors({ role_arn: validateAwsRoleArn(config.role_arn ?? "") }),
-    toSetupConfig: (config) => ({ role_arn: (config.role_arn ?? "").trim() }),
+    toSetupUpdate: (config) => ({
+      config: {
+        provider: "aws_secrets_manager",
+        role_arn: (config.role_arn ?? "").trim(),
+      },
+    }),
+    editDescription:
+      "Update the store connection. The external ID stays the same, so the trust policy keeps working.",
+    editState: (store) => ({
+      role_arn: awsConfig(store).role_arn ?? "",
+      region: awsConfig(store).region,
+    }),
     EditFields: AwsSecretsManagerEditFields,
     validateEdit: (config, store) =>
       compactErrors({
         // A store still in setup may keep an empty role ARN.
         role_arn:
-          store.config.role_arn || config.role_arn?.trim()
+          awsConfig(store).role_arn || config.role_arn?.trim()
             ? validateAwsRoleArn(config.role_arn ?? "")
             : null,
         region: validateAwsRegion(config.region ?? ""),
       }),
-    toUpdateConfig: (config) => ({
-      role_arn: config.role_arn?.trim() || undefined,
-      region: (config.region ?? "").trim(),
+    toUpdate: (config) => ({
+      config: {
+        provider: "aws_secrets_manager",
+        role_arn: config.role_arn?.trim() || undefined,
+        region: (config.region ?? "").trim(),
+      },
     }),
     Details: AwsSecretsManagerDetails,
+    reference: {
+      label: "Secret name or ARN",
+      description:
+        "The secret name as shown in the AWS console (looked up in the store's region) or its full ARN.",
+      placeholder: "prod/app/api-key",
+      validate: validateAwsSecretId,
+      storeHint: (store) => store.region ?? null,
+      checkHints: {
+        assume_role_failed:
+          "Tracecat could not assume the store's IAM role. Check that the role's trust policy allows the Tracecat principal and includes the store's external ID.",
+        access_denied:
+          "The store's IAM role cannot read this secret. Allow secretsmanager:GetSecretValue on the secret, and kms:Decrypt if it uses a customer managed key.",
+        not_found:
+          "No secret with this name or ARN exists in the store's region. Check the spelling and region.",
+        decryption_failed:
+          "AWS could not decrypt the secret. Allow kms:Decrypt on the secret's KMS key for the store's IAM role.",
+        throttled: "AWS throttled the request. Try again in a moment.",
+        timeout: "AWS did not respond in time. Try again in a moment.",
+        binary_value:
+          "The secret stores a binary value. Only text (SecretString) values are supported.",
+        invalid_mapping:
+          "AWS rejected the request. The secret may be scheduled for deletion, or the name or ARN is invalid.",
+        region_mismatch:
+          "The secret ARN is in a different region than the store. Use a secret from the store's region.",
+      },
+    },
   },
+  bitwarden_secrets_manager: {
+    label: "Bitwarden Secrets Manager",
+    method: "Machine account access token",
+    locationLabel: "Server",
+    Icon: ({ className }) => <BitwardenIcon className={className} />,
+    summary: (store) => describeBitwardenServer(bitwardenConfig(store).server),
+    createTitle: "Add Bitwarden Secrets Manager store",
+    createDescription:
+      "Enter a name, your Bitwarden server and the organization that holds your secrets. You add the access token next.",
+    CreateFields: BitwardenServerFields,
+    validateCreate: bitwardenServerErrors,
+    toCreateConfig: (config) => ({
+      provider: "bitwarden_secrets_manager",
+      server: bitwardenServer(config),
+      organization_id: (config.organization_id ?? "").trim(),
+    }),
+    setupTitle: "Add the access token",
+    setupDescription:
+      "Tracecat reads secrets with a Bitwarden machine account. Paste its access token here.",
+    isSetupComplete: (store) => Boolean(store.access_token_set),
+    SetupFields: BitwardenSecretsManagerSetupFields,
+    validateSetup: (config) =>
+      compactErrors({
+        access_token: config.access_token?.trim()
+          ? null
+          : "Paste the machine account's access token.",
+      }),
+    toSetupUpdate: (config) => ({
+      access_token: (config.access_token ?? "").trim(),
+    }),
+    editDescription:
+      "Update the store connection. The server and organization cannot change while secrets reference this store.",
+    editState: (store) => {
+      const { server, organization_id } = bitwardenConfig(store)
+      const cloud = server in BITWARDEN_CLOUD_SERVERS
+      return {
+        server_choice: cloud ? server : SELF_HOSTED,
+        server_url: cloud ? "" : server,
+        organization_id,
+        access_token: "",
+        access_token_set: store.access_token_set ? "true" : "",
+      }
+    },
+    EditFields: BitwardenSecretsManagerEditFields,
+    validateEdit: (config) => bitwardenServerErrors(config),
+    toUpdate: (config) => ({
+      config: {
+        provider: "bitwarden_secrets_manager",
+        server: bitwardenServer(config),
+        organization_id: (config.organization_id ?? "").trim(),
+      },
+      // An empty field keeps the stored token.
+      ...(config.access_token?.trim()
+        ? { access_token: config.access_token.trim() }
+        : {}),
+    }),
+    Details: BitwardenSecretsManagerDetails,
+    reference: {
+      label: "Secret ID",
+      description:
+        "The secret's ID, shown in Bitwarden Secrets Manager next to the secret.",
+      placeholder: EXAMPLE_UUID,
+      validate: validateBitwardenSecretId,
+      storeHint: () => null,
+      checkHints: {
+        auth_failed:
+          "Bitwarden rejected the access token. Check that the machine account's token is current, and replace it in the store if not.",
+        not_found:
+          "Bitwarden found no secret with this ID that the machine account can read. Check the ID, and that the machine account can read the secret's project.",
+        access_denied:
+          "Bitwarden denied the read, or the secret belongs to another organization than the store. Check that the machine account can read the secret's project, and that the secret is in the store's organization.",
+        invalid_reference:
+          "Bitwarden rejected the secret ID. Copy the ID again from Bitwarden Secrets Manager.",
+        unavailable:
+          "Bitwarden could not be reached, or a self-hosted server no longer resolves to a public address. Try again in a moment.",
+        throttled: "Bitwarden rate-limited the request. Try again in a moment.",
+        timeout: "Bitwarden did not respond in time. Try again in a moment.",
+        credential_missing:
+          "The store has no usable access token. Ask an organization admin to add or replace it.",
+        unknown:
+          "Bitwarden returned an error Tracecat does not recognize. Try again; if it persists, check the Bitwarden server's status.",
+      },
+    },
+  },
+}
+
+/** The provider entry for a secret's `source`, or null for local secrets. */
+export function providerForSource(
+  source: SecretSource | null | undefined
+): SecretStoreProviderEntry | null {
+  if (!source || source === "local") return null
+  return SECRET_STORE_PROVIDERS[source as SecretStoreProvider] ?? null
 }
