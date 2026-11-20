@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
@@ -60,6 +61,7 @@ from tracecat.cases.text_search import (
     CaseTextQuery,
     build_case_text_expressions,
     case_search_execution_context,
+    case_substring_match,
     get_case_search_excerpts,
     parse_case_text_query,
     validate_case_text_lexemes,
@@ -80,6 +82,10 @@ if TYPE_CHECKING:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+# Every short ID is this prefix and zero-padded digits, such as CASE-0042.
+_SHORT_ID_PREFIX = "CASE-"
+# A suffix of the prefix (or none), then digits: the tail of a short ID.
+_SHORT_ID_FRAGMENT = re.compile(r"(?:(?:CASE|ASE|SE|E)?-)?[0-9]+", re.IGNORECASE)
 
 
 def parse_case_short_id(value: str) -> int | None:
@@ -138,26 +144,43 @@ def _require_resolved_view(query: CaseQuery) -> None:
         raise ValueError("Resolve view_id with CaseViewsService before searching")
 
 
+def _may_occur_in_short_id(term: str) -> bool:
+    """Return whether ``term`` can be a case-insensitive part of ``CASE-0042``.
+
+    A short ID is ``CASE-`` followed by digits, so a substring of one is part
+    of ``CASE-``, or a suffix of ``CASE-`` followed by digits.
+    """
+    return (
+        term.upper() in _SHORT_ID_PREFIX
+        or _SHORT_ID_FRAGMENT.fullmatch(term) is not None
+    )
+
+
 def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
     """Build literal text and exact-ID predicates independent of boolean filters."""
     filters: list[ColumnElement[bool]] = []
     if query.case_id is not None:
         filters.append(Case.id == query.case_id)
     if query.search_term and query.search_mode is None:
-        case_number_text = cast(Case.case_number, sa.String)
-        short_id_expr = func.concat(
-            "CASE-",
-            func.lpad(
-                case_number_text,
-                func.greatest(4, func.length(case_number_text)),
-                "0",
-            ),
-        )
-        search_conditions: list[Any] = [
-            Case.summary.icontains(query.search_term, autoescape=True, escape="\\"),
-            Case.description.icontains(query.search_term, autoescape=True, escape="\\"),
-            short_id_expr.icontains(query.search_term, autoescape=True, escape="\\"),
-        ]
+        term = query.search_term
+        # Same matches as ILIKE on each field. From three characters they are
+        # found through the trigram indexes instead of reading the workspace.
+        search_conditions: list[Any] = [case_substring_match(term)]
+        # The formatted short ID has no index. Leaving it out when it cannot
+        # match keeps the OR above fully index-backed for ordinary words.
+        if _may_occur_in_short_id(term):
+            case_number_text = cast(Case.case_number, sa.String)
+            short_id_expr = func.concat(
+                _SHORT_ID_PREFIX,
+                func.lpad(
+                    case_number_text,
+                    func.greatest(4, func.length(case_number_text)),
+                    "0",
+                ),
+            )
+            search_conditions.append(
+                short_id_expr.icontains(term, autoescape=True, escape="\\")
+            )
         case_number = parse_case_short_id(query.search_term)
         if case_number is not None and case_number <= MAX_CASE_NUMBER:
             search_conditions.append(Case.case_number == case_number)

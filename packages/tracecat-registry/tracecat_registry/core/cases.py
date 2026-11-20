@@ -880,7 +880,10 @@ async def search_cases(
         list[str] | None, Doc("Include requested custom field values.")
     ] = None,
     include_durations: Annotated[bool, Doc("Include duration values.")] = False,
-    include_count: Annotated[bool, Doc("Include exact total_estimate.")] = True,
+    include_count: Annotated[
+        bool,
+        Doc("Include exact total_estimate. Only returned when paginate is true."),
+    ] = True,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -963,7 +966,9 @@ async def search_cases(
         params["include_durations"] = True
     if include_payload:
         params["include_payload"] = True
-    if not include_count:
+    # Without paginate only the items are returned, so an exact count would be
+    # computed over every match and discarded.
+    if not include_count or not paginate:
         params["include_count"] = False
     for name, value in (
         ("search_mode", search_mode),
