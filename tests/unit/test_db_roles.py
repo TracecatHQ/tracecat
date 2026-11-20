@@ -106,9 +106,10 @@ def _test_roles(suffix: str) -> RoleNames:
         owner=f"owner_{suffix}",
         dynamic_owner=f"dyn_owner_{suffix}",
         readonly=f"readonly_{suffix}",
-        migrator=f"migrator_{suffix}",
-        app=f"app_{suffix}",
-        agent_runtime=f"runtime_{suffix}",
+        # Hyphens, as in Entra principal names, need quoting everywhere.
+        migrator=f"migrator-{suffix}",
+        app=f"app-{suffix}",
+        agent_runtime=f"runtime-{suffix}",
     )
 
 
@@ -2550,6 +2551,24 @@ def test_login_option_never_echoes_its_value(
     err = capsys.readouterr().err
     assert "expected one of password, aws_iam, azure_entra" in err
     assert "synthetic-secret" not in err
+
+
+def test_cli_refuses_login_role_names_that_collide(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two roles sharing a name would merge their rights."""
+    monkeypatch.setattr(
+        roles_module,
+        "DEFAULT_ROLES",
+        RoleNames(app="tracecat-app", agent_runtime="tracecat-app"),
+    )
+    assert main(["status"]) == 1
+    assert main(["bootstrap", "--sql"]) == 1
+    assert "more than one Tracecat role is named tracecat-app" in (
+        capsys.readouterr().err
+    )
+    assert roles_module.migrate(RoleNames(migrator="tracecat_owner")) == 1
+    assert "named tracecat_owner" in capsys.readouterr().err
 
 
 def test_password_setup_refuses_new_logins_without_passwords(
