@@ -42,7 +42,9 @@ async def test_org_over_cap_waits_then_is_busy_while_other_org_proceeds() -> Non
     )
 
     assert isinstance(busy_result, TenantBusyError)
-    assert loop.time() - started >= 0.2
+    # It waited before refusing. asyncio may fire the timeout up to one clock
+    # resolution early, so allow slack below the 0.2 s wait.
+    assert loop.time() - started >= 0.15
     assert busy_result.organization_id == busy_org
     assert busy_result.cap == 1
     assert busy_result.retry_after_seconds == TENANT_BUSY_RETRY_AFTER_SECONDS
