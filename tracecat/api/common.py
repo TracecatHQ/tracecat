@@ -24,6 +24,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.admission.pacing import StartRateLimited
 from tracecat.auth.types import Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
@@ -50,6 +51,9 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
     attr.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
     for attr in TemporalSearchAttr
 }
+
+TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS = 5
+"""`Retry-After` seconds sent with a 503 when Temporal can't take a call."""
 
 _TRANSIENT_TEMPORAL_RPC_STATUSES = frozenset(
     {
@@ -213,6 +217,27 @@ async def temporal_rpc_exception_handler(request: Request, exc: Exception) -> Re
                 ),
             }
         },
+        headers={"Retry-After": str(TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS)},
+    )
+
+
+async def start_rate_limited_exception_handler(
+    request: Request, exc: Exception
+) -> Response:
+    """Return 429 with ``Retry-After`` when an org's start rate is exhausted."""
+    if not isinstance(exc, StartRateLimited):
+        raise exc
+    retry_after = exc.retry_after_seconds
+    return ORJSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "detail": {
+                "code": "workflow_start_rate_limited",
+                "message": str(exc),
+                "retry_after_seconds": retry_after,
+            }
+        },
+        headers={"Retry-After": str(retry_after)},
     )
 
 

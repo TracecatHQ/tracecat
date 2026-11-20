@@ -28,6 +28,7 @@ from tracecat_ee.cases.views.service import CaseViewPermissionError
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
+from tracecat.admission.pacing import StartRateLimited
 from tracecat.agent import authoring_context
 from tracecat.agent.common.stream_types import (
     StreamEventType,
@@ -4771,6 +4772,29 @@ async def test_update_case_task_wrong_case(monkeypatch):
             task_id=str(task_id),
             status="completed",
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_run_workflow_rate_limited_is_a_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refusal = StartRateLimited(retry_after=timedelta(seconds=2.2), rate=5, burst=10)
+    management = SimpleNamespace(run_workflow=AsyncMock(side_effect=refusal))
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(management),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.run_workflow)(
+            workspace_id=str(uuid.uuid4()), workflow_id=str(uuid.uuid4())
+        )
+
+    error = json.loads(str(exc_info.value))
+    assert error["type"] == "rate_limited"
+    assert error["retry_after_seconds"] == 3
 
 
 @pytest.mark.anyio

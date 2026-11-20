@@ -713,7 +713,7 @@ class CaseTriggerConsumer:
             return True
         workflow_service = await WorkflowExecutionsService.connect(role=role)
 
-        workflow_service.create_workflow_execution_nowait(
+        await workflow_service.create_workflow_execution_nowait(
             dsl=dsl,
             wf_id=wf_id,
             payload=self._build_case_trigger_payload(case=case, event=event),

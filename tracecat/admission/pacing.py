@@ -1,0 +1,219 @@
+"""Per-organization pacing of workflow starts.
+
+Each start reserves the next slot in its org's schedule (GCRA, one Redis Lua
+call). The first ``burst`` starts go at once; later ones are spaced at the
+org's rate by delaying the run inside Temporal (``start_delay``), so the
+caller holds nothing while it waits. A start whose delay would pass the
+maximum is refused with ``StartRateLimited`` and the caller retries later.
+
+With no rate set, Tracecat doesn't pace and makes no Redis call. If Redis or
+the limit lookup fails, the start goes through at once.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+import time
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import TYPE_CHECKING
+
+from redis.exceptions import RedisError
+
+from tracecat import config
+from tracecat.db.engine import get_async_session_tenant_context_manager
+from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
+from tracecat.tiers.service import TierService
+
+if TYPE_CHECKING:
+    from tracecat.identifiers import OrganizationID
+    from tracecat.tiers.schemas import EffectiveLimits
+
+_RESOURCE = "workflow_starts"
+_REDIS_TIMEOUT_SECONDS = 1.0
+_MICROS_PER_SECOND = 1_000_000
+
+# KEYS[1] = pacing key (holds the org's theoretical arrival time, in µs)
+# ARGV[1] = emission interval (µs), ARGV[2] = burst tolerance (µs),
+# ARGV[3] = maximum delay (µs)
+# Returns {1, delay_us} when reserved, {0, retry_after_us} when refused.
+# Redis TIME keeps every API replica on one clock. Values stay in µs integers
+# (below 2^53) and are written with %.0f so Lua's number formatting keeps
+# every digit.
+_RESERVE_SCRIPT = """
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
+local interval = tonumber(ARGV[1])
+local tolerance = tonumber(ARGV[2])
+local max_delay = tonumber(ARGV[3])
+
+local tat = tonumber(redis.call('GET', KEYS[1]) or now)
+if tat < now then
+    tat = now
+end
+
+local delay = tat - tolerance - now
+if delay < 0 then
+    delay = 0
+end
+if delay > max_delay then
+    return {0, delay - max_delay}
+end
+
+local new_tat = tat + interval
+local ttl_ms = math.ceil((new_tat - now) / 1000) + 1000
+redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', ttl_ms)
+return {1, delay}
+"""
+
+
+class StartRateLimited(Exception):
+    """A workflow start was refused: the org's start rate is exhausted."""
+
+    def __init__(self, *, retry_after: timedelta, rate: int, burst: int) -> None:
+        self.retry_after = retry_after
+        self.rate = rate
+        self.burst = burst
+        super().__init__(
+            "Workflow start rate limit reached "
+            f"({rate} per second, burst {burst}). "
+            f"Retry after {self.retry_after_seconds} seconds."
+        )
+
+    @property
+    def retry_after_seconds(self) -> int:
+        """Whole seconds for a ``Retry-After`` header (at least 1)."""
+        return max(1, math.ceil(self.retry_after.total_seconds()))
+
+
+@dataclass(frozen=True, slots=True)
+class StartRate:
+    """An org's start rate: ``per_second`` steady, ``burst`` at once."""
+
+    per_second: int
+    burst: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CachedRate:
+    expires_at: float
+    rate: StartRate | None
+
+
+_rate_cache: dict[OrganizationID, _CachedRate] = {}
+
+
+def start_rate_from_limits(limits: EffectiveLimits) -> StartRate | None:
+    """Build the start rate from tier limits; ``None`` means unpaced.
+
+    ``api_rate_limit`` is starts per second. ``api_burst_capacity`` defaults
+    to one second of starts when unset.
+    """
+    per_second = limits.api_rate_limit
+    if per_second is None:
+        return None
+    if per_second <= 0:
+        logger.warning(
+            "Ignoring a non-positive workflow start rate", api_rate_limit=per_second
+        )
+        return None
+    burst = limits.api_burst_capacity
+    if burst is None or burst <= 0:
+        burst = per_second
+    return StartRate(per_second=per_second, burst=burst)
+
+
+async def resolve_start_rate(org_id: OrganizationID) -> StartRate | None:
+    """Return the org's start rate, cached in process; ``None`` means unpaced."""
+    if not config.TRACECAT__EE_MULTI_TENANT:
+        return None
+    now = time.monotonic()
+    if (cached := _rate_cache.get(org_id)) is not None and cached.expires_at > now:
+        return cached.rate
+    try:
+        async with get_async_session_tenant_context_manager(
+            organization_id=org_id
+        ) as session:
+            limits = await TierService(session).get_effective_limits(org_id)
+    except Exception as e:
+        logger.warning(
+            "concurrency.fail_open",
+            resource=_RESOURCE,
+            org_id=str(org_id),
+            reason="limit_lookup_failed",
+            error_type=type(e).__name__,
+        )
+        return None
+    rate = start_rate_from_limits(limits)
+    ttl = config.TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS
+    _rate_cache[org_id] = _CachedRate(expires_at=now + ttl, rate=rate)
+    return rate
+
+
+def _pacing_key(org_id: OrganizationID) -> str:
+    return f"concurrency:{org_id}:{_RESOURCE}"
+
+
+class StartPacer:
+    """Paces workflow starts per org."""
+
+    def __init__(self, *, max_delay: timedelta | None = None) -> None:
+        self.max_delay = max_delay or timedelta(
+            seconds=config.TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS
+        )
+
+    async def reserve(self, org_id: OrganizationID) -> timedelta:
+        """Reserve a start slot and return how long the start must wait.
+
+        Raises:
+            StartRateLimited: The delay would pass the maximum delay.
+        """
+        if (rate := await resolve_start_rate(org_id)) is None:
+            return timedelta(0)
+        interval_us = max(1, round(_MICROS_PER_SECOND / rate.per_second))
+        tolerance_us = (rate.burst - 1) * interval_us
+        max_delay_us = int(self.max_delay.total_seconds() * _MICROS_PER_SECOND)
+        try:
+            redis_client = await get_redis_client()
+            client = await redis_client._get_client()
+            script = client.register_script(_RESERVE_SCRIPT)
+            async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
+                reserved, value_us = await script(
+                    keys=[_pacing_key(org_id)],
+                    args=[interval_us, tolerance_us, max_delay_us],
+                )
+        except (RedisError, OSError, TimeoutError) as e:
+            logger.warning(
+                "concurrency.fail_open",
+                resource=_RESOURCE,
+                org_id=str(org_id),
+                reason="redis_unavailable",
+                error_type=type(e).__name__,
+            )
+            return timedelta(0)
+
+        value = timedelta(microseconds=int(value_us))
+        if not int(reserved):
+            logger.warning(
+                "concurrency.start_rate_limited",
+                resource=_RESOURCE,
+                org_id=str(org_id),
+                limit=rate.per_second,
+                burst=rate.burst,
+                retry_after_seconds=value.total_seconds(),
+            )
+            raise StartRateLimited(
+                retry_after=value, rate=rate.per_second, burst=rate.burst
+            )
+        if value:
+            logger.info(
+                "concurrency.start_paced",
+                resource=_RESOURCE,
+                org_id=str(org_id),
+                limit=rate.per_second,
+                burst=rate.burst,
+                delay_seconds=value.total_seconds(),
+            )
+        return value

@@ -1336,6 +1336,25 @@ Applies to workspace, agent preset, preset builder, case and external channel
 (Slack) sessions, including case-comment and MCP preset runs, for organizations
 entitled to non-default backends. Workflow runs keep the built-in backend."""
 
+# === Workflow start pacing === #
+TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS") or 30.0
+)
+"""Longest delay a paced workflow start may wait in Temporal before the start
+is refused with HTTP 429. The per-org rate comes from the tier's
+`api_rate_limit` and `api_burst_capacity`; with no rate set, starts aren't paced."""
+
+TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS") or 30.0
+)
+"""How long the API process caches an org's start rate and burst."""
+
+TEMPORAL__MAX_CACHED_WORKFLOWS = int(
+    os.environ.get("TEMPORAL__MAX_CACHED_WORKFLOWS") or 1000
+)
+"""Workflows the DSL worker keeps cached in memory (Temporal SDK default 1000).
+Lower it to bound worker memory; 0 disables the cache and sticky queues."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)
 """Whether rate limiting is enabled for the executor service."""

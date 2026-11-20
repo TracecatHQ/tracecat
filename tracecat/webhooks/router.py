@@ -1,5 +1,7 @@
 import posixpath
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from itertools import batched
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
@@ -18,6 +20,7 @@ from fastapi.responses import JSONResponse
 from temporalio.client import WorkflowFailureError
 
 from tracecat import config
+from tracecat.api.common import TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS
 from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
@@ -415,6 +418,28 @@ async def _wrapped_payload(
     return payload
 
 
+@contextmanager
+def _start_timeout_as_503() -> Iterator[None]:
+    """Answer a timed-out Temporal start with 503 and ``Retry-After``.
+
+    Transient Temporal RPC errors get the same answer from the app-wide
+    handler.
+    """
+    try:
+        yield
+    except TimeoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "temporal_unavailable",
+                "message": (
+                    "The workflow service is temporarily unavailable. Please retry."
+                ),
+            },
+            headers={"Retry-After": str(TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS)},
+        ) from e
+
+
 async def _incoming_webhook(
     *,
     workflow_id: AnyWorkflowIDPath,
@@ -442,19 +467,20 @@ async def _incoming_webhook(
         one_response = None
         # Slow release to avoid overwhelming the system
         async for p in cooperative(batched(payload, 8), delay=2):
-            one_response = await service.create_workflow_execution_wait_for_start(
-                dsl=dsl_input,
-                wf_id=workflow_id,
-                payload=await _wrap_with_headers(
-                    p, request, include_raw_body=include_raw_body
+            with _start_timeout_as_503():
+                one_response = await service.create_workflow_execution_wait_for_start(
+                    dsl=dsl_input,
+                    wf_id=workflow_id,
+                    payload=await _wrap_with_headers(
+                        p, request, include_raw_body=include_raw_body
+                    )
+                    if include_headers
+                    else p,
+                    trigger_type=TriggerType.WEBHOOK,
+                    registry_lock=RegistryLock.model_validate(defn.registry_lock)
+                    if defn.registry_lock
+                    else None,
                 )
-                if include_headers
-                else p,
-                trigger_type=TriggerType.WEBHOOK,
-                registry_lock=RegistryLock.model_validate(defn.registry_lock)
-                if defn.registry_lock
-                else None,
-            )
         # Currently just return the last response's wf_exec_id
         response = WorkflowExecutionCreateResponse(
             message="Workflow execution created",
@@ -465,19 +491,20 @@ async def _incoming_webhook(
         )
 
     else:
-        response = await service.create_workflow_execution_wait_for_start(
-            dsl=dsl_input,
-            wf_id=workflow_id,
-            payload=await _wrap_with_headers(
-                payload, request, include_raw_body=include_raw_body
+        with _start_timeout_as_503():
+            response = await service.create_workflow_execution_wait_for_start(
+                dsl=dsl_input,
+                wf_id=workflow_id,
+                payload=await _wrap_with_headers(
+                    payload, request, include_raw_body=include_raw_body
+                )
+                if include_headers
+                else payload,
+                trigger_type=TriggerType.WEBHOOK,
+                registry_lock=RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None,
             )
-            if include_headers
-            else payload,
-            trigger_type=TriggerType.WEBHOOK,
-            registry_lock=RegistryLock.model_validate(defn.registry_lock)
-            if defn.registry_lock
-            else None,
-        )
 
     _annotate_webhook_trace(
         wf_id=response["wf_id"],
@@ -640,15 +667,16 @@ async def incoming_webhook_draft(
     )
 
     service = await WorkflowExecutionsService.connect()
-    response = await service.create_draft_workflow_execution_wait_for_start(
-        dsl=draft_ctx.dsl,
-        wf_id=workflow_id,
-        payload=payload,
-        trigger_type=TriggerType.WEBHOOK,
-        registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
-        if draft_ctx.registry_lock
-        else None,
-    )
+    with _start_timeout_as_503():
+        response = await service.create_draft_workflow_execution_wait_for_start(
+            dsl=draft_ctx.dsl,
+            wf_id=workflow_id,
+            payload=payload,
+            trigger_type=TriggerType.WEBHOOK,
+            registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
+            if draft_ctx.registry_lock
+            else None,
+        )
     _annotate_webhook_trace(
         wf_id=response["wf_id"],
         wf_exec_id=response["wf_exec_id"],

@@ -31,6 +31,7 @@ from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
+from tracecat.admission.pacing import StartPacer
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -1514,7 +1515,7 @@ class WorkflowExecutionsService:
         ):
             yield event
 
-    def create_workflow_execution_nowait(
+    async def create_workflow_execution_nowait(
         self,
         dsl: DSLInput,
         *,
@@ -1528,14 +1529,21 @@ class WorkflowExecutionsService:
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
-        Note: This method schedules the workflow execution and returns immediately.
+        Note: This method reserves a paced start slot, schedules the workflow
+        execution and returns without waiting for Temporal.
 
         Args:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
             correlation_id: Optional `TracecatCorrelationId` search attribute value.
+
+        Raises:
+            StartRateLimited: The org's start rate is exhausted.
         """
         wf_exec_id = generate_exec_id(wf_id)
+        # Reserve before returning so a refused start reaches the caller
+        # instead of failing in the background task.
+        start_delay = await self._reserve_start_delay()
         coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -1547,6 +1555,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
             correlation_id=correlation_id,
+            start_delay=start_delay,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1656,7 +1665,7 @@ class WorkflowExecutionsService:
             return "not_started"
         return "started"
 
-    def create_draft_workflow_execution_nowait(
+    async def create_draft_workflow_execution_nowait(
         self,
         dsl: DSLInput,
         *,
@@ -1670,9 +1679,14 @@ class WorkflowExecutionsService:
         """Create a new draft workflow execution.
 
         Draft executions use the draft workflow graph and resolve aliases from draft workflows.
-        This method schedules the workflow execution and returns immediately.
+        This method reserves a paced start slot, schedules the workflow
+        execution and returns without waiting for Temporal.
+
+        Raises:
+            StartRateLimited: The org's start rate is exhausted.
         """
         wf_exec_id = generate_exec_id(wf_id)
+        start_delay = await self._reserve_start_delay()
         coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -1683,6 +1697,7 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
             fixed_action_results=fixed_action_results,
+            start_delay=start_delay,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1817,6 +1832,7 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+        self._apply_start_delay(kwargs, await self._reserve_start_delay())
 
         # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
@@ -1938,6 +1954,27 @@ class WorkflowExecutionsService:
         self.logger.debug("Workflow result", result=result)
         return WorkflowDispatchResponse(wf_id=wf_id, result=result)
 
+    async def _reserve_start_delay(self) -> datetime.timedelta:
+        """Reserve one paced start for the role's org and return its delay."""
+        if self.role is None or self.role.organization_id is None:
+            return datetime.timedelta(0)
+        return await StartPacer().reserve(self.role.organization_id)
+
+    @staticmethod
+    def _apply_start_delay(
+        kwargs: dict[str, Any], start_delay: datetime.timedelta
+    ) -> None:
+        """Delay the run in Temporal without shortening its execution timeout.
+
+        Temporal counts the start delay against the execution timeout, so the
+        timeout grows by the delay and still measures time from the real start.
+        """
+        if not start_delay:
+            return
+        kwargs["start_delay"] = start_delay
+        if (execution_timeout := kwargs.get("execution_timeout")) is not None:
+            kwargs["execution_timeout"] = execution_timeout + start_delay
+
     async def _start_workflow(
         self,
         dsl: DSLInput,
@@ -1951,8 +1988,18 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
         correlation_id: str | None = None,
+        start_delay: datetime.timedelta | None = None,
         **kwargs: Any,
     ) -> None:
+        """Start a DSL workflow run.
+
+        Args:
+            start_delay: A start slot the caller already reserved. When
+                ``None``, this call reserves one.
+
+        Raises:
+            StartRateLimited: The org's start rate is exhausted.
+        """
         if self.role is None:
             raise ValueError("Role is required to dispatch a workflow")
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -1965,6 +2012,10 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+        # Reserve before storing trigger inputs, so a refused start stores nothing.
+        if start_delay is None:
+            start_delay = await self._reserve_start_delay()
+        self._apply_start_delay(kwargs, start_delay)
 
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
