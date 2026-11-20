@@ -743,3 +743,38 @@ async def test_build_grants_only_requested_workflow_tools(monkeypatch):
     assert result.allowed_internal_tools == ["internal.workflows.start"]
     assert set(result.tool_definitions) == {"internal.workflows.start"}
     lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
+
+
+@pytest.mark.anyio
+async def test_build_respects_namespaces_for_workflow_tools(monkeypatch):
+    """A namespace filter narrows workflow tools like any other tool."""
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        agent_activities,
+        "build_agent_tools",
+        AsyncMock(return_value=BuildToolsResult(tools=[], collected_secrets=set())),
+    )
+    lock_service = MagicMock(spec=RegistryLockService)
+    lock_service.resolve_lock_with_bindings = AsyncMock(
+        return_value=RegistryLock(origins={}, actions={})
+    )
+    monkeypatch.setattr(
+        RegistryLockService, "with_session", lambda: _AsyncContext(lock_service)
+    )
+
+    result = await agent_activities.AgentActivities().build_tool_definitions(
+        agent_activities.BuildToolDefsArgs(
+            role=role,
+            tool_filters=ToolFilters(
+                namespaces=["core"], actions=["internal.workflows.start"]
+            ),
+        )
+    )
+
+    assert result.allowed_internal_tools is None
+    assert "internal.workflows.start" not in result.tool_definitions

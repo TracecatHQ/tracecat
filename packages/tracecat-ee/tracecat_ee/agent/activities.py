@@ -420,9 +420,14 @@ class AgentActivities:
 
         # Workflow internal tools are opt-in through the actions list. They are
         # served by the trusted MCP server, not the registry.
+        # A namespace filter narrows them like any other tool.
         requested_actions = list(args.tool_filters.actions or [])
+        namespaces = args.tool_filters.namespaces
         workflow_tools = [
-            name for name in requested_actions if name in WORKFLOW_INTERNAL_TOOL_NAMES
+            name
+            for name in requested_actions
+            if name in WORKFLOW_INTERNAL_TOOL_NAMES
+            and (not namespaces or any(name.startswith(ns) for ns in namespaces))
         ]
         actions_to_build = [
             name
