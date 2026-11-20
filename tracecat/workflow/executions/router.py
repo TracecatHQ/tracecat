@@ -1094,7 +1094,7 @@ async def create_workflow_execution(
     dsl_input = DSLInput(**defn.content)
     try:
         service = await WorkflowExecutionsService.connect(role=role)
-        response = await service.create_workflow_execution_nowait(
+        response = service.create_workflow_execution_nowait(
             correlation_id=correlation_id,
             dsl=dsl_input,
             wf_id=wf_id,
@@ -1179,7 +1179,7 @@ async def create_draft_workflow_execution(
         )
 
     try:
-        response = await service.create_draft_workflow_execution_nowait(
+        response = service.create_draft_workflow_execution_nowait(
             dsl=dsl_input,
             wf_id=wf_id,
             payload=params.inputs,

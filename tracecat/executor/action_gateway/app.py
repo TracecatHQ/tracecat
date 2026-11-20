@@ -17,13 +17,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from sqlalchemy.exc import DBAPIError
 
-from tracecat.admission.pacing import StartRateLimited
 from tracecat.api.common import (
     database_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     serialize_validation_errors,
-    start_rate_limited_exception_handler,
     table_row_exception_handler,
     without_inputs,
 )
@@ -223,8 +221,6 @@ def _add_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
-    # Internal workflow starts (SDK, agents, core.workflow.execute) land here.
-    app.add_exception_handler(StartRateLimited, start_rate_limited_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

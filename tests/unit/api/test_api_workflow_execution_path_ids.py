@@ -477,8 +477,9 @@ async def test_internal_execute_workflow_by_id(
     mock_defn_service = AsyncMock()
     mock_defn_service.get_definition_by_workflow_id.return_value = mock_defn
 
+    # create_workflow_execution_nowait is synchronous, use Mock not AsyncMock
     mock_exec_service = AsyncMock()
-    mock_exec_service.create_workflow_execution_nowait = AsyncMock(
+    mock_exec_service.create_workflow_execution_nowait = Mock(
         return_value={
             "wf_id": workflow_id,
             "wf_exec_id": wf_exec_id,
@@ -541,8 +542,9 @@ async def test_internal_execute_workflow_by_alias(
     mock_defn_service = AsyncMock()
     mock_defn_service.get_definition_by_workflow_id.return_value = mock_defn
 
+    # create_workflow_execution_nowait is synchronous, use Mock not AsyncMock
     mock_exec_service = AsyncMock()
-    mock_exec_service.create_workflow_execution_nowait = AsyncMock(
+    mock_exec_service.create_workflow_execution_nowait = Mock(
         return_value={
             "wf_id": workflow_id,
             "wf_exec_id": wf_exec_id,
@@ -702,7 +704,7 @@ async def test_create_workflow_execution_uses_workspace_scoped_definition(
 
     mock_get_definition = AsyncMock(return_value=mock_defn)
     mock_exec_service = AsyncMock()
-    mock_exec_service.create_workflow_execution_nowait = AsyncMock(
+    mock_exec_service.create_workflow_execution_nowait = Mock(
         return_value={
             "wf_id": workflow_id,
             "wf_exec_id": wf_exec_id,
@@ -799,7 +801,7 @@ async def test_create_workflow_execution_tags_case_task_runs(
     mock_session = await _mock_db_session()
     mock_session.scalar = AsyncMock(return_value=task_id)
     mock_exec_service = AsyncMock()
-    mock_exec_service.create_workflow_execution_nowait = AsyncMock(
+    mock_exec_service.create_workflow_execution_nowait = Mock(
         return_value={
             "wf_id": workflow_id,
             "wf_exec_id": f"{workflow_id}/exec_abc",

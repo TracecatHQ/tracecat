@@ -67,7 +67,6 @@ from tracecat_ee.cases.views.schemas import (
 from tracecat_ee.cases.views.service import CaseViewsService
 
 from tracecat import config
-from tracecat.admission.pacing import StartRateLimited
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.authoring_context import (
     ActionContextResponse,
@@ -5839,10 +5838,6 @@ async def run_workflow(
     ``use_draft=False`` to run a published version instead; published runs
     ignore locks.
 
-    When the organization's workflow start rate is exhausted, the run isn't
-    started and the tool fails with a ``rate_limited`` error carrying
-    ``retry_after_seconds``; call it again after that many seconds.
-
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID.
@@ -5874,17 +5869,6 @@ async def run_workflow(
         )
     except ToolError:
         raise
-    except StartRateLimited as e:
-        raise ToolError(
-            json.dumps(
-                {
-                    "type": "rate_limited",
-                    "message": str(e),
-                    "status": "error",
-                    "retry_after_seconds": e.retry_after_seconds,
-                }
-            )
-        ) from e
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
     except TracecatValidationError as e:

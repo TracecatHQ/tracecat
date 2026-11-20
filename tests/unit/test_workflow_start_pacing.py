@@ -10,16 +10,14 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import HTTPException, Request
 from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from tracecat.admission.pacing import UNPACED, StartRateLimited, StartSlot
+from tracecat.admission.pacing import UNPACED, StartSlot
 from tracecat.api.common import (
     TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS,
-    start_rate_limited_exception_handler,
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import WorkflowDefinition
@@ -58,12 +56,6 @@ def _about(got: datetime.timedelta, seconds: float) -> bool:
     """Equal within 50 ms: a little time passes between reserve and submit."""
     return abs(got - datetime.timedelta(seconds=seconds)) < datetime.timedelta(
         milliseconds=50
-    )
-
-
-def _refusal() -> StartRateLimited:
-    return StartRateLimited(
-        retry_after=datetime.timedelta(seconds=2.2), rate=5, burst=10
     )
 
 
@@ -220,26 +212,6 @@ async def test_delay_without_execution_timeout_sets_no_timeout(
 
 
 @pytest.mark.anyio
-async def test_refused_start_stores_nothing_and_starts_nothing(
-    service: WorkflowExecutionsService,
-    mock_client: MagicMock,
-    mock_storage: MagicMock,
-    reserve: AsyncMock,
-) -> None:
-    reserve.side_effect = _refusal()
-    with _timeout(service, None), pytest.raises(StartRateLimited):
-        await service.create_workflow_execution_wait_for_start(
-            dsl=DSLInput(**_DSL_CONTENT),
-            wf_id=_WF_ID,
-            payload={"x": 1},
-            trigger_type=TriggerType.WEBHOOK,
-        )
-
-    mock_storage.store.assert_not_awaited()
-    mock_client.start_workflow.assert_not_awaited()
-
-
-@pytest.mark.anyio
 async def test_duplicate_start_refunds_its_slot(
     service: WorkflowExecutionsService,
     mock_client: MagicMock,
@@ -333,31 +305,6 @@ async def test_failed_start_of_unknown_outcome_keeps_its_slot(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "method_name",
-    ["create_workflow_execution_nowait", "create_draft_workflow_execution_nowait"],
-)
-async def test_nowait_start_refuses_before_scheduling(
-    service: WorkflowExecutionsService,
-    mock_client: MagicMock,
-    reserve: AsyncMock,
-    method_name: str,
-) -> None:
-    """A refused fire-and-forget start reaches the caller, not a background task."""
-    reserve.side_effect = _refusal()
-    method = getattr(service, method_name)
-    with (
-        patch(
-            "tracecat.workflow.executions.service.asyncio.ensure_future"
-        ) as ensure_future,
-        pytest.raises(StartRateLimited),
-    ):
-        await method(dsl=DSLInput(**_DSL_CONTENT), wf_id=_WF_ID)
-
-    ensure_future.assert_not_called()
-
-
-@pytest.mark.anyio
 async def test_nowait_start_reserves_once_and_passes_the_delay(
     service: WorkflowExecutionsService,
     mock_client: MagicMock,
@@ -373,7 +320,7 @@ async def test_nowait_start_reserves_once_and_passes_the_delay(
             side_effect=lambda coro: scheduled.append(coro) or MagicMock(),
         ),
     ):
-        await service.create_workflow_execution_nowait(
+        service.create_workflow_execution_nowait(
             dsl=DSLInput(**_DSL_CONTENT), wf_id=_WF_ID
         )
         assert len(scheduled) == 1
@@ -528,53 +475,3 @@ async def test_start_timeout_raises_workflow_start_timeout(
             wf_exec_id=f"{_WF_ID.short()}/exec_test",
             trigger_type=TriggerType.WEBHOOK,
         )
-
-
-@pytest.mark.anyio
-async def test_webhook_rate_limited_start_is_429_with_retry_after() -> None:
-    """The webhook lets StartRateLimited through; the API handler makes it 429."""
-    exec_service = AsyncMock()
-    exec_service.create_workflow_execution_wait_for_start = AsyncMock(
-        side_effect=_refusal()
-    )
-    app = FastAPI()
-    app.add_exception_handler(StartRateLimited, start_rate_limited_exception_handler)
-
-    async def webhook(request: Request) -> Any:
-        return await _incoming_webhook(
-            workflow_id=_WF_ID,
-            defn=_definition(),
-            payload={"x": 1},
-            echo=False,
-            empty_echo=False,
-            vendor=None,
-            request=request,
-            content_type="application/json",
-        )
-
-    app.add_api_route("/webhook", webhook, methods=["POST"])
-    with patch(
-        "tracecat.webhooks.router.WorkflowExecutionsService.connect",
-        AsyncMock(return_value=exec_service),
-    ):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post("/webhook", json={"x": 1})
-
-    assert response.status_code == 429
-    assert response.headers["retry-after"] == "3"
-    detail = response.json()["detail"]
-    assert detail["code"] == "workflow_start_rate_limited"
-    assert detail["retry_after_seconds"] == 3
-    # Webhook callers are outside the org: the body leaves out its limits.
-    assert detail["message"] == (
-        "Workflow start rate limit reached. Retry after 3 seconds."
-    )
-
-
-def test_api_app_maps_start_rate_limited() -> None:
-    from tracecat.api.app import create_app
-
-    app = create_app()
-    assert StartRateLimited in app.exception_handlers

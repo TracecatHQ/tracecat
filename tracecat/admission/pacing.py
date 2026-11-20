@@ -3,8 +3,9 @@
 Each start reserves the next slot in its org's schedule (GCRA, one Redis Lua
 call). The first ``burst`` starts go at once; later ones are spaced at the
 org's rate by delaying the run inside Temporal (``start_delay``), so the
-caller holds nothing while it waits. A start whose delay would pass the
-maximum is refused with ``StartRateLimited`` and the caller retries later.
+caller holds nothing while it waits. Every start is accepted, however long
+its delay: refusing work belongs at ingest, not here. Each delayed start logs
+``concurrency.start_paced`` with its org and delay, so long waits are visible.
 
 With no rate set, Tracecat doesn't pace and makes no Redis call. If Redis or
 the limit lookup fails, the start goes through at once.
@@ -13,7 +14,6 @@ the limit lookup fails, the start goes through at once.
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -39,10 +39,8 @@ _FAILED_LOOKUP_CACHE_SECONDS = 5.0
 _MICROS_PER_SECOND = 1_000_000
 
 # KEYS[1] = pacing key (holds the org's theoretical arrival time, in µs)
-# ARGV[1] = emission interval (µs), ARGV[2] = burst tolerance (µs),
-# ARGV[3] = maximum delay (µs)
-# Returns {1, delay_us, new_tat_us} when reserved, {0, retry_after_us} when
-# refused.
+# ARGV[1] = emission interval (µs), ARGV[2] = burst tolerance (µs)
+# Returns {delay_us, new_tat_us}.
 # Redis TIME keeps every API replica on one clock. Values stay in µs integers
 # (below 2^53) and are written with %.0f so Lua's number formatting keeps
 # every digit.
@@ -51,7 +49,6 @@ local t = redis.call('TIME')
 local now = tonumber(t[1]) * 1000000 + tonumber(t[2])
 local interval = tonumber(ARGV[1])
 local tolerance = tonumber(ARGV[2])
-local max_delay = tonumber(ARGV[3])
 
 local tat = tonumber(redis.call('GET', KEYS[1]) or now)
 if tat < now then
@@ -62,14 +59,11 @@ local delay = tat - tolerance - now
 if delay < 0 then
     delay = 0
 end
-if delay > max_delay then
-    return {0, delay - max_delay}
-end
 
 local new_tat = tat + interval
 local ttl_ms = math.ceil((new_tat - now) / 1000) + 1000
 redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', ttl_ms)
-return {1, delay, new_tat}
+return {delay, new_tat}
 """
 
 # Undo a reservation, only while it is still the org's latest: move the
@@ -93,25 +87,6 @@ local ttl_ms = math.ceil((new_tat - now) / 1000) + 1000
 redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', ttl_ms)
 return 1
 """
-
-
-class StartRateLimited(Exception):
-    """A workflow start was refused: the org's start rate is exhausted."""
-
-    def __init__(self, *, retry_after: timedelta, rate: int, burst: int) -> None:
-        self.retry_after = retry_after
-        self.rate = rate
-        self.burst = burst
-        # Webhook callers see this message: leave the org's limits out of it.
-        super().__init__(
-            "Workflow start rate limit reached. "
-            f"Retry after {self.retry_after_seconds} seconds."
-        )
-
-    @property
-    def retry_after_seconds(self) -> int:
-        """Whole seconds for a ``Retry-After`` header (at least 1)."""
-        return max(1, math.ceil(self.retry_after.total_seconds()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,32 +216,24 @@ def _interval_us(rate: StartRate) -> int:
 class StartPacer:
     """Paces workflow starts per org."""
 
-    def __init__(self, *, max_delay: timedelta | None = None) -> None:
-        if max_delay is None:
-            max_delay = timedelta(
-                seconds=config.TRACECAT__WORKFLOW_START_PACING_MAX_DELAY_SECONDS
-            )
-        self.max_delay = max_delay
-
     async def reserve(self, org_id: OrganizationID) -> StartSlot:
         """Reserve a start slot; its ``delay`` is how long the start waits.
 
-        Raises:
-            StartRateLimited: The delay would pass the maximum delay.
+        Never refuses: a start past the burst waits as long as the org's rate
+        requires.
         """
         if (rate := await resolve_start_rate(org_id)) is None:
             return UNPACED
         interval_us = _interval_us(rate)
         tolerance_us = (rate.burst - 1) * interval_us
-        max_delay_us = int(self.max_delay.total_seconds() * _MICROS_PER_SECOND)
         try:
             async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
                 redis_client = await get_redis_client()
                 client = await redis_client._get_client()
                 script = client.register_script(_RESERVE_SCRIPT)
-                reserved, value_us, *new_tat_us = await script(
+                value_us, new_tat_us = await script(
                     keys=[_pacing_key(org_id)],
-                    args=[interval_us, tolerance_us, max_delay_us],
+                    args=[interval_us, tolerance_us],
                 )
         except Exception as e:
             # Any Redis-side failure, including client setup (URL secret,
@@ -281,19 +248,8 @@ class StartPacer:
             return UNPACED
 
         value = timedelta(microseconds=int(value_us))
-        if not int(reserved):
-            logger.warning(
-                "concurrency.start_rate_limited",
-                resource=_RESOURCE,
-                org_id=str(org_id),
-                limit=rate.per_second,
-                burst=rate.burst,
-                retry_after_seconds=value.total_seconds(),
-            )
-            raise StartRateLimited(
-                retry_after=value, rate=rate.per_second, burst=rate.burst
-            )
         if value:
+            # One event per delayed start, so a queue-age alert can watch it.
             logger.info(
                 "concurrency.start_paced",
                 resource=_RESOURCE,
@@ -302,9 +258,7 @@ class StartPacer:
                 burst=rate.burst,
                 delay_seconds=value.total_seconds(),
             )
-        return StartSlot(
-            delay=value, tat_us=int(new_tat_us[0]), interval_us=interval_us
-        )
+        return StartSlot(delay=value, tat_us=int(new_tat_us), interval_us=interval_us)
 
     async def refund(self, org_id: OrganizationID, slot: StartSlot) -> None:
         """Give back a reserved slot whose start didn't create a run.

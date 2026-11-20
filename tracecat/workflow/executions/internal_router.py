@@ -21,7 +21,6 @@ from starlette.status import (
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.service import RPCError
 
-from tracecat.admission.pacing import StartRateLimited
 from tracecat.agent.authoring_context import (
     WorkflowAuthoringContextResponse,
     build_action_contexts,
@@ -887,7 +886,7 @@ async def execute_workflow(
         if params.parent_workflow_execution_id:
             memo = {"parent_workflow_execution_id": params.parent_workflow_execution_id}
 
-        response = await exec_service.create_workflow_execution_nowait(
+        response = exec_service.create_workflow_execution_nowait(
             dsl=dsl,
             wf_id=wf_id,
             payload=params.trigger_inputs,
@@ -905,9 +904,6 @@ async def execute_workflow(
             workflow_execution_id=response["wf_exec_id"],
             message=response["message"],
         )
-    except StartRateLimited:
-        # The action gateway maps it to 429 with Retry-After.
-        raise
     except Exception as e:
         logger.error("Failed to start workflow execution", error=str(e))
         raise HTTPException(

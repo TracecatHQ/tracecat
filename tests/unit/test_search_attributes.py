@@ -185,7 +185,7 @@ class TestWorkflowExecutionSearchAttributes:
                 side_effect=_capture_ensure_future,
             ),
         ):
-            await method(
+            method(
                 dsl=mock_dsl,
                 wf_id=test_workflow_id,
                 trigger_type=TriggerType.MANUAL,

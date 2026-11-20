@@ -1519,7 +1519,7 @@ class WorkflowExecutionsService:
         ):
             yield event
 
-    async def create_workflow_execution_nowait(
+    def create_workflow_execution_nowait(
         self,
         dsl: DSLInput,
         *,
@@ -1533,21 +1533,14 @@ class WorkflowExecutionsService:
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
-        Note: This method reserves a paced start slot, schedules the workflow
-        execution and returns without waiting for Temporal.
+        Note: This method schedules the workflow execution and returns immediately.
 
         Args:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
             correlation_id: Optional `TracecatCorrelationId` search attribute value.
-
-        Raises:
-            StartRateLimited: The org's start rate is exhausted.
         """
         wf_exec_id = generate_exec_id(wf_id)
-        # Reserve before returning so a refused start reaches the caller
-        # instead of failing in the background task.
-        start_slot = await self._reserve_start()
         coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -1559,7 +1552,6 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
             correlation_id=correlation_id,
-            start_slot=start_slot,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1669,7 +1661,7 @@ class WorkflowExecutionsService:
             return "not_started"
         return "started"
 
-    async def create_draft_workflow_execution_nowait(
+    def create_draft_workflow_execution_nowait(
         self,
         dsl: DSLInput,
         *,
@@ -1683,14 +1675,9 @@ class WorkflowExecutionsService:
         """Create a new draft workflow execution.
 
         Draft executions use the draft workflow graph and resolve aliases from draft workflows.
-        This method reserves a paced start slot, schedules the workflow
-        execution and returns without waiting for Temporal.
-
-        Raises:
-            StartRateLimited: The org's start rate is exhausted.
+        This method schedules the workflow execution and returns immediately.
         """
         wf_exec_id = generate_exec_id(wf_id)
-        start_slot = await self._reserve_start()
         coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -1701,7 +1688,6 @@ class WorkflowExecutionsService:
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
             fixed_action_results=fixed_action_results,
-            start_slot=start_slot,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -2019,18 +2005,9 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
         correlation_id: str | None = None,
-        start_slot: StartSlot | None = None,
         **kwargs: Any,
     ) -> None:
-        """Start a DSL workflow run.
-
-        Args:
-            start_slot: A start slot the caller already reserved. When
-                ``None``, this call reserves one.
-
-        Raises:
-            StartRateLimited: The org's start rate is exhausted.
-        """
+        """Start a DSL workflow run, paced by the org's start rate."""
         if self.role is None:
             raise ValueError("Role is required to dispatch a workflow")
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -2043,9 +2020,7 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
-        # Reserve before storing trigger inputs, so a refused start stores nothing.
-        if start_slot is None:
-            start_slot = await self._reserve_start()
+        start_slot = await self._reserve_start()
 
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,

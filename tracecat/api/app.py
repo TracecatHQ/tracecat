@@ -50,7 +50,6 @@ from tracecat.admin.build_info.router import router as admin_build_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.admin.slack_app.router import router as admin_slack_app_router
-from tracecat.admission.pacing import StartRateLimited
 from tracecat.agent.access.router import router as agent_model_access_router
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
@@ -92,7 +91,6 @@ from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     serialize_validation_errors,
-    start_rate_limited_exception_handler,
     table_row_exception_handler,
     temporal_rpc_exception_handler,
     tracecat_exception_handler,
@@ -964,7 +962,6 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
-    app.add_exception_handler(StartRateLimited, start_rate_limited_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,
