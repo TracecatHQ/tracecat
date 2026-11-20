@@ -388,6 +388,12 @@ def print_tier_detail(tier: TierRead) -> None:
         "Max Actions/Workflow", _format_limit(tier.max_action_executions_per_workflow)
     )
     table.add_row("Max Concurrent Actions", _format_limit(tier.max_concurrent_actions))
+    table.add_row(
+        "Max Concurrent Tool Calls", _format_limit(tier.max_concurrent_tool_calls)
+    )
+    table.add_row(
+        "Max Concurrent Agent Turns", _format_limit(tier.max_concurrent_agent_turns)
+    )
     table.add_row("API Rate Limit", _format_limit(tier.api_rate_limit))
     table.add_row("API Burst Capacity", _format_limit(tier.api_burst_capacity))
     table.add_row("", "")  # Spacer
@@ -429,6 +435,13 @@ def print_org_tier_detail(org_tier: OrganizationTierRead) -> None:
     )
     table.add_row(
         "Max Concurrent Actions", _format_limit(org_tier.max_concurrent_actions)
+    )
+    table.add_row(
+        "Max Concurrent Tool Calls", _format_limit(org_tier.max_concurrent_tool_calls)
+    )
+    table.add_row(
+        "Max Concurrent Agent Turns",
+        _format_limit(org_tier.max_concurrent_agent_turns),
     )
     table.add_row("API Rate Limit", _format_limit(org_tier.api_rate_limit))
     table.add_row("API Burst Capacity", _format_limit(org_tier.api_burst_capacity))

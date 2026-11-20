@@ -6894,6 +6894,8 @@ class Tier(Base, TimestampMixin):
     max_concurrent_workflows: Mapped[int | None] = mapped_column(Integer)
     max_action_executions_per_workflow: Mapped[int | None] = mapped_column(Integer)
     max_concurrent_actions: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_tool_calls: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_agent_turns: Mapped[int | None] = mapped_column(Integer)
     api_rate_limit: Mapped[int | None] = mapped_column(Integer)
     api_burst_capacity: Mapped[int | None] = mapped_column(Integer)
 
@@ -6928,6 +6930,8 @@ class OrganizationTier(Base, TimestampMixin):
     max_concurrent_workflows: Mapped[int | None] = mapped_column(Integer)
     max_action_executions_per_workflow: Mapped[int | None] = mapped_column(Integer)
     max_concurrent_actions: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_tool_calls: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_agent_turns: Mapped[int | None] = mapped_column(Integer)
     api_rate_limit: Mapped[int | None] = mapped_column(Integer)
     api_burst_capacity: Mapped[int | None] = mapped_column(Integer)
 

@@ -39,8 +39,8 @@ from tracecat.organization.schemas import (
     OrgRead,
 )
 from tracecat.organization.service import OrgService
-from tracecat.tiers.schemas import EffectiveEntitlements
-from tracecat.tiers.service import TierService
+from tracecat.tiers.schemas import EffectiveEntitlements, OrganizationLimitsRead
+from tracecat.tiers.service import OrgLimitsService, TierService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 
@@ -200,6 +200,23 @@ async def get_organization_entitlements(
 
     tier_service = TierService(session)
     return await tier_service.get_effective_entitlements(role.organization_id)
+
+
+@router.get("/limits", response_model=OrganizationLimitsRead)
+@require_scope("org:read")
+async def get_organization_limits(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+) -> OrganizationLimitsRead:
+    """Get the current organization's concurrency limits and observed usage."""
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    return await OrgLimitsService(session, role=role).get_limits()
 
 
 @router.get("/members/me", response_model=OrgMemberDetail)

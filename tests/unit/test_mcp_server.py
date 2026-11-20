@@ -10241,3 +10241,85 @@ def test_workflow_artifact_redis_uses_resolved_url(
     assert mcp_server._get_workflow_artifact_redis() is sentinel
     assert mcp_server._get_workflow_artifact_redis() is sentinel
     assert seen == ["rediss://resolved.example:6379"]
+
+
+def _patch_concurrency_limits_role(monkeypatch, role: Role) -> list[uuid.UUID | None]:
+    """Resolve every org role to ``role`` and record the requested org IDs."""
+    requested: list[uuid.UUID | None] = []
+
+    async def _resolve_org(org_id: uuid.UUID | None = None) -> Role:
+        requested.append(org_id)
+        return role
+
+    monkeypatch.setattr(mcp_server, "_resolve_org_role", _resolve_org)
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(MagicMock()),
+    )
+    return requested
+
+
+def _concurrency_limits_role(
+    *, scopes: frozenset[str], organization_id: uuid.UUID | None
+) -> Role:
+    return Role(
+        type="user",
+        service_id="tracecat-mcp",
+        organization_id=organization_id,
+        user_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+
+
+@pytest.mark.anyio
+async def test_get_concurrency_limits_returns_unlimited_self_hosted_limits(
+    monkeypatch,
+):
+    monkeypatch.setattr(mcp_server.config, "TRACECAT__EE_MULTI_TENANT", False)
+    org_id = uuid.uuid4()
+    requested = _patch_concurrency_limits_role(
+        monkeypatch,
+        _concurrency_limits_role(
+            scopes=frozenset({"org:read"}), organization_id=org_id
+        ),
+    )
+
+    result = await _tool(mcp_server.get_concurrency_limits)(org_id=org_id)
+    payload = _payload(result)
+
+    assert requested == [org_id]
+    assert [entry["name"] for entry in payload["concurrency"]] == [
+        "max_concurrent_workflows",
+        "max_concurrent_actions",
+        "max_concurrent_tool_calls",
+        "max_concurrent_agent_turns",
+    ]
+    for entry in payload["concurrency"]:
+        assert entry["limit"] is None
+        assert entry["in_use"] is None
+        assert entry["observed_at"] is None
+
+
+@pytest.mark.anyio
+async def test_get_concurrency_limits_requires_org_read(monkeypatch):
+    _patch_concurrency_limits_role(
+        monkeypatch,
+        _concurrency_limits_role(
+            scopes=frozenset({"org:member:read"}), organization_id=uuid.uuid4()
+        ),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: org:read"):
+        await _tool(mcp_server.get_concurrency_limits)()
+
+
+@pytest.mark.anyio
+async def test_get_concurrency_limits_requires_organization_context(monkeypatch):
+    _patch_concurrency_limits_role(
+        monkeypatch,
+        _concurrency_limits_role(scopes=frozenset({"org:read"}), organization_id=None),
+    )
+
+    with pytest.raises(ToolError, match="organization context"):
+        await _tool(mcp_server.get_concurrency_limits)()

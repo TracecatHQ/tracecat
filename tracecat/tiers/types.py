@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, TypedDict
 
 from pydantic import Field
@@ -126,3 +128,17 @@ class EntitlementsDict(TypedDict, total=False):
             " of legacy agent channels",
         ),
     ]
+
+
+@dataclass(frozen=True, slots=True)
+class ConcurrencyUsage:
+    """Observed usage of one concurrency limit.
+
+    Attributes:
+        in_use: Units held when read. A ``for_each`` action holds one unit per
+            parallel item.
+        observed_at: When the usage was read.
+    """
+
+    in_use: int
+    observed_at: datetime

@@ -4418,6 +4418,37 @@ export type CommitInfo = {
 }
 
 /**
+ * Per-organization concurrency limits, named after their tier fields.
+ */
+export type ConcurrencyLimitName =
+  | "max_concurrent_workflows"
+  | "max_concurrent_actions"
+  | "max_concurrent_tool_calls"
+  | "max_concurrent_agent_turns"
+
+/**
+ * One per-organization concurrency limit with its observed usage.
+ */
+export type ConcurrencyLimitRead = {
+  /**
+   * The limit's tier field name
+   */
+  name: ConcurrencyLimitName
+  /**
+   * Effective limit. None = unlimited
+   */
+  limit?: number | null
+  /**
+   * Units in use when read. None = unknown (not zero)
+   */
+  in_use?: number | null
+  /**
+   * When usage was read. None when usage is unknown
+   */
+  observed_at?: string | null
+}
+
+/**
  * A predicate over one resolver-defined field.
  */
 export type Condition_Input = {
@@ -8834,6 +8865,16 @@ export type OrgUpdate = {
 }
 
 /**
+ * Concurrency limits and observed usage for the current organization.
+ */
+export type OrganizationLimitsRead = {
+  /**
+   * Each concurrency limit with its observed usage
+   */
+  concurrency: Array<ConcurrencyLimitRead>
+}
+
+/**
  * Read schema for organization-scoped secrets.
  */
 export type OrganizationSecretRead = {
@@ -8861,6 +8902,8 @@ export type OrganizationTierRead = {
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
   max_concurrent_actions: number | null
+  max_concurrent_tool_calls: number | null
+  max_concurrent_agent_turns: number | null
   api_rate_limit: number | null
   api_burst_capacity: number | null
   entitlement_overrides: EntitlementsDict | null
@@ -8880,6 +8923,8 @@ export type OrganizationTierUpdate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlement_overrides?: EntitlementsDict | null
@@ -12824,6 +12869,8 @@ export type TierCreate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlements?: EntitlementsDict
@@ -12840,6 +12887,8 @@ export type TierRead = {
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
   max_concurrent_actions: number | null
+  max_concurrent_tool_calls: number | null
+  max_concurrent_agent_turns: number | null
   api_rate_limit: number | null
   api_burst_capacity: number | null
   entitlements: EntitlementsDict
@@ -12858,6 +12907,8 @@ export type TierUpdate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlements?: EntitlementsDict | null
@@ -16548,6 +16599,8 @@ export type OrganizationListOrganizationDomainsResponse =
 
 export type OrganizationGetOrganizationEntitlementsResponse =
   EffectiveEntitlements
+
+export type OrganizationGetOrganizationLimitsResponse = OrganizationLimitsRead
 
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
@@ -23051,6 +23104,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: EffectiveEntitlements
+      }
+    }
+  }
+  "/organization/limits": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrganizationLimitsRead
       }
     }
   }
