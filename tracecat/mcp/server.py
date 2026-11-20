@@ -313,6 +313,8 @@ from tracecat.tables.service import TablesService
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
 from tracecat.tiers.enums import Entitlement
+from tracecat.tiers.schemas import OrganizationLimitsRead
+from tracecat.tiers.service import OrgLimitsService
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -4059,6 +4061,40 @@ async def list_workspaces(
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
         raise ToolError(f"Failed to list workspaces: {e}") from None
+
+
+@mcp.tool()
+async def get_concurrency_limits(
+    org_id: uuid.UUID | None = None,
+) -> OrganizationLimitsRead:
+    """Read the organization's concurrency limits and observed usage.
+
+    Read-only. Limits are set by the Tracecat platform, not by the
+    organization. Requires the `org:read` scope.
+
+    Returns JSON with a `concurrency` array. Each entry has `name` (the limit,
+    such as `max_concurrent_actions`), `limit` (null means unlimited), `in_use`
+    (null means usage is unknown, not zero) and `observed_at` (when usage was
+    read).
+
+    Args:
+        org_id: Organization ID. Required when the connection covers more than
+            one organization; use the org_id values returned by
+            list_workspaces. May be omitted for single-org connections.
+    """
+    try:
+        role = await _resolve_org_role(org_id)
+        _role_organization_id(role)
+        async with get_async_session_context_manager() as session:
+            return await OrgLimitsService(session, role=role).get_limits()
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except Exception as e:
+        logger.error("Failed to get concurrency limits", error=str(e))
+        raise ToolError(f"Failed to get concurrency limits: {e}") from None
 
 
 @mcp.tool()

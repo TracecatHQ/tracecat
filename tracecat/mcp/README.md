@@ -100,6 +100,14 @@ Each list replaces the workspace allowlist for case attachments, and an empty
 list restores the system defaults. Call it with no lists to read the current
 and effective values. Writes need the `workspace:update` scope.
 
+## Organization limit tools
+
+- `get_concurrency_limits(org_id=None)`
+
+Read-only. Returns each per-organization concurrency limit (`limit` null means
+unlimited) with its observed usage (`in_use` null means unknown, not zero).
+Needs the `org:read` scope. There is no write tool: the platform sets limits.
+
 ## Action discovery and authoring context
 
 - `list_actions(workspace_id, query=None, namespace=None, limit=50, cursor=None)`

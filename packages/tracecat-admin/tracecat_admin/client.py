@@ -408,6 +408,8 @@ class AdminClient:
             data["max_concurrent_workflows"] = None
             data["max_action_executions_per_workflow"] = None
             data["max_concurrent_actions"] = None
+            data["max_concurrent_tool_calls"] = None
+            data["max_concurrent_agent_turns"] = None
             data["api_rate_limit"] = None
             data["api_burst_capacity"] = None
             data["entitlement_overrides"] = None

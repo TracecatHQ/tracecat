@@ -337,6 +337,11 @@ def _format_limit(value: int | None) -> str:
     return str(value) if value is not None else "unlimited"
 
 
+def _format_override(value: int | None) -> str:
+    """Format an organization limit override for display."""
+    return str(value) if value is not None else "inherits tier"
+
+
 def _format_entitlements(entitlements: dict[str, bool]) -> str:
     """Format entitlements for display in a table cell."""
     enabled = [k for k, v in entitlements.items() if v]
@@ -388,6 +393,12 @@ def print_tier_detail(tier: TierRead) -> None:
         "Max Actions/Workflow", _format_limit(tier.max_action_executions_per_workflow)
     )
     table.add_row("Max Concurrent Actions", _format_limit(tier.max_concurrent_actions))
+    table.add_row(
+        "Max Concurrent Tool Calls", _format_limit(tier.max_concurrent_tool_calls)
+    )
+    table.add_row(
+        "Max Concurrent Agent Turns", _format_limit(tier.max_concurrent_agent_turns)
+    )
     table.add_row("API Rate Limit", _format_limit(tier.api_rate_limit))
     table.add_row("API Burst Capacity", _format_limit(tier.api_burst_capacity))
     table.add_row("", "")  # Spacer
@@ -421,17 +432,25 @@ def print_org_tier_detail(org_tier: OrganizationTierRead) -> None:
 
     table.add_row("[bold]Override Limits[/bold]", "(org-specific, overrides tier)")
     table.add_row(
-        "Max Concurrent Workflows", _format_limit(org_tier.max_concurrent_workflows)
+        "Max Concurrent Workflows", _format_override(org_tier.max_concurrent_workflows)
     )
     table.add_row(
         "Max Actions/Workflow",
-        _format_limit(org_tier.max_action_executions_per_workflow),
+        _format_override(org_tier.max_action_executions_per_workflow),
     )
     table.add_row(
-        "Max Concurrent Actions", _format_limit(org_tier.max_concurrent_actions)
+        "Max Concurrent Actions", _format_override(org_tier.max_concurrent_actions)
     )
-    table.add_row("API Rate Limit", _format_limit(org_tier.api_rate_limit))
-    table.add_row("API Burst Capacity", _format_limit(org_tier.api_burst_capacity))
+    table.add_row(
+        "Max Concurrent Tool Calls",
+        _format_override(org_tier.max_concurrent_tool_calls),
+    )
+    table.add_row(
+        "Max Concurrent Agent Turns",
+        _format_override(org_tier.max_concurrent_agent_turns),
+    )
+    table.add_row("API Rate Limit", _format_override(org_tier.api_rate_limit))
+    table.add_row("API Burst Capacity", _format_override(org_tier.api_burst_capacity))
 
     table.add_row("", "")
     table.add_row("[bold]Entitlement Overrides[/bold]", "")

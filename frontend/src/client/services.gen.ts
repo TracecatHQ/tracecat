@@ -715,6 +715,7 @@ import type {
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
   OrganizationGetOrganizationEntitlementsResponse,
+  OrganizationGetOrganizationLimitsResponse,
   OrganizationGetOrganizationResponse,
   OrganizationListCurrentUserOrganizationMembershipsResponse,
   OrganizationListOrganizationDomainsResponse,
@@ -5315,6 +5316,20 @@ export const organizationGetOrganizationEntitlements =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization/entitlements",
+    })
+  }
+
+/**
+ * Get Organization Limits
+ * Get the current organization's concurrency limits and observed usage.
+ * @returns OrganizationLimitsRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrganizationLimits =
+  (): CancelablePromise<OrganizationGetOrganizationLimitsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/limits",
     })
   }
 

@@ -17,6 +17,8 @@ DEFAULT_LIMITS = EffectiveLimits(
     max_concurrent_workflows=None,
     max_action_executions_per_workflow=None,
     max_concurrent_actions=None,
+    max_concurrent_tool_calls=None,
+    max_concurrent_agent_turns=None,
 )
 
 
