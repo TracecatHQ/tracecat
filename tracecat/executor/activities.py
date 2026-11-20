@@ -269,8 +269,6 @@ class ExecutorActivities:
                     limit=e.limit,
                     attempt=act_attempt,
                 )
-            if input.ack_admission:
-                await _ack_admission(act_info)
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
         send_heartbeats = heartbeat_interval > 0
@@ -299,6 +297,8 @@ class ExecutorActivities:
             )
 
         try:
+            if input.ack_admission:
+                await _ack_admission(act_info)
             with platform_span("tracecat.action.materialize_inputs"):
                 materialized_input = input.model_copy(
                     update={

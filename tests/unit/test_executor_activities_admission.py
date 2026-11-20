@@ -319,3 +319,20 @@ async def test_failed_admission_signal_does_not_fail_the_action(
 
     assert not isinstance(result, ConcurrencyBusyResult)
     mocks.dispatch.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_cancellation_during_admission_signal_releases_the_lease(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    lease = _lease()
+    mocks.acquire.return_value = lease
+    handle = MagicMock()
+    handle.signal = AsyncMock(side_effect=asyncio.CancelledError())
+    mocks.activity.client.return_value.get_workflow_handle.return_value = handle
+
+    with pytest.raises(asyncio.CancelledError):
+        await ExecutorActivities.execute_action_activity(_probe_input(), role)
+
+    lease.release.assert_awaited_once()
+    mocks.dispatch.assert_not_awaited()

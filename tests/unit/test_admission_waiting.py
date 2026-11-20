@@ -31,6 +31,9 @@ class FakeWorkflow:
     clock: datetime = field(default_factory=lambda: datetime(2026, 1, 1, tzinfo=UTC))
     sleeps: list[float] = field(default_factory=list)
     on_sleep: Callable[[], None] | None = None
+    free_sleeps: int = 1_000_000
+    """Sleeps beyond this many wait for ``sleep_hold``."""
+    sleep_hold: asyncio.Event = field(default_factory=asyncio.Event)
     _random: random.Random = field(default_factory=lambda: random.Random(0))
 
     def now(self) -> datetime:
@@ -47,6 +50,8 @@ class FakeWorkflow:
         self.clock += duration
         if self.on_sleep is not None:
             self.on_sleep()
+        if len(self.sleeps) > self.free_sleeps:
+            await self.sleep_hold.wait()
         await asyncio.sleep(0)
 
     async def wait_condition(
@@ -332,3 +337,65 @@ async def test_lost_admission_ack_still_hands_off_on_completion(
     results = await asyncio.gather(*tasks)
     assert sorted(r["data"] for r in results) == [0, 1]
     assert log[:2] == ["start 0", "finish 0"]
+
+
+@pytest.mark.anyio
+async def test_older_completion_keeps_newer_contention(fake: FakeWorkflow) -> None:
+    """An acked action finishing later must not unblock a run that is busy again."""
+    admission = RunAdmission(
+        resource=ConcurrencyResource.ACTIONS,
+        logger=get_workflow_logger(),
+        acks_enabled=True,
+    )
+    free = 0
+    busy_answers = 0
+    freed = False
+    release_a = asyncio.Event()
+    started: list[str] = []
+
+    def free_one_unit_once() -> None:
+        nonlocal free, freed
+        if not freed and busy_answers >= 2:
+            freed = True
+            free = 1
+            # The next backoff sleep (B's) waits for sleep_hold.
+            fake.free_sleeps = len(fake.sleeps)
+
+    fake.on_sleep = free_one_unit_once
+
+    async def dispatch(_max_attempts: int, probe_id: str | None) -> Any:
+        nonlocal free, busy_answers
+        await asyncio.sleep(0)
+        if free == 0:
+            busy_answers += 1
+            return _busy()
+        free -= 1
+        name = "a" if not started else "b"
+        started.append(name)
+        if probe_id is not None:
+            admission.acknowledge(probe_id)
+        if name == "a":
+            await release_a.wait()
+        return {"type": "inline", "data": name}
+
+    tasks = [
+        asyncio.create_task(admission.execute(dispatch, max_attempts=1))
+        for _ in range(2)
+    ]
+    # A is admitted and acked; B probes at once, is busy, and waits on its timer.
+    async with asyncio.timeout(2):
+        while not (freed and len(fake.sleeps) > fake.free_sleeps):
+            await asyncio.sleep(0)
+    assert started == ["a"]
+
+    release_a.set()
+    for _ in range(50):
+        await asyncio.sleep(0)
+    # A's completion said nothing about B's newer busy answer.
+    assert admission._blocked is True  # pyright: ignore[reportPrivateUsage]
+    assert admission._needs_timer is True  # pyright: ignore[reportPrivateUsage]
+
+    free = 1
+    fake.sleep_hold.set()
+    results = await asyncio.gather(*tasks)
+    assert sorted(r["data"] for r in results) == ["a", "b"]

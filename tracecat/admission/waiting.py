@@ -121,30 +121,51 @@ class RunAdmission:
         """Record an executor's admission signal for a probe."""
         self._acked.add(activity_id)
 
-    async def _probe(self, dispatch: Dispatch, remaining: int, generation: int) -> Any:
-        """Dispatch while holding the token; hand it on once the probe is admitted."""
+    async def _probe(
+        self, dispatch: Dispatch, remaining: int, generation: int
+    ) -> tuple[Any, bool]:
+        """Dispatch while holding the token; hand it on once the probe is admitted.
+
+        Returns:
+            The result, and whether the probe's admission was already recorded
+            (an admission signal arrived before the result).
+        """
         if not self.acks_enabled:
-            return await dispatch(remaining, None)
-        probe_id = f"admission-probe-{workflow.uuid4()}"
-        pending = asyncio.ensure_future(dispatch(remaining, probe_id))
+            probe_id = None
+            pending = asyncio.ensure_future(dispatch(remaining, None))
+        else:
+            probe_id = f"admission-probe-{workflow.uuid4()}"
+            pending = asyncio.ensure_future(dispatch(remaining, probe_id))
+        acked = False
         try:
-            await workflow.wait_condition(
-                lambda: pending.done() or probe_id in self._acked
-            )
+            if probe_id is not None:
+                await workflow.wait_condition(
+                    lambda: pending.done() or probe_id in self._acked
+                )
+                acked = probe_id in self._acked and not pending.done()
+                if acked:
+                    # Admitted and running: let the next waiter probe now.
+                    self._on_progress()
+                    self._release_token(generation)
+            return await pending, acked
+        except Exception:
+            # Busy is a result, never an error: a failed probe was admitted.
+            if not acked:
+                self._on_progress()
+            raise
         except BaseException:
             pending.cancel()
             raise
-        if probe_id in self._acked and not pending.done():
-            # Admitted and running: let the next waiter probe now.
-            self._on_progress()
-            self._release_token(generation)
-        try:
-            return await pending
         finally:
-            self._acked.discard(probe_id)
+            if probe_id is not None:
+                self._acked.discard(probe_id)
 
     async def execute(self, dispatch: Dispatch, *, max_attempts: int) -> Any:
         """Dispatch until an attempt is admitted; return its result.
+
+        Only probes change the run's shared wait state, and each probe records
+        its admission once. A dispatch sent before the run was blocked never
+        unblocks it: its completion says nothing about newer busy answers.
 
         Args:
             dispatch: Starts the activity with the remaining user attempts.
@@ -166,25 +187,26 @@ class RunAdmission:
             if self._blocked:
                 waited_since = waited_since or workflow.now()
                 token = await self._take_token()
+            # True when this result must not change the shared wait state.
+            progress_recorded = True
             try:
                 if token is not None:
                     if self._needs_timer:
                         delay = self._next_backoff()
                         self._backoff_step += 1
                         await workflow.sleep(delay)
-                    result = await self._probe(dispatch, remaining, token)
+                    result, progress_recorded = await self._probe(
+                        dispatch, remaining, token
+                    )
                 else:
                     result = await dispatch(remaining, None)
-            except Exception:
-                # Busy is a result, never an error: a failed attempt was admitted.
-                self._on_progress()
-                raise
             finally:
                 if token is not None:
                     self._release_token(token)
             busy = parse_busy_result(result)
             if busy is None:
-                self._on_progress()
+                if not progress_recorded:
+                    self._on_progress()
                 if waited_since is not None:
                     self._logger.info(
                         "concurrency.admitted_after_wait",
