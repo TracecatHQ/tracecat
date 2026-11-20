@@ -1,7 +1,7 @@
 """Index case search text over the 8,192-byte budget.
 
 Revision ID: 67d28dfaff15
-Revises: 14588b612098
+Revises: 42ffaf47af2e
 Create Date: 2026-11-18 12:00:00.000000
 
 A summary or description over 8,192 bytes has a NULL stored vector and a NULL
@@ -56,7 +56,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "67d28dfaff15"
-down_revision: str | None = "14588b612098"
+down_revision: str | None = "42ffaf47af2e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
