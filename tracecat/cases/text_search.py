@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -31,7 +31,7 @@ from tracecat.cases.text_search_indexes import (
 )
 from tracecat.db.models import Case, CaseSearchWord
 from tracecat.query.errors import TracecatQueryTimeoutError
-from tracecat.query.execution import query_execution_context
+from tracecat.query.execution import query_execution_context, transaction_settings
 from tracecat.query.lexical import (
     literal_search_pattern,
     parse_full_text_query,
@@ -89,21 +89,39 @@ class _SearchField:
     an over-budget or unsafe source that needs a complete-source recheck.
 
     The word list holds the source's distinct lowercase words (revision
-    e4fd31674ae9). NULL marks an over-budget source. It omits words that cannot
-    reach FUZZY_THRESHOLD with a fuzzy term of at most 32 letters; see that
-    revision before changing either bound.
+    e4fd31674ae9, extended to over-budget sources by 67d28dfaff15). NULL marks a
+    source with a word too long to index. It omits words that cannot reach
+    FUZZY_THRESHOLD with a fuzzy term of at most 32 letters; see those
+    revisions before changing either bound.
+
+    The lexemes hold an over-budget source's native words without positions
+    (revision 67d28dfaff15), and are NULL for a source within budget. They
+    answer word clauses from an index, and find phrase candidates that are then
+    checked against the complete source. A source with neither a vector nor
+    lexemes keeps the per-row recheck.
     """
 
     name: CaseTextField
     source: sa.SQLColumnExpression[str]
     vector: ColumnElement[Any]
     words: ColumnElement[Sequence[str]]
+    lexemes: ColumnElement[Any]
 
 
 _SEARCH_FIELDS = (
-    _SearchField("summary", Case.summary, Case.summary_tsv, Case.summary_words),
     _SearchField(
-        "description", Case.description, Case.description_tsv, Case.description_words
+        "summary",
+        Case.summary,
+        Case.summary_tsv,
+        Case.summary_words,
+        Case.summary_lexemes,
+    ),
+    _SearchField(
+        "description",
+        Case.description,
+        Case.description_tsv,
+        Case.description_words,
+        Case.description_lexemes,
     ),
 )
 
@@ -252,14 +270,13 @@ def _native_match(
 def _literal_match(field: _SearchField, value: str) -> ColumnElement[bool]:
     pattern = sa.func.lower(_literal_pattern(value))
     indexed = _normalized(field.source).like(pattern, escape="\\")
+    # A NULL-vector source is matched on its complete text. It is written
+    # without a CASE guard so the ix_case_*_trgm_fallback partial indexes
+    # (revision 67d28dfaff15) can answer it. Below the budget the complete text
+    # is the guarded text above, so evaluating this LIKE before the NULL test
+    # costs no more than the indexed branch already does.
     fallback = _full_normalized(field.source).like(pattern, escape="\\")
-    fallback_document = field.vector.is_(None)
-    return sa.or_(
-        indexed,
-        sa.and_(
-            fallback_document, sa.case((fallback_document, fallback), else_=sa.false())
-        ),
-    )
+    return sa.or_(indexed, sa.and_(field.vector.is_(None), fallback))
 
 
 def _literal_pattern(value: str) -> str:
@@ -293,13 +310,26 @@ def _field_clause(
         )
     else:
         indexed_exact = indexed_words
+    # An over-budget source has position-free lexemes: they answer a word
+    # clause exactly, and give phrase candidates that are checked against the
+    # complete source.
+    lexeme_words = field.lexemes.bool_op("@@")(words)
+    if clause.kind == "phrase":
+        lexeme_exact = sa.and_(
+            lexeme_words,
+            sa.case((lexeme_words, _native_match(source, clause)), else_=sa.false()),
+        )
+    else:
+        lexeme_exact = lexeme_words
+    # Only a source with neither a vector nor lexemes is re-parsed per row.
+    # These two conditions match the ix_case_*_lexemes_fallback indexes.
+    unindexed = sa.and_(vector.is_(None), field.lexemes.is_(None))
     exact = sa.or_(
         indexed_exact,
+        lexeme_exact,
         sa.and_(
-            vector.is_(None),
-            sa.case(
-                (vector.is_(None), _native_match(source, clause)), else_=sa.false()
-            ),
+            unindexed,
+            sa.case((unindexed, _native_match(source, clause)), else_=sa.false()),
         ),
     )
     native_rank = sa.func.ts_rank_cd(vector, tsquery, 32, type_=sa.Float())
@@ -337,9 +367,10 @@ def _field_clause(
         )
         .correlate(Case)
     )
-    # Over-budget sources have no stored list: split their complete text per
-    # row. The full-text operator rejects most rows before the split, and CASE
-    # keeps the planner from evaluating either for rows that have a list.
+    # A source with a word too long to index has no stored list: split its
+    # complete text per row. The full-text operator rejects most rows before
+    # the split, and CASE keeps the planner from evaluating either for rows
+    # that have a list.
     full_candidates = _full_normalized(source).bool_op("%>>")(term)
     fallback_words = field.words.is_(None)
     fuzzy = sa.or_(
@@ -518,10 +549,13 @@ class _ExcerptClause(TypedDict):
 
 _EXCERPT_SQL = f"""
 WITH page_sources AS MATERIALIZED (
-    SELECT c.id AS case_id, f.field, f.source, f.vector
+    SELECT c.id AS case_id, f.field, f.source, f.vector, f.lexemes, f.words
     FROM public."case" c
-    CROSS JOIN LATERAL (VALUES ('summary', c.summary, c.summary_tsv),
-        ('description', c.description, c.description_tsv)) f(field, source, vector)
+    CROSS JOIN LATERAL (VALUES
+        ('summary', c.summary, c.summary_tsv, c.summary_lexemes, c.summary_words),
+        ('description', c.description, c.description_tsv, c.description_lexemes,
+            c.description_words))
+        f(field, source, vector, lexemes, words)
     WHERE c.workspace_id = :workspace_id AND c.id = ANY(:case_ids) AND f.field = ANY(:columns)
 ), clauses AS (
     SELECT * FROM jsonb_to_recordset(CAST(:clauses AS jsonb))
@@ -530,13 +564,18 @@ WITH page_sources AS MATERIALIZED (
     SELECT s.*, q.*, CASE q.kind
         WHEN 'literal' THEN lower(s.source) LIKE lower(q.pattern) ESCAPE '\\'
         WHEN 'phrase' THEN CASE WHEN s.vector IS NULL THEN
-            public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, true)
+            CASE WHEN s.lexemes IS NOT NULL
+                AND NOT (s.lexemes @@ plainto_tsquery('pg_catalog.simple', q.value))
+            THEN false
+            ELSE public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, true) END
             ELSE (s.vector @@ phraseto_tsquery('pg_catalog.simple', q.value))
                 OR ((s.vector @@ plainto_tsquery('pg_catalog.simple', q.value))
                     AND public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, true)) END
-        ELSE CASE WHEN s.vector IS NULL THEN
-            public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, false)
-            ELSE s.vector @@ plainto_tsquery('pg_catalog.simple', q.value) END
+        ELSE CASE WHEN s.vector IS NOT NULL
+            THEN s.vector @@ plainto_tsquery('pg_catalog.simple', q.value)
+            WHEN s.lexemes IS NOT NULL
+            THEN s.lexemes @@ plainto_tsquery('pg_catalog.simple', q.value)
+            ELSE public.{CASE_TEXT_MATCH_FUNCTION}(s.source, q.value, false) END
     END AS exact
     FROM page_sources s CROSS JOIN clauses q
 ), exact_context AS (
@@ -558,7 +597,13 @@ WITH page_sources AS MATERIALIZED (
     FROM matched m
     CROSS JOIN LATERAL regexp_matches(m.source, '[[:alnum:]]+|[^[:alnum:]]+', 'g')
         WITH ORDINALITY AS t(parts, ordinality)
-    WHERE NOT m.exact AND m.fuzzy AND lower(m.source) %>> lower(m.value)
+    -- Only fields with a typo match are split into tokens. A stored word list
+    -- answers that from a few short words; %>> over the complete source costs
+    -- about 1 ms per 10 KB field and is kept only for fields without a list.
+    WHERE NOT m.exact AND m.fuzzy AND CASE WHEN m.words IS NOT NULL
+        THEN EXISTS (SELECT 1 FROM unnest(m.words) w
+            WHERE strict_word_similarity(lower(m.value), w) >= :threshold)
+        ELSE lower(m.source) %>> lower(m.value) END
 ), fuzzy_context AS (
     SELECT case_id, field, position, 1 AS priority, token_start AS anchor,
         overlay(substring(source FROM greatest(1, token_start - 60) FOR 480)
@@ -660,6 +705,22 @@ async def get_case_search_excerpts(
     return {case_id: tuple(values) for case_id, values in excerpts.items()}
 
 
+# Planner settings for search statements, applied per transaction with
+# ``transaction_settings``. The legacy substring search uses them too.
+SEARCH_PLANNER_SETTINGS: Mapping[str, str] = {
+    # Search statements are index-driven and usually finish in milliseconds,
+    # but their long expressions push the cost estimate over jit_above_cost.
+    # Compiling them took about 30 ms per statement, several times the
+    # execution time of a selective search.
+    "jit": "off",
+    # How many cases a keyword matches decides the plan: a rare one should use
+    # the text indexes, a broad one a scan. asyncpg reuses prepared statements,
+    # and after five runs PostgreSQL may switch to a generic plan that cannot
+    # see the keyword; a broad legacy search then took 0.97 s instead of 0.31 s.
+    "plan_cache_mode": "force_custom_plan",
+}
+
+
 @asynccontextmanager
 async def case_search_execution_context(
     session: AsyncSession,
@@ -674,9 +735,12 @@ async def case_search_execution_context(
     reading its connection-local setting.
     """
     try:
-        async with query_execution_context(
-            session,
-            statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
+        async with (
+            query_execution_context(
+                session,
+                statement_timeout_ms=config.TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS,
+            ),
+            transaction_settings(session, SEARCH_PLANNER_SETTINGS),
         ):
             if check_readiness:
                 await ensure_case_text_indexes(session)

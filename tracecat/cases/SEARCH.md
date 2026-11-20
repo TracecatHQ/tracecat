@@ -120,15 +120,41 @@ A third migration stores each field's distinct lowercase words in
 `case_search_word`. A second trigger maintains both on the same terms as the
 vectors, and adds a moved case's words to its new workspace. Lists omit
 digit-only words and words with more than 50 distinct trigrams: neither can
-reach 0.65 similarity with a typo unit of at most 32 letters. A source over
-8,192 bytes, or with a remaining word over 1,000 bytes that could exceed an
-index entry, stores a NULL list, and search splits its complete text per row as
-before. The vocabulary has a trigram GIN index and no unique constraint, so
+reach 0.65 similarity with a typo unit of at most 32 letters. A source with a
+remaining word over 1,000 bytes, which could exceed an index entry, stores a
+NULL list, and search splits its complete text per row as before. The
+vocabulary has a trigram GIN index and no unique constraint, so
 concurrent case writes never wait on each other's new words; a race may store
 a duplicate, which search ignores. It copies case text, so it carries the
 standard workspace row-level security policy. The vocabulary is insert-only. Words of
 deleted or edited cases remain until their workspace is deleted, and cannot
 produce matches because each case's own list is always checked.
+
+A fourth migration indexes sources over 8,192 bytes, which the first three
+leave with a NULL vector and word list. Without it, every full-text search
+re-parsed each such row in SQL (about 1.7 ms per row at 9 KB), whatever the
+keyword, so a few thousand long descriptions made every search take seconds.
+A third trigger, `trg_case_search_words_oversized`, runs after the other two
+(PostgreSQL fires same-event BEFORE triggers in name order) and, for a source
+over the budget only:
+
+- stores its distinct native lexemes without positions in `summary_lexemes` or
+  `description_lexemes`, using exactly the token rules of the per-row matcher,
+  so an indexed word match gives the same answer;
+- stores its complete word list in `summary_words` or `description_words`, and
+  adds those words to the vocabulary.
+
+Word clauses then match through the lexeme GIN indexes. A phrase uses them for
+candidates and is checked against the complete source per row. Partial
+trigram indexes over the complete lowercase text of NULL-vector sources
+(`ix_case_*_trgm_fallback`) let literal and legacy substring search find long
+sources without reading each one in full. A source keeps the
+per-row check only if it has neither a vector nor lexemes: an unsafe token
+below the budget, or more than 1 MB of distinct word text, which
+`array_to_tsvector` would otherwise store as a silently corrupt vector. The
+trigger inlines its SQL instead of calling helper functions, so case writes
+need no extra `EXECUTE` grant. Writing a 10 KB source costs about 2 ms more;
+other writes are unaffected.
 
 The immutable safe-vector helper returns a NULL sentinel above 8,192 source
 bytes or for conversion-unsafe tokens. A stored NULL keeps that meaning. Token
@@ -140,7 +166,8 @@ operation.
 Safe ordinary positive phrase matches use the native vector fast path. A
 negative phrase with all required words present is rechecked against the full
 native positional stream to recover positions beyond the 256-occurrence cap.
-Sentinel documents use the same complete stream for words and phrases.
+Sentinel documents without lexemes use the same complete stream for words and
+phrases.
 PostgreSQL's actual default parser, simple token mapping, and simple dictionary
 supply tokens and normalization; there is no application tokenizer. Raw tokens
 at or above 2,047 bytes are ignored without adding a position, matching the
@@ -153,7 +180,13 @@ guards. The complete original source is still used for literal/fuzzy matching.
 Native headline selection uses required words for a field whose phrase match
 has already been proved, so large/position-saturated sources can return useful
 late context. All database work runs within an owned transaction/savepoint,
-and each statement gets its own budget.
+and each statement gets its own budget. Two planner settings apply to the
+same transaction, including the legacy substring search. JIT compilation is
+off: search expressions are long enough to cross `jit_above_cost`, and
+compiling them took about 30 ms per statement, several times the execution
+time of a selective search. `plan_cache_mode` is `force_custom_plan`: whether
+a keyword is rare or broad decides the right plan, and a cached generic plan
+cannot see the keyword (a broad legacy search took 0.97 s instead of 0.31 s).
 `TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS` sets it (default 30 s). The budget
 lets broad searches finish instead of failing, but it bounds each statement,
 not the request: a search runs its page, match-detail and excerpt queries, and

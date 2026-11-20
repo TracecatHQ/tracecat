@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import sqlalchemy as sa
 from sqlalchemy import cast, func, or_, select
 from sqlalchemy.dialects.postgresql import INTERVAL
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.orm import load_only, raiseload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
@@ -56,6 +56,7 @@ from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.search import resolve_case_tag_filters
 from tracecat.cases.text_search import (
+    SEARCH_PLANNER_SETTINGS,
     CaseTextQuery,
     build_case_text_expressions,
     case_search_execution_context,
@@ -360,7 +361,7 @@ class CaseSearchService(BaseWorkspaceService):
         """Own lexical execution/rollback while preserving the legacy read path."""
         _require_resolved_view(request)
         lexical = self.parse_lexical_query(request)
-        if lexical is None:
+        if lexical is None and not request.search_term:
             return await self._query_cases(
                 request,
                 case_addons_enabled=case_addons_enabled,
@@ -368,13 +369,23 @@ class CaseSearchService(BaseWorkspaceService):
                 linked_row=linked_row,
                 exclude_case_id=exclude_case_id,
             )
-        transaction = (
-            self.session.begin_nested()
-            if self.session.in_transaction()
-            else self.session.begin()
-        )
+        if lexical is None:
+            # The omitted-mode substring search uses the lexical predicates, so
+            # it needs the same planner settings. The savepoint undoes them if
+            # the search fails.
+            async with (
+                self._search_transaction(),
+                transaction_settings(self.session, SEARCH_PLANNER_SETTINGS),
+            ):
+                return await self._query_cases(
+                    request,
+                    case_addons_enabled=case_addons_enabled,
+                    legacy_filters=legacy_filters,
+                    linked_row=linked_row,
+                    exclude_case_id=exclude_case_id,
+                )
         async with (
-            transaction,
+            self._search_transaction(),
             case_search_execution_context(
                 self.session,
                 check_readiness=True,
@@ -390,6 +401,12 @@ class CaseSearchService(BaseWorkspaceService):
                 exclude_case_id=exclude_case_id,
                 lexical=lexical,
             )
+
+    def _search_transaction(self) -> AsyncSessionTransaction:
+        """A savepoint (or transaction) whose rollback undoes search settings."""
+        if self.session.in_transaction():
+            return self.session.begin_nested()
+        return self.session.begin()
 
     @staticmethod
     def parse_lexical_query(query: CaseQuery) -> CaseTextQuery | None:
@@ -858,19 +875,24 @@ class CaseSearchService(BaseWorkspaceService):
         """Count the identical lexical predicate under the same execution limits."""
         _require_resolved_view(query)
         lexical = self.parse_lexical_query(query)
-        if lexical is None:
+        if lexical is None and not query.search_term:
             return await self._query_aggregates(
                 query,
                 case_addons_enabled=case_addons_enabled,
                 legacy_filters=legacy_filters,
             )
-        transaction = (
-            self.session.begin_nested()
-            if self.session.in_transaction()
-            else self.session.begin()
-        )
+        if lexical is None:
+            async with (
+                self._search_transaction(),
+                transaction_settings(self.session, SEARCH_PLANNER_SETTINGS),
+            ):
+                return await self._query_aggregates(
+                    query,
+                    case_addons_enabled=case_addons_enabled,
+                    legacy_filters=legacy_filters,
+                )
         async with (
-            transaction,
+            self._search_transaction(),
             case_search_execution_context(
                 self.session,
                 check_readiness=True,
