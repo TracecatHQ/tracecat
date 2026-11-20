@@ -1,10 +1,13 @@
 import type {
   AgentChannelBotRead,
+  ChannelBotAppManifest,
   ChannelBotChannel,
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
+import { downloadBlob } from "@/lib/download"
 import { getErrorStatus } from "@/lib/errors"
+import { copyToClipboard } from "@/lib/utils"
 
 /** Each provider's name as toasts and warnings show it. */
 export const CHANNEL_BOT_PROVIDER_NAMES: Record<ChannelBotProvider, string> = {
@@ -231,4 +234,24 @@ export function isUnreachableEndpoint(url: string): boolean {
   } catch {
     return true
   }
+}
+
+/** Copies a text app manifest, or downloads a binary one as its file. */
+export function copyOrDownloadAppManifest(
+  manifest: ChannelBotAppManifest
+): void {
+  if (manifest.encoding === "text") {
+    void copyToClipboard({
+      value: manifest.content,
+      message: "App manifest copied",
+    })
+    return
+  }
+  const bytes = Uint8Array.from(atob(manifest.content), (char) =>
+    char.charCodeAt(0)
+  )
+  downloadBlob(
+    new Blob([bytes], { type: manifest.media_type }),
+    manifest.filename
+  )
 }

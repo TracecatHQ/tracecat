@@ -481,6 +481,17 @@ TRACECAT__DB_AGENT_RUNTIME_PASSWORD = (
 )
 """Password that ``tracecat.db.roles bootstrap --login password`` sets on ``agent_runtime``."""
 
+TRACECAT__DB_MIGRATOR_ROLE = (
+    os.environ.get("TRACECAT__DB_MIGRATOR_ROLE") or ""
+).strip() or "migrator"
+"""Name of the migrations' login role in ``tracecat db roles``. Defaults to ``migrator``."""
+TRACECAT__DB_APP_ROLE = (os.environ.get("TRACECAT__DB_APP_ROLE") or "").strip() or "app"
+"""Name of the app components' login role in ``tracecat db roles``. Defaults to ``app``."""
+TRACECAT__DB_AGENT_RUNTIME_ROLE = (
+    os.environ.get("TRACECAT__DB_AGENT_RUNTIME_ROLE") or ""
+).strip() or "agent_runtime"
+"""Name of the agent runtime's login role in ``tracecat db roles``. Defaults to ``agent_runtime``."""
+
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
@@ -1913,16 +1924,6 @@ TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = env_bool(
 
 TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 128)
 """The maximum number of tools that can be used in an agent."""
-
-TRACECAT__AGENT_MAX_TOOL_CALLS = int(
-    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS") or 40
-)
-"""The maximum number of tool calls that can be made per agent run."""
-
-TRACECAT__AGENT_MAX_REQUESTS = int(
-    os.environ.get("TRACECAT__AGENT_MAX_REQUESTS") or 120
-)
-"""The maximum number of requests that can be made per agent run."""
 
 TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES") or 20)
 """The maximum number of retries that can be made per agent run."""

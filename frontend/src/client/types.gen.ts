@@ -3845,6 +3845,19 @@ export type CatalogMappingSelection = {
 }
 
 /**
+ * What an admin takes to the provider to create a bot's app.
+ */
+export type ChannelBotAppManifest = {
+  filename: string
+  media_type: string
+  encoding: "text" | "base64"
+  content: string
+  create_url: string | null
+}
+
+export type encoding = "text" | "base64"
+
+/**
  * Who owns a bot's provider app.
  */
 export type ChannelBotAppOwner = "workspace" | "platform"
@@ -3889,6 +3902,7 @@ export type ChannelBotPlatformAppSetup = {
   transport: ChannelBotTransport
   oauth_redirect_url: string
   request_url: string | null
+  manifest: ChannelBotAppManifest
 }
 
 /**
@@ -4391,6 +4405,37 @@ export type CommitInfo = {
   pr_number?: number | null
   pr_reused?: boolean
   message?: string
+}
+
+/**
+ * Per-organization concurrency limits, named after their tier fields.
+ */
+export type ConcurrencyLimitName =
+  | "max_concurrent_workflows"
+  | "max_concurrent_actions"
+  | "max_concurrent_tool_calls"
+  | "max_concurrent_agent_turns"
+
+/**
+ * One per-organization concurrency limit with its observed usage.
+ */
+export type ConcurrencyLimitRead = {
+  /**
+   * The limit's tier field name
+   */
+  name: ConcurrencyLimitName
+  /**
+   * Effective limit. None = unlimited
+   */
+  limit?: number | null
+  /**
+   * Units in use when read. None = unknown (not zero)
+   */
+  in_use?: number | null
+  /**
+   * When usage was read. None when usage is unknown
+   */
+  observed_at?: string | null
 }
 
 /**
@@ -8648,7 +8693,7 @@ export type ObjectRef = {
   created_at?: string
 }
 
-export type encoding = "json" | "json+zstd" | "json+gzip"
+export type encoding2 = "json" | "json+zstd" | "json+gzip"
 
 /**
  * A disjunction of one or more filters.
@@ -8810,6 +8855,16 @@ export type OrgUpdate = {
 }
 
 /**
+ * Concurrency limits and observed usage for the current organization.
+ */
+export type OrganizationLimitsRead = {
+  /**
+   * Each concurrency limit with its observed usage
+   */
+  concurrency: Array<ConcurrencyLimitRead>
+}
+
+/**
  * Read schema for organization-scoped secrets.
  */
 export type OrganizationSecretRead = {
@@ -8837,6 +8892,8 @@ export type OrganizationTierRead = {
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
   max_concurrent_actions: number | null
+  max_concurrent_tool_calls: number | null
+  max_concurrent_agent_turns: number | null
   api_rate_limit: number | null
   api_burst_capacity: number | null
   entitlement_overrides: EntitlementsDict | null
@@ -8856,6 +8913,8 @@ export type OrganizationTierUpdate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlement_overrides?: EntitlementsDict | null
@@ -12908,6 +12967,8 @@ export type TierCreate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlements?: EntitlementsDict
@@ -12924,6 +12985,8 @@ export type TierRead = {
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
   max_concurrent_actions: number | null
+  max_concurrent_tool_calls: number | null
+  max_concurrent_agent_turns: number | null
   api_rate_limit: number | null
   api_burst_capacity: number | null
   entitlements: EntitlementsDict
@@ -12942,6 +13005,8 @@ export type TierUpdate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlements?: EntitlementsDict | null
@@ -14322,7 +14387,7 @@ export type WorkflowExecutionObjectPreviewResponse = {
 /**
  * Encoding used to decode preview text
  */
-export type encoding2 = "utf-8" | "unknown"
+export type encoding3 = "utf-8" | "unknown"
 
 export type WorkflowExecutionObjectRequest = {
   /**
@@ -16658,6 +16723,8 @@ export type OrganizationListOrganizationDomainsResponse =
 export type OrganizationGetOrganizationEntitlementsResponse =
   EffectiveEntitlements
 
+export type OrganizationGetOrganizationLimitsResponse = OrganizationLimitsRead
+
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
@@ -17122,6 +17189,14 @@ export type AgentChannelBotsInstallPlatformBotData = {
 }
 
 export type AgentChannelBotsInstallPlatformBotResponse = ChannelBotInstallResult
+
+export type AgentChannelBotsGetBotAppManifestData = {
+  appName: string
+  botId: string
+  workspaceId: string
+}
+
+export type AgentChannelBotsGetBotAppManifestResponse = ChannelBotAppManifest
 
 export type AgentChannelBotsListBotRoutesData = {
   agentPresetId?: string | null
@@ -23200,6 +23275,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/limits": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrganizationLimitsRead
+      }
+    }
+  }
   "/organization/members/me": {
     get: {
       res: {
@@ -24189,6 +24274,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChannelBotInstallResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/{bot_id}/app-manifest": {
+    get: {
+      req: AgentChannelBotsGetBotAppManifestData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChannelBotAppManifest
         /**
          * Validation Error
          */

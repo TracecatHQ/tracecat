@@ -2,6 +2,7 @@ import { AxiosError } from "axios"
 import type { WorkflowsExportWorkflowData } from "@/client"
 
 import { client } from "@/lib/api"
+import { downloadBlob } from "@/lib/download"
 
 export async function exportWorkflow({
   workspaceId,
@@ -32,18 +33,7 @@ export async function exportWorkflow({
   } else {
     data = JSON.stringify(response.data, null, 2)
   }
-  const blob = new Blob([data], { type: contentType })
-  const downloadUrl = window.URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  try {
-    a.href = downloadUrl
-    a.download = filename
-    document.body.appendChild(a) // Required for Firefox
-    a.click()
-  } finally {
-    a.remove() // Clean up
-    window.URL.revokeObjectURL(downloadUrl)
-  }
+  downloadBlob(new Blob([data], { type: contentType }), filename)
 }
 
 function headerValueToString(value: unknown): string | undefined {

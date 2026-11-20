@@ -6,6 +6,7 @@ import { flushSync } from "react-dom"
 import type {
   AgentChannelBotRead,
   AgentPresetRead,
+  ChannelBotAppManifest,
   SlackBotCredentialsUpdate,
   SlackBotInstall,
 } from "@/client"
@@ -30,7 +31,6 @@ import {
   goToChannelBotAuthorization,
   httpsUrlOrNull,
 } from "@/components/agents/external-channels/channel-bot-utils"
-import { buildSlackManifest } from "@/components/agents/external-channels/slack-manifest"
 import {
   CreateInSlackButton,
   CustomSlackAppDocsLink,
@@ -43,11 +43,13 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import {
+  useChannelBotAppManifest,
   useChannelBotChannels,
   useChannelBotsBusy,
   useInstallAgentChannelBot,
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
+import { getApiErrorDetail } from "@/lib/errors"
 
 const SLACK_APPS_URL = "https://api.slack.com/apps"
 const CHANNEL_SUMMARY_CAP = 2
@@ -200,6 +202,14 @@ function SlackBotDialog({
   const [appRefreshToken, setAppRefreshToken] = useState("")
 
   const status = CHANNEL_BOT_STATES[state]
+  const { appManifest, appManifestError } = useChannelBotAppManifest(
+    bot,
+    botName.trim() || TITLE
+  )
+  const manifestError = appManifestError
+    ? (getApiErrorDetail(appManifestError) ??
+      "Could not load the Slack app manifest.")
+    : null
   const mode = slackDialogMode(status.installed, reconnecting)
   const socket = details.transport === "socket"
   // Rotating app-level tokens come with a refresh token that Slack shows once.
@@ -314,6 +324,8 @@ function SlackBotDialog({
             <SlackAppCreateStep
               bot={bot}
               details={details}
+              manifest={appManifest}
+              manifestError={manifestError}
               botName={botName}
               onBotNameChange={setBotName}
               created={appCreated}
@@ -324,7 +336,8 @@ function SlackBotDialog({
             <SlackBotManualSetup
               bot={bot}
               details={details}
-              appName={botName}
+              manifest={appManifest}
+              manifestError={manifestError}
               summary="Slack settings for this app"
             />
           )}
@@ -409,6 +422,8 @@ function SlackBotDialog({
 function SlackAppCreateStep({
   bot,
   details,
+  manifest,
+  manifestError,
   botName,
   onBotNameChange,
   created,
@@ -417,13 +432,14 @@ function SlackAppCreateStep({
 }: {
   bot: AgentChannelBotRead
   details: ChannelBotDetailsOf<"slack">
+  manifest: ChannelBotAppManifest | null
+  manifestError: string | null
   botName: string
   onBotNameChange: (value: string) => void
   created: boolean
   onCreated: () => void
   disabled: boolean
 }) {
-  const manifest = slackBotManifest(bot, details, botName.trim())
   if (created) {
     return (
       <div className="space-y-4">
@@ -431,7 +447,8 @@ function SlackAppCreateStep({
         <SlackBotManualSetup
           bot={bot}
           details={details}
-          appName={botName.trim()}
+          manifest={manifest}
+          manifestError={manifestError}
           summary="Create the app by hand instead"
         />
       </div>
@@ -450,8 +467,8 @@ function SlackAppCreateStep({
       />
       <div className="flex flex-wrap items-center gap-3">
         <CreateInSlackButton
-          manifest={manifest ?? {}}
-          disabled={disabled || !manifest}
+          createUrl={manifest?.create_url ?? null}
+          disabled={disabled || !botName.trim()}
           onOpen={onCreated}
         />
         <Button
@@ -468,49 +485,40 @@ function SlackAppCreateStep({
       <SlackBotManualSetup
         bot={bot}
         details={details}
-        appName={botName.trim()}
+        manifest={manifest}
+        manifestError={manifestError}
         summary="Create the app by hand instead"
       />
     </div>
   )
 }
 
-/** The bot's manifest, or null without a name or an HTTP endpoint to send events to. */
-function slackBotManifest(
-  bot: AgentChannelBotRead,
-  details: ChannelBotDetailsOf<"slack">,
-  appName: string
-): Record<string, unknown> | null {
-  const socket = details.transport === "socket"
-  if (!appName || (!socket && !bot.endpoint_url)) {
-    return null
-  }
-  return buildSlackManifest({
-    endpointUrl: socket ? null : bot.endpoint_url,
-    oauthRedirectUrl: details.oauth_redirect_url,
-    appName,
-  })
-}
-
 /** The request and redirect URLs and the manifest, collapsed. */
 function SlackBotManualSetup({
   bot,
   details,
-  appName,
+  manifest,
+  manifestError,
   summary,
 }: {
   bot: AgentChannelBotRead
   details: ChannelBotDetailsOf<"slack">
-  appName: string
+  manifest: ChannelBotAppManifest | null
+  manifestError: string | null
   summary: string
 }) {
   const socket = details.transport === "socket"
   return (
-    <SlackManualSetup
-      summary={summary}
-      requestUrl={socket ? null : bot.endpoint_url}
-      oauthRedirectUrl={details.oauth_redirect_url}
-      manifest={slackBotManifest(bot, details, appName || TITLE)}
-    />
+    <>
+      {manifestError ? (
+        <p className="text-xs text-destructive">{manifestError}</p>
+      ) : null}
+      <SlackManualSetup
+        summary={summary}
+        requestUrl={socket ? null : bot.endpoint_url}
+        oauthRedirectUrl={details.oauth_redirect_url}
+        manifest={manifest}
+      />
+    </>
   )
 }

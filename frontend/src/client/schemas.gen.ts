@@ -14399,6 +14399,43 @@ export const $CatalogMappingSelection = {
     "User-selected target catalog row for one source catalog reference.",
 } as const
 
+export const $ChannelBotAppManifest = {
+  properties: {
+    filename: {
+      type: "string",
+      title: "Filename",
+    },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+    },
+    encoding: {
+      type: "string",
+      enum: ["text", "base64"],
+      title: "Encoding",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    create_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Create Url",
+    },
+  },
+  type: "object",
+  required: ["filename", "media_type", "encoding", "content", "create_url"],
+  title: "ChannelBotAppManifest",
+  description: "What an admin takes to the provider to create a bot's app.",
+} as const
+
 export const $ChannelBotAppOwner = {
   type: "string",
   enum: ["workspace", "platform"],
@@ -14553,9 +14590,12 @@ export const $ChannelBotPlatformAppSetup = {
       ],
       title: "Request Url",
     },
+    manifest: {
+      $ref: "#/components/schemas/ChannelBotAppManifest",
+    },
   },
   type: "object",
-  required: ["transport", "oauth_redirect_url", "request_url"],
+  required: ["transport", "oauth_redirect_url", "request_url", "manifest"],
   title: "ChannelBotPlatformAppSetup",
   description:
     "What a platform admin pastes into the deployment's own provider app.",
@@ -15787,6 +15827,70 @@ export const $CommitInfo = {
   type: "object",
   required: ["status", "sha", "ref", "base_ref"],
   title: "CommitInfo",
+} as const
+
+export const $ConcurrencyLimitName = {
+  type: "string",
+  enum: [
+    "max_concurrent_workflows",
+    "max_concurrent_actions",
+    "max_concurrent_tool_calls",
+    "max_concurrent_agent_turns",
+  ],
+  title: "ConcurrencyLimitName",
+  description:
+    "Per-organization concurrency limits, named after their tier fields.",
+} as const
+
+export const $ConcurrencyLimitRead = {
+  properties: {
+    name: {
+      $ref: "#/components/schemas/ConcurrencyLimitName",
+      description: "The limit's tier field name",
+    },
+    limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Limit",
+      description: "Effective limit. None = unlimited",
+    },
+    in_use: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "In Use",
+      description: "Units in use when read. None = unknown (not zero)",
+    },
+    observed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Observed At",
+      description: "When usage was read. None when usage is unknown",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "ConcurrencyLimitRead",
+  description:
+    "One per-organization concurrency limit with its observed usage.",
 } as const
 
 export const $Condition_Input = {
@@ -28860,6 +28964,24 @@ export const $OrgUpdate = {
   description: "Update organization request.",
 } as const
 
+export const $OrganizationLimitsRead = {
+  properties: {
+    concurrency: {
+      items: {
+        $ref: "#/components/schemas/ConcurrencyLimitRead",
+      },
+      type: "array",
+      title: "Concurrency",
+      description: "Each concurrency limit with its observed usage",
+    },
+  },
+  type: "object",
+  required: ["concurrency"],
+  title: "OrganizationLimitsRead",
+  description:
+    "Concurrency limits and observed usage for the current organization.",
+} as const
+
 export const $OrganizationSecretRead = {
   properties: {
     id: {
@@ -28989,6 +29111,28 @@ export const $OrganizationTierRead = {
       ],
       title: "Max Concurrent Actions",
     },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
+    },
     api_rate_limit: {
       anyOf: [
         {
@@ -29084,6 +29228,8 @@ export const $OrganizationTierRead = {
     "max_concurrent_workflows",
     "max_action_executions_per_workflow",
     "max_concurrent_actions",
+    "max_concurrent_tool_calls",
+    "max_concurrent_agent_turns",
     "api_rate_limit",
     "api_burst_capacity",
     "entitlement_overrides",
@@ -29115,6 +29261,7 @@ export const $OrganizationTierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
@@ -29137,12 +29284,37 @@ export const $OrganizationTierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Max Concurrent Actions",
+    },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
     },
     api_rate_limit: {
       anyOf: [
@@ -42183,6 +42355,7 @@ export const $TierCreate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
@@ -42205,12 +42378,37 @@ export const $TierCreate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Max Concurrent Actions",
+    },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
     },
     api_rate_limit: {
       anyOf: [
@@ -42299,6 +42497,28 @@ export const $TierRead = {
       ],
       title: "Max Concurrent Actions",
     },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
+    },
     api_rate_limit: {
       anyOf: [
         {
@@ -42354,6 +42574,8 @@ export const $TierRead = {
     "max_concurrent_workflows",
     "max_action_executions_per_workflow",
     "max_concurrent_actions",
+    "max_concurrent_tool_calls",
+    "max_concurrent_agent_turns",
     "api_rate_limit",
     "api_burst_capacity",
     "entitlements",
@@ -42386,6 +42608,7 @@ export const $TierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
@@ -42408,12 +42631,37 @@ export const $TierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Max Concurrent Actions",
+    },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
     },
     api_rate_limit: {
       anyOf: [

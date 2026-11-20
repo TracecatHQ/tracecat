@@ -280,6 +280,28 @@ describe("PlatformChannelRoutes", () => {
     ).toBeInTheDocument()
   })
 
+  it("names a routed private channel from the bot's own channels", async () => {
+    servePlatform([route("G7", PRESET.id)], [CHANNELS[0]])
+    api.listChannels.mockResolvedValue(
+      channelPage([
+        {
+          id: "G7",
+          name: "incident-war-room",
+          is_private: true,
+          is_member: true,
+        },
+      ])
+    )
+    const card = await editor()
+
+    const list = await within(card).findByRole("list", { name: "Channels" })
+    expect(
+      await within(list).findByText("incident-war-room")
+    ).toBeInTheDocument()
+    expect(within(list).queryByText("G7")).toBeNull()
+    expect(within(card).queryByText(/Invite @Tracecat/)).toBeNull()
+  })
+
   it("names routed channels it can list, and shows the ID otherwise", async () => {
     servePlatform([route("C1", "preset-2"), route("C9", PRESET.id)])
     const card = await editor()

@@ -8,12 +8,18 @@ import {
   channelBotState,
   channelConventions,
   channelLabel,
+  copyOrDownloadAppManifest,
   httpsUrlOrNull,
   isUnreachableEndpoint,
   pickChannelBot,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { copyToClipboard } from "@/lib/utils"
 
 jest.mock("@/client")
+jest.mock("@/lib/utils", () => ({
+  ...jest.requireActual("@/lib/utils"),
+  copyToClipboard: jest.fn(),
+}))
 
 describe("channelBotState", () => {
   it("is not connected without a live bot", () => {
@@ -165,5 +171,68 @@ describe("channelLabel", () => {
         team_name: "SecOps",
       })
     ).toBe("SecOps › General")
+  })
+})
+
+describe("copyOrDownloadAppManifest", () => {
+  const createObjectURL = jest.fn((_blob: Blob) => "blob:app-package")
+  const revokeObjectURL = jest.fn()
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    Object.assign(URL, { createObjectURL, revokeObjectURL })
+  })
+
+  it("copies a text manifest as served", () => {
+    copyOrDownloadAppManifest({
+      filename: "slack-app-manifest.json",
+      media_type: "application/json",
+      encoding: "text",
+      content: '{\n  "a": 1\n}',
+      create_url: null,
+    })
+
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      expect.objectContaining({ value: '{\n  "a": 1\n}' })
+    )
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it("downloads a binary manifest as its file, decoded from base64", async () => {
+    const click = jest
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        expect(this.download).toBe("app-package.zip")
+        expect(this.href).toBe("blob:app-package")
+      })
+    jest.useFakeTimers()
+
+    copyOrDownloadAppManifest({
+      filename: "app-package.zip",
+      media_type: "application/zip",
+      encoding: "base64",
+      content: btoa("PK\u0005\u0006"),
+      create_url: null,
+    })
+
+    expect(copyToClipboard).not.toHaveBeenCalled()
+    expect(click).toHaveBeenCalledTimes(1)
+    // Revoked after the click returns, so the browser can start the download.
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    jest.runAllTimers()
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:app-package")
+    jest.useRealTimers()
+    const blob = createObjectURL.mock.calls[0][0]
+    expect(blob.type).toBe("application/zip")
+    // jsdom's Blob has no arrayBuffer().
+    const bytes = await new Promise<ArrayBuffer>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.readAsArrayBuffer(blob)
+    })
+    expect(new Uint8Array(bytes)).toEqual(
+      new Uint8Array([0x50, 0x4b, 0x05, 0x06])
+    )
+    click.mockRestore()
   })
 })

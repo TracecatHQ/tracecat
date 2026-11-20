@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
-from tracecat_ee.agent.schemas import AgentActionArgs
+from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfig
 from tracecat.auth.types import Role
@@ -579,3 +579,26 @@ class TestBuildPresetAgentArgsActivity:
             result = await DSLActivities.build_preset_agent_args_activity(input)
 
         assert result.output_type == schema
+
+
+def test_agent_action_args_limits_default_to_unlimited() -> None:
+    args = AgentActionArgs(
+        user_prompt="hi", model_name="claude-sonnet-4-6", model_provider="anthropic"
+    )
+    assert args.max_tool_calls is None
+    assert args.max_requests is None
+
+
+@pytest.mark.parametrize("args_cls", [AgentActionArgs, PresetAgentActionArgs])
+def test_agent_action_args_limits_have_no_ceiling(
+    args_cls: type[AgentActionArgs] | type[PresetAgentActionArgs],
+) -> None:
+    common = {"user_prompt": "hi", "max_tool_calls": 10_000, "max_requests": 30_000}
+    if args_cls is AgentActionArgs:
+        args = AgentActionArgs(
+            model_name="claude-sonnet-4-6", model_provider="anthropic", **common
+        )
+    else:
+        args = PresetAgentActionArgs(preset="analyst", **common)
+    assert args.max_tool_calls == 10_000
+    assert args.max_requests == 30_000

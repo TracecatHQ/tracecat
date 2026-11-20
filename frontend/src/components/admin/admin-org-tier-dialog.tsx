@@ -85,6 +85,8 @@ export function AdminOrgTierDialog({
     orgTier?.max_concurrent_workflows != null ||
     orgTier?.max_action_executions_per_workflow != null ||
     orgTier?.max_concurrent_actions != null ||
+    orgTier?.max_concurrent_tool_calls != null ||
+    orgTier?.max_concurrent_agent_turns != null ||
     orgTier?.api_rate_limit != null
 
   return (
@@ -191,6 +193,26 @@ export function AdminOrgTierDialog({
                             </span>
                             <span className="ml-2">
                               {orgTier.max_concurrent_actions}
+                            </span>
+                          </div>
+                        )}
+                        {orgTier.max_concurrent_tool_calls != null && (
+                          <div>
+                            <span className="text-muted-foreground">
+                              Max concurrent tool calls:
+                            </span>
+                            <span className="ml-2">
+                              {orgTier.max_concurrent_tool_calls}
+                            </span>
+                          </div>
+                        )}
+                        {orgTier.max_concurrent_agent_turns != null && (
+                          <div>
+                            <span className="text-muted-foreground">
+                              Max concurrent agent turns:
+                            </span>
+                            <span className="ml-2">
+                              {orgTier.max_concurrent_agent_turns}
                             </span>
                           </div>
                         )}

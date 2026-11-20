@@ -1,15 +1,16 @@
 "use client"
 
-import { CheckIcon, Copy, ExternalLink } from "lucide-react"
+import { CheckIcon, ExternalLink } from "lucide-react"
 import type { ReactNode } from "react"
+import type { ChannelBotAppManifest } from "@/client"
 import {
+  AppManifestButton,
   CredentialField,
   EndpointField,
 } from "@/components/agents/external-channels/channel-bot-fields"
-import { slackCreateAppUrl } from "@/components/agents/external-channels/slack-manifest"
+import { httpsUrlOrNull } from "@/components/agents/external-channels/channel-bot-utils"
 import { CopyField } from "@/components/copy-field"
 import { Button } from "@/components/ui/button"
-import { copyToClipboard } from "@/lib/utils"
 
 /** Opens the setup instructions for the custom Slack app flow on screen. */
 export function CustomSlackAppDocsLink({
@@ -102,17 +103,18 @@ export function SlackClientCredentialFields({
   )
 }
 
-/** Opens Slack's create-app page in a new tab with the manifest filled in. */
+/** Opens Slack's create-app page, which the API filled the manifest into, in a new tab. */
 export function CreateInSlackButton({
-  manifest,
+  createUrl,
   disabled = false,
   onOpen,
 }: {
-  manifest: Record<string, unknown>
+  createUrl: string | null
   disabled?: boolean
   onOpen?: () => void
 }) {
-  if (disabled) {
+  const href = httpsUrlOrNull(createUrl)
+  if (disabled || !href) {
     return (
       <Button type="button" size="sm" disabled>
         Create in Slack
@@ -122,12 +124,7 @@ export function CreateInSlackButton({
   }
   return (
     <Button type="button" size="sm" asChild>
-      <a
-        href={slackCreateAppUrl(manifest)}
-        target="_blank"
-        rel="noreferrer"
-        onClick={onOpen}
-      >
+      <a href={href} target="_blank" rel="noreferrer" onClick={onOpen}>
         Create in Slack
         <ExternalLink className="ml-2 size-4" />
       </a>
@@ -156,18 +153,8 @@ export function SlackManualSetup({
   /** Null over Socket Mode, which needs no request URL. */
   requestUrl: string | null
   oauthRedirectUrl: string
-  manifest: Record<string, unknown> | null
+  manifest: ChannelBotAppManifest | null
 }) {
-  function handleCopyManifest(): void {
-    if (!manifest) {
-      return
-    }
-    void copyToClipboard({
-      value: JSON.stringify(manifest, null, 2),
-      message: "Slack manifest copied",
-    })
-  }
-
   return (
     <details className="group text-xs">
       <summary className="cursor-pointer text-muted-foreground">
@@ -195,16 +182,7 @@ export function SlackManualSetup({
             Settings → Socket Mode; no request URL is needed.
           </p>
         )}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={handleCopyManifest}
-          disabled={!manifest}
-        >
-          <Copy className="mr-2 size-4" />
-          Copy app manifest
-        </Button>
+        <AppManifestButton manifest={manifest} />
       </div>
     </details>
   )

@@ -23,6 +23,7 @@ from tracecat.agent.channel_bots.platform_app import (
     write_slack_platform_app,
 )
 from tracecat.agent.channel_bots.schemas import (
+    ChannelBotAppManifest,
     ChannelBotPlatformAppSetup,
     ChannelBotProvider,
     ChannelBotTransport,
@@ -44,10 +45,18 @@ from tracecat.secrets.encryption import encrypt_value
 
 pytestmark = pytest.mark.usefixtures("db")
 
+MANIFEST = ChannelBotAppManifest(
+    filename="slack-app-manifest.json",
+    media_type="application/json",
+    encoding="text",
+    content='{"settings": {}}',
+    create_url="https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+)
 HTTP_SETUP = ChannelBotPlatformAppSetup(
     transport=ChannelBotTransport.HTTP,
     oauth_redirect_url="https://api.example.com/agent/channel-bots/slack/oauth/callback",
     request_url="https://api.example.com/platform-events",
+    manifest=MANIFEST,
 )
 SOCKET_SETUP = HTTP_SETUP.model_copy(
     update={"transport": ChannelBotTransport.SOCKET, "request_url": None}

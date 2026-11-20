@@ -36,6 +36,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import {
   useAddChannelBotRoute,
+  useChannelBotChannels,
   useChannelBotRoutableChannels,
   useChannelBotRoutes,
   useChannelBotsBusy,
@@ -228,6 +229,11 @@ export function PlatformChannelRoutes({
     loadingMoreChannels,
     loadMoreChannels,
   } = useChannelBotRoutableChannels(workspaceId, install.id)
+  // The bot's own channels name private ones the workspace listing hasn't reached.
+  const { channels: botChannels } = useChannelBotChannels(
+    workspaceId,
+    install.id
+  )
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, install.provider)
   const { setRoute } = useSetChannelBotRoute(workspaceId, install.provider)
   const { deleteRoute } = useDeleteChannelBotRoute(
@@ -246,8 +252,11 @@ export function PlatformChannelRoutes({
   // A hint over the loaded pages; the API refuses a channel that already has a route.
   const routedIds = new Set((routes ?? []).map((r) => r.provider_channel_id))
   const taken = routedIds.has(newChannel)
-  const channelsById = new Map((channels ?? []).map((c) => [c.id, c]))
-  const unrouted = (channels ?? []).filter((c) => !routedIds.has(c.id))
+  const channelsById = new Map(
+    [...(channels ?? []), ...(botChannels ?? [])].map((c) => [c.id, c])
+  )
+  const pickable = channels ? [...channelsById.values()] : []
+  const unrouted = pickable.filter((c) => !routedIds.has(c.id))
   const note = listingNote(providerName, channels, channelsError)
   // Channel IDs carry no whitespace; the API refuses them otherwise.
   const canAdd =
