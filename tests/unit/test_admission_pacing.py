@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -37,6 +38,7 @@ def _limits(**values: int) -> EffectiveLimits:
 @pytest.fixture(autouse=True)
 def clear_rate_cache() -> None:
     pacing._rate_cache.clear()
+    pacing._rate_lookups.clear()
 
 
 @pytest.fixture
@@ -294,22 +296,73 @@ async def test_resolve_start_rate_caches_in_process(
     get_limits.assert_awaited_once_with(org_id)
 
 
-@pytest.mark.anyio
-async def test_resolve_start_rate_lookup_failure_is_unpaced_and_not_cached(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _use_tier_lookup(monkeypatch: pytest.MonkeyPatch, get_limits: AsyncMock) -> None:
     monkeypatch.setattr(pacing.config, "TRACECAT__EE_MULTI_TENANT", True)
     monkeypatch.setattr(
         pacing, "get_async_session_tenant_context_manager", lambda **_: _FakeSession()
     )
-    get_limits = AsyncMock(side_effect=RuntimeError("database unavailable"))
     monkeypatch.setattr(
         pacing,
         "TierService",
         lambda _session: SimpleNamespace(get_effective_limits=get_limits),
     )
+
+
+@pytest.mark.anyio
+async def test_resolve_start_rate_lookup_failure_is_unpaced_briefly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed lookup fails open and isn't retried by every start."""
+    get_limits = AsyncMock(side_effect=RuntimeError("database unavailable"))
+    _use_tier_lookup(monkeypatch, get_limits)
     org_id = uuid.uuid4()
 
     assert await resolve_start_rate(org_id) is None
     assert await resolve_start_rate(org_id) is None
+    assert get_limits.await_count == 1
+
+    # Once the short failure window passes, the next start looks again.
+    pacing._rate_cache[org_id] = pacing._CachedRate(expires_at=0.0, rate=None)
+    assert await resolve_start_rate(org_id) is None
     assert get_limits.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_concurrent_cold_starts_share_one_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A burst on a cold cache takes one DB session, not one per start."""
+    release = asyncio.Event()
+
+    async def _slow_limits(_org_id: uuid.UUID) -> EffectiveLimits:
+        await release.wait()
+        return _limits(api_rate_limit=4)
+
+    get_limits = AsyncMock(side_effect=_slow_limits)
+    _use_tier_lookup(monkeypatch, get_limits)
+    org_id = uuid.uuid4()
+
+    waiters = [asyncio.create_task(resolve_start_rate(org_id)) for _ in range(10)]
+    await asyncio.sleep(0)
+    release.set()
+    rates = await asyncio.gather(*waiters)
+
+    assert rates == [StartRate(per_second=4, burst=4)] * 10
+    get_limits.assert_awaited_once()
+    assert pacing._rate_lookups == {}
+
+
+@pytest.mark.anyio
+async def test_slow_lookup_times_out_and_fails_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lookup stuck waiting for a DB connection gives up quickly."""
+    monkeypatch.setattr(pacing, "_LIMIT_LOOKUP_TIMEOUT_SECONDS", 0.05)
+
+    async def _never(_org_id: uuid.UUID) -> EffectiveLimits:
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    _use_tier_lookup(monkeypatch, AsyncMock(side_effect=_never))
+
+    assert await asyncio.wait_for(resolve_start_rate(uuid.uuid4()), 1) is None

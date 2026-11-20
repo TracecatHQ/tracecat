@@ -33,6 +33,11 @@ if TYPE_CHECKING:
 
 _RESOURCE = "workflow_starts"
 _REDIS_TIMEOUT_SECONDS = 1.0
+# The rate lookup opens its own DB session while the caller may still hold
+# one. Bound it, and remember a failure briefly, so an exhausted pool stalls
+# at most one lookup per org per window instead of every start.
+_LIMIT_LOOKUP_TIMEOUT_SECONDS = 2.0
+_FAILED_LOOKUP_CACHE_SECONDS = 5.0
 _MICROS_PER_SECOND = 1_000_000
 
 # KEYS[1] = pacing key (holds the org's theoretical arrival time, in µs)
@@ -142,6 +147,8 @@ class _CachedRate:
 
 
 _rate_cache: dict[OrganizationID, _CachedRate] = {}
+# One lookup per org at a time; concurrent cold starts wait on it.
+_rate_lookups: dict[OrganizationID, asyncio.Task[StartRate | None]] = {}
 
 
 def start_rate_from_limits(limits: EffectiveLimits) -> StartRate | None:
@@ -168,14 +175,31 @@ async def resolve_start_rate(org_id: OrganizationID) -> StartRate | None:
     """Return the org's start rate, cached in process; ``None`` means unpaced."""
     if not config.TRACECAT__EE_MULTI_TENANT:
         return None
-    now = time.monotonic()
-    if (cached := _rate_cache.get(org_id)) is not None and cached.expires_at > now:
+    cached = _rate_cache.get(org_id)
+    if cached is not None and cached.expires_at > time.monotonic():
         return cached.rate
+    if (lookup := _rate_lookups.get(org_id)) is None:
+        lookup = asyncio.create_task(_load_start_rate(org_id))
+        _rate_lookups[org_id] = lookup
+        lookup.add_done_callback(lambda done: _forget_lookup(org_id, done))
+    # A caller that gives up must not cancel the lookup others wait on.
+    return await asyncio.shield(lookup)
+
+
+def _forget_lookup(
+    org_id: OrganizationID, done: asyncio.Task[StartRate | None]
+) -> None:
+    if _rate_lookups.get(org_id) is done:
+        del _rate_lookups[org_id]
+
+
+async def _load_start_rate(org_id: OrganizationID) -> StartRate | None:
     try:
-        async with get_async_session_tenant_context_manager(
-            organization_id=org_id
-        ) as session:
-            limits = await TierService(session).get_effective_limits(org_id)
+        async with asyncio.timeout(_LIMIT_LOOKUP_TIMEOUT_SECONDS):
+            async with get_async_session_tenant_context_manager(
+                organization_id=org_id
+            ) as session:
+                limits = await TierService(session).get_effective_limits(org_id)
     except Exception as e:
         logger.warning(
             "concurrency.fail_open",
@@ -184,10 +208,13 @@ async def resolve_start_rate(org_id: OrganizationID) -> StartRate | None:
             reason="limit_lookup_failed",
             error_type=type(e).__name__,
         )
+        _rate_cache[org_id] = _CachedRate(
+            expires_at=time.monotonic() + _FAILED_LOOKUP_CACHE_SECONDS, rate=None
+        )
         return None
     rate = start_rate_from_limits(limits)
     ttl = config.TRACECAT__WORKFLOW_START_PACING_LIMITS_CACHE_SECONDS
-    _rate_cache[org_id] = _CachedRate(expires_at=now + ttl, rate=rate)
+    _rate_cache[org_id] = _CachedRate(expires_at=time.monotonic() + ttl, rate=rate)
     return rate
 
 
