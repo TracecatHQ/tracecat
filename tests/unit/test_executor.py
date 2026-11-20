@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID
 
+import jwt
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import event
@@ -19,7 +20,12 @@ from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionRetryPolicy,
+    ActionStatement,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor import secret_preprocessors
 from tracecat.executor import service as executor_service
@@ -291,6 +297,62 @@ def test_workflow_token_omits_untrusted_agent_session_id(
     claims = verify_executor_token(token)
     assert claims.execution_origin == "workflow"
     assert claims.agent_session_id is None
+
+
+def _token_lifetime_seconds(token: str) -> int:
+    claims = jwt.decode(token, options={"verify_signature": False})
+    return claims["exp"] - claims["iat"]
+
+
+@pytest.mark.parametrize(
+    ("action_timeout", "expected_lifetime"),
+    [
+        # A long action: its token outlives the action, so a capacity wait
+        # (retried until the action ends) never meets an expired token.
+        pytest.param(
+            1800, 1800 + executor_service.ACTION_TOKEN_TTL_MARGIN_SECONDS, id="long"
+        ),
+        # A short action keeps the deployment TTL as the floor.
+        pytest.param(300, 900, id="short"),
+    ],
+)
+def test_action_token_outlives_the_action_timeout(
+    mock_run_context: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
+    action_timeout: int,
+    expected_lifetime: int,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS", 900)
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+    )
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="action",
+            action="core.script.run_python",
+            args={},
+            retry_policy=ActionRetryPolicy(timeout=action_timeout),
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock("core.script.run_python"),
+    )
+
+    token = executor_service._mint_action_executor_token(input, role)
+
+    assert _token_lifetime_seconds(token) == expected_lifetime
+    # Only the lifetime changes; the token's scope is the same.
+    claims = verify_executor_token(token)
+    assert claims.workspace_id == workspace_id
+    assert claims.wf_id == str(mock_run_context.wf_id)
+    assert claims.wf_exec_id == str(mock_run_context.wf_run_id)
+    assert claims.execution_origin == "workflow"
+    assert claims.root_action == "core.script.run_python"
 
 
 @pytest.fixture(scope="function")

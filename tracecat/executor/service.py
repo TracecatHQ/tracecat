@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import math
 from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -132,6 +133,23 @@ def _execution_origin_for_role(role: Role) -> ExecutionOrigin:
             return "workflow"
 
 
+ACTION_TOKEN_TTL_MARGIN_SECONDS = 60
+"""How long an action's SDK token outlives the action's own timeout."""
+
+
+def _action_token_ttl_seconds(input: RunActionInput) -> int:
+    """Lifetime of one action's SDK token: at least the action's own timeout.
+
+    The SDK retries the Action Gateway's capacity refusal until the action ends,
+    so the token must outlive the action, or a long capacity wait would fail on
+    an expired token. The deployment TTL stays the floor.
+    """
+    action_lifetime = (
+        math.ceil(_action_timeout(input)) + ACTION_TOKEN_TTL_MARGIN_SECONDS
+    )
+    return max(config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS, action_lifetime)
+
+
 def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:
     """Mint SDK credentials carrying the root action's trusted provenance."""
     if role.workspace_id is None:
@@ -148,6 +166,7 @@ def _mint_action_executor_token(input: RunActionInput, role: Role) -> str:
         ),
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
+        ttl_seconds=_action_token_ttl_seconds(input),
     )
 
 
