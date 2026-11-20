@@ -12,7 +12,7 @@ Use `ai.agent` when the model needs tool calls. You give the agent a prompt, ins
 - `ai.agent`: Prompt plus tool calls. Use `actions` for Tracecat actions and `mcp_integrations` for saved MCP servers.
 - `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, skills, and MCP integrations across workflows.
 - `tool_approvals`: Require approval before selected tools run.
-- `max_tool_calls` and `max_requests`: Bound how much work the agent can do in a single run.
+- `max_tool_calls` and `max_requests`: Optional per-run limits. Unset means no limit.
 
 ## Structured outputs
 
@@ -87,19 +87,19 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_requests" type="integer">
+<ParamField path="max_requests" type="integer | null">
 
-Maximum number of requests for the agent.
+Maximum number of requests for the agent. Unlimited by default.
 
-Default: `45`.
+Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_tool_calls" type="integer">
+<ParamField path="max_tool_calls" type="integer | null">
 
-Maximum number of tool calls for the agent.
+Maximum number of tool calls for the agent. Unlimited by default.
 
-Default: `15`.
+Default: `null`.
 
 </ParamField>
 
@@ -170,6 +170,14 @@ Default: `null`.
 <ParamField path="tool_approvals" type="map[string, boolean] | null">
 
 Per-tool approval overrides keyed by action name (e.g. 'core.cases.create_case'). Use true to require approval, false to allow auto-execution.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="tool_tunnels" type="map[string, string] | null">
+
+Workspace tunnel name keyed by action name (e.g. 'tools.sublime_security.list_messages'). Calls to that tool go through the tunnel.
 
 Default: `null`.
 
@@ -271,19 +279,19 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_requests" type="integer">
+<ParamField path="max_requests" type="integer | null">
 
-Maximum number of requests for the agent.
+Maximum number of requests for the agent. Unlimited by default.
 
-Default: `45`.
+Default: `null`.
 
 </ParamField>
 
-<ParamField path="max_tool_calls" type="integer">
+<ParamField path="max_tool_calls" type="integer | null">
 
-Maximum number of tool calls for the agent.
+Maximum number of tool calls for the agent. Unlimited by default.
 
-Default: `15`.
+Default: `null`.
 
 </ParamField>
 

@@ -3,7 +3,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from tracecat import config
 from tracecat.agent.common.types import (
     MCPServerConfig,
     read_reasoning_effort_as_enable_thinking,
@@ -55,17 +54,15 @@ class AgentActionArgs(BaseModel):
     output_type: OutputType | None = None
     session_id: uuid.UUID | None = None
     model_settings: dict[str, Any] | None = None
-    max_tool_calls: int = Field(
-        default=15,
+    max_tool_calls: int | None = Field(
+        default=None,
         ge=1,
-        le=config.TRACECAT__AGENT_MAX_TOOL_CALLS,
-        description="The maximum number of tool calls to make per agent run",
+        description="The maximum number of tool calls per agent run. None is unlimited.",
     )
-    max_requests: int = Field(
-        default=45,
+    max_requests: int | None = Field(
+        default=None,
         ge=1,
-        le=config.TRACECAT__AGENT_MAX_REQUESTS,
-        description="The maximum number of model requests to make per agent run",
+        description="The maximum number of model requests per agent run. None is unlimited.",
     )
     retries: int = 3
     enable_thinking: bool = True
@@ -96,15 +93,13 @@ class PresetAgentActionArgs(BaseModel):
     instructions: str | None = None
     output_type: OutputType | None = None
     session_id: uuid.UUID | None = None
-    max_tool_calls: int = Field(
-        default=15,
+    max_tool_calls: int | None = Field(
+        default=None,
         ge=1,
-        le=config.TRACECAT__AGENT_MAX_TOOL_CALLS,
-        description="The maximum number of tool calls to make per agent run",
+        description="The maximum number of tool calls per agent run. None is unlimited.",
     )
-    max_requests: int = Field(
-        default=45,
+    max_requests: int | None = Field(
+        default=None,
         ge=1,
-        le=config.TRACECAT__AGENT_MAX_REQUESTS,
-        description="The maximum number of model requests to make per agent run",
+        description="The maximum number of model requests per agent run. None is unlimited.",
     )
