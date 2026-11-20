@@ -5,6 +5,8 @@ from collections.abc import Sequence
 import pytest
 import temporalio.api.common.v1
 from temporalio.api.common.v1 import Payload
+from temporalio.api.enums.v1 import EventType
+from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
 from tracecat.temporal.codec import TemporalPayloadCodecError
@@ -12,6 +14,7 @@ from tracecat.workflow.executions import common as executions_common
 from tracecat.workflow.executions.common import (
     UnreadableTemporalPayload,
     extract_payload,
+    schedules_executor_action,
     unwrap_action_result,
 )
 
@@ -70,3 +73,20 @@ async def test_extract_payload_returns_unreadable_sentinel_on_decode_failure(
     assert result.error_type == "TemporalPayloadCodecError"
     assert result.encoding == "json/plain"
     assert result.payload_size_bytes == len(b'{"ok":true}')
+
+
+def test_only_execute_action_activity_can_carry_a_busy_answer() -> None:
+    def scheduled(activity_type: str) -> HistoryEvent:
+        event = HistoryEvent(event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED)
+        event.activity_task_scheduled_event_attributes.activity_type.name = (
+            activity_type
+        )
+        return event
+
+    assert schedules_executor_action(scheduled("execute_action_activity"))
+    assert not schedules_executor_action(
+        scheduled("evaluate_single_expression_activity")
+    )
+    assert not schedules_executor_action(
+        HistoryEvent(event_type=EventType.EVENT_TYPE_TIMER_STARTED)
+    )

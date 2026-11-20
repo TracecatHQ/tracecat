@@ -82,6 +82,7 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
     is_unreadable_temporal_payload,
+    schedules_executor_action,
     unwrap_action_result,
 )
 from tracecat.workflow.executions.constants import (
@@ -688,6 +689,8 @@ class WorkflowExecutionsService:
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
         # Map of activity ID to compact event
         activity2eventid: dict[str, int] = {}
+        # Scheduled event IDs of execute_action_activity, the only busy source.
+        executor_sources: set[int] = set()
         fixed_results: dict[str, FixedActionResult] = {}
         fixed_action_names: dict[str, str] = {}
 
@@ -714,6 +717,8 @@ class WorkflowExecutionsService:
                         event.activity_task_scheduled_event_attributes.activity_id
                     )
                     activity2eventid[activity_id] = event.event_id
+                    if schedules_executor_action(event):
+                        executor_sources.add(event.event_id)
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                 attrs = event.workflow_execution_started_event_attributes
                 run_args_data = await extract_first(attrs.input)
@@ -808,10 +813,13 @@ class WorkflowExecutionsService:
                 if is_close_event(event):
                     raw_result = await get_result(event)
                     if isinstance(raw_result, ConcurrencyBusyResult):
-                        # The executor was at the org's limit and ran nothing;
-                        # the workflow dispatches again.
-                        del id2event[source_id]
-                        continue
+                        if source_id in executor_sources:
+                            # The executor was at the org's limit and ran
+                            # nothing; the workflow dispatches again.
+                            del id2event[source_id]
+                            continue
+                        # A user-shaped value from another activity: show it.
+                        raw_result = raw_result.model_dump(mode="json")
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = _sanitize_action_result(
                         source.should_mask_output, raw_result
@@ -965,6 +973,7 @@ class WorkflowExecutionsService:
         wf_id, _ = exec_id_to_parts(wf_exec_id)
         handle = self.handle(wf_exec_id)
         scheduled: dict[int, WorkflowExecutionEventCompact] = {}
+        executor_scheduled: set[int] = set()
         latest: dict[str, tuple[int, RerunSourceAction]] = {}
         action_names: dict[str, str] = {}
         inherited: dict[str, FixedActionResult] = {}
@@ -1001,6 +1010,8 @@ class WorkflowExecutionsService:
                     continue
                 ref = source.action_ref
                 scheduled[event.event_id] = source
+                if schedules_executor_action(event):
+                    executor_scheduled.add(event.event_id)
                 reason = (
                     "Detached child workflows always run."
                     if source.status == WorkflowExecutionEventStatus.DETACHED
@@ -1023,7 +1034,7 @@ class WorkflowExecutionsService:
                 entry = latest.get(source.action_ref)
                 if entry is None or entry[0] != source_id:
                     continue
-                if await is_busy_completion(event):
+                if source_id in executor_scheduled and await is_busy_completion(event):
                     # The executor was at the org's limit; the action never ran.
                     continue
                 entry[1].fixed = FixedActionResult(
@@ -1261,6 +1272,8 @@ class WorkflowExecutionsService:
         events: list[WorkflowExecutionEvent] = []
         # Scheduled/started event IDs of attempts the executor answered busy.
         busy_event_ids: set[int] = set()
+        # Scheduled event IDs of execute_action_activity, the only busy source.
+        executor_scheduled: set[int] = set()
         for event in history.events:
             match event.event_type:
                 # === Child Workflow Execution Events ===
@@ -1414,6 +1427,8 @@ class WorkflowExecutionsService:
                     if not (group := await EventGroup.from_scheduled_activity(event)):
                         continue
                     event_group_names[event.event_id] = group
+                    if schedules_executor_action(event):
+                        executor_scheduled.add(event.event_id)
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -1450,7 +1465,10 @@ class WorkflowExecutionsService:
                     raw_result = await extract_first(
                         event.activity_task_completed_event_attributes.result
                     )
-                    if parse_busy_result(raw_result) is not None:
+                    if (
+                        gparent_event_id in executor_scheduled
+                        and parse_busy_result(raw_result) is not None
+                    ):
                         # The executor ran nothing; hide the whole attempt.
                         busy_event_ids.add(gparent_event_id)
                         busy_event_ids.add(

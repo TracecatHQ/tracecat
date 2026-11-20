@@ -203,6 +203,23 @@ async def get_result(event: HistoryEvent) -> Any:
     return await _unwrap_result(result)
 
 
+EXECUTOR_ACTION_ACTIVITY = ExecutorActivities.execute_action_activity.__name__
+"""The only activity whose result can be an executor's busy answer."""
+
+
+def schedules_executor_action(event: HistoryEvent) -> bool:
+    """Whether a history event schedules ``execute_action_activity``.
+
+    Busy answers count only for these: other activities (an expression
+    evaluation, say) can return arbitrary user-shaped values.
+    """
+    return (
+        event.event_type is EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+        and event.activity_task_scheduled_event_attributes.activity_type.name
+        == EXECUTOR_ACTION_ACTIVITY
+    )
+
+
 async def is_busy_completion(event: HistoryEvent) -> bool:
     """Whether a completed activity is an executor's busy answer (it ran nothing)."""
     if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
