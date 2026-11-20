@@ -120,6 +120,26 @@ def filter_workspace_chat_tools_for_scopes(
     ]
 
 
+def filter_workflow_tools_for_scopes(
+    tools: list[str],
+    *,
+    role: Role,
+) -> list[str]:
+    """Drop workflow internal tools the caller lacks the workflow scope for.
+
+    Every interactive session runs them under the MCP service principal, so the
+    caller's own ``workflow:*`` scope is checked here, as the MCP tools do.
+    Other tools pass through unchanged.
+    """
+    granted = role.scopes or frozenset()
+    return [
+        tool
+        for tool in tools
+        if (scope := WORKFLOW_INTERNAL_TOOL_SCOPES.get(tool)) is None
+        or has_scope(granted, scope)
+    ]
+
+
 def get_default_tools(entity_type: str) -> list[str]:
     """Get default tools for an entity type."""
     entity = AgentSessionEntity(entity_type)

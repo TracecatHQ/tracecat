@@ -4,6 +4,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.tools import (
     WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS,
+    filter_workflow_tools_for_scopes,
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
@@ -174,3 +175,17 @@ def test_scope_filter_gates_workflow_tools_on_workflow_scopes() -> None:
 
     assert action_only == []
     assert read_and_execute == ["internal.workflows.start", "internal.workflows.get"]
+
+
+def test_workflow_tool_filter_keeps_other_tools_and_checks_workflow_scopes() -> None:
+    tools = [
+        "core.cases.get_case",
+        "internal.workflows.get",
+        "internal.workflows.cancel",
+    ]
+
+    filtered = filter_workflow_tools_for_scopes(
+        tools, role=_role("agent:execute", "workflow:read")
+    )
+
+    assert filtered == ["core.cases.get_case", "internal.workflows.get"]

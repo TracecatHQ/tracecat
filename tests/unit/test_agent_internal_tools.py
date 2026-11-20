@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,10 +17,13 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.mcp import internal_tools
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.schemas import ToolFilters
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.agent.tools import BuildToolsResult
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.controls import scope_matches
+from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import AgentSession
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
@@ -456,14 +460,25 @@ def _workflow_claims() -> MCPTokenClaims:
     )
 
 
-def _role_without(claims: MCPTokenClaims, scope: str) -> Role:
-    """Drop a scope and every scope that implies it (`update` implies `read`)."""
-    role = internal_tools._build_role(claims)
-    assert role.scopes is not None
-    scopes = frozenset(
-        granted for granted in role.scopes if not scope_matches(granted, scope)
+def _scopes_without(scope: str) -> frozenset[str]:
+    """Editor scopes minus `scope` and every scope that implies it."""
+    return frozenset(
+        granted for granted in EDITOR_SCOPES if not scope_matches(granted, scope)
     )
-    return role.model_copy(update={"scopes": scopes})
+
+
+def _patch_caller_scopes(monkeypatch, scopes: frozenset[str]) -> None:
+    """Stub the DB-backed scope lookup the workflow tools use for the caller."""
+
+    async def _compute(_role):
+        return scopes
+
+    monkeypatch.setattr("tracecat.auth.credentials.compute_effective_scopes", _compute)
+
+
+@pytest.fixture(autouse=True)
+def caller_has_editor_scopes(monkeypatch):
+    _patch_caller_scopes(monkeypatch, EDITOR_SCOPES)
 
 
 class _FakeExecutions:
@@ -568,12 +583,12 @@ async def test_start_workflow_requires_exactly_one_target(args):
 async def test_start_workflow_requires_execute_scope(monkeypatch):
     """The real service method enforces `workflow:execute`, as for MCP."""
     claims = _workflow_claims()
-    role = _role_without(claims, "workflow:execute")
-    monkeypatch.setattr(internal_tools, "_build_role", lambda _claims: role)
-    service = WorkflowsManagementService(session=AsyncMock(), role=role)
+    _patch_caller_scopes(monkeypatch, _scopes_without("workflow:execute"))
     monkeypatch.setattr(
         "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
-        lambda role: _AsyncContext(service),
+        lambda role: _AsyncContext(
+            WorkflowsManagementService(session=AsyncMock(), role=role)
+        ),
     )
 
     with pytest.raises(internal_tools.InternalToolError, match="workflow:execute"):
@@ -675,8 +690,7 @@ async def test_workflow_run_tools_hide_other_workspaces(monkeypatch, handler):
 )
 async def test_workflow_run_tools_enforce_scopes(monkeypatch, handler, scope):
     claims = _workflow_claims()
-    role = _role_without(claims, scope)
-    monkeypatch.setattr(internal_tools, "_build_role", lambda _claims: role)
+    _patch_caller_scopes(monkeypatch, _scopes_without(scope))
     _patch_workspace_workflow(monkeypatch)
     executions = _FakeExecutions(None)
     _patch_executions(monkeypatch, executions)
@@ -778,3 +792,68 @@ async def test_build_respects_namespaces_for_workflow_tools(monkeypatch):
 
     assert result.allowed_internal_tools is None
     assert "internal.workflows.start" not in result.tool_definitions
+
+
+@pytest.mark.anyio
+async def test_session_config_drops_workflow_tools_without_caller_scope():
+    """Case chat and preset sessions gate workflow tools on the caller's scopes."""
+    caller = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "action:*:execute", "workflow:read"}),
+    )
+    service = AgentSessionService(session=AsyncMock(), role=caller)
+    unscoped = AgentConfig(
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        actions=[
+            "core.cases.get_case",
+            "internal.workflows.get",
+            "internal.workflows.cancel",
+        ],
+    )
+
+    @asynccontextmanager
+    async def _unscoped_config(_session):
+        yield unscoped
+
+    with patch.object(service, "_build_session_agent_config", _unscoped_config):
+        async with service._build_agent_config(MagicMock()) as config:
+            assert config.actions == ["core.cases.get_case", "internal.workflows.get"]
+
+
+@pytest.mark.anyio
+async def test_start_workflow_runs_as_the_calling_user(monkeypatch):
+    """The run gets the caller's role, so the executor checks their action scopes."""
+    claims = _workflow_claims()
+    wf_uuid = WorkflowUUID.new(_WF_ID)
+    roles: list[Role] = []
+
+    async def _run_workflow(workflow_id, **kwargs):
+        return {"wf_id": wf_uuid, "wf_exec_id": _EXEC_ID, "message": "started"}
+
+    def _with_session(role):
+        roles.append(role)
+        return _AsyncContext(SimpleNamespace(run_workflow=_run_workflow))
+
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        _with_session,
+    )
+
+    await internal_tools.start_workflow({"workflow_id": _WF_ID}, claims)
+
+    assert roles[0].type == "user"
+    assert roles[0].user_id == claims.user_id
+    assert roles[0].scopes == EDITOR_SCOPES
+
+
+@pytest.mark.anyio
+async def test_workflow_tools_without_user_use_service_role(monkeypatch):
+    claims = _workflow_claims().model_copy(update={"user_id": None})
+    role = await internal_tools._caller_role(claims)
+    assert role.type == "service"
+    assert role.service_id == "tracecat-mcp"

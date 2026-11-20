@@ -248,6 +248,30 @@ def _build_role(claims: MCPTokenClaims) -> Role:
     )
 
 
+async def _caller_role(claims: MCPTokenClaims) -> Role:
+    """Resolve the role a workflow tool acts as.
+
+    With a user behind the token, act as that user with their real workspace
+    scopes, as the MCP server does, so the started run and every scope check
+    see the caller's RBAC. Tokens without a user (for example scheduled
+    workflow runs) keep the MCP service principal.
+    """
+    # Local import: tracecat.auth.credentials imports the agent stack, which
+    # imports this module.
+    from tracecat.auth.credentials import compute_effective_scopes
+
+    if claims.user_id is None:
+        return _build_role(claims)
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        workspace_id=claims.workspace_id,
+        organization_id=claims.organization_id,
+        user_id=claims.user_id,
+    )
+    return role.model_copy(update={"scopes": await compute_effective_scopes(role)})
+
+
 async def _get_action_configuration(
     svc: RegistryActionsService,
     action_name: str,
@@ -572,7 +596,7 @@ async def start_workflow(
     from tracecat.workflow.management.management import WorkflowsManagementService
 
     params = _parse_args(_StartWorkflowParams, args)
-    role = _build_role(claims)
+    role = await _caller_role(claims)
     ctx_role.set(role)
 
     try:
@@ -607,7 +631,7 @@ async def get_workflow_run(
 
     params = _parse_args(_WorkflowRunParams, args)
     execution_id = params.workflow_execution_id
-    role = _build_role(claims)
+    role = await _caller_role(claims)
     ctx_role.set(role)
 
     _require_scope(role, "workflow:read")
@@ -646,7 +670,7 @@ async def cancel_workflow_run(
 
     params = _parse_args(_WorkflowRunParams, args)
     execution_id = params.workflow_execution_id
-    role = _build_role(claims)
+    role = await _caller_role(claims)
     ctx_role.set(role)
 
     _require_scope(role, "workflow:terminate")
