@@ -174,10 +174,18 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
-        with platform_span("tracecat.action.materialize_inputs"):
-            materialized_input = input.model_copy(
-                update={"exec_context": await materialize_context(input.exec_context)}
-            )
+        try:
+            with platform_span("tracecat.action.materialize_inputs"):
+                materialized_input = input.model_copy(
+                    update={
+                        "exec_context": await materialize_context(input.exec_context)
+                    }
+                )
+        except Exception as e:
+            # Already classified at the materialization boundary; only count it.
+            if not is_cancelled_exception(e):
+                _ACTIONS.add(1, {"outcome": "failed"})
+            raise
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
 

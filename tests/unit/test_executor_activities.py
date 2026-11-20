@@ -382,12 +382,27 @@ class TestExecuteActionActivity:
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
-        ("side_effect", "expected"),
+        ("stage", "side_effect", "expected"),
         [
-            pytest.param(None, {"succeeded": 1}, id="succeeded"),
-            pytest.param(ValueError("boom"), {"failed": 1}, id="failed"),
+            pytest.param("dispatch", None, {"succeeded": 1}, id="succeeded"),
+            pytest.param("dispatch", ValueError("boom"), {"failed": 1}, id="failed"),
             pytest.param(
-                TemporalCancelledError("activity cancelled"), {}, id="cancelled"
+                "dispatch",
+                TemporalCancelledError("activity cancelled"),
+                {},
+                id="cancelled",
+            ),
+            pytest.param(
+                "materialize",
+                ApplicationError("input storage unavailable"),
+                {"failed": 1},
+                id="materialize-failed",
+            ),
+            pytest.param(
+                "materialize",
+                TemporalCancelledError("activity cancelled"),
+                {},
+                id="materialize-cancelled",
             ),
         ],
     )
@@ -397,6 +412,7 @@ class TestExecuteActionActivity:
         mock_role: Role,
         activity_mocks: SimpleNamespace,
         monkeypatch: pytest.MonkeyPatch,
+        stage: str,
         side_effect: BaseException | None,
         expected: dict[str, int],
     ) -> None:
@@ -406,7 +422,14 @@ class TestExecuteActionActivity:
             executor_activities, "_ACTIONS", meter.create_counter("executor.actions")
         )
         activity_mocks.dispatch.return_value = {"status": "success"}
-        activity_mocks.dispatch.side_effect = side_effect
+        if stage == "materialize":
+            monkeypatch.setattr(
+                executor_activities,
+                "materialize_context",
+                AsyncMock(side_effect=side_effect),
+            )
+        else:
+            activity_mocks.dispatch.side_effect = side_effect
 
         try:
             await ExecutorActivities.execute_action_activity(
