@@ -47,10 +47,10 @@ from tracecat.agent.mcp.executor import (
     ActionNotAllowedError,
     execute_action,
 )
+from tracecat.agent.mcp.internal_tool_defs import get_internal_tool_definitions
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
     InternalToolError,
-    get_internal_tool_definitions,
 )
 from tracecat.agent.mcp.metadata import (
     build_registry_tool_schema,

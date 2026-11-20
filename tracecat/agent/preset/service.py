@@ -30,7 +30,7 @@ from tracecat.agent.common.types import (
     MCPStdioServerConfig,
     is_stdio_mcp_server,
 )
-from tracecat.agent.mcp.internal_tools import WORKFLOW_INTERNAL_TOOL_NAMES
+from tracecat.agent.mcp.internal_tool_defs import WORKFLOW_INTERNAL_TOOL_NAMES
 from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (

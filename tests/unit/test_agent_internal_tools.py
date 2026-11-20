@@ -14,8 +14,8 @@ from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
-from tracecat.agent.mcp import internal_tools
-from tracecat.agent.preset.schemas import AgentPresetRead
+from tracecat.agent.mcp import internal_tool_defs, internal_tools
+from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.tokens import (
@@ -466,7 +466,7 @@ def _workflow_claims() -> MCPTokenClaims:
         session_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         allowed_actions=[],
-        allowed_internal_tools=list(internal_tools.WORKFLOW_INTERNAL_TOOL_NAMES),
+        allowed_internal_tools=list(internal_tool_defs.WORKFLOW_INTERNAL_TOOL_NAMES),
     )
 
 
@@ -483,7 +483,7 @@ def _patch_caller_scopes(monkeypatch, scopes: frozenset[str]) -> None:
     async def _compute(_role):
         return scopes
 
-    monkeypatch.setattr("tracecat.auth.credentials.compute_effective_scopes", _compute)
+    monkeypatch.setattr(internal_tools, "compute_effective_scopes", _compute)
 
 
 @pytest.fixture(autouse=True)
@@ -535,8 +535,8 @@ def _patch_executions(monkeypatch, executions: _FakeExecutions) -> None:
 
 
 def test_workflow_tools_have_handlers_and_definitions():
-    definitions = internal_tools.get_internal_tool_definitions()
-    for name in internal_tools.WORKFLOW_INTERNAL_TOOL_NAMES:
+    definitions = internal_tool_defs.get_internal_tool_definitions()
+    for name in internal_tool_defs.WORKFLOW_INTERNAL_TOOL_NAMES:
         assert name in internal_tools.INTERNAL_TOOL_HANDLERS
         assert definitions[name].name == name
 
@@ -1037,7 +1037,7 @@ def _patch_builder_services(monkeypatch, *, preset_actions, entries, updates):
 @pytest.mark.anyio
 async def test_builder_can_add_workflow_tools(monkeypatch):
     """Workflow tools have no registry entry or secrets, so the builder adds them."""
-    updates: list[object] = []
+    updates: list[AgentPresetUpdate] = []
     _patch_builder_services(monkeypatch, preset_actions=[], entries=[], updates=updates)
 
     result = await internal_tools.update_preset(
@@ -1047,6 +1047,7 @@ async def test_builder_can_add_workflow_tools(monkeypatch):
 
     assert result == {"updated": True}
     assert len(updates) == 1
+    assert updates[0].actions == ["internal.workflows.start", "internal.workflows.get"]
 
 
 @pytest.mark.anyio
@@ -1063,6 +1064,6 @@ async def test_builder_discovers_workflow_tools(monkeypatch):
     )
 
     by_id = {tool["action_id"]: tool for tool in result["tools"]}
-    assert set(by_id) == set(internal_tools.WORKFLOW_INTERNAL_TOOL_NAMES)
+    assert set(by_id) == set(internal_tool_defs.WORKFLOW_INTERNAL_TOOL_NAMES)
     assert by_id["internal.workflows.start"]["configured"] is True
     assert by_id["internal.workflows.get"]["already_in_preset"] is True

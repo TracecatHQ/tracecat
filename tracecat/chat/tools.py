@@ -1,5 +1,5 @@
 # Store default tools for each entity type
-from tracecat.agent.mcp.internal_tools import (
+from tracecat.agent.mcp.internal_tool_defs import (
     BUILDER_INTERNAL_TOOL_NAMES,
     WORKFLOW_INTERNAL_TOOL_SCOPES,
 )

@@ -31,7 +31,7 @@ from tracecat.agent.error_policy import (
     registry_lock_invalid_data,
     tenant_entitlement_denied,
 )
-from tracecat.agent.mcp.internal_tools import (
+from tracecat.agent.mcp.internal_tool_defs import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
     WORKFLOW_INTERNAL_TOOL_NAMES,
