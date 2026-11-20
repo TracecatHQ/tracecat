@@ -3,7 +3,8 @@
 NOTE: When `core.workflow.execute` is called within a DSLWorkflow, it is
 intercepted and handled as a child workflow execution (subflow) via Temporal's
 child workflow machinery. The UDF implementation here is only invoked for
-direct calls (e.g., from AI agents or scripts).
+direct calls (e.g., from AI agents or scripts), and those never wait for the
+started workflow.
 """
 
 from typing import Annotated, Any, Literal
@@ -13,11 +14,7 @@ from typing_extensions import Doc
 from tracecat_registry import ActionIsInterfaceError, ctx, registry, types
 from tracecat_registry._internal.models import WorkflowExecutionID
 from tracecat_registry.context import get_context
-from tracecat_registry.sdk.workflows import (
-    JsonPatchOperation,
-    WorkflowExecutionError,
-    WorkflowExecutionTimeout,
-)
+from tracecat_registry.sdk.workflows import JsonPatchOperation
 
 _WORKSPACE_CHAT_SKILL_GUIDANCE = (
     " In Workspace Chat, follow `tracecat:workspace-chat` for tool routing and "
@@ -28,7 +25,9 @@ _WORKSPACE_CHAT_SKILL_GUIDANCE = (
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Execute a published workflow by alias as a subflow. For testing "
+        "Execute a published workflow by alias as a subflow. Called directly "
+        "(for example by an agent), it starts the workflow and returns at once; "
+        "check on the run with `core.workflow.get_status`. For testing "
         "unpublished draft edits during authoring, use `core.workflow.run` "
         "instead." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
@@ -60,6 +59,7 @@ async def execute(
         Doc(
             "Maximum number of seconds to wait for the subflow to complete. "
             "If not provided, the subflow's default timeout is used. "
+            "Only applies inside a workflow."
         ),
     ] = None,
     version: Annotated[
@@ -86,6 +86,7 @@ async def execute(
             "Any subflow failures will be reported as an error. "
             "In `detach` mode, this action will return immediately after the subflows are created. "
             "A failing subflow will not affect the parent. "
+            "Only applies inside a workflow: direct calls always detach."
         ),
     ] = "detach",
 ) -> Any:
@@ -95,19 +96,16 @@ async def execute(
     is intercepted and handled as a child workflow execution via Temporal.
     The UDF implementation here is only invoked for direct calls from AI agents.
 
-    Note: version, loop_strategy, batch_size, and fail_strategy are only used
-    when executed within DSLWorkflow. For direct invocation, only workflow_alias,
-    trigger_inputs, environment, timeout, and wait_strategy are used.
+    Note: version, loop_strategy, batch_size, fail_strategy, timeout and
+    wait_strategy are only used when executed within DSLWorkflow. A direct
+    invocation uses workflow_alias, trigger_inputs and environment, starts the
+    workflow, and returns without waiting for it.
 
     Returns:
-        For wait_strategy="detach": {"wf_id": str, "wf_exec_id": str, "status": "STARTED"}
-        For wait_strategy="wait": The workflow result if successful.
+        For direct invocation:
+            {"workflow_id": str, "workflow_execution_id": str, "status": "STARTED"}
 
     Raises:
-        ActionIsInterfaceError: If called from within a DSLWorkflow context
-            (the DSLWorkflow handles this action via child workflow machinery).
-        WorkflowExecutionError: If the workflow fails, is canceled, or terminated.
-        WorkflowExecutionTimeout: If timeout is reached while waiting.
         ActionIsInterfaceError: If no context is available (handled by DSLWorkflow).
     """
     # Try to get the registry context for direct invocation
@@ -119,26 +117,16 @@ async def execute(
         # If we got here without context, raise the interface error.
         raise ActionIsInterfaceError()
 
-    # We have context - this is a direct invocation from AI agent or script
-    # Note: version, loop_strategy, batch_size, fail_strategy are DSLWorkflow-only params
-
-    try:
-        result = await context.workflows.execute(
-            workflow_alias=workflow_alias,
-            trigger_inputs=trigger_inputs,
-            environment=environment,
-            timeout=timeout,
-            wait_strategy=wait_strategy,
-            # Pass parent execution ID for correlation (stored in Temporal memo)
-            parent_workflow_execution_id=context.wf_exec_id,
-        )
-        return result
-    except WorkflowExecutionError:
-        # Re-raise workflow execution errors (failed, canceled, terminated)
-        raise
-    except WorkflowExecutionTimeout:
-        # Re-raise timeout errors
-        raise
+    # We have context - this is a direct invocation from an AI agent or script.
+    # It never waits: an agent checks on the run with core.workflow.get_status,
+    # so no executor slot is held while the child runs.
+    return await context.workflows.execute(
+        workflow_alias=workflow_alias,
+        trigger_inputs=trigger_inputs,
+        environment=environment,
+        # Pass parent execution ID for correlation (stored in Temporal memo)
+        parent_workflow_execution_id=context.wf_exec_id,
+    )
 
 
 @registry.register(

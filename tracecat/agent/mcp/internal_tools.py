@@ -7,16 +7,19 @@ Internal tools are system-level tools that:
 - Receive context from JWT claims (preset_id, workspace_id, etc.)
 
 This module provides the builder assistant tools that help users
-configure agent presets through natural language.
+configure agent presets through natural language, and the workflow tools
+that let any agent start, check and cancel workflow runs without waiting.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Self, TypedDict, cast
 
-from pydantic import BaseModel, Field
+import orjson
+from pydantic import BaseModel, Field, ValidationError, model_validator
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
@@ -30,10 +33,19 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
+from tracecat.authz.controls import check_scopes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatNotFoundError,
     TracecatValidationError,
+)
+from tracecat.identifiers.workflow import (
+    WorkflowExecutionID,
+    WorkflowID,
+    WorkflowUUID,
+    exec_id_to_parts,
 )
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -41,6 +53,10 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.storage.object import retrieve_stored_object
+
+if TYPE_CHECKING:
+    from tracecat.workflow.management.management import WorkflowsManagementService
 
 # Tool name constants - these are the canonical names for internal tools
 BUILDER_INTERNAL_TOOL_NAMES = [
@@ -49,6 +65,15 @@ BUILDER_INTERNAL_TOOL_NAMES = [
     "internal.builder.update_preset",
     "internal.builder.list_sessions",
     "internal.builder.get_session",
+]
+
+# Workflow tools any agent can opt into by listing them in its actions.
+# They run in the tool-serving process, so a run never holds an executor slot
+# or a turn while it waits on a workflow.
+WORKFLOW_INTERNAL_TOOL_NAMES = [
+    "internal.workflows.start",
+    "internal.workflows.get",
+    "internal.workflows.cancel",
 ]
 
 # Registry actions that are bundled with the builder assistant
@@ -482,6 +507,164 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
 
 
 # -----------------------------------------------------------------------------
+# Workflow Tool Handlers
+#
+# These share the service layer and scope checks with the MCP server tools
+# `run_workflow`, `get_workflow_execution` and `cancel_workflow_execution`.
+# -----------------------------------------------------------------------------
+
+
+def _parse_args[T: BaseModel](model: type[T], args: dict[str, Any]) -> T:
+    try:
+        return model.model_validate(args)
+    except ValidationError as e:
+        raise InternalToolError(f"Invalid arguments: {e}") from e
+
+
+def _scope_error(error: ScopeDeniedError) -> InternalToolError:
+    return InternalToolError(
+        f"Missing required scope: {', '.join(error.required_scopes)}"
+    )
+
+
+def _require_scope(role: Role, scope: str) -> None:
+    try:
+        check_scopes(role, scope)
+    except ScopeDeniedError as e:
+        raise _scope_error(e) from e
+
+
+async def _require_workspace_execution(
+    role: Role, execution_id: WorkflowExecutionID
+) -> None:
+    """Raise unless the execution's workflow belongs to the role's workspace."""
+    from tracecat.workflow.management.management import WorkflowsManagementService
+
+    wf_id, _ = exec_id_to_parts(execution_id)
+    async with WorkflowsManagementService.with_session(role=role) as svc:
+        workflow = await svc.get_workflow(wf_id)
+    if workflow is None:
+        raise InternalToolError(f"Workflow execution {execution_id} not found")
+
+
+async def _resolve_workflow_id(
+    svc: WorkflowsManagementService, params: _StartWorkflowParams
+) -> WorkflowID:
+    if params.workflow_id is not None:
+        return WorkflowUUID.new(params.workflow_id)
+    alias = cast(str, params.workflow_alias)
+    workflow_id = await svc.resolve_workflow_alias(
+        alias, use_committed=not params.use_draft
+    )
+    if workflow_id is None:
+        raise InternalToolError(f"No workflow found with alias '{alias}'")
+    return workflow_id
+
+
+async def start_workflow(
+    args: dict[str, Any], claims: MCPTokenClaims
+) -> dict[str, Any]:
+    """Start a workflow run without waiting for it and return its execution ID."""
+    # Local import: the workflow services import the agent stack, which imports
+    # this module (same reason as the builder tools' service imports).
+    from tracecat.workflow.management.management import WorkflowsManagementService
+
+    params = _parse_args(_StartWorkflowParams, args)
+    role = _build_role(claims)
+    ctx_role.set(role)
+
+    try:
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            workflow_id = await _resolve_workflow_id(svc, params)
+            response = await svc.run_workflow(
+                workflow_id,
+                inputs=params.inputs,
+                use_draft=params.use_draft,
+                version=params.version,
+            )
+    except ScopeDeniedError as e:
+        raise _scope_error(e) from e
+    except TracecatValidationError as e:
+        detail = orjson.dumps(e.detail, default=str).decode() if e.detail else ""
+        raise InternalToolError(f"{e} {detail}".strip()) from e
+    except (TracecatNotFoundError, ValueError) as e:
+        raise InternalToolError(str(e)) from e
+
+    return {
+        "workflow_id": WorkflowUUID.new(response["wf_id"]).short(),
+        "workflow_execution_id": response["wf_exec_id"],
+        "message": response["message"],
+    }
+
+
+async def get_workflow_run(
+    args: dict[str, Any], claims: MCPTokenClaims
+) -> dict[str, Any]:
+    """Return a workflow run's status, plus its result or error once it ends."""
+    from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+    params = _parse_args(_WorkflowRunParams, args)
+    execution_id = params.workflow_execution_id
+    role = _build_role(claims)
+    ctx_role.set(role)
+
+    _require_scope(role, "workflow:read")
+    await _require_workspace_execution(role, execution_id)
+
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    execution = await exec_service.get_execution(execution_id)
+    if execution is None:
+        raise InternalToolError(f"Workflow execution {execution_id} not found")
+
+    run: dict[str, Any] = {
+        "workflow_execution_id": execution_id,
+        "status": execution.status.name if execution.status else "UNKNOWN",
+        "start_time": execution.start_time,
+        "close_time": execution.close_time,
+    }
+    if execution.status not in (
+        WorkflowExecutionStatus.COMPLETED,
+        WorkflowExecutionStatus.FAILED,
+    ):
+        return run
+    try:
+        stored = await exec_service.handle(execution_id).result()
+    except WorkflowFailureError as e:
+        run["error"] = WorkflowExecutionsService.format_failure_cause(e.cause)
+        return run
+    run["result"] = await retrieve_stored_object(stored)
+    return run
+
+
+async def cancel_workflow_run(
+    args: dict[str, Any], claims: MCPTokenClaims
+) -> dict[str, Any]:
+    """Request graceful cancellation of a workflow run."""
+    from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+    params = _parse_args(_WorkflowRunParams, args)
+    execution_id = params.workflow_execution_id
+    role = _build_role(claims)
+    ctx_role.set(role)
+
+    _require_scope(role, "workflow:terminate")
+    await _require_workspace_execution(role, execution_id)
+
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        await exec_service.cancel_workflow_execution(execution_id)
+    except ValueError as e:
+        raise InternalToolError(str(e)) from e
+    return {
+        "workflow_execution_id": execution_id,
+        "message": (
+            f"Cancellation requested for {execution_id}. "
+            "Call internal.workflows.get to confirm it reached CANCELED."
+        ),
+    }
+
+
+# -----------------------------------------------------------------------------
 # Internal Tool Registry
 # -----------------------------------------------------------------------------
 
@@ -491,6 +674,9 @@ INTERNAL_TOOL_HANDLERS: dict[str, InternalToolHandler] = {
     "internal.builder.update_preset": update_preset,
     "internal.builder.list_sessions": list_sessions,
     "internal.builder.get_session": get_session,
+    "internal.workflows.start": start_workflow,
+    "internal.workflows.get": get_workflow_run,
+    "internal.workflows.cancel": cancel_workflow_run,
 }
 
 
@@ -531,6 +717,55 @@ class _GetSessionParams(BaseModel):
     session_id: str = Field(
         ...,
         description="The UUID of the session to retrieve.",
+    )
+
+
+class _StartWorkflowParams(BaseModel):
+    """Parameters for internal.workflows.start."""
+
+    workflow_id: str | None = Field(
+        default=None,
+        description="Workflow ID (short `wf_...` or UUID). Give this or `workflow_alias`.",
+    )
+    workflow_alias: str | None = Field(
+        default=None,
+        description="Workflow alias. Give this or `workflow_id`.",
+    )
+    inputs: dict[str, Any] | None = Field(
+        default=None,
+        description="Trigger inputs for the run, matching the workflow's input schema.",
+    )
+    use_draft: bool = Field(
+        default=False,
+        description=(
+            "Run the current draft instead of a published version. "
+            "Defaults to false (published)."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=(
+            "Published version to run. Null runs the current published version. "
+            "Ignored when `use_draft` is true."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _one_target(self) -> Self:
+        if (self.workflow_id is None) == (self.workflow_alias is None):
+            raise ValueError("Give exactly one of workflow_id or workflow_alias")
+        return self
+
+
+class _WorkflowRunParams(BaseModel):
+    """Parameters for internal.workflows.get and internal.workflows.cancel."""
+
+    workflow_execution_id: WorkflowExecutionID = Field(
+        ...,
+        description=(
+            "The run's `workflow_execution_id` (`wf_.../exec_...`), "
+            "as returned by internal.workflows.start."
+        ),
     )
 
 
@@ -581,4 +816,44 @@ def get_builder_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
             description="Get the full message history and metadata for a specific agent session.",
             parameters_json_schema=_GetSessionParams.model_json_schema(),
         ),
+    }
+
+
+def get_workflow_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
+    """Return MCPToolDefinition for each workflow internal tool."""
+    return {
+        "internal.workflows.start": MCPToolDefinition(
+            name="internal.workflows.start",
+            description=(
+                "Start a workflow run and return its `workflow_execution_id` at once, "
+                "without waiting for the run to finish. Check on it later with "
+                "internal.workflows.get."
+            ),
+            parameters_json_schema=_StartWorkflowParams.model_json_schema(),
+        ),
+        "internal.workflows.get": MCPToolDefinition(
+            name="internal.workflows.get",
+            description=(
+                "Get a workflow run's status (RUNNING, COMPLETED, FAILED, CANCELED, "
+                "TERMINATED, TIMED_OUT). Includes `result` when COMPLETED and "
+                "`error` when FAILED. Returns at once; call again later while RUNNING."
+            ),
+            parameters_json_schema=_WorkflowRunParams.model_json_schema(),
+        ),
+        "internal.workflows.cancel": MCPToolDefinition(
+            name="internal.workflows.cancel",
+            description=(
+                "Request graceful cancellation of a workflow run. The run may take a "
+                "moment to stop; confirm with internal.workflows.get."
+            ),
+            parameters_json_schema=_WorkflowRunParams.model_json_schema(),
+        ),
+    }
+
+
+def get_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
+    """Return MCPToolDefinition for every internal tool."""
+    return {
+        **get_builder_internal_tool_definitions(),
+        **get_workflow_internal_tool_definitions(),
     }

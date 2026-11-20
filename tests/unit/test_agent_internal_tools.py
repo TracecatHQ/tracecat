@@ -3,19 +3,31 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.exceptions import ApplicationError
+from tracecat_ee.agent import activities as agent_activities
 from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.mcp import internal_tools
 from tracecat.agent.preset.schemas import AgentPresetRead
+from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
+from tracecat.agent.tools import BuildToolsResult
+from tracecat.auth.types import Role
+from tracecat.authz.controls import scope_matches
 from tracecat.db.models import AgentSession
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import InlineObject
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 
 class _AsyncContext:
@@ -423,3 +435,311 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     )
 
     assert result["actions"] == ["tools.alpha", "tools.google_docs.create_document"]
+
+
+# -----------------------------------------------------------------------------
+# Workflow tools
+# -----------------------------------------------------------------------------
+
+_WF_ID = "wf_4itKqkgCZrLhgYiq5L211X"
+_EXEC_ID = f"{_WF_ID}/exec_6Fu6rb1QpVvcn2kQ2y1ecZ"
+
+
+def _workflow_claims() -> MCPTokenClaims:
+    return MCPTokenClaims(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        allowed_actions=[],
+        allowed_internal_tools=list(internal_tools.WORKFLOW_INTERNAL_TOOL_NAMES),
+    )
+
+
+def _role_without(claims: MCPTokenClaims, scope: str) -> Role:
+    """Drop a scope and every scope that implies it (`update` implies `read`)."""
+    role = internal_tools._build_role(claims)
+    assert role.scopes is not None
+    scopes = frozenset(
+        granted for granted in role.scopes if not scope_matches(granted, scope)
+    )
+    return role.model_copy(update={"scopes": scopes})
+
+
+class _FakeExecutions:
+    def __init__(self, execution: object | None, outcome: object = None):
+        self.execution = execution
+        self.outcome = outcome
+        self.cancelled: list[str] = []
+
+    async def get_execution(self, _execution_id):
+        return self.execution
+
+    def handle(self, _execution_id):
+        outcome = self.outcome
+
+        async def _result():
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        return SimpleNamespace(result=_result)
+
+    async def cancel_workflow_execution(self, execution_id):
+        self.cancelled.append(execution_id)
+
+
+def _patch_workspace_workflow(monkeypatch, *, found: bool = True) -> None:
+    async def _get_workflow(_wf_id):
+        return object() if found else None
+
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        lambda role: _AsyncContext(SimpleNamespace(get_workflow=_get_workflow)),
+    )
+
+
+def _patch_executions(monkeypatch, executions: _FakeExecutions) -> None:
+    async def _connect(role):
+        return executions
+
+    monkeypatch.setattr(
+        "tracecat.workflow.executions.service.WorkflowExecutionsService.connect",
+        _connect,
+    )
+
+
+def test_workflow_tools_have_handlers_and_definitions():
+    definitions = internal_tools.get_internal_tool_definitions()
+    for name in internal_tools.WORKFLOW_INTERNAL_TOOL_NAMES:
+        assert name in internal_tools.INTERNAL_TOOL_HANDLERS
+        assert definitions[name].name == name
+
+
+@pytest.mark.anyio
+async def test_start_workflow_resolves_alias_and_runs_published(monkeypatch):
+    claims = _workflow_claims()
+    wf_uuid = WorkflowUUID.new(_WF_ID)
+    calls: dict[str, object] = {}
+
+    async def _resolve_alias(alias, *, use_committed):
+        calls["alias"] = (alias, use_committed)
+        return wf_uuid
+
+    async def _run_workflow(workflow_id, **kwargs):
+        calls["run"] = (workflow_id, kwargs)
+        return {"wf_id": wf_uuid, "wf_exec_id": _EXEC_ID, "message": "started"}
+
+    service = SimpleNamespace(
+        resolve_workflow_alias=_resolve_alias, run_workflow=_run_workflow
+    )
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    result = await internal_tools.start_workflow(
+        {"workflow_alias": "triage", "inputs": {"x": 1}}, claims
+    )
+
+    assert result == {
+        "workflow_id": _WF_ID,
+        "workflow_execution_id": _EXEC_ID,
+        "message": "started",
+    }
+    assert calls["alias"] == ("triage", True)
+    assert calls["run"] == (
+        wf_uuid,
+        {"inputs": {"x": 1}, "use_draft": False, "version": None},
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "args",
+    [{}, {"workflow_id": _WF_ID, "workflow_alias": "triage"}],
+)
+async def test_start_workflow_requires_exactly_one_target(args):
+    with pytest.raises(internal_tools.InternalToolError, match="exactly one"):
+        await internal_tools.start_workflow(args, _workflow_claims())
+
+
+@pytest.mark.anyio
+async def test_start_workflow_requires_execute_scope(monkeypatch):
+    """The real service method enforces `workflow:execute`, as for MCP."""
+    claims = _workflow_claims()
+    role = _role_without(claims, "workflow:execute")
+    monkeypatch.setattr(internal_tools, "_build_role", lambda _claims: role)
+    service = WorkflowsManagementService(session=AsyncMock(), role=role)
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    with pytest.raises(internal_tools.InternalToolError, match="workflow:execute"):
+        await internal_tools.start_workflow({"workflow_id": _WF_ID}, claims)
+
+
+@pytest.mark.anyio
+async def test_get_workflow_run_returns_status_while_running(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    started = datetime(2026, 11, 20, tzinfo=UTC)
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.RUNNING,
+            start_time=started,
+            close_time=None,
+        ),
+        outcome=AssertionError("result must not be read while running"),
+    )
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert result == {
+        "workflow_execution_id": _EXEC_ID,
+        "status": "RUNNING",
+        "start_time": started,
+        "close_time": None,
+    }
+
+
+@pytest.mark.anyio
+async def test_get_workflow_run_returns_result_when_completed(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.COMPLETED,
+            start_time=None,
+            close_time=None,
+        ),
+        outcome=InlineObject(data={"verdict": "benign"}),
+    )
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert result["result"] == {"verdict": "benign"}
+
+
+@pytest.mark.anyio
+async def test_get_workflow_run_returns_error_when_failed(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    failure = WorkflowFailureError(cause=ApplicationError("boom"))
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.FAILED,
+            start_time=None,
+            close_time=None,
+        ),
+        outcome=failure,
+    )
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert result["status"] == "FAILED"
+    assert "boom" in result["error"]
+    assert "result" not in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "handler",
+    [internal_tools.get_workflow_run, internal_tools.cancel_workflow_run],
+)
+async def test_workflow_run_tools_hide_other_workspaces(monkeypatch, handler):
+    _patch_workspace_workflow(monkeypatch, found=False)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    with pytest.raises(internal_tools.InternalToolError, match="not found"):
+        await handler({"workflow_execution_id": _EXEC_ID}, _workflow_claims())
+    assert executions.cancelled == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("handler", "scope"),
+    [
+        (internal_tools.get_workflow_run, "workflow:read"),
+        (internal_tools.cancel_workflow_run, "workflow:terminate"),
+    ],
+)
+async def test_workflow_run_tools_enforce_scopes(monkeypatch, handler, scope):
+    claims = _workflow_claims()
+    role = _role_without(claims, scope)
+    monkeypatch.setattr(internal_tools, "_build_role", lambda _claims: role)
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    with pytest.raises(internal_tools.InternalToolError, match=scope):
+        await handler({"workflow_execution_id": _EXEC_ID}, claims)
+    assert executions.cancelled == []
+
+
+@pytest.mark.anyio
+async def test_cancel_workflow_run_requests_cancellation(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.cancel_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert executions.cancelled == [_EXEC_ID]
+    assert result["workflow_execution_id"] == _EXEC_ID
+
+
+@pytest.mark.anyio
+async def test_workflow_run_tools_reject_malformed_execution_id():
+    with pytest.raises(internal_tools.InternalToolError, match="Invalid arguments"):
+        await internal_tools.get_workflow_run(
+            {"workflow_execution_id": "not-an-id"}, _workflow_claims()
+        )
+
+
+@pytest.mark.anyio
+async def test_build_grants_only_requested_workflow_tools(monkeypatch):
+    """Workflow tools are opt-in through actions and skip the registry build."""
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    build_tools = AsyncMock(
+        return_value=BuildToolsResult(tools=[], collected_secrets=set())
+    )
+    monkeypatch.setattr(agent_activities, "build_agent_tools", build_tools)
+    lock_service = MagicMock(spec=RegistryLockService)
+    lock_service.resolve_lock_with_bindings = AsyncMock(
+        return_value=RegistryLock(origins={}, actions={})
+    )
+    monkeypatch.setattr(
+        RegistryLockService, "with_session", lambda: _AsyncContext(lock_service)
+    )
+
+    result = await agent_activities.AgentActivities().build_tool_definitions(
+        agent_activities.BuildToolDefsArgs(
+            role=role,
+            tool_filters=ToolFilters(
+                actions=["core.cases.get_case", "internal.workflows.start"]
+            ),
+        )
+    )
+
+    assert build_tools.await_args is not None
+    assert build_tools.await_args.kwargs["actions"] == ["core.cases.get_case"]
+    assert result.allowed_internal_tools == ["internal.workflows.start"]
+    assert set(result.tool_definitions) == {"internal.workflows.start"}
+    lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
