@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -21,6 +22,9 @@ from tracecat.pagination import (
     PaginationConfigurationError,
     PaginationError,
     PaginationErrorCode,
+    _Boundary,
+    _normalize_ordering,
+    _seek_predicate,
     paginate,
 )
 
@@ -366,6 +370,118 @@ class TestPaginate:
             )
             assert current.items == expected_page.items
         assert current.prev_cursor is None
+
+    @pytest.mark.parametrize("label_direction", ["asc", "desc"])
+    @pytest.mark.parametrize("id_direction", ["asc", "desc"])
+    @pytest.mark.parametrize("limit", [1, 2, 4])
+    @pytest.mark.anyio
+    async def test_not_null_column_ordering_round_trips(
+        self,
+        session: AsyncSession,
+        pagination_signing_secret: None,
+        label_direction: str,
+        id_direction: str,
+        limit: int,
+    ) -> None:
+        """NOT NULL keys drop NULLS LAST; same directions seek by row comparison."""
+        items = await _create_page_items(session)
+        # Ties on label, so the id key's direction decides their order.
+        await session.execute(
+            items.insert(),
+            [
+                {"id": 7, "score": 1, "label": "bravo"},
+                {"id": 8, "score": 2, "label": "bravo"},
+            ],
+        )
+        statement = sa.select(items.c.id)
+        label_order = (
+            items.c.label.asc() if label_direction == "asc" else items.c.label.desc()
+        )
+        id_order = items.c.id.asc() if id_direction == "asc" else items.c.id.desc()
+        order_by = (label_order, id_order)
+        expected = list(
+            (await session.execute(statement.order_by(*order_by))).scalars().all()
+        )
+
+        pages = []
+        cursor: str | None = None
+        while True:
+            page = await paginate(
+                session,
+                statement,
+                page=PageParams(limit=limit, cursor=cursor),
+                order_by=order_by,
+            )
+            pages.append(page)
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+
+        assert [item for page in pages for item in page.items] == expected
+        current = pages[-1]
+        for expected_page in reversed(pages[:-1]):
+            assert current.prev_cursor is not None
+            current = await paginate(
+                session,
+                statement,
+                page=PageParams(limit=limit, cursor=current.prev_cursor),
+                order_by=order_by,
+            )
+            assert current.items == expected_page.items
+        assert current.prev_cursor is None
+
+    def test_not_null_column_ordering_sql(self) -> None:
+        """Only NOT NULL table columns without a NULLS modifier lose NULLS LAST."""
+        metadata = sa.MetaData()
+        items = sa.Table(
+            "ordering_sql_items",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("score", sa.Integer, nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        )
+        dialect = postgresql.dialect()
+
+        def render(expression: sa.ColumnElement[Any]) -> str:
+            return str(expression.compile(dialect=dialect))
+
+        ordering = _normalize_ordering((items.c.created_at.desc(), items.c.id.desc()))
+        assert [render(key.clause()) for key in ordering] == [
+            "ordering_sql_items.created_at DESC",
+            "ordering_sql_items.id DESC",
+        ]
+        assert [render(key.reversed().clause()) for key in ordering] == [
+            "ordering_sql_items.created_at ASC",
+            "ordering_sql_items.id ASC",
+        ]
+        seek = _seek_predicate(
+            ordering,
+            (datetime(2026, 1, 1, tzinfo=UTC), 7),
+            boundary=_Boundary.EXCLUSIVE,
+        )
+        assert render(seek) == (
+            "(ordering_sql_items.created_at, ordering_sql_items.id) "
+            "< (%(param_1)s, %(param_2)s)"
+        )
+
+        # Rows never hold NULL in a NOT NULL key, so such a cursor is corrupt.
+        with pytest.raises(PaginationError) as corrupt:
+            _seek_predicate(ordering, (None, 7), boundary=_Boundary.EXCLUSIVE)
+        assert corrupt.value.code is PaginationErrorCode.INVALID_CURSOR
+
+        # A nullable key keeps its NULLS placement and the OR-based seek.
+        nullable = _normalize_ordering((items.c.score.desc(), items.c.id.desc()))
+        assert render(nullable[0].clause()) == (
+            "ordering_sql_items.score DESC NULLS LAST"
+        )
+        assert " OR " in render(
+            _seek_predicate(nullable, (3, 7), boundary=_Boundary.EXCLUSIVE)
+        )
+        # An explicit modifier is kept as written, e.g. for an outer-joined column.
+        explicit = _normalize_ordering((items.c.created_at.desc().nulls_last(),))
+        assert render(explicit[0].clause()) == (
+            "ordering_sql_items.created_at DESC NULLS LAST"
+        )
 
     @pytest.mark.anyio
     async def test_string_cursor_values_are_decoded_by_column_type(

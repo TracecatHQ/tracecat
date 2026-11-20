@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 
 from asyncpg import NumericValueOutOfRangeError, QueryCanceledError
@@ -89,3 +89,52 @@ async def query_execution_context(
         if _has_driver_error(exc.orig, NumericValueOutOfRangeError):
             raise TracecatQueryOverflowError from exc
         raise
+
+
+@asynccontextmanager
+async def transaction_settings(
+    session: AsyncSession, settings: Mapping[str, str]
+) -> AsyncIterator[None]:
+    """Apply PostgreSQL settings for the current transaction, then restore them.
+
+    Each setting is set with ``set_config(name, value, true)``, so it lasts at
+    most until the transaction ends. On success the previous values are
+    restored, so later statements in the same transaction are unaffected. On
+    failure the caller must roll back the surrounding transaction or savepoint,
+    which also restores them; issuing cleanup SQL in an aborted transaction
+    would hide the original error. An empty mapping does nothing.
+
+    Args:
+        session: Session whose current transaction runs the statements.
+        settings: Setting names and the values to use inside the block.
+    """
+    if not settings:
+        yield
+        return
+    names = list(settings)
+    previous = list(
+        (
+            await session.execute(
+                text(
+                    "SELECT current_setting(name) FROM unnest(CAST(:names AS text[]))"
+                    " WITH ORDINALITY AS s(name, position) ORDER BY position"
+                ),
+                {"names": names},
+            )
+        ).scalars()
+    )
+    await _set_local(session, names, [settings[name] for name in names])
+    yield
+    await _set_local(session, names, previous)
+
+
+async def _set_local(
+    session: AsyncSession, names: list[str], values: list[str]
+) -> None:
+    await session.execute(
+        text(
+            "SELECT set_config(name, value, true) FROM unnest("
+            "CAST(:names AS text[]), CAST(:values AS text[])) AS s(name, value)"
+        ),
+        {"names": names, "values": values},
+    )

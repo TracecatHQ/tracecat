@@ -156,6 +156,10 @@ class _OrderKey:
     direction: _SortDirection
     nulls: _NullPlacement
     adapter: TypeAdapter[Any]
+    # The key can never be NULL (a NOT NULL table column). Its SQL omits
+    # NULLS FIRST/LAST, so a B-tree index can supply the order in either
+    # direction, and its seek compares with plain equality.
+    not_null: bool = False
 
     def clause(self) -> ColumnElement[Any]:
         """Build an explicit SQL ordering clause."""
@@ -163,6 +167,8 @@ class _OrderKey:
             clause = self.expression.asc()
         else:
             clause = self.expression.desc()
+        if self.not_null:
+            return clause
         if self.nulls is _NullPlacement.FIRST:
             return clause.nulls_first()
         return clause.nulls_last()
@@ -184,6 +190,7 @@ class _OrderKey:
             direction=direction,
             nulls=nulls,
             adapter=self.adapter,
+            not_null=self.not_null,
         )
 
 
@@ -257,11 +264,19 @@ def _normalize_order(expression: ColumnElement[Any]) -> _OrderKey:
             f"Pagination ordering expression {current!s} has an unsupported value type"
         ) from exc
 
+    # A NOT NULL table column has no NULLs to place. Emitting NULLS LAST on a
+    # DESC key would stop PostgreSQL from reading a B-tree index backwards
+    # (that yields DESC NULLS FIRST) and force a sort of every match. An
+    # explicit NULLS modifier is kept as written, for example on a column read
+    # through an outer join.
+    not_null = nulls is None and isinstance(current, sa.Column) and not current.nullable
+
     return _OrderKey(
         expression=current,
         direction=direction,
         nulls=nulls or _NullPlacement.LAST,
         adapter=adapter,
+        not_null=not_null,
     )
 
 
@@ -529,7 +544,7 @@ def _strictly_after(key: _OrderKey, value: object) -> ColumnElement[bool]:
         if key.direction is _SortDirection.ASC
         else expression < bound_value
     )
-    if key.nulls is _NullPlacement.LAST:
+    if key.nulls is _NullPlacement.LAST and not key.not_null:
         return sa.or_(comparison, expression.is_(None))
     return comparison
 
@@ -546,10 +561,41 @@ def _seek_predicate(
             "Cursor values do not match pagination ordering"
         )
 
+    if any(
+        key.not_null and value is None
+        for key, value in zip(ordering, values, strict=True)
+    ):
+        # Rows never hold NULL in these keys, so the cursor is corrupt.
+        raise PaginationError(
+            "Invalid pagination cursor", code=PaginationErrorCode.INVALID_CURSOR
+        )
+    if (
+        all(key.not_null for key in ordering)
+        and len({key.direction for key in ordering}) == 1
+    ):
+        # Keys that are never NULL and share one direction compare as a row:
+        # (a, b) < (x, y). PostgreSQL uses that as a B-tree range condition,
+        # so a deep page starts at the cursor instead of filtering every
+        # earlier row.
+        row = sa.tuple_(*(key.expression for key in ordering))
+        bound = sa.tuple_(
+            *(
+                _bind_cursor_value(key, value)
+                for key, value in zip(ordering, values, strict=True)
+            )
+        )
+        inclusive = boundary is _Boundary.INCLUSIVE
+        if ordering[0].direction is _SortDirection.ASC:
+            return row >= bound if inclusive else row > bound
+        return row <= bound if inclusive else row < bound
+
     branches: list[ColumnElement[bool]] = []
     equal_prefix: list[ColumnElement[bool]] = []
     for key, value in zip(ordering, values, strict=True):
         branches.append(sa.and_(*equal_prefix, _strictly_after(key, value)))
+        if key.not_null:
+            equal_prefix.append(key.expression == _bind_cursor_value(key, value))
+            continue
         equality_value = None if value is None else _bind_cursor_value(key, value)
         equal_prefix.append(key.expression.is_not_distinct_from(equality_value))
     if boundary is _Boundary.INCLUSIVE:
@@ -603,6 +649,11 @@ async def paginate[T](
     or ``FETCH``. The supplied ordering must end in a key (or key combination)
     that uniquely identifies each logical result row. All ordering expressions
     must use explicit ``.asc()`` or ``.desc()`` modifiers.
+
+    Keys order with NULLS LAST unless they say otherwise, except a NOT NULL
+    table column without a NULLS modifier: it orders as plain ASC/DESC so an
+    index can supply the order. Such a column must not read NULL, so give a
+    column read through an outer join an explicit ``.nulls_last()``.
 
     Pagination is stateless rather than snapshot-based. Inserts and deletes do
     not cause offset drift, and a deleted anchor row remains usable, but a row

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -67,6 +67,7 @@ from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, C
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.query.compiler import compile_filter
+from tracecat.query.execution import transaction_settings
 from tracecat.query.filters import Filter
 from tracecat.query.lexical_types import SearchMatchMetadata, SearchMode
 from tracecat.service import BaseWorkspaceService
@@ -96,6 +97,17 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
         ],
         else_=len(ordered_values),
     )
+
+
+# Planner settings for a keyword page in column order (ORDER BY ... LIMIT).
+# Without them PostgreSQL may read ix_case_cursor_pagination in order and stop
+# once it has a page. Its row estimates for keyword predicates are unreliable,
+# and for a rare keyword that plan reads the whole workspace: a newest-first
+# page took 0.6 s instead of 0.1 s at 100,000 cases. Bitmap scans stay on, so
+# matches are still found through the GIN and trigram indexes and then sorted.
+# Sequential scans stay on too: for a keyword in most cases they are the best
+# plan (turning them off made such a page 0.19 s -> 0.30 s).
+TEXT_INDEX_PLAN: Mapping[str, str] = {"enable_indexscan": "off"}
 
 
 def relative_window_start(
@@ -547,20 +559,31 @@ class CaseSearchService(BaseWorkspaceService):
             else:
                 ordering = (sort_attr.desc(),)
         else:
+            # The paginator omits NULLS LAST for NOT NULL columns (created_at,
+            # updated_at, case_number). For created_at that lets
+            # ix_case_cursor_pagination supply the order; updated_at and
+            # case_number have no matching index. Computed keys can be NULL
+            # and keep NULLS LAST.
             if sort_direction == "asc":
-                ordering = (sort_attr.asc().nulls_last(), Case.id.asc())
+                ordering = (sort_attr.asc(), Case.id.asc())
             else:
-                ordering = (sort_attr.desc().nulls_last(), Case.id.desc())
+                ordering = (sort_attr.desc(), Case.id.desc())
 
         if exact_match is not None:
             ordering = (sa.case((exact_match.predicate, 0), else_=1).asc(), *ordering)
 
-        case_page = await paginate(
+        async with transaction_settings(
             self.session,
-            stmt,
-            page=PageParams(limit=request.limit, cursor=request.cursor),
-            order_by=ordering,
-        )
+            TEXT_INDEX_PLAN
+            if sort_column != "relevance" and request.search_term
+            else {},
+        ):
+            case_page = await paginate(
+                self.session,
+                stmt,
+                page=PageParams(limit=request.limit, cursor=request.cursor),
+                order_by=ordering,
+            )
         cases = case_page.items
 
         hydration_options: list[ExecutableOption] = [
