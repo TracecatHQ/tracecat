@@ -742,6 +742,7 @@ class DurableAgentWorkflow:
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             user_id=self.role.user_id,
+            service_account_id=self.role.service_account_id,
             allowed_actions=list(build_result.tool_definitions.keys()),
             session_id=self.session_id,
             parent_agent_workflow_id=info.workflow_id,

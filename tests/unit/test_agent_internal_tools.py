@@ -18,7 +18,12 @@ from tracecat.agent.mcp import internal_tools
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
+from tracecat.agent.tokens import (
+    InternalToolContext,
+    MCPTokenClaims,
+    mint_mcp_token,
+    verify_mcp_token,
+)
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -30,7 +35,12 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.object import InlineObject
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    ObjectRef,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
@@ -857,3 +867,123 @@ async def test_workflow_tools_without_user_use_service_role(monkeypatch):
     role = await internal_tools._caller_role(claims)
     assert role.type == "service"
     assert role.service_id == "tracecat-mcp"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "stored",
+    [
+        ExternalObject(
+            ref=ObjectRef(
+                bucket="results",
+                key="big.json",
+                size_bytes=internal_tools.MAX_WORKFLOW_RESULT_BYTES + 1,
+                sha256="0" * 64,
+            )
+        ),
+        CollectionObject(
+            manifest_ref=ObjectRef(
+                bucket="results", key="manifest.json", size_bytes=10, sha256="0" * 64
+            ),
+            count=5000,
+            chunk_size=100,
+            element_kind="value",
+        ),
+    ],
+)
+async def test_get_workflow_run_omits_large_results(monkeypatch, stored):
+    """Large results are never downloaded into the tool-serving process."""
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.COMPLETED,
+            start_time=None,
+            close_time=None,
+        ),
+        outcome=stored,
+    )
+    _patch_executions(monkeypatch, executions)
+    monkeypatch.setattr(
+        internal_tools,
+        "retrieve_stored_object",
+        AsyncMock(side_effect=AssertionError("must not download")),
+    )
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert "result" not in result
+    assert result["result_omitted"]
+
+
+def _auth_session_returning(service_account: object) -> SimpleNamespace:
+    result = SimpleNamespace(scalar_one_or_none=lambda: service_account)
+    return SimpleNamespace(execute=AsyncMock(return_value=result))
+
+
+@pytest.mark.anyio
+async def test_workflow_tools_act_as_the_service_account(monkeypatch):
+    """A service account's own scopes apply, not the MCP service principal's."""
+    claims = _workflow_claims().model_copy(
+        update={"user_id": None, "service_account_id": uuid.uuid4()}
+    )
+    scopes = [SimpleNamespace(name="workflow:read")]
+    service_account = SimpleNamespace(
+        id=claims.service_account_id,
+        workspace_id=claims.workspace_id,
+        disabled_at=None,
+        scopes=scopes,
+    )
+    session = _auth_session_returning(service_account)
+    monkeypatch.setattr(
+        internal_tools,
+        "get_async_session_auth_context_manager",
+        lambda: _AsyncContext(session),
+    )
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    role = await internal_tools._caller_role(claims)
+    assert role.type == "service_account"
+    assert role.scopes == frozenset({"workflow:read"})
+    with pytest.raises(internal_tools.InternalToolError, match="workflow:terminate"):
+        await internal_tools.cancel_workflow_run(
+            {"workflow_execution_id": _EXEC_ID}, claims
+        )
+    assert executions.cancelled == []
+
+
+@pytest.mark.anyio
+async def test_disabled_service_account_cannot_use_workflow_tools(monkeypatch):
+    claims = _workflow_claims().model_copy(
+        update={"user_id": None, "service_account_id": uuid.uuid4()}
+    )
+    disabled = SimpleNamespace(
+        id=claims.service_account_id,
+        workspace_id=None,
+        disabled_at=datetime(2026, 11, 1, tzinfo=UTC),
+        scopes=[],
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "get_async_session_auth_context_manager",
+        lambda: _AsyncContext(_auth_session_returning(disabled)),
+    )
+
+    with pytest.raises(internal_tools.InternalToolError, match="not active"):
+        await internal_tools._caller_role(claims)
+
+
+def test_mcp_token_carries_service_account():
+    service_account_id = uuid.uuid4()
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        allowed_actions=[],
+        session_id=uuid.uuid4(),
+        registry_lock=RegistryLock(origins={}, actions={}),
+        service_account_id=service_account_id,
+    )
+    assert verify_mcp_token(token).service_account_id == service_account_id

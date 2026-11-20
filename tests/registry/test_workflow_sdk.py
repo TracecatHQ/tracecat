@@ -474,7 +474,8 @@ class TestCoreExecuteDirect:
                 timeout=60,
             )
 
-        assert result == started
+        assert result["status"] == "STARTED"
+        assert "never wait" in result["message"]
         workflows.execute.assert_awaited_once_with(
             workflow_alias="child",
             trigger_inputs={"key": "value"},

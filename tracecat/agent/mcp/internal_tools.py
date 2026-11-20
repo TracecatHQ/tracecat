@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, Literal, Self, TypedDict, cast
 
 import orjson
 from pydantic import BaseModel, Field, ValidationError, model_validator
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
@@ -36,6 +38,8 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import check_scopes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_auth_context_manager
+from tracecat.db.models import ServiceAccount
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatNotFoundError,
@@ -53,7 +57,12 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.storage.object import retrieve_stored_object
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    StoredObject,
+    retrieve_stored_object,
+)
 
 if TYPE_CHECKING:
     from tracecat.workflow.management.management import WorkflowsManagementService
@@ -251,25 +260,55 @@ def _build_role(claims: MCPTokenClaims) -> Role:
 async def _caller_role(claims: MCPTokenClaims) -> Role:
     """Resolve the role a workflow tool acts as.
 
-    With a user behind the token, act as that user with their real workspace
-    scopes, as the MCP server does, so the started run and every scope check
-    see the caller's RBAC. Tokens without a user (for example scheduled
-    workflow runs) keep the MCP service principal.
+    Act as the caller behind the token with their real scopes, as the MCP
+    server does, so a started run and every scope check follow the caller's
+    RBAC: a user with their workspace scopes, or a service account with its
+    own scopes. Only tokens with neither (webhook and case-triggered runs,
+    which already run as the service principal) use the MCP service principal.
     """
-    # Local import: tracecat.auth.credentials imports the agent stack, which
-    # imports this module.
-    from tracecat.auth.credentials import compute_effective_scopes
+    if claims.user_id is not None:
+        # Local import: tracecat.auth.credentials imports the agent stack,
+        # which imports this module.
+        from tracecat.auth.credentials import compute_effective_scopes
 
-    if claims.user_id is None:
-        return _build_role(claims)
-    role = Role(
-        type="user",
+        role = Role(
+            type="user",
+            service_id="tracecat-mcp",
+            workspace_id=claims.workspace_id,
+            organization_id=claims.organization_id,
+            user_id=claims.user_id,
+        )
+        return role.model_copy(update={"scopes": await compute_effective_scopes(role)})
+    if claims.service_account_id is not None:
+        return await _service_account_role(claims, claims.service_account_id)
+    return _build_role(claims)
+
+
+async def _service_account_role(
+    claims: MCPTokenClaims, service_account_id: uuid.UUID
+) -> Role:
+    """Load an active service account's scopes, as API key auth does."""
+    async with get_async_session_auth_context_manager() as session:
+        result = await session.execute(
+            select(ServiceAccount)
+            .where(
+                ServiceAccount.id == service_account_id,
+                ServiceAccount.organization_id == claims.organization_id,
+            )
+            .options(selectinload(ServiceAccount.scopes))
+        )
+        service_account = result.scalar_one_or_none()
+    if service_account is None or service_account.disabled_at is not None:
+        raise InternalToolError("The service account behind this agent is not active")
+    return Role(
+        type="service_account",
         service_id="tracecat-mcp",
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
-        user_id=claims.user_id,
+        bound_workspace_id=service_account.workspace_id,
+        service_account_id=service_account.id,
+        scopes=frozenset(scope.name for scope in service_account.scopes),
     )
-    return role.model_copy(update={"scopes": await compute_effective_scopes(role)})
 
 
 async def _get_action_configuration(
@@ -587,6 +626,34 @@ async def _resolve_workflow_id(
     return workflow_id
 
 
+# Same ceiling as the MCP server's largest action result window.
+MAX_WORKFLOW_RESULT_BYTES = 1024 * 1024
+
+
+async def _bounded_result(stored: StoredObject) -> dict[str, Any]:
+    """Return a run's result, or a size note when it is too large to inline.
+
+    A large result is never downloaded into the tool-serving process.
+    """
+    match stored:
+        case ExternalObject(ref=ref) if ref.size_bytes > MAX_WORKFLOW_RESULT_BYTES:
+            return {
+                "result_omitted": (
+                    f"The result is {ref.size_bytes} bytes, over the "
+                    f"{MAX_WORKFLOW_RESULT_BYTES}-byte limit for this tool."
+                )
+            }
+        case CollectionObject(count=count):
+            return {
+                "result_omitted": (
+                    f"The result is a collection of {count} items, too large "
+                    "to return through this tool."
+                )
+            }
+        case _:
+            return {"result": await retrieve_stored_object(stored)}
+
+
 async def start_workflow(
     args: dict[str, Any], claims: MCPTokenClaims
 ) -> dict[str, Any]:
@@ -658,7 +725,7 @@ async def get_workflow_run(
     except WorkflowFailureError as e:
         run["error"] = WorkflowExecutionsService.format_failure_cause(e.cause)
         return run
-    run["result"] = await retrieve_stored_object(stored)
+    run.update(await _bounded_result(stored))
     return run
 
 

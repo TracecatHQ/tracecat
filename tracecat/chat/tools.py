@@ -127,9 +127,9 @@ def filter_workflow_tools_for_scopes(
 ) -> list[str]:
     """Drop workflow internal tools the caller lacks the workflow scope for.
 
-    Every interactive session runs them under the MCP service principal, so the
-    caller's own ``workflow:*`` scope is checked here, as the MCP tools do.
-    Other tools pass through unchanged.
+    The caller needs the ``workflow:*`` scope the matching MCP tool requires.
+    The tools then act as the caller, so a started run follows the caller's
+    own action scopes. Other tools pass through unchanged.
     """
     granted = role.scopes or frozenset()
     return [

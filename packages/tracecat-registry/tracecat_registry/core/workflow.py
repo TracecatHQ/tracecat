@@ -103,7 +103,9 @@ async def execute(
 
     Returns:
         For direct invocation:
-            {"workflow_id": str, "workflow_execution_id": str, "status": "STARTED"}
+            {"workflow_id": str, "workflow_execution_id": str, "status": "STARTED"},
+            plus a "message" saying the call did not wait when
+            wait_strategy="wait" was requested.
 
     Raises:
         ActionIsInterfaceError: If no context is available (handled by DSLWorkflow).
@@ -120,13 +122,21 @@ async def execute(
     # We have context - this is a direct invocation from an AI agent or script.
     # It never waits: an agent checks on the run with core.workflow.get_status,
     # so no executor slot is held while the child runs.
-    return await context.workflows.execute(
+    started = await context.workflows.execute(
         workflow_alias=workflow_alias,
         trigger_inputs=trigger_inputs,
         environment=environment,
         # Pass parent execution ID for correlation (stored in Temporal memo)
         parent_workflow_execution_id=context.wf_exec_id,
     )
+    if wait_strategy == "wait":
+        # Say so plainly: a caller that asked to wait must not read the
+        # started run as a finished one.
+        started["message"] = (
+            "Started without waiting: direct calls never wait for the workflow, "
+            "so there is no result yet. Check the run with core.workflow.get_status."
+        )
+    return started
 
 
 @registry.register(
