@@ -1837,7 +1837,6 @@ class WorkflowExecutionsService:
         ):
             kwargs["execution_timeout"] = execution_timeout
         start_slot = await self._reserve_start()
-        self._apply_start_delay(kwargs, start_slot.delay)
 
         # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
@@ -1890,6 +1889,8 @@ class WorkflowExecutionsService:
         # Add execution type search attribute
         pairs.append(execution_type.to_temporal_search_attr_pair())
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
+        # Apply the delay last: Temporal counts it from submission.
+        self._apply_start_delay(kwargs, start_slot.remaining_delay())
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
@@ -2045,7 +2046,6 @@ class WorkflowExecutionsService:
         # Reserve before storing trigger inputs, so a refused start stores nothing.
         if start_slot is None:
             start_slot = await self._reserve_start()
-        self._apply_start_delay(kwargs, start_slot.delay)
 
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
@@ -2111,6 +2111,8 @@ class WorkflowExecutionsService:
         if correlation_id is not None:
             pairs.append(TemporalSearchAttr.CORRELATION_ID.create_pair(correlation_id))
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
+        # Apply the delay last: Temporal counts it from submission.
+        self._apply_start_delay(kwargs, start_slot.remaining_delay())
 
         try:
             await asyncio.wait_for(

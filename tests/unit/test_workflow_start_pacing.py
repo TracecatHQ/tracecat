@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterable, Iterator
 from types import SimpleNamespace
@@ -50,6 +51,13 @@ def _role() -> Role:
         organization_id=_ORG_ID,
         user_id=uuid.uuid4(),
         service_id="tracecat-runner",
+    )
+
+
+def _about(got: datetime.timedelta, seconds: float) -> bool:
+    """Equal within 50 ms: a little time passes between reserve and submit."""
+    return abs(got - datetime.timedelta(seconds=seconds)) < datetime.timedelta(
+        milliseconds=50
     )
 
 
@@ -140,8 +148,34 @@ async def test_start_passes_delay_and_extends_execution_timeout(
 
     reserve.assert_awaited_once_with(_ORG_ID)
     kwargs = mock_client.start_workflow.call_args.kwargs
-    assert kwargs["start_delay"] == datetime.timedelta(seconds=2)
-    assert kwargs["execution_timeout"] == datetime.timedelta(seconds=12)
+    assert _about(kwargs["start_delay"], 2)
+    assert _about(kwargs["execution_timeout"], 12)
+
+
+@pytest.mark.anyio
+async def test_time_spent_before_submission_comes_off_the_delay(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+) -> None:
+    """Slow trigger-input storage can't collapse paced starts into a burst."""
+    # Reserved 1.5 s ago with a 2 s delay: 0.5 s is still owed at submission.
+    reserve.return_value = StartSlot(
+        delay=datetime.timedelta(seconds=2), reserved_at=time.monotonic() - 1.5
+    )
+    with _timeout(service, 10):
+        await service._start_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=f"{_WF_ID.short()}/exec_test",
+            trigger_inputs={"x": 1},
+            trigger_type=TriggerType.WEBHOOK,
+        )
+
+    kwargs = mock_client.start_workflow.call_args.kwargs
+    assert _about(kwargs["start_delay"], 0.5)
+    assert _about(kwargs["execution_timeout"], 10.5)
 
 
 @pytest.mark.anyio
@@ -181,7 +215,7 @@ async def test_delay_without_execution_timeout_sets_no_timeout(
         )
 
     kwargs = mock_client.start_workflow.call_args.kwargs
-    assert kwargs["start_delay"] == datetime.timedelta(seconds=1)
+    assert _about(kwargs["start_delay"], 1)
     assert "execution_timeout" not in kwargs
 
 
@@ -347,7 +381,7 @@ async def test_nowait_start_reserves_once_and_passes_the_delay(
 
     reserve.assert_awaited_once()
     kwargs = mock_client.start_workflow.call_args.kwargs
-    assert kwargs["start_delay"] == datetime.timedelta(seconds=3)
+    assert _about(kwargs["start_delay"], 3)
 
 
 @pytest.mark.anyio
@@ -367,8 +401,8 @@ async def test_wait_for_result_dispatch_is_paced(
         )
 
     kwargs = mock_client.execute_workflow.call_args.kwargs
-    assert kwargs["start_delay"] == datetime.timedelta(seconds=4)
-    assert kwargs["execution_timeout"] == datetime.timedelta(seconds=64)
+    assert _about(kwargs["start_delay"], 4)
+    assert _about(kwargs["execution_timeout"], 64)
 
 
 # ---------------------------------------------------------------------------

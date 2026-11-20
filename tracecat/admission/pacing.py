@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -125,6 +125,20 @@ class StartSlot:
     delay: timedelta
     tat_us: int | None = None
     interval_us: int | None = None
+    reserved_at: float = field(default_factory=time.monotonic)
+    """When the slot was reserved, on this process's monotonic clock."""
+
+    def remaining_delay(self) -> timedelta:
+        """The delay still owed when the start is handed to Temporal.
+
+        Temporal counts ``start_delay`` from submission, so the time spent
+        since the reservation (storing trigger inputs, for example) comes off
+        it. Otherwise slow submissions would collapse into a burst.
+        """
+        if not self.delay:
+            return self.delay
+        elapsed = timedelta(seconds=time.monotonic() - self.reserved_at)
+        return max(timedelta(0), self.delay - elapsed)
 
 
 UNPACED = StartSlot(delay=timedelta(0))
@@ -246,10 +260,10 @@ class StartPacer:
         tolerance_us = (rate.burst - 1) * interval_us
         max_delay_us = int(self.max_delay.total_seconds() * _MICROS_PER_SECOND)
         try:
-            redis_client = await get_redis_client()
-            client = await redis_client._get_client()
-            script = client.register_script(_RESERVE_SCRIPT)
             async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
+                redis_client = await get_redis_client()
+                client = await redis_client._get_client()
+                script = client.register_script(_RESERVE_SCRIPT)
                 reserved, value_us, *new_tat_us = await script(
                     keys=[_pacing_key(org_id)],
                     args=[interval_us, tolerance_us, max_delay_us],
@@ -302,10 +316,10 @@ class StartPacer:
         if slot.tat_us is None or slot.interval_us is None:
             return
         try:
-            redis_client = await get_redis_client()
-            client = await redis_client._get_client()
-            script = client.register_script(_REFUND_SCRIPT)
             async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
+                redis_client = await get_redis_client()
+                client = await redis_client._get_client()
+                script = client.register_script(_REFUND_SCRIPT)
                 await script(
                     keys=[_pacing_key(org_id)],
                     args=[slot.interval_us, slot.tat_us],

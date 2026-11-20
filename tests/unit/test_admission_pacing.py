@@ -244,6 +244,38 @@ async def test_redis_client_setup_error_gives_zero_delay(
 
 
 @pytest.mark.anyio
+async def test_slow_redis_client_setup_fails_open_within_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Client setup counts against the Redis deadline, not only the script."""
+    _use_rate(monkeypatch, StartRate(per_second=1, burst=1))
+    monkeypatch.setattr(pacing, "_REDIS_TIMEOUT_SECONDS", 0.05)
+
+    async def _slow_client() -> object:
+        await asyncio.sleep(5)
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(pacing, "get_redis_client", _slow_client)
+
+    slot = await asyncio.wait_for(StartPacer().reserve(uuid.uuid4()), 1)
+
+    assert slot == UNPACED
+
+
+@pytest.mark.parametrize(
+    ("elapsed", "remaining"),
+    [(0.0, 2.0), (1.5, 0.5), (2.0, 0.0), (3.0, 0.0)],
+)
+def test_remaining_delay_subtracts_time_since_reservation(
+    monkeypatch: pytest.MonkeyPatch, elapsed: float, remaining: float
+) -> None:
+    slot = StartSlot(delay=timedelta(seconds=2), reserved_at=100.0)
+    monkeypatch.setattr(pacing.time, "monotonic", lambda: 100.0 + elapsed)
+
+    assert slot.remaining_delay() == timedelta(seconds=remaining)
+
+
+@pytest.mark.anyio
 async def test_redis_script_error_gives_zero_delay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
