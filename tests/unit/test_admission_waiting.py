@@ -399,3 +399,13 @@ async def test_older_completion_keeps_newer_contention(fake: FakeWorkflow) -> No
     fake.sleep_hold.set()
     results = await asyncio.gather(*tasks)
     assert sorted(r["data"] for r in results) == ["a", "b"]
+
+
+def test_late_ack_for_a_finished_probe_is_ignored() -> None:
+    admission = RunAdmission(
+        resource=ConcurrencyResource.ACTIONS,
+        logger=get_workflow_logger(),
+        acks_enabled=True,
+    )
+    admission.acknowledge("admission-probe-already-done")
+    assert admission._acked == set()  # pyright: ignore[reportPrivateUsage]

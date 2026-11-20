@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Final
 
+from tracecat import config
 from tracecat.admission.types import ConcurrencyResource
 from tracecat.db.engine import get_async_session_tenant_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.tiers.service import TierService
-
-LIMITS_CACHE_TTL_SECONDS: Final = 30.0
-"""How long a process reuses an organization's resolved limits."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,14 +23,20 @@ _cache: dict[OrganizationID, _CachedLimits] = {}
 
 
 async def get_effective_limits(org_id: OrganizationID) -> EffectiveLimits:
-    """Return an organization's effective limits, cached for 30 s per process.
+    """Return an organization's effective limits, cached per process.
+
+    The cache lives for ``TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS`` (30 s by
+    default), so a changed limit applies within that long; 0 disables it.
 
     Raises:
         Exception: Any lookup failure. Callers decide how to degrade.
     """
     now = time.monotonic()
-    if (cached := _cache.get(org_id)) is not None and cached.expires_at > now:
-        return cached.limits
+    ttl_seconds = config.TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS
+    if (cached := _cache.get(org_id)) is not None:
+        if cached.expires_at > now:
+            return cached.limits
+        del _cache[org_id]
 
     # Activities run without a ctx_role; scope the read to the org explicitly.
     async with get_async_session_tenant_context_manager(
@@ -41,9 +44,8 @@ async def get_effective_limits(org_id: OrganizationID) -> EffectiveLimits:
     ) as session:
         limits = await TierService(session).get_effective_limits(org_id)
 
-    _cache[org_id] = _CachedLimits(
-        limits=limits, expires_at=now + LIMITS_CACHE_TTL_SECONDS
-    )
+    if ttl_seconds > 0:
+        _cache[org_id] = _CachedLimits(limits=limits, expires_at=now + ttl_seconds)
     return limits
 
 

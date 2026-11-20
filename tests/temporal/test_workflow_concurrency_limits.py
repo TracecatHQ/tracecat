@@ -11,7 +11,7 @@ import asyncio
 import os
 import uuid
 from collections import Counter
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -42,7 +42,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.schemas import ActionStatement, RunActionInput
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionInput
 from tracecat.executor import activities as executor_activities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.feature_flags.enums import FeatureFlag
@@ -110,6 +110,9 @@ class FakeActions:
     running: Counter[str] = field(default_factory=Counter)
     max_running: Counter[str] = field(default_factory=Counter)
     widths: dict[str, int | None] = field(default_factory=dict)
+    on_start: Callable[[str], Awaitable[None]] | None = None
+    """Runs when an action starts, before its result is returned."""
+    results: dict[str, dict[str, str]] = field(default_factory=dict)
 
     async def dispatch(
         self,
@@ -127,9 +130,11 @@ class FakeActions:
         self.running[org] += 1
         self.max_running[org] = max(self.max_running[org], self.running[org])
         try:
+            if self.on_start is not None:
+                await self.on_start(ref)
             if (hold := self.holds.get(ref)) is not None:
                 await hold.wait()
-            return {"ref": ref}
+            return self.results.get(ref, {"ref": ref})
         finally:
             self.running[org] -= 1
 
@@ -669,3 +674,118 @@ async def test_lost_admission_signal_still_completes(
 
     assert sorted(fake_actions.started) == refs
     assert _admission_signals(await _history(handle)) == 0
+
+
+@pytest.mark.anyio
+async def test_for_each_never_runs_wider_than_the_cap(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A for_each wider than the org's cap reserves, and runs, only the cap."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 6)
+    store = await LeaseStore.create()
+    in_use_while_running: list[int] = []
+
+    async def record_in_use(_ref: str) -> None:
+        in_use_while_running.append(
+            await store.in_use(org_id, ConcurrencyResource.ACTIONS)
+        )
+
+    fake_actions.on_start = record_in_use
+    dsl = DSLInput(
+        title="fanout",
+        description="fanout",
+        entrypoint=DSLEntrypoint(ref="fanout"),
+        actions=[
+            ActionStatement(
+                ref="fanout",
+                action="core.transform.reshape",
+                args={"value": "${{ var.x }}"},
+                for_each="${{ for var.x in [1, 2, 3, 4, 5, 6, 7, 8] }}",
+            )
+        ],
+    )
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        handle = await _start(env, test_role, dsl, "fanout")
+        await handle.result()
+
+    assert fake_actions.widths["fanout"] == 2
+    assert in_use_while_running == [2]
+    assert await store.in_use(org_id, ConcurrencyResource.ACTIONS) == 0
+
+
+@pytest.mark.anyio
+async def test_rerun_keeps_the_last_real_attempt_after_a_busy_bounce(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """retry_until ran once, then bounced: rerun reuses the attempt that ran."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    store = await LeaseStore.create()
+
+    async def fill_the_org(_ref: str) -> None:
+        # While this attempt holds 1 unit, take the rest of the cap and more,
+        # so the next retry_until iteration bounces.
+        await store.try_acquire(
+            org_id,
+            ConcurrencyResource.ACTIONS,
+            "external-holder",
+            units=2,
+            limit=3,
+            ttl_seconds=90,
+        )
+
+    fake_actions.on_start = fill_the_org
+    fake_actions.results["retry_action"] = {"status": "loading"}
+    dsl = DSLInput(
+        title="retry",
+        description="retry",
+        entrypoint=DSLEntrypoint(ref="retry_action"),
+        actions=[
+            ActionStatement(
+                ref="retry_action",
+                action="core.transform.reshape",
+                args={"value": "x"},
+                retry_policy=ActionRetryPolicy(
+                    retry_until="${{ ACTIONS.retry_action.result.status == 'done' }}"
+                ),
+            )
+        ],
+    )
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    try:
+        async with dsl_worker, executor_worker:
+            handle = await _start(env, test_role, dsl, "retry")
+
+            async def bounced() -> bool:
+                return await _busy_count(handle) >= 1
+
+            await _wait_until(bounced)
+            await handle.cancel()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+    finally:
+        await store.release(
+            org_id, ConcurrencyResource.ACTIONS, "external-holder", units=2
+        )
+
+    assert fake_actions.started == ["retry_action"]
+    service = WorkflowExecutionsService(env.client, role=test_role)
+    service.require_execution = AsyncMock()
+    source = await service.get_rerun_source(handle.id)
+    assert source.actions["retry_action"].fixed is not None

@@ -29,7 +29,8 @@ def flag_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(
         config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS}
     )
-    monkeypatch.setattr(gate, "FAIL_OPEN_AFTER_SECONDS", 0.05)
+    # Wide enough that a slow CI runner still fits several attempts.
+    monkeypatch.setattr(gate, "FAIL_OPEN_AFTER_SECONDS", 0.5)
     monkeypatch.setattr(gate, "RETRY_BACKOFF_SECONDS", 0.01)
     gate.reset_breaker()
     limits.clear_limits_cache()
@@ -131,15 +132,38 @@ async def test_redis_down_fails_open_then_breaker_skips_retries() -> None:
     events = [c.args[0] for c in log.warning.call_args_list]
     assert events.count("concurrency.fail_open") == 2
     reasons = [c.kwargs["reason"] for c in log.warning.call_args_list]
-    assert reasons == ["unavailable", "breaker_open"]
+    assert reasons == ["store_unavailable", "breaker_open"]
 
 
 @pytest.mark.anyio
-async def test_failed_limit_lookup_fails_open() -> None:
-    with patch.object(
-        gate, "resolve_limit", new=AsyncMock(side_effect=RuntimeError("db down"))
+async def test_failed_limit_lookup_fails_open_without_the_breaker() -> None:
+    """One org's limit lookup failing must not stop enforcement for every org."""
+    store = _store(Admitted(in_use=1, limit=5))
+    resolve = AsyncMock(side_effect=[RuntimeError("db down")] * 100)
+    with (
+        patch.object(gate, "resolve_limit", new=resolve),
+        patch.object(gate.LeaseStore, "create", new=AsyncMock(return_value=store)),
     ):
         assert await _admit() is None
+    # The breaker stayed closed: the next call is enforced.
+    with (
+        patch.object(gate, "resolve_limit", new=AsyncMock(return_value=5)),
+        patch.object(gate.LeaseStore, "create", new=AsyncMock(return_value=store)),
+    ):
+        assert await _admit() is not None
+
+
+@pytest.mark.anyio
+async def test_giving_up_on_redis_releases_a_possibly_taken_lease() -> None:
+    """The acquire may have run with its reply lost; release it on the way out."""
+    store = _store(Admitted(in_use=1, limit=5))
+    store.try_acquire = AsyncMock(side_effect=TimeoutError("reply lost"))
+    with (
+        patch.object(gate, "resolve_limit", new=AsyncMock(return_value=5)),
+        patch.object(gate.LeaseStore, "create", new=AsyncMock(return_value=store)),
+    ):
+        assert await _admit(units=2) is None
+    store.release.assert_awaited_once_with(ORG_ID, ACTIONS, "run:1:1", units=2)
 
 
 @pytest.mark.anyio
@@ -225,3 +249,33 @@ async def test_limits_are_cached_per_process() -> None:
 
     session_factory.assert_called_once_with(organization_id=ORG_ID)
     service.get_effective_limits.assert_awaited_once_with(ORG_ID)
+
+
+@pytest.mark.anyio
+async def test_limits_cache_honours_the_configured_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS", 0)
+    effective = EffectiveLimits(
+        api_rate_limit=None,
+        api_burst_capacity=None,
+        max_concurrent_workflows=None,
+        max_action_executions_per_workflow=None,
+        max_concurrent_actions=4,
+    )
+    service = MagicMock()
+    service.get_effective_limits = AsyncMock(return_value=effective)
+    session_cm = MagicMock()
+    session_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+    session_cm.__aexit__ = AsyncMock(return_value=None)
+    with (
+        patch.object(
+            limits, "get_async_session_tenant_context_manager", return_value=session_cm
+        ),
+        patch.object(limits, "TierService", return_value=service),
+    ):
+        await limits.resolve_limit(ORG_ID, ACTIONS)
+        await limits.resolve_limit(ORG_ID, ACTIONS)
+
+    # TTL 0 disables the cache: every call reads the tier.
+    assert service.get_effective_limits.await_count == 2

@@ -175,13 +175,19 @@ async def unwrap_action_result(task_result: StoredObject) -> Any:
 _stored_object_validator: TypeAdapter[StoredObject] = TypeAdapter(StoredObject)
 
 
-async def get_result(event: HistoryEvent) -> Any:
+async def get_result(event: HistoryEvent, *, busy_aware: bool = False) -> Any:
     """Extract and unwrap result from a completed workflow history event.
 
     For activity completions, this unwraps TaskResult/StoredObject to return
     the raw result data for UI display. Falls back to raw result for backward
-    compatibility with pre-TaskResult workflow history. An executor's busy
-    answer comes back as a ``ConcurrencyBusyResult``.
+    compatibility with pre-TaskResult workflow history.
+
+    Args:
+        event: A completed event.
+        busy_aware: Return a ``ConcurrencyBusyResult`` for an executor's busy
+            answer. Pass it only for ``execute_action_activity`` completions
+            (see ``schedules_executor_action``): other activities can return
+            user-shaped values.
     """
     match event.event_type:
         case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -198,7 +204,7 @@ async def get_result(event: HistoryEvent) -> Any:
     result = await extract_first(payload)
     # Checked before unwrapping, so an action whose own output looks like a
     # busy answer is never mistaken for one.
-    if (busy := parse_busy_result(result)) is not None:
+    if busy_aware and (busy := parse_busy_result(result)) is not None:
         return busy
     return await _unwrap_result(result)
 

@@ -50,6 +50,8 @@ class Unenforced:
     """The lease store or the limit lookup could not answer; the work runs uncounted."""
 
     error: BaseException
+    store_unavailable: bool
+    """True when Redis failed (process-wide); False for one org's limit lookup."""
 
 
 type Admission = Admitted | Busy | Unenforced

@@ -811,15 +811,15 @@ class WorkflowExecutionsService:
                 if is_start_event(event):
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
-                    raw_result = await get_result(event)
+                    if source_id in executor_sources:
+                        raw_result = await get_result(event, busy_aware=True)
+                    else:
+                        raw_result = await get_result(event)
                     if isinstance(raw_result, ConcurrencyBusyResult):
-                        if source_id in executor_sources:
-                            # The executor was at the org's limit and ran
-                            # nothing; the workflow dispatches again.
-                            del id2event[source_id]
-                            continue
-                        # A user-shaped value from another activity: show it.
-                        raw_result = raw_result.model_dump(mode="json")
+                        # The executor was at the org's limit and ran nothing;
+                        # the workflow dispatches again.
+                        del id2event[source_id]
+                        continue
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = _sanitize_action_result(
                         source.should_mask_output, raw_result
@@ -974,6 +974,8 @@ class WorkflowExecutionsService:
         handle = self.handle(wf_exec_id)
         scheduled: dict[int, WorkflowExecutionEventCompact] = {}
         executor_scheduled: set[int] = set()
+        # What each executor attempt replaced in ``latest``, to undo a busy bounce.
+        superseded: dict[int, tuple[int, RerunSourceAction] | None] = {}
         latest: dict[str, tuple[int, RerunSourceAction]] = {}
         action_names: dict[str, str] = {}
         inherited: dict[str, FixedActionResult] = {}
@@ -1017,6 +1019,8 @@ class WorkflowExecutionsService:
                     if source.status == WorkflowExecutionEventStatus.DETACHED
                     else "Did not succeed in the source run."
                 )
+                if event.event_id in executor_scheduled:
+                    superseded[event.event_id] = latest.get(ref)
                 latest[ref] = (
                     event.event_id,
                     RerunSourceAction(
@@ -1035,7 +1039,10 @@ class WorkflowExecutionsService:
                 if entry is None or entry[0] != source_id:
                     continue
                 if source_id in executor_scheduled and await is_busy_completion(event):
-                    # The executor was at the org's limit; the action never ran.
+                    # The executor was at the org's limit and ran nothing: the
+                    # attempt before this one still decides the outcome.
+                    if (previous := superseded.get(source_id)) is not None:
+                        latest[source.action_ref] = previous
                     continue
                 entry[1].fixed = FixedActionResult(
                     result=await _task_result_from_completed_event(event),

@@ -180,10 +180,13 @@ async def test_for_each_reserves_its_width_and_runs_no_wider(
 async def test_uncounted_run_keeps_the_configured_width(
     role: Role, mocks: SimpleNamespace
 ) -> None:
-    mocks.acquire.return_value = None
+    mocks.acquire.return_value = None  # unlimited, or failed open
 
-    await ExecutorActivities.execute_action_activity(_run_input(), role)
+    await ExecutorActivities.execute_action_activity(
+        _run_input(for_each="${{ for var.x in [1, 2, 3] }}"), role
+    )
 
+    assert mocks.acquire.await_args.kwargs["units"] > 1
     assert mocks.dispatch.await_args.kwargs["max_concurrency"] is None
 
 

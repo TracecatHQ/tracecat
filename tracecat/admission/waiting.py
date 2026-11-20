@@ -64,6 +64,7 @@ class RunAdmission:
         self.acks_enabled = acks_enabled
         """Whether probes ask for an admission signal (off for pre-patch histories)."""
         self._logger = logger
+        self._in_flight_probes: set[str] = set()
         self._acked: set[str] = set()
         self._blocked = False
         self._token_held = False
@@ -118,8 +119,9 @@ class RunAdmission:
         self._needs_timer = True
 
     def acknowledge(self, activity_id: str) -> None:
-        """Record an executor's admission signal for a probe."""
-        self._acked.add(activity_id)
+        """Record an executor's admission signal for a probe still in flight."""
+        if activity_id in self._in_flight_probes:
+            self._acked.add(activity_id)
 
     async def _probe(
         self, dispatch: Dispatch, remaining: int, generation: int
@@ -135,6 +137,7 @@ class RunAdmission:
             pending = asyncio.ensure_future(dispatch(remaining, None))
         else:
             probe_id = f"admission-probe-{workflow.uuid4()}"
+            self._in_flight_probes.add(probe_id)
             pending = asyncio.ensure_future(dispatch(remaining, probe_id))
         acked = False
         try:
@@ -158,6 +161,7 @@ class RunAdmission:
             raise
         finally:
             if probe_id is not None:
+                self._in_flight_probes.discard(probe_id)
                 self._acked.discard(probe_id)
 
     async def execute(self, dispatch: Dispatch, *, max_attempts: int) -> Any:

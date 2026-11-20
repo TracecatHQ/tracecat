@@ -135,6 +135,7 @@ async def _try_admit(
     units: int,
     deadline: datetime,
 ) -> tuple[Admitted | Busy | Unenforced | _Unlimited, Lease | None]:
+    store_step = False
     try:
         async with asyncio.timeout(ATTEMPT_TIMEOUT_SECONDS):
             limit = await resolve_limit(org_id, resource)
@@ -150,6 +151,7 @@ async def _try_admit(
                 )
                 return _Unlimited(), None
             units = min(units, limit)
+            store_step = True
             store = await LeaseStore.create()
             admission = await store.try_acquire(
                 org_id,
@@ -160,7 +162,7 @@ async def _try_admit(
                 ttl_seconds=_ttl_seconds(deadline),
             )
     except Exception as e:
-        return Unenforced(error=e), None
+        return Unenforced(error=e, store_unavailable=store_step), None
     if isinstance(admission, Busy):
         return admission, None
     return admission, Lease(
@@ -171,6 +173,19 @@ async def _try_admit(
         units=units,
         deadline=deadline,
     )
+
+
+async def _release_quietly(
+    org_id: OrganizationID, resource: ConcurrencyResource, lease_id: str, units: int
+) -> None:
+    """Best-effort release of a lease whose acquire reply may have been lost."""
+    try:
+        async with asyncio.timeout(RELEASE_TIMEOUT_SECONDS):
+            store = await LeaseStore.create()
+            await store.release(org_id, resource, lease_id, units=max(1, units))
+    except Exception:
+        # Expiry (at most 90 s) covers it.
+        pass
 
 
 def _fail_open(
@@ -245,13 +260,19 @@ async def acquire(
                 raise ConcurrencyBusyError(
                     resource=resource, in_use=in_use, limit=limit
                 )
-            case Unenforced(error=error):
+            case Unenforced(error=error, store_unavailable=store_unavailable):
                 if time.monotonic() + backoff >= give_up_at:
-                    _breaker_open_until = time.monotonic() + BREAKER_SECONDS
+                    if store_unavailable:
+                        # Redis is shared by every org: skip it for a while.
+                        _breaker_open_until = time.monotonic() + BREAKER_SECONDS
+                        # The acquire may have run with its reply lost.
+                        await _release_quietly(org_id, resource, lease_id, units)
                     _fail_open(
                         org_id=org_id,
                         resource=resource,
-                        reason="unavailable",
+                        reason="store_unavailable"
+                        if store_unavailable
+                        else "limit_unavailable",
                         error=error,
                     )
                     return None

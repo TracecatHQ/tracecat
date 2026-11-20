@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
+from tracecat.dsl import init_activities
+from tracecat.dsl.init_activities import RunLimitsSnapshot, resolve_run_limits_activity
+from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -92,3 +96,76 @@ async def test_get_tier_limits_activity_reads_tier_in_org_scope() -> None:
     assert result == limits
     tenant_session.assert_called_once_with(organization_id=ORG_ID)
     mock_service.get_effective_limits.assert_awaited_once_with(ORG_ID)
+
+
+@pytest.fixture
+def limits_flag_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS}
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_run_limits_activity_skips_lookup_when_flag_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
+    lookup = AsyncMock()
+    with patch.object(init_activities, "get_effective_limits", new=lookup):
+        snapshot = await resolve_run_limits_activity(ORG_ID)
+
+    assert snapshot == RunLimitsSnapshot()
+    lookup.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("limits_flag_on")
+async def test_resolve_run_limits_activity_returns_the_action_budget() -> None:
+    limits = EffectiveLimits(
+        api_rate_limit=None,
+        api_burst_capacity=None,
+        max_concurrent_workflows=None,
+        max_action_executions_per_workflow=12,
+        max_concurrent_actions=3,
+    )
+    with patch.object(
+        init_activities, "get_effective_limits", new=AsyncMock(return_value=limits)
+    ):
+        snapshot = await resolve_run_limits_activity(ORG_ID)
+
+    assert snapshot == RunLimitsSnapshot(max_action_executions_per_workflow=12)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("limits_flag_on")
+@pytest.mark.parametrize(
+    ("error", "kind", "disposition"),
+    [
+        (
+            DefaultTierNotConfiguredError(),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeError("db down"),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+)
+async def test_resolve_run_limits_activity_classifies_lookup_failures(
+    error: Exception, kind: RuntimeErrorKind, disposition: RetryDisposition
+) -> None:
+    with (
+        patch.object(
+            init_activities, "get_effective_limits", new=AsyncMock(side_effect=error)
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await resolve_run_limits_activity(ORG_ID)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is kind
+    assert classification.retry_disposition is disposition

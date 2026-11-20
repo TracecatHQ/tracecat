@@ -32,7 +32,8 @@ The current controls apply at different scopes:
 - Self-hosted deployments default the organization-scoped
   `max_concurrent_actions` limit to unlimited, and action leasing is not yet
   activated in current deployments; with no limit set the executor takes no
-  lease and the workflow records no extra activities.
+  lease, and the workflow adds only its one start-of-run local activity
+  (`resolve_run_limits_activity`), which every run records.
 - When enabled, an action the executor answers busy waits on a durable timer
   (backoff capped near 60 seconds) with no maximum wait.
 - Each executor worker process defaults to 100 concurrent activities. This is a
