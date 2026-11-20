@@ -299,10 +299,17 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("max_cached_workflows", [None, 200])
 async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, max_cached_workflows: int | None
 ) -> None:
+    from tracecat import config
     from tracecat.dsl import worker
+
+    if max_cached_workflows is not None:
+        monkeypatch.setattr(
+            config, "TEMPORAL__MAX_CACHED_WORKFLOWS", max_cached_workflows
+        )
 
     shutdown_event = asyncio.Event()
     captured: dict[str, object] = {}
@@ -321,6 +328,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             activity_executor: ThreadPoolExecutor,
             max_concurrent_activities: int,
             max_concurrent_workflow_tasks: int,
+            max_cached_workflows: int,
             graceful_shutdown_timeout: timedelta,
         ) -> None:
             del (
@@ -337,6 +345,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             captured["threadpool_max_workers"] = activity_executor._max_workers
             captured["max_concurrent_activities"] = max_concurrent_activities
             captured["max_concurrent_workflow_tasks"] = max_concurrent_workflow_tasks
+            captured["max_cached_workflows"] = max_cached_workflows
             captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
@@ -369,6 +378,8 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
         "threadpool_max_workers": 100,
         "max_concurrent_activities": 100,
         "max_concurrent_workflow_tasks": 100,
+        # Unset keeps the Temporal SDK default.
+        "max_cached_workflows": max_cached_workflows or 1000,
         "graceful_shutdown_timeout": timedelta(seconds=30),
         "interceptor_types": ("RuntimeErrorAttributionInterceptor",),
     }

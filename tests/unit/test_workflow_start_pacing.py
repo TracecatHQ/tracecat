@@ -386,6 +386,10 @@ async def test_webhook_rate_limited_start_is_429_with_retry_after() -> None:
     detail = response.json()["detail"]
     assert detail["code"] == "workflow_start_rate_limited"
     assert detail["retry_after_seconds"] == 3
+    # Webhook callers are outside the org: the body leaves out its limits.
+    assert detail["message"] == (
+        "Workflow start rate limit reached. Retry after 3 seconds."
+    )
 
 
 def test_api_app_maps_start_rate_limited() -> None:

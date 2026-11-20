@@ -76,9 +76,9 @@ class StartRateLimited(Exception):
         self.retry_after = retry_after
         self.rate = rate
         self.burst = burst
+        # Webhook callers see this message: leave the org's limits out of it.
         super().__init__(
-            "Workflow start rate limit reached "
-            f"({rate} per second, burst {burst}). "
+            "Workflow start rate limit reached. "
             f"Retry after {self.retry_after_seconds} seconds."
         )
 
