@@ -29,10 +29,11 @@ def is_case_trigger_configured(
     status: str | None,
     event_types: Sequence[CaseEventType | str] | None,
     tag_filters: Sequence[str] | None,
+    include_sub_cases: bool = False,
 ) -> bool:
     if status == "online":
         return True
-    if event_types:
+    if event_types or include_sub_cases:
         return True
     return any(ref.strip() for ref in tag_filters or [])
 
@@ -41,6 +42,8 @@ class CaseTriggerConfig(BaseModel):
     status: CaseTriggerStatus = "offline"
     event_types: list[CaseEventType] = Field(default_factory=list)
     tag_filters: list[str] = Field(default_factory=list)
+    include_sub_cases: bool = False
+    """Fire on sub-case events too; by default only top-level cases fire."""
 
     @field_validator("event_types")
     @classmethod
@@ -64,6 +67,7 @@ class CaseTriggerConfig(BaseModel):
             status=self.status,
             event_types=self.event_types,
             tag_filters=self.tag_filters,
+            include_sub_cases=self.include_sub_cases,
         )
 
 
@@ -75,6 +79,7 @@ class CaseTriggerUpdate(BaseModel):
     status: CaseTriggerStatus | None = None
     event_types: list[CaseEventType] | None = None
     tag_filters: list[str] | None = None
+    include_sub_cases: bool | None = None
 
     @field_validator("event_types")
     @classmethod
@@ -100,3 +105,4 @@ class CaseTriggerRead(Schema):
     status: CaseTriggerStatus
     event_types: list[CaseEventType]
     tag_filters: list[str]
+    include_sub_cases: bool

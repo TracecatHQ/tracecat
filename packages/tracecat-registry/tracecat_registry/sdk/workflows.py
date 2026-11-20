@@ -360,7 +360,8 @@ class WorkflowsClient:
 
         Returns:
             dict with ``status`` (``"online"``/``"offline"``), ``event_types``
-            (the case events that fire the workflow), and ``tag_filters``.
+            (the case events that fire the workflow), ``tag_filters``, and
+            ``include_sub_cases``.
 
         Raises:
             TracecatNotFoundError: If the workflow has no case trigger.
@@ -375,6 +376,7 @@ class WorkflowsClient:
         status: Literal["online", "offline"] | None = None,
         event_types: list[str] | None = None,
         tag_filters: list[str] | None = None,
+        include_sub_cases: bool | None = None,
     ) -> dict[str, Any]:
         """Configure a workflow's case trigger.
 
@@ -390,6 +392,8 @@ class WorkflowsClient:
                 ``["case_created", "status_changed"]``).
             tag_filters: Optional case-tag refs to restrict which cases fire the
                 trigger.
+            include_sub_cases: Whether events on sub-cases also fire the
+                trigger. By default only top-level cases fire.
 
         Returns:
             The updated (merged) case-trigger configuration, as returned by
@@ -409,6 +413,8 @@ class WorkflowsClient:
             data["event_types"] = event_types
         if tag_filters is not None:
             data["tag_filters"] = tag_filters
+        if include_sub_cases is not None:
+            data["include_sub_cases"] = include_sub_cases
         await self._client.patch(
             f"/workflows/{workflow_id}/case-trigger",
             json=data,

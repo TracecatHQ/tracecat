@@ -331,12 +331,20 @@ class ExternalWorkflowDefinition(BaseModel):
                 status=workflow_case_trigger.status,
                 event_types=workflow_case_trigger.event_types,
                 tag_filters=workflow_case_trigger.tag_filters,
+                include_sub_cases=workflow_case_trigger.include_sub_cases,
             ):
                 case_trigger = CaseTriggerConfig.model_validate(
                     {
                         "status": workflow_case_trigger.status,
                         "event_types": workflow_case_trigger.event_types,
                         "tag_filters": workflow_case_trigger.tag_filters,
+                        # Only set when true so exports of existing triggers
+                        # don't change.
+                        **(
+                            {"include_sub_cases": True}
+                            if workflow_case_trigger.include_sub_cases
+                            else {}
+                        ),
                     }
                 )
         return ExternalWorkflowDefinition(

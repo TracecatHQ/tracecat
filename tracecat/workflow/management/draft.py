@@ -251,6 +251,7 @@ def build_workflow_edit_document(
             status=case_trigger_read.status,
             event_types=case_trigger_read.event_types,
             tag_filters=case_trigger_read.tag_filters,
+            include_sub_cases=case_trigger_read.include_sub_cases,
         ):
             candidate_payload = case_trigger_read.model_dump(
                 mode="json", exclude={"id", "workflow_id"}

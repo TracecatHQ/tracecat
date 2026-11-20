@@ -417,6 +417,8 @@ class CaseTriggerOutboxDispatcher:
                 and trigger.workflow_id == comment_workflow.workflow_id
             ):
                 continue
+            if case.parent_id is not None and not trigger.include_sub_cases:
+                continue
             if trigger.tag_filters and not filter_tag_refs.intersection(
                 trigger.tag_filters
             ):

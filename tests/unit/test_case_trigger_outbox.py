@@ -115,6 +115,7 @@ async def _add_trigger(
     event_types: list[str],
     status: str = "online",
     tag_filters: list[str] | None = None,
+    include_sub_cases: bool = False,
 ) -> CaseTrigger:
     assert role.workspace_id is not None
     workflow = Workflow(
@@ -131,6 +132,7 @@ async def _add_trigger(
         status=status,
         event_types=event_types,
         tag_filters=tag_filters or [],
+        include_sub_cases=include_sub_cases,
     )
     session.add(trigger)
     await session.commit()
@@ -644,6 +646,35 @@ class TestOutboxDispatch:
 
         assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
             WorkflowUUID.new(matching.workflow_id)
+        ]
+
+    async def test_sub_case_events_fire_only_triggers_that_include_sub_cases(
+        self, session: AsyncSession, svc_role: Role, test_case: Case
+    ) -> None:
+        await _add_trigger(session, svc_role, event_types=["case_updated"])
+        including = await _add_trigger(
+            session, svc_role, event_types=["case_updated"], include_sub_cases=True
+        )
+        sub_case = await CasesService(session=session, role=svc_role).create_case(
+            CaseCreate(
+                summary="Sub-case",
+                description="Case trigger outbox sub-case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+                parent_id=test_case.id,
+            )
+        )
+        await session.execute(delete(CaseTriggerOutbox))
+        await session.commit()
+        await _add_update_event(session, svc_role, sub_case)
+
+        start = AsyncMock()
+        with _dispatch_mocks(start):
+            await _dispatch_only_row()
+
+        assert [call.kwargs["wf_id"] for call in start.await_args_list] == [
+            WorkflowUUID.new(including.workflow_id)
         ]
 
     @pytest.mark.parametrize(
