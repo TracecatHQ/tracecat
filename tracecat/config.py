@@ -521,9 +521,11 @@ TRACECAT__DB_ORG_SESSION_CAP = (
 """Concurrent action gateway operations one organization may run per process.
 
 Unset (the default) means no limit. A unit is one gateway operation; budget up
-to 2 connections per operation, and leave headroom for other orgs:
+to 3 connections per operation (a published workflow start holds the request
+session, a management session and a workspace-settings session at once), and
+leave headroom for other orgs:
 
-    cap x peak executor processes (including surge and draining) x 2
+    cap x peak executor processes (including surge and draining) x 3
         <= PgDog backends - headroom
 
 Sessions outside the gateway are not counted. Regions differ: EU is tightest
