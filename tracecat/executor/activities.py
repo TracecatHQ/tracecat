@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
+from opentelemetry import metrics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError, is_cancelled_exception
 from tenacity import (
@@ -58,6 +59,15 @@ from tracecat.temporal.errors import (
     extract_error_capture,
     extract_error_classification,
     raise_application_error_from_classification,
+)
+
+_METER = metrics.get_meter("tracecat.executor")
+_ACTIONS = _METER.create_counter(
+    "executor.actions",
+    description=(
+        "Action activity attempts that returned or failed on this executor; "
+        "Temporal retries count again."
+    ),
 )
 
 LEASE_RENEW_INTERVAL_SECONDS: Final = 30
@@ -305,8 +315,11 @@ class ExecutorActivities:
                         "exec_context": await materialize_context(input.exec_context)
                     }
                 )
-        except BaseException:
+        except BaseException as e:
             await _stop_heartbeat_and_release(heartbeat_task, lease)
+            # Already classified at the materialization boundary; only count it.
+            if isinstance(e, Exception) and not is_cancelled_exception(e):
+                _ACTIONS.add(1, {"outcome": "failed"})
             raise
 
         try:
@@ -362,10 +375,12 @@ class ExecutorActivities:
                             result_persistence_error_classification
                         ):
                             stored = await get_object_storage().store(key, result)
+                    _ACTIONS.add(1, {"outcome": "succeeded"})
                     return stored
         except Exception as e:
             if is_cancelled_exception(e):
                 raise
+            _ACTIONS.add(1, {"outcome": "failed"})
             classification = classify_execute_action_error(e, action_name=action_name)
             log.bind(
                 error_owner=classification.owner,
