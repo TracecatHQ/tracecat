@@ -70,11 +70,13 @@ BUILDER_INTERNAL_TOOL_NAMES = [
 # Workflow tools any agent can opt into by listing them in its actions.
 # They run in the tool-serving process, so a run never holds an executor slot
 # or a turn while it waits on a workflow.
-WORKFLOW_INTERNAL_TOOL_NAMES = [
-    "internal.workflows.start",
-    "internal.workflows.get",
-    "internal.workflows.cancel",
-]
+WORKFLOW_INTERNAL_TOOL_SCOPES: dict[str, str] = {
+    "internal.workflows.start": "workflow:execute",
+    "internal.workflows.get": "workflow:read",
+    "internal.workflows.cancel": "workflow:terminate",
+}
+"""The scope a user needs to be offered each workflow tool, as for the MCP tools."""
+WORKFLOW_INTERNAL_TOOL_NAMES = list(WORKFLOW_INTERNAL_TOOL_SCOPES)
 
 # Registry actions that are bundled with the builder assistant
 # These are standard registry tools, not internal tools

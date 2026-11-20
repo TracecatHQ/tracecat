@@ -155,3 +155,22 @@ def test_scope_filter_gates_extras_the_same_way() -> None:
     )
 
     assert filtered == ["core.table.list_tables"]
+
+
+def test_scope_filter_gates_workflow_tools_on_workflow_scopes() -> None:
+    # Workflow tools run under the MCP service principal, so `action:*:execute`
+    # must not stand in for the workflow scopes the MCP tools require.
+    tools = [
+        "internal.workflows.start",
+        "internal.workflows.get",
+        "internal.workflows.cancel",
+    ]
+    action_only = filter_workspace_chat_tools_for_scopes(
+        tools, role=_role("agent:execute", "action:*:execute")
+    )
+    read_and_execute = filter_workspace_chat_tools_for_scopes(
+        tools, role=_role("workflow:read", "workflow:execute")
+    )
+
+    assert action_only == []
+    assert read_and_execute == ["internal.workflows.start", "internal.workflows.get"]
