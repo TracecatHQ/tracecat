@@ -226,12 +226,15 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     logger.info("ExecutorWorker shutdown requested")
                 logger.info("Temporal Worker context exited")
         finally:
-            logger.info("Shutting down executor backend")
-            await shutdown_executor_backend()
-            await close_storage_client_cache()
-            await action_gateway.stop()
-            shutdown_platform_metrics()
-            shutdown_platform_tracing()
+            try:
+                logger.info("Shutting down executor backend")
+                await shutdown_executor_backend()
+                await close_storage_client_cache()
+                await action_gateway.stop()
+            finally:
+                # Flush telemetry even when an earlier cleanup step raises.
+                shutdown_platform_metrics()
+                shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

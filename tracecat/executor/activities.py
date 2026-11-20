@@ -56,7 +56,10 @@ from tracecat.temporal.errors import (
 _METER = metrics.get_meter("tracecat.executor")
 _ACTIONS = _METER.create_counter(
     "executor.actions",
-    description="Action activities that returned or failed on this executor.",
+    description=(
+        "Action activity attempts that returned or failed on this executor; "
+        "Temporal retries count again."
+    ),
 )
 
 

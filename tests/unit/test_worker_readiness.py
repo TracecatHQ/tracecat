@@ -10,17 +10,28 @@ import pytest
 from tracecat.agent import executor_worker
 from tracecat.executor import worker
 
+TELEMETRY_LIFECYCLE = [
+    "initialize_platform_tracing",
+    "initialize_platform_metrics",
+    "shutdown_platform_metrics",
+    "shutdown_platform_tracing",
+]
+
+
+@pytest.fixture
+def telemetry() -> Mock:
+    """Parent mock that records the platform telemetry calls in order."""
+    return Mock()
+
 
 @pytest.fixture(params=[worker, executor_worker], ids=["executor", "agent"])
 def worker_module(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, telemetry: Mock
 ) -> ModuleType:
     module: ModuleType = request.param
     monkeypatch.setattr("tracecat.executor.startup.validate_execution_backend", Mock())
-    monkeypatch.setattr(module, "initialize_platform_tracing", Mock())
-    monkeypatch.setattr(module, "shutdown_platform_tracing", Mock())
-    monkeypatch.setattr(module, "initialize_platform_metrics", Mock())
-    monkeypatch.setattr(module, "shutdown_platform_metrics", Mock())
+    for name in TELEMETRY_LIFECYCLE:
+        monkeypatch.setattr(module, name, getattr(telemetry, name))
     monkeypatch.setattr(module, "close_storage_client_cache", AsyncMock())
     if module is worker:
         monkeypatch.setattr(
@@ -47,6 +58,7 @@ def worker_module(
 @pytest.mark.parametrize("fail", [False, True], ids=["shutdown", "failure"])
 async def test_readiness_ends_before_worker_drain(
     worker_module: ModuleType,
+    telemetry: Mock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     fail: bool,
@@ -81,8 +93,40 @@ async def test_readiness_ends_before_worker_drain(
         await worker_module.main(shutdown_event=shutdown)
     assert drained
     assert not ready.exists()
-    worker_module.initialize_platform_metrics.assert_called_once_with()
-    worker_module.shutdown_platform_metrics.assert_called_once_with()
+    # Metrics start after tracing and flush before it.
+    assert [c[0] for c in telemetry.mock_calls] == TELEMETRY_LIFECYCLE
+
+
+@pytest.mark.anyio
+async def test_cleanup_failure_still_flushes_telemetry(
+    worker_module: ModuleType,
+    telemetry: Mock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ready = tmp_path / "ready"
+    ready.touch()
+    monkeypatch.setattr("tracecat.executor.startup.WORKER_READY_FILE", ready)
+    cleanup = (
+        "shutdown_executor_backend"
+        if worker_module is worker
+        else "_stop_runtime_services"
+    )
+    monkeypatch.setattr(
+        worker_module, cleanup, AsyncMock(side_effect=RuntimeError("cleanup failed"))
+    )
+
+    class FakeWorker:
+        async def __aenter__(self) -> None: ...
+
+        async def __aexit__(self, *args: object) -> None: ...
+
+    shutdown = asyncio.Event()
+    shutdown.set()
+    monkeypatch.setattr(worker_module, "Worker", Mock(return_value=FakeWorker()))
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        await worker_module.main(shutdown_event=shutdown)
+    assert [c[0] for c in telemetry.mock_calls] == TELEMETRY_LIFECYCLE
 
 
 @pytest.mark.anyio
