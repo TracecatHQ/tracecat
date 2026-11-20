@@ -93,9 +93,13 @@ async def agent(
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
     max_tool_calls: Annotated[
-        int, Doc("Maximum number of tool calls for the agent.")
-    ] = 15,
-    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
+        int | None,
+        Doc("Maximum number of tool calls for the agent. Unlimited by default."),
+    ] = None,
+    max_requests: Annotated[
+        int | None,
+        Doc("Maximum number of requests for the agent. Unlimited by default."),
+    ] = None,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     enable_thinking: Annotated[
         bool,
@@ -179,9 +183,13 @@ async def preset_agent(
         ),
     ] = None,
     max_tool_calls: Annotated[
-        int, Doc("Maximum number of tool calls for the agent.")
-    ] = 15,
-    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
+        int | None,
+        Doc("Maximum number of tool calls for the agent. Unlimited by default."),
+    ] = None,
+    max_requests: Annotated[
+        int | None,
+        Doc("Maximum number of requests for the agent. Unlimited by default."),
+    ] = None,
 ) -> dict[str, Any]:
     raise ActionIsInterfaceError()
 
@@ -232,7 +240,10 @@ async def action(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
+    max_requests: Annotated[
+        int | None,
+        Doc("Maximum number of requests for the agent. Unlimited by default."),
+    ] = None,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     enable_thinking: Annotated[
         bool,

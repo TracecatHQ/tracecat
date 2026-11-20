@@ -1914,16 +1914,6 @@ TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = env_bool(
 TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 128)
 """The maximum number of tools that can be used in an agent."""
 
-TRACECAT__AGENT_MAX_TOOL_CALLS = int(
-    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS") or 40
-)
-"""The maximum number of tool calls that can be made per agent run."""
-
-TRACECAT__AGENT_MAX_REQUESTS = int(
-    os.environ.get("TRACECAT__AGENT_MAX_REQUESTS") or 120
-)
-"""The maximum number of requests that can be made per agent run."""
-
 TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES") or 20)
 """The maximum number of retries that can be made per agent run."""
 

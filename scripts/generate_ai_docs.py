@@ -226,7 +226,7 @@ PAGES: list[dict[str, Any]] = [
             - `ai.agent`: Prompt plus tool calls. Use `actions` for Tracecat actions and `mcp_integrations` for saved MCP servers.
             - `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, skills, and MCP integrations across workflows.
             - `tool_approvals`: Require approval before selected tools run.
-            - `max_tool_calls` and `max_requests`: Bound how much work the agent can do in a single run.
+            - `max_tool_calls` and `max_requests`: Optional per-run limits. Unset means no limit.
 
             ## Structured outputs
 
