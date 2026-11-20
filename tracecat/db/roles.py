@@ -96,7 +96,12 @@ class LoginMethod(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RoleNames:
-    """Names of the topology's roles. Only tests change them."""
+    """Names of the topology's roles.
+
+    The login roles' names come from ``TRACECAT__DB_MIGRATOR_ROLE``,
+    ``TRACECAT__DB_APP_ROLE`` and ``TRACECAT__DB_AGENT_RUNTIME_ROLE``
+    (:data:`DEFAULT_ROLES`); the keyrings' are fixed outside tests.
+    """
 
     owner: str = "tracecat_owner"
     dynamic_owner: str = "app_owner"
@@ -134,7 +139,22 @@ here."""
 
 # Honour an existing TRACECAT__DB_DYNAMIC_OWNER_ROLE so the app and the
 # bootstrap agree on the role that owns dynamic tables.
-DEFAULT_ROLES = RoleNames(dynamic_owner=config.TRACECAT__DB_DYNAMIC_OWNER_ROLE)
+DEFAULT_ROLES = RoleNames(
+    dynamic_owner=config.TRACECAT__DB_DYNAMIC_OWNER_ROLE,
+    migrator=config.TRACECAT__DB_MIGRATOR_ROLE,
+    app=config.TRACECAT__DB_APP_ROLE,
+    agent_runtime=config.TRACECAT__DB_AGENT_RUNTIME_ROLE,
+)
+
+
+def duplicate_role_names(roles: RoleNames) -> list[str]:
+    """Role names that more than one topology role uses.
+
+    Each role holds different rights, so two sharing a name (say
+    ``TRACECAT__DB_APP_ROLE`` set to the migrator's name) would merge them.
+    """
+    names = [*roles.keyrings, *roles.logins, roles.iam]
+    return sorted({name for name in names if names.count(name) > 1})
 
 
 class UnsafeDatabaseLoginError(RuntimeError):
@@ -1921,6 +1941,15 @@ def _creates_login_without_password(
     return False
 
 
+def _duplicate_names_message(duplicates: Sequence[str]) -> str:
+    names = ", ".join(_printable(name) for name in duplicates)
+    return (
+        f"more than one Tracecat role is named {names}: give TRACECAT__DB_MIGRATOR_ROLE, "
+        "TRACECAT__DB_APP_ROLE and TRACECAT__DB_AGENT_RUNTIME_ROLE distinct names "
+        "that no keyring uses"
+    )
+
+
 def _login_method(value: str) -> LoginMethod:
     """``--login`` parser that never echoes the value.
 
@@ -1987,6 +2016,9 @@ def _main(argv: Sequence[str] | None) -> int:
         "user (migrator), then owner-level grants. Never logs in as the admin.",
     )
     args = parser.parse_args(argv)
+    if duplicates := duplicate_role_names(DEFAULT_ROLES):
+        print(f"error: {_duplicate_names_message(duplicates)}", file=sys.stderr)
+        return 1
     if args.command == "migrate":
         return migrate()
     if args.command == "status":
@@ -2002,9 +2034,9 @@ def _main(argv: Sequence[str] | None) -> int:
         with psycopg.connect(_admin_conninfo(), autocommit=True) as conn:
             if _creates_login_without_password(conn, LoginPasswords.from_config()):
                 print(
-                    "error: role setup would create migrator or app without a "
-                    "password: set TRACECAT__DB_MIGRATOR_PASSWORD and "
-                    "TRACECAT__DB_APP_PASSWORD.",
+                    f"error: role setup would create {_printable(DEFAULT_ROLES.migrator)} "
+                    f"or {_printable(DEFAULT_ROLES.app)} without a password: set "
+                    "TRACECAT__DB_MIGRATOR_PASSWORD and TRACECAT__DB_APP_PASSWORD.",
                     file=sys.stderr,
                 )
                 return 1
@@ -2097,7 +2129,7 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
             "TRACECAT__RLS_MODE=enforce needs a login without SUPERUSER, BYPASSRLS, "
             "CREATEROLE or REPLICATION that owns no public table: "
             + "; ".join(problems)
-            + ". Log in as the 'app' role (python -m tracecat.db.roles bootstrap)."
+            + ". Log in as the app's login role (python -m tracecat.db.roles bootstrap)."
         )
 
 
