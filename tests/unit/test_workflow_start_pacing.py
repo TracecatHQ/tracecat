@@ -27,7 +27,10 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.storage.object import InlineObject
 from tracecat.webhooks.router import _incoming_webhook
 from tracecat.workflow.executions.enums import TriggerType
-from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.service import (
+    WorkflowExecutionsService,
+    WorkflowStartTimeoutError,
+)
 
 _WF_ID = WorkflowUUID.new_uuid4()
 _ORG_ID = uuid.uuid4()
@@ -422,7 +425,9 @@ async def test_ndjson_batches_count_one_start_each(
 async def test_webhook_start_timeout_is_503_with_retry_after() -> None:
     exec_service = AsyncMock()
     exec_service.create_workflow_execution_wait_for_start = AsyncMock(
-        side_effect=TimeoutError("Timed out while dispatching workflow to Temporal")
+        side_effect=WorkflowStartTimeoutError(
+            "Timed out while dispatching workflow to Temporal"
+        )
     )
     with (
         patch(
@@ -446,6 +451,49 @@ async def test_webhook_start_timeout_is_503_with_retry_after() -> None:
     assert exc_info.value.headers == {
         "Retry-After": str(TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS)
     }
+
+
+@pytest.mark.anyio
+async def test_webhook_other_timeouts_are_not_a_temporal_503() -> None:
+    """A timeout outside the Temporal start (say, storage) isn't a 503."""
+    exec_service = AsyncMock()
+    exec_service.create_workflow_execution_wait_for_start = AsyncMock(
+        side_effect=TimeoutError("object storage timed out")
+    )
+    with (
+        patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=exec_service),
+        ),
+        pytest.raises(TimeoutError, match="object storage"),
+    ):
+        await _incoming_webhook(
+            workflow_id=_WF_ID,
+            defn=_definition(),
+            payload={"x": 1},
+            echo=False,
+            empty_echo=False,
+            vendor=None,
+            request=_webhook_request("application/json"),
+            content_type="application/json",
+        )
+
+
+@pytest.mark.anyio
+async def test_start_timeout_raises_workflow_start_timeout(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+) -> None:
+    mock_client.start_workflow.side_effect = TimeoutError()
+    with _timeout(service, None), pytest.raises(WorkflowStartTimeoutError):
+        await service._start_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=f"{_WF_ID.short()}/exec_test",
+            trigger_type=TriggerType.WEBHOOK,
+        )
 
 
 @pytest.mark.anyio

@@ -139,6 +139,10 @@ class WorkflowExecutionNotFoundError(ValueError):
     """Raised when a workflow execution is not visible in the current workspace."""
 
 
+class WorkflowStartTimeoutError(TimeoutError):
+    """Temporal didn't answer a workflow start in time; the run may exist."""
+
+
 @dataclass(frozen=True)
 class WorkflowExecutionResolvedEvent:
     event: HistoryEvent
@@ -2147,7 +2151,7 @@ class WorkflowExecutionsService:
                 timeout_seconds=start_timeout,
                 error=str(e),
             )
-            raise TimeoutError(
+            raise WorkflowStartTimeoutError(
                 "Timed out while dispatching workflow to Temporal. "
                 "Verify Temporal reachability, namespace, and worker availability."
             ) from e

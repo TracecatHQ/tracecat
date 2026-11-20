@@ -70,7 +70,10 @@ from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionCreateResponse,
 )
-from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.service import (
+    WorkflowExecutionsService,
+    WorkflowStartTimeoutError,
+)
 
 router = APIRouter(
     prefix="/webhooks/{workflow_id}/{secret}",
@@ -420,14 +423,17 @@ async def _wrapped_payload(
 
 @contextmanager
 def _start_timeout_as_503() -> Iterator[None]:
-    """Answer a timed-out Temporal start with 503 and ``Retry-After``.
+    """Answer a Temporal start that timed out with 503 and ``Retry-After``.
+
+    Only the start's own timeout maps here; other timeouts keep their usual
+    handling.
 
     Transient Temporal RPC errors get the same answer from the app-wide
     handler.
     """
     try:
         yield
-    except TimeoutError as e:
+    except WorkflowStartTimeoutError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
