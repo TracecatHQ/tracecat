@@ -45,6 +45,7 @@ from tracecat.storage.object import (
     StoredObjectValidator,
     retrieve_stored_object,
 )
+from tracecat.temporal.fairness import org_priority
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
@@ -216,7 +217,7 @@ async def _execute_action_workflow(
                 input,
                 id=workflow_id,
                 task_queue=config.TRACECAT__AGENT_QUEUE,
-                priority=AGENT_TOOL_PRIORITY,
+                priority=org_priority(input.role.organization_id, AGENT_TOOL_PRIORITY),
                 memo=memo.model_dump(mode="json", exclude_none=True),
                 search_attributes=search_attributes,
                 rpc_timeout=_WORKFLOW_RPC_TIMEOUT,

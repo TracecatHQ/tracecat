@@ -14,6 +14,7 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.logger import logger
+from tracecat.temporal.fairness import org_priority
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -97,6 +98,7 @@ async def create_schedule(
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 typed_search_attributes=build_schedule_search_attributes(role),
+                priority=org_priority(role.organization_id),
                 **schedule_kwargs,
             ),
             spec=temporalio.client.ScheduleSpec(**spec_kwargs),

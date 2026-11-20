@@ -25,6 +25,7 @@ from tracecat.db.session_events import AfterCommitQueue
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.logger import logger
+from tracecat.temporal.fairness import org_priority
 
 _MAX_STORED_ERROR_LENGTH = 2_000
 
@@ -72,6 +73,7 @@ def invoke_comment_agent_turns_after_commit(
                     ),
                     id=comment_agent_invocation_workflow_id(invocation_id),
                     task_queue=config.TRACECAT__AGENT_QUEUE,
+                    priority=org_priority(role.organization_id),
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                 )
