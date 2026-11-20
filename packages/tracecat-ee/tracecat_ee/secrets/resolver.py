@@ -244,23 +244,15 @@ async def check_external_reference(reference: ExternalSecretReference) -> CheckR
 
     The fetched value is dropped immediately; only key names are returned.
     """
-    tokens = decrypt_access_tokens([reference])
-    outcomes = await _fetch_store(
-        _store_context(reference, tokens.get(reference.store_id)), [reference.key]
+    resolved, failure = await fetch_and_project(
+        [reference], decrypt_access_tokens([reference])
     )
-    try:
-        outcome = outcomes.get(
-            reference.key, Failure(SecretResolutionErrorCode.UNKNOWN)
+    if failure is not None:
+        return CheckResult(
+            ok=False,
+            error_code=failure.failure.code,
+            provider_error_code=failure.failure.vendor_code,
         )
-        if isinstance(outcome, Failure):
-            return CheckResult(
-                ok=False,
-                error_code=outcome.code,
-                provider_error_code=outcome.vendor_code,
-            )
-        projected = project_value(reference.mapping, outcome)
-    finally:
-        outcomes.clear()
-    if isinstance(projected, SecretResolutionErrorCode):
-        return CheckResult(ok=False, error_code=projected)
-    return CheckResult(ok=True, resolved_keys=sorted(projected.keys()))
+    resolved_keys = sorted(resolved[reference.alias])
+    resolved.clear()
+    return CheckResult(ok=True, resolved_keys=resolved_keys)

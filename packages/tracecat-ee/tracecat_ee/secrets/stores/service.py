@@ -36,6 +36,7 @@ from tracecat_ee.secrets.stores.backends import (
     AnyBackend,
     get_backend,
     parse_store_config,
+    store_is_ready,
 )
 
 _NOT_READY_MESSAGE = "Finish setting up the store before enabling it."
@@ -183,7 +184,7 @@ class SecretStoresService(BaseOrgService):
             await set_rls_context_from_role(self.session, self.role)
 
     @staticmethod
-    def _check_access_token(
+    def _check_store_settings(
         backend: AnyBackend,
         config: SecretStoreConfig,
         *,
@@ -194,8 +195,7 @@ class SecretStoresService(BaseOrgService):
         """Check a new access token fits the store, and the store can be enabled.
 
         The length is checked here rather than in the schema, whose 422 would
-        echo the token. A provider whose readiness never depends on a token
-        does not use one, so it refuses one.
+        echo the token.
         """
         if token is not None:
             if not 1 <= len(token.get_secret_value()) <= _MAX_ACCESS_TOKEN_LENGTH:
@@ -203,12 +203,10 @@ class SecretStoresService(BaseOrgService):
                     f"The access token must be 1 to {_MAX_ACCESS_TOKEN_LENGTH}"
                     " characters."
                 )
-            if backend.is_ready(config, has_access_token=False) == backend.is_ready(
-                config, has_access_token=True
-            ):
+            if not backend.uses_access_token:
                 raise ValueError("This store's provider does not use an access token.")
-        if enabled and not backend.is_ready(config, has_access_token=token_set):
-            if not token_set and backend.is_ready(config, has_access_token=True):
+        if enabled and not store_is_ready(backend, config, has_access_token=token_set):
+            if backend.is_ready(config):
                 raise ValueError("Set an access token before enabling this store.")
             raise ValueError(_NOT_READY_MESSAGE)
 
@@ -218,7 +216,7 @@ class SecretStoresService(BaseOrgService):
         """Create a store. Server-owned config fields are generated here."""
         backend = get_backend(params.provider)
         config = backend.new_config(params.config)
-        self._check_access_token(
+        self._check_store_settings(
             backend,
             config,
             token=params.access_token,
@@ -268,7 +266,7 @@ class SecretStoresService(BaseOrgService):
             if params.config is not None:
                 current = backend.update_config(saved, params.config)
             config = current
-            self._check_access_token(
+            self._check_store_settings(
                 backend,
                 current,
                 token=params.access_token,

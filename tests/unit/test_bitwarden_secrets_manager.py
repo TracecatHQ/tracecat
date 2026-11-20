@@ -13,6 +13,7 @@ import dataclasses
 import os
 import sys
 import uuid
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
 from typing import Any
@@ -519,26 +520,36 @@ async def test_entitlement_off_fails_before_any_sdk_call(
     assert calls == []
 
 
-async def test_concurrent_fetches_never_exceed_one_cap_across_servers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture
+def child_peaks(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Fresh slots for this test's loop, and a fake child that records the
+    peak number running at once, overall and per API URL."""
     monkeypatch.setattr(bw, "_SLOTS", asyncio.Semaphore(bw.MAX_CONCURRENT_FETCHES))
-    running = 0
-    peak = 0
+    monkeypatch.setattr(
+        bw,
+        "_SERVER_SLOTS",
+        defaultdict(lambda: asyncio.Semaphore(bw.MAX_CONCURRENT_FETCHES_PER_SERVER)),
+    )
+    running: Counter[str] = Counter()
+    peaks: dict[str, int] = {}
 
     async def slow_child(payload: bytes) -> tuple[bytes, int]:
-        nonlocal running, peak
-        running += 1
-        peak = max(peak, running)
+        api_url = orjson.loads(payload)["api_url"]
+        running[api_url] += 1
+        peaks[api_url] = max(peaks.get(api_url, 0), running[api_url])
+        peaks["total"] = max(peaks.get("total", 0), running.total())
         await asyncio.sleep(0.05)
-        running -= 1
+        running[api_url] -= 1
         ids = orjson.loads(payload)["secret_ids"]
         results = {i: {"value": "v", "organization_id": str(ORG_ID)} for i in ids}
         return orjson.dumps({"results": results, "fatal": False}), 0
 
     monkeypatch.setattr(bw, "_run_child", slow_child)
     monkeypatch.setattr(bw, "server_resolves_public", AsyncMock(return_value=True))
-    servers = ["us", "eu"] + [f"https://vault{i}.example" for i in range(10)]
+    return peaks
+
+
+async def _fetch_from(servers: list[str]) -> None:
     await asyncio.gather(
         *(
             bw.fetch_with_child(
@@ -551,7 +562,23 @@ async def test_concurrent_fetches_never_exceed_one_cap_across_servers(
             for server in servers
         )
     )
-    assert peak == bw.MAX_CONCURRENT_FETCHES
+
+
+async def test_concurrent_fetches_never_exceed_one_cap_across_servers(
+    child_peaks: dict[str, int],
+) -> None:
+    await _fetch_from([f"https://vault{i}.example" for i in range(20)])
+    assert child_peaks["total"] == bw.MAX_CONCURRENT_FETCHES
+
+
+async def test_one_server_cannot_take_every_slot(
+    child_peaks: dict[str, int],
+) -> None:
+    await _fetch_from(["https://slow.example"] * 10 + ["us", "eu"])
+    assert child_peaks["https://slow.example/api"] == (
+        bw.MAX_CONCURRENT_FETCHES_PER_SERVER
+    )
+    assert child_peaks["total"] == bw.MAX_CONCURRENT_FETCHES_PER_SERVER + 2
 
 
 @pytest.mark.parametrize(

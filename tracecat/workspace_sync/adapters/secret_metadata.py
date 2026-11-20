@@ -12,7 +12,11 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from tracecat_ee.secrets.references.service import SecretReferencesService
-from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
+from tracecat_ee.secrets.stores.backends import (
+    get_backend,
+    parse_store_config,
+    store_is_ready,
+)
 
 from tracecat.db.models import OrganizationSecretStore, Secret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
@@ -824,7 +828,8 @@ def _is_usable_store(store: OrganizationSecretStore) -> bool:
     if not store.enabled:
         return False
     try:
-        return get_backend(store.provider).is_ready(
+        return store_is_ready(
+            get_backend(store.provider),
             parse_store_config(store),
             has_access_token=store.encrypted_access_token is not None,
         )

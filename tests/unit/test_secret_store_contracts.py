@@ -1,6 +1,5 @@
 """Isolated regressions for external secret store API contracts."""
 
-import asyncio
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -319,9 +318,8 @@ def _external_secret(name: str) -> Secret:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("entry", ["async", "sync"])
 async def test_failed_sandbox_entry_clears_fetched_values(
-    monkeypatch: pytest.MonkeyPatch, role: Role, entry: str
+    monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
     monkeypatch.setattr(
         config, "TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
@@ -343,10 +341,7 @@ async def test_failed_sandbox_entry_clears_fetched_values(
 
     sandbox = auth_sandbox.AuthSandbox(role=role, secrets=["remote", "local"])
     with pytest.raises(InvalidToken):
-        if entry == "async":
-            await sandbox.__aenter__()
-        else:
-            await asyncio.to_thread(sandbox.__enter__)
+        await sandbox.__aenter__()
     backend.fetch.assert_awaited_once()
     assert sandbox._external_values == {}
     assert sandbox.secrets == {}

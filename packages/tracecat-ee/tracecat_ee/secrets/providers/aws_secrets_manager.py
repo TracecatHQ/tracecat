@@ -12,7 +12,6 @@ import asyncio
 import re
 import secrets as std_secrets
 from collections.abc import Collection, Iterable, Sequence
-from dataclasses import dataclass
 
 import aioboto3
 from aiobotocore.config import AioConfig
@@ -96,15 +95,6 @@ class AwsSecretResolutionError(SecretResolutionError):
         return self.vendor_code
 
 
-@dataclass(frozen=True, slots=True)
-class _FetchOutcome:
-    """Result of one remote read. Exactly one of value/failure is set."""
-
-    value: str | None = None
-    failure: SecretResolutionErrorCode | None = None
-    aws_error_code: str | None = None
-
-
 def _client_config() -> AioConfig:
     return AioConfig(
         connect_timeout=_CONNECT_TIMEOUT_SECONDS,
@@ -145,7 +135,7 @@ def _classify_client_error(
     return table.get(code, SecretResolutionErrorCode.UNKNOWN), code
 
 
-async def _fetch_secret_string(store: StoreContext, secret_id: str) -> _FetchOutcome:
+async def _fetch_secret_string(store: StoreContext, secret_id: str) -> FetchOutcome:
     """Assume the store role and read the AWSCURRENT SecretString.
 
     Returns an outcome instead of raising so no exception that saw the SDK
@@ -155,9 +145,9 @@ async def _fetch_secret_string(store: StoreContext, secret_id: str) -> _FetchOut
     role_arn = config_model.role_arn
     # Stores without a role ARN can never be enabled; treat them as disabled.
     if not store.enabled or role_arn is None:
-        return _FetchOutcome(failure=SecretResolutionErrorCode.STORE_DISABLED)
+        return Failure(SecretResolutionErrorCode.STORE_DISABLED)
     if not reference_region_matches(secret_id, config_model.region):
-        return _FetchOutcome(failure=SecretResolutionErrorCode.REGION_MISMATCH)
+        return Failure(SecretResolutionErrorCode.REGION_MISMATCH)
 
     config = _client_config()
     session = aioboto3.Session(region_name=config_model.region)
@@ -172,12 +162,12 @@ async def _fetch_secret_string(store: StoreContext, secret_id: str) -> _FetchOut
         failure, aws_code = _classify_client_error(e, _STS_CODE_TO_ERROR)
         if failure == SecretResolutionErrorCode.UNKNOWN:
             failure = SecretResolutionErrorCode.ASSUME_ROLE_FAILED
-        return _FetchOutcome(failure=failure, aws_error_code=aws_code)
+        return Failure(failure, aws_code)
     except (NoCredentialsError, PartialCredentialsError, CredentialRetrievalError):
         # The executor has no usable workload identity to assume the role with.
-        return _FetchOutcome(failure=SecretResolutionErrorCode.ASSUME_ROLE_FAILED)
+        return Failure(SecretResolutionErrorCode.ASSUME_ROLE_FAILED)
     except (BotoCoreError, TimeoutError):
-        return _FetchOutcome(failure=SecretResolutionErrorCode.TIMEOUT)
+        return Failure(SecretResolutionErrorCode.TIMEOUT)
 
     credentials = assumed["Credentials"]
     try:
@@ -193,29 +183,20 @@ async def _fetch_secret_string(store: StoreContext, secret_id: str) -> _FetchOut
             )
     except ClientError as e:
         failure, aws_code = _classify_client_error(e, _SECRETS_CODE_TO_ERROR)
-        return _FetchOutcome(failure=failure, aws_error_code=aws_code)
+        return Failure(failure, aws_code)
     except (BotoCoreError, TimeoutError):
-        return _FetchOutcome(failure=SecretResolutionErrorCode.TIMEOUT)
+        return Failure(SecretResolutionErrorCode.TIMEOUT)
 
     secret_string = response.get("SecretString")
     if secret_string is None:
-        return _FetchOutcome(failure=SecretResolutionErrorCode.BINARY_VALUE)
-    return _FetchOutcome(value=secret_string)
+        return Failure(SecretResolutionErrorCode.BINARY_VALUE)
+    return secret_string
 
 
 def _aws_config(config: object) -> AwsSecretsManagerStoreConfig:
     if not isinstance(config, AwsSecretsManagerStoreConfig):
         raise TypeError("AWS Secrets Manager store requires an AWS config")
     return config
-
-
-def _as_outcome(outcome: _FetchOutcome) -> FetchOutcome:
-    if outcome.failure is not None or outcome.value is None:
-        return Failure(
-            outcome.failure or SecretResolutionErrorCode.UNKNOWN,
-            outcome.aws_error_code,
-        )
-    return outcome.value
 
 
 def collect_output_keys(references: Iterable[ExternalSecretReference]) -> list[str]:
@@ -236,6 +217,7 @@ class AwsSecretsManagerBackend:
 
     provider = SecretStoreProvider.AWS_SECRETS_MANAGER
     display_name = "AWS"
+    uses_access_token = False
 
     def new_config(
         self, params: AwsSecretsManagerStoreCreate
@@ -294,11 +276,8 @@ class AwsSecretsManagerBackend:
             code, alias=alias, environment=environment, aws_error_code=vendor_code
         )
 
-    def is_ready(
-        self, config: AwsSecretsManagerStoreConfig, *, has_access_token: bool
-    ) -> bool:
-        """A store can be enabled once its role ARN is set. AWS reads with the
-        workload identity, so a token does not matter."""
+    def is_ready(self, config: AwsSecretsManagerStoreConfig) -> bool:
+        """A store can be enabled once its role ARN is set."""
         return config.role_arn is not None
 
     async def check_config(self, config: AwsSecretsManagerStoreConfig) -> None:
@@ -335,7 +314,4 @@ class AwsSecretsManagerBackend:
         outcomes = await asyncio.gather(
             *(_fetch_secret_string(store, reference) for reference in references)
         )
-        return {
-            reference: _as_outcome(outcome)
-            for reference, outcome in zip(references, outcomes, strict=True)
-        }
+        return dict(zip(references, outcomes, strict=True))

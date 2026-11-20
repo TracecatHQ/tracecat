@@ -36,6 +36,8 @@ class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
     provider: SecretStoreProvider
     display_name: str
     """Short vendor name used in sanitized error messages, e.g. ``"AWS"``."""
+    uses_access_token: bool
+    """Whether the store reads with its own access token and needs one to enable."""
 
     def new_config(self, params: CreateT) -> ConfigT:
         """Build a persisted config, generating server-owned fields."""
@@ -71,8 +73,8 @@ class SecretStoreBackend[ConfigT, CreateT, UpdateT](Protocol):
         """
         ...
 
-    def is_ready(self, config: ConfigT, *, has_access_token: bool) -> bool:
-        """Whether the store can be enabled with this config and token state."""
+    def is_ready(self, config: ConfigT) -> bool:
+        """Whether the config is complete enough to enable the store."""
         ...
 
     async def check_config(self, config: ConfigT) -> None:
@@ -118,3 +120,12 @@ def get_backend(provider: SecretStoreProvider | str) -> AnyBackend:
 def parse_store_config(store: OrganizationSecretStore) -> SecretStoreConfig:
     """Validate a stored config blob into the store's provider's config model."""
     return parse_secret_store_config(store.config, provider=store.provider)
+
+
+def store_is_ready(
+    backend: AnyBackend, config: SecretStoreConfig, *, has_access_token: bool
+) -> bool:
+    """Whether a store with this config and token state can be enabled."""
+    return backend.is_ready(config) and (
+        has_access_token or not backend.uses_access_token
+    )

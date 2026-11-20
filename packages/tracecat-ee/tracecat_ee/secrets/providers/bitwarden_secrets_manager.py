@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+from collections import defaultdict
 from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any
@@ -44,8 +45,11 @@ from tracecat_ee.secrets.errors import SecretResolutionError
 FETCH_TIMEOUT_SECONDS = 20.0
 """One deadline for waiting for a slot, starting the child, and its work."""
 
-MAX_CONCURRENT_FETCHES = 4
+MAX_CONCURRENT_FETCHES = 16
 """Children one process runs at once, across all Bitwarden servers."""
+
+MAX_CONCURRENT_FETCHES_PER_SERVER = 4
+"""Children one process runs at once against one Bitwarden server."""
 
 BITWARDEN_CLOUD_SERVERS: dict[str, tuple[str, str]] = {
     "us": ("https://api.bitwarden.com", "https://identity.bitwarden.com"),
@@ -82,9 +86,12 @@ _CHILD_CODES = frozenset(
     }
 )
 
-# Every fetch runs on its process's main event loop, so one asyncio
-# semaphore caps the children the process runs.
+# Every fetch runs on its process's main event loop, so asyncio semaphores
+# hold. The per-server cap keeps one hung server from taking every slot.
 _SLOTS = asyncio.Semaphore(MAX_CONCURRENT_FETCHES)
+_SERVER_SLOTS: defaultdict[str, asyncio.Semaphore] = defaultdict(
+    lambda: asyncio.Semaphore(MAX_CONCURRENT_FETCHES_PER_SERVER)
+)
 
 
 def bitwarden_endpoints(server: str) -> tuple[str, str]:
@@ -214,7 +221,7 @@ async def fetch_with_child(
                     references,
                     Failure(SecretResolutionErrorCode.UNAVAILABLE, "server_not_public"),
                 )
-            async with _SLOTS:
+            async with _SERVER_SLOTS[api_url], _SLOTS:
                 stdout, returncode = await _run_child(
                     orjson.dumps(
                         {
@@ -256,6 +263,7 @@ class BitwardenSecretsManagerBackend:
 
     provider = SecretStoreProvider.BITWARDEN_SECRETS_MANAGER
     display_name = "Bitwarden"
+    uses_access_token = True
 
     def new_config(
         self, params: BitwardenSecretsManagerStoreCreate
@@ -313,11 +321,9 @@ class BitwardenSecretsManagerBackend:
             vendor_code=vendor_code,
         )
 
-    def is_ready(
-        self, config: BitwardenSecretsManagerStoreConfig, *, has_access_token: bool
-    ) -> bool:
-        """The config is complete once created; the store needs its token."""
-        return has_access_token
+    def is_ready(self, config: BitwardenSecretsManagerStoreConfig) -> bool:
+        """The config is complete once created."""
+        return True
 
     async def check_config(self, config: BitwardenSecretsManagerStoreConfig) -> None:
         """Refuse a self-hosted server that resolves to a non-public address.
