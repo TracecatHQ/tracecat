@@ -9,6 +9,7 @@ jest.mock("shiki", () => ({
     getLoadedLanguages: () => ["javascript"],
     codeToTokens: codeToTokensMock,
   })),
+  createJavaScriptRegexEngine: jest.fn(() => ({ name: "javascript" })),
 }))
 
 import { highlightCode } from "@/components/ai-elements/code-block"
@@ -35,6 +36,15 @@ describe("highlightCode", () => {
     expect(codeToTokensMock).toHaveBeenCalledTimes(1)
     expect(cb1).toHaveBeenCalledTimes(1)
     expect(cb2).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses the JavaScript regex engine instead of WebAssembly", () => {
+    const shiki = jest.requireMock("shiki")
+    highlightCode("const b = 2", "typescript")
+
+    expect(shiki.createHighlighter).toHaveBeenCalledWith(
+      expect.objectContaining({ engine: { name: "javascript" } })
+    )
   })
 
   it("evicts old entries once cache exceeds max size", async () => {
