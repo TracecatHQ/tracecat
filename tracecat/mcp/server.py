@@ -4072,15 +4072,15 @@ async def get_concurrency_limits(
     Read-only. Limits are set by the Tracecat platform, not by the
     organization. Requires the `org:read` scope.
 
-    Args:
-        org_id: Organization ID. Required when the connection covers more than
-            one organization; use the org_id values returned by
-            list_workspaces. May be omitted for single-org connections.
-
     Returns JSON with a `concurrency` array. Each entry has `name` (the limit,
     such as `max_concurrent_actions`), `limit` (null means unlimited), `in_use`
     (null means usage is unknown, not zero) and `observed_at` (when usage was
     read).
+
+    Args:
+        org_id: Organization ID. Required when the connection covers more than
+            one organization; use the org_id values returned by
+            list_workspaces. May be omitted for single-org connections.
     """
     try:
         role = await _resolve_org_role(org_id)

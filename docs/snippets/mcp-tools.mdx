@@ -10,6 +10,8 @@
   Read the organization's concurrency limits and observed usage.
 
   Read-only. Limits are set by the Tracecat platform, not by the organization. Requires the `org:read` scope.
+
+  Returns JSON with a `concurrency` array. Each entry has `name` (the limit, such as `max_concurrent_actions`), `limit` (null means unlimited), `in_use` (null means usage is unknown, not zero) and `observed_at` (when usage was read).
 </ResponseField>
 
 <ResponseField name="update_workspace_attachment_types" type="tool">
