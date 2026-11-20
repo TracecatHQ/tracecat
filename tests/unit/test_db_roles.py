@@ -2567,7 +2567,10 @@ def test_cli_refuses_login_role_names_that_collide(
     assert "more than one Tracecat role is named tracecat-app" in (
         capsys.readouterr().err
     )
-    assert roles_module.migrate(RoleNames(migrator="tracecat_owner")) == 1
+    monkeypatch.setattr(
+        roles_module, "DEFAULT_ROLES", RoleNames(migrator="tracecat_owner")
+    )
+    assert main(["migrate"]) == 1
     assert "named tracecat_owner" in capsys.readouterr().err
 
 

@@ -1110,12 +1110,6 @@ def migrate(roles: RoleNames = DEFAULT_ROLES) -> int:
     Returns:
         0 on success, 1 when role setup stops the migrations.
     """
-    if duplicates := duplicate_role_names(roles):
-        print(
-            f"error: {_duplicate_names_message(duplicates)}",
-            file=sys.stderr,
-        )
-        return 1
     cfg = AlembicConfig(ALEMBIC_INI)
     cfg.attributes[MIGRATE_ROLES_ATTRIBUTE] = roles
     try:
@@ -2135,7 +2129,7 @@ async def assert_login_can_enforce_rls(conn: AsyncConnection) -> None:
             "TRACECAT__RLS_MODE=enforce needs a login without SUPERUSER, BYPASSRLS, "
             "CREATEROLE or REPLICATION that owns no public table: "
             + "; ".join(problems)
-            + f". Log in as the {DEFAULT_ROLES.app!r} role (python -m tracecat.db.roles bootstrap)."
+            + ". Log in as the app's login role (python -m tracecat.db.roles bootstrap)."
         )
 
 
