@@ -67,7 +67,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.startup import executor_lifecycle
     from tracecat.logger import logger
     from tracecat.observability.otel import (
+        initialize_platform_metrics,
         initialize_platform_tracing,
+        shutdown_platform_metrics,
         shutdown_platform_tracing,
     )
     from tracecat.observability.sentry import (
@@ -143,6 +145,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
         )
         initialize_platform_tracing("tracecat-executor")
+        initialize_platform_metrics()
         initialize_executor_sentry_from_environment()
         action_gateway = ActionGateway()
 
@@ -227,6 +230,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             await shutdown_executor_backend()
             await close_storage_client_cache()
             await action_gateway.stop()
+            shutdown_platform_metrics()
             shutdown_platform_tracing()
 
 

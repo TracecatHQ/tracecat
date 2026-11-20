@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from botocore.exceptions import HTTPClientError
 from opentelemetry.propagate import get_global_textmap, set_global_textmap
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
@@ -59,6 +61,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.executor import activities as executor_activities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactExtractionError,
@@ -376,6 +379,54 @@ class TestExecuteActionActivity:
             )
 
         assert exc_info.value is cancellation
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("side_effect", "expected"),
+        [
+            pytest.param(None, {"succeeded": 1}, id="succeeded"),
+            pytest.param(ValueError("boom"), {"failed": 1}, id="failed"),
+            pytest.param(
+                TemporalCancelledError("activity cancelled"), {}, id="cancelled"
+            ),
+        ],
+    )
+    async def test_action_outcome_is_counted(
+        self,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        activity_mocks: SimpleNamespace,
+        monkeypatch: pytest.MonkeyPatch,
+        side_effect: BaseException | None,
+        expected: dict[str, int],
+    ) -> None:
+        reader = InMemoryMetricReader()
+        meter = MeterProvider(metric_readers=[reader]).get_meter("test")
+        monkeypatch.setattr(
+            executor_activities, "_ACTIONS", meter.create_counter("executor.actions")
+        )
+        activity_mocks.dispatch.return_value = {"status": "success"}
+        activity_mocks.dispatch.side_effect = side_effect
+
+        try:
+            await ExecutorActivities.execute_action_activity(
+                mock_run_action_input, mock_role
+            )
+        except BaseException as e:
+            assert side_effect is not None
+            assert isinstance(e, ApplicationError | TemporalCancelledError)
+
+        data = reader.get_metrics_data()
+        points = [
+            point
+            for resource in (data.resource_metrics if data else [])
+            for scope in resource.scope_metrics
+            for metric in scope.metrics
+            for point in metric.data.data_points
+            if isinstance(point, NumberDataPoint)
+        ]
+        outcomes = {str((p.attributes or {}).get("outcome")): p.value for p in points}
+        assert outcomes == expected
 
     @pytest.mark.anyio
     async def test_executor_backend_initialization_failure_is_classified(

@@ -19,6 +19,8 @@ def worker_module(
     monkeypatch.setattr("tracecat.executor.startup.validate_execution_backend", Mock())
     monkeypatch.setattr(module, "initialize_platform_tracing", Mock())
     monkeypatch.setattr(module, "shutdown_platform_tracing", Mock())
+    monkeypatch.setattr(module, "initialize_platform_metrics", Mock())
+    monkeypatch.setattr(module, "shutdown_platform_metrics", Mock())
     monkeypatch.setattr(module, "close_storage_client_cache", AsyncMock())
     if module is worker:
         monkeypatch.setattr(
@@ -79,6 +81,8 @@ async def test_readiness_ends_before_worker_drain(
         await worker_module.main(shutdown_event=shutdown)
     assert drained
     assert not ready.exists()
+    worker_module.initialize_platform_metrics.assert_called_once_with()
+    worker_module.shutdown_platform_metrics.assert_called_once_with()
 
 
 @pytest.mark.anyio
