@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.init_activities import (
+        resolve_run_limits_activity,
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
@@ -109,6 +110,7 @@ def get_activities() -> list[Callable]:
         *WorkflowSchedulesService.get_activities(),
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
+        resolve_run_limits_activity,
         *WorkflowsManagementService.get_activities(),
         *TierActivities.get_activities(),
     ]

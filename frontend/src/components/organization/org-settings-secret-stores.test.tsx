@@ -144,6 +144,7 @@ describe("CreateSecretStoreDialog", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("Connect the AWS role")
     expect(mockCreateStore).toHaveBeenCalledWith({
       name: "prod",
+      provider: "aws_secrets_manager",
       config: { provider: "aws_secrets_manager", region: "us-east-1" },
       enabled: false,
       all_workspaces: false,
@@ -165,7 +166,10 @@ describe("CreateSecretStoreDialog", () => {
     await waitFor(() =>
       expect(mockUpdateStore).toHaveBeenCalledWith({
         storeId: "store-1",
-        params: { config: { role_arn: ROLE_ARN }, enabled: true },
+        params: {
+          config: { provider: "aws_secrets_manager", role_arn: ROLE_ARN },
+          enabled: true,
+        },
       })
     )
   })

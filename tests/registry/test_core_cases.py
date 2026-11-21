@@ -763,7 +763,7 @@ class TestCoreSearchCases:
         assert await search_cases(view_id="assigned_to_me", filters=filters) == []
 
         mock_cases_client.search_cases.assert_called_once_with(
-            limit=100, view_id="assigned_to_me", filters=filters
+            include_count=False, limit=100, view_id="assigned_to_me", filters=filters
         )
 
     async def test_search_cases_forwards_short_id(self, mock_cases_client: AsyncMock):
@@ -771,7 +771,7 @@ class TestCoreSearchCases:
         mock_cases_client.search_cases.return_value = {"items": []}
         assert await search_cases(short_id="CASE-0001") == []
         mock_cases_client.search_cases.assert_called_once_with(
-            limit=100, short_id="CASE-0001"
+            include_count=False, limit=100, short_id="CASE-0001"
         )
 
     async def test_search_cases_no_params(
@@ -782,7 +782,9 @@ class TestCoreSearchCases:
 
         result = await search_cases()
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=100)
+        mock_cases_client.search_cases.assert_called_once_with(
+            include_count=False, limit=100
+        )
         assert result == [mock_case_dict]
 
     async def test_search_cases_with_limit(
@@ -793,7 +795,9 @@ class TestCoreSearchCases:
 
         result = await search_cases(limit=5)
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=5)
+        mock_cases_client.search_cases.assert_called_once_with(
+            include_count=False, limit=5
+        )
         assert result == [mock_case_dict]
 
     async def test_search_cases_with_paginate_true(
@@ -834,6 +838,7 @@ class TestCoreSearchCases:
         result = await search_cases(order_by="created_at", sort="desc")
 
         mock_cases_client.search_cases.assert_called_once_with(
+            include_count=False,
             order_by="created_at",
             sort="desc",
             limit=100,
@@ -855,6 +860,7 @@ class TestCoreSearchCases:
         )
 
         mock_cases_client.search_cases.assert_called_once_with(
+            include_count=False,
             limit=25,
             order_by="updated_at",
             sort="asc",
@@ -886,6 +892,7 @@ class TestCoreSearchCases:
         )
 
         mock_cases_client.search_cases.assert_called_once_with(
+            include_count=False,
             search_term="investigate",
             status=["in_progress"],
             priority=["high"],
@@ -909,7 +916,9 @@ class TestCoreSearchCases:
 
         result = await search_cases()
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=100)
+        mock_cases_client.search_cases.assert_called_once_with(
+            include_count=False, limit=100
+        )
         assert result == []
 
     async def test_search_cases_limit_validation(self, mock_cases_client: AsyncMock):

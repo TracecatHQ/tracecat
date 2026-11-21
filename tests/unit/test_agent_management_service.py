@@ -1,6 +1,7 @@
 """Tests for AgentManagementService credential and runtime behavior."""
 
 import uuid
+from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -10,6 +11,7 @@ import sqlalchemy as sa
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets import resolver
 from tracecat_registry._internal import secrets as registry_secrets
 
 import tracecat.agent.service as agent_service
@@ -46,7 +48,7 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
 from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.types import ExternalSecretReference
+from tracecat.secrets.types import StoreContext
 
 
 @pytest.fixture
@@ -106,16 +108,18 @@ async def test_workspace_provider_credentials_resolve_source_and_preserve_fallba
     class _StubBackend:
         """Local-source secrets must never reach a store backend."""
 
-        async def resolve(
-            self, references: list[ExternalSecretReference]
-        ) -> dict[str, dict[str, str]]:
-            assert source == "aws"
-            assert len(references) == 1
-            assert secret.store is not None
-            assert references[0].store_id == secret.store.id
-            return {"openai": {"OPENAI_API_KEY": "remote-key"}}
+        display_name = "AWS"
 
-    monkeypatch.setattr(agent_service, "get_backend", lambda provider: _StubBackend())
+        async def fetch(
+            self, store: StoreContext, references: Sequence[str]
+        ) -> dict[str, str]:
+            assert source == "aws"
+            assert secret.store is not None
+            assert store.store_id == secret.store.id
+            assert list(references) == ["test-provider-key"]
+            return {"test-provider-key": "remote-key"}
+
+    monkeypatch.setattr(resolver, "get_backend", lambda provider: _StubBackend())
     assert service.presets is not None
     monkeypatch.setattr(
         service.presets,

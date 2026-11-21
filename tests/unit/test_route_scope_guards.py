@@ -570,6 +570,7 @@ async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) 
     ("endpoint", "required_scope"),
     [
         (organization_router.get_organization_entitlements, "org:read"),
+        (organization_router.get_organization_limits, "org:read"),
     ],
 )
 async def test_organization_scope_guards(

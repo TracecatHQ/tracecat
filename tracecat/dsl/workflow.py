@@ -42,6 +42,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_registry.integrations.agents.slack import SlackbotContext
 
     from tracecat import config, identifiers
+    from tracecat.admission.types import ADMISSION_ACK_SIGNAL, ConcurrencyResource
+    from tracecat.admission.waiting import RunAdmission
     from tracecat.agent.aliases import build_agent_alias
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
@@ -98,6 +100,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.init_activities import (
         ResolveTimeAnchorActivityInputs,
+        resolve_run_limits_activity,
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
@@ -160,22 +163,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.temporal.exceptions import UserError
     from tracecat.temporal.patches import WorkflowPatch
     from tracecat.tiers.activities import (
-        AcquireActionPermitInput,
-        AcquireWorkflowPermitInput,
         GetTierLimitsInput,
-        HeartbeatActionPermitInput,
-        HeartbeatWorkflowPermitInput,
-        ReleaseActionPermitInput,
-        ReleaseWorkflowPermitInput,
-        acquire_action_permit_activity,
-        acquire_workflow_permit_activity,
         get_tier_limits_activity,
-        heartbeat_action_permit_activity,
-        heartbeat_workflow_permit_activity,
-        release_action_permit_activity,
-        release_workflow_permit_activity,
     )
-    from tracecat.tiers.schemas import EffectiveLimits
     from tracecat.validation.schemas import ValidationDetailListTA
     from tracecat.workflow.executions.enums import (
         ExecutionType,
@@ -280,11 +270,10 @@ class DSLWorkflow:
     dependency_plan: DSLDependencyPlan | None = None
 
     # Tier limit tracking
-    _tier_limits: EffectiveLimits | None = None
-    workflow_concurrency_limits_enabled: bool
-    _workflow_permit_acquired: bool = False
-    _workflow_permit_heartbeat_task: asyncio.Task[None] | None = None
+    _max_actions_per_run: int | None = None
     _action_execution_count: int = 0
+    _action_admission: RunAdmission
+    _admission_acks_enabled: bool = False
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
@@ -316,6 +305,9 @@ class DSLWorkflow:
             wf_run_id=self.wf_run_id,
             role=self.role,
             service="dsl-workflow-runner",
+        )
+        self._action_admission = RunAdmission(
+            resource=ConcurrencyResource.ACTIONS, logger=self.logger
         )
         # Set runtime args
         ctx_role.set(self.role)
@@ -424,36 +416,7 @@ class DSLWorkflow:
             dispatch_type=self.dispatch_type,
         )
 
-        # Snapshot flag value in workflow history for deterministic replay behavior.
-        self.workflow_concurrency_limits_enabled = (
-            await workflow.execute_local_activity(
-                resolve_workflow_concurrency_limits_enabled_activity,
-                start_to_close_timeout=timedelta(seconds=5),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-        )
-
-        # Fetch tier limits for this organization
-        if self.workflow_concurrency_limits_enabled:
-            self._tier_limits = await workflow.execute_activity(
-                get_tier_limits_activity,
-                arg=GetTierLimitsInput(org_id=self.organization_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-            self.logger.debug(
-                "Fetched tier limits",
-                limits=self._tier_limits.model_dump() if self._tier_limits else None,
-            )
-
-            # Acquire workflow permit if limit is set
-            if (
-                self._tier_limits is not None
-                and self._tier_limits.max_concurrent_workflows is not None
-            ):
-                await self._acquire_workflow_permit(
-                    self._tier_limits.max_concurrent_workflows
-                )
+        await self._resolve_run_limits()
 
         # Note that we can't run the error handler above this
         # Run the workflow with error handling
@@ -481,18 +444,43 @@ class DSLWorkflow:
                     error=e,
                 )
             raise e
-        finally:
-            await self._run_cancellation_safe_cleanup(
-                self._stop_workflow_permit_heartbeat,
-                operation="stop_workflow_permit_heartbeat",
+
+    @workflow.signal(name=ADMISSION_ACK_SIGNAL)
+    def _on_admission_ack(self, activity_id: str) -> None:
+        """An executor admitted one of this run's probes."""
+        if self._admission_acks_enabled:
+            self._action_admission.acknowledge(activity_id)
+
+    async def _resolve_run_limits(self) -> None:
+        """Freeze this run's action budget into history at the start of the run."""
+        if workflow.patched(WorkflowPatch.ADMISSION_RUN_LIMITS):
+            snapshot = await workflow.execute_local_activity(
+                resolve_run_limits_activity,
+                arg=self.organization_id,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            # Release workflow permit if acquired
-            if self._workflow_permit_acquired:
-                self.logger.warning("Releasing workflow permit")
-                await self._run_cancellation_safe_cleanup(
-                    self._release_workflow_permit,
-                    operation="release_workflow_permit",
-                )
+            self._max_actions_per_run = snapshot.max_action_executions_per_workflow
+            # Admission signals exist only in histories that recorded this patch.
+            self._admission_acks_enabled = True
+            self._action_admission.acks_enabled = True
+            return
+
+        # Pre-patch histories: flag snapshot, then a tier-limits activity when on.
+        # Their permit activities are gone; the flag was never on in Cloud.
+        limits_enabled = await workflow.execute_local_activity(
+            resolve_workflow_concurrency_limits_enabled_activity,
+            start_to_close_timeout=timedelta(seconds=5),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        if limits_enabled:
+            tier_limits = await workflow.execute_activity(
+                get_tier_limits_activity,
+                arg=GetTierLimitsInput(org_id=self.organization_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._max_actions_per_run = tier_limits.max_action_executions_per_workflow
 
     async def _run_workflow(self, args: DSLRunArgs) -> StoredObject:
         """Actual workflow execution logic."""
@@ -932,29 +920,9 @@ class DSLWorkflow:
             "Begin task execution", task_ref=task.ref, stream_id=stream_id
         )
         task_result = TaskResult.from_result(None)
-        action_permit_id: str | None = None
-        action_permit_heartbeat_task: asyncio.Task[None] | None = None
 
         try:
-            # Handle timing control flow logic before consuming action permits.
             await self._handle_timers(task)
-
-            max_concurrent_actions = (
-                self._tier_limits.max_concurrent_actions
-                if self._tier_limits is not None
-                else None
-            )
-            if max_concurrent_actions is not None and self._is_executable_action(task):
-                action_permit_id = self._action_permit_id(
-                    task=task, stream_id=stream_id
-                )
-                await self._acquire_action_permit(
-                    action_id=action_permit_id,
-                    limit=max_concurrent_actions,
-                )
-                action_permit_heartbeat_task = asyncio.create_task(
-                    self._action_permit_heartbeat_loop(action_id=action_permit_id)
-                )
 
             # Do action stuff
             match task.action:
@@ -1297,18 +1265,6 @@ class DSLWorkflow:
             task_result = task_result.with_error(msg, err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            if action_permit_heartbeat_task is not None:
-                await self._run_cancellation_safe_cleanup(
-                    lambda: self._stop_action_permit_heartbeat(
-                        action_permit_heartbeat_task
-                    ),
-                    operation="stop_action_permit_heartbeat",
-                )
-            if action_permit_id is not None:
-                await self._run_cancellation_safe_cleanup(
-                    lambda: self._release_action_permit(action_id=action_permit_id),
-                    operation="release_action_permit",
-                )
             self.logger.trace("Setting action result", task_result=task_result)
             context = self.get_context(stream_id)
             context["ACTIONS"][task.ref] = task_result
@@ -2049,26 +2005,38 @@ class DSLWorkflow:
     async def _execute_action_activity_once(
         self, task: ActionStatement, arg: RunActionInput
     ) -> Any:
-        # Dispatch to ExecutorWorker on shared-action-queue
-        # Using string activity name since it's registered on a different worker
-        return await workflow.execute_activity(
-            "execute_action_activity",
-            args=(arg, self.role),
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            # The executor enforces the action timeout around the function call.
-            # This ceiling also allows for platform work in the activity.
-            start_to_close_timeout=timedelta(
-                seconds=task.retry_policy.timeout
-                + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
-            ),
-            heartbeat_timeout=timedelta(
-                seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+        """Dispatch to the executor, waiting durably while the org is at its limit."""
+
+        async def dispatch(max_attempts: int, probe_id: str | None) -> Any:
+            # A probe asks the executor to signal its admission (see RunAdmission).
+            run_input = (
+                arg
+                if probe_id is None
+                else arg.model_copy(update={"ack_admission": True})
             )
-            if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
-            else None,
-            retry_policy=RetryPolicy(
-                maximum_attempts=task.retry_policy.max_attempts,
-            ),
+            # Dispatch to ExecutorWorker on shared-action-queue
+            # Using string activity name since it's registered on a different worker
+            return await workflow.execute_activity(
+                "execute_action_activity",
+                args=(run_input, self.role),
+                activity_id=probe_id,
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+                # The executor enforces the action timeout around the function call.
+                # This ceiling also allows for platform work in the activity.
+                start_to_close_timeout=timedelta(
+                    seconds=task.retry_policy.timeout
+                    + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
+                ),
+                heartbeat_timeout=timedelta(
+                    seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+                )
+                if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+                else None,
+                retry_policy=RetryPolicy(maximum_attempts=max_attempts),
+            )
+
+        return await self._action_admission.execute(
+            dispatch, max_attempts=task.retry_policy.max_attempts
         )
 
     async def _run_child_workflow(
@@ -2351,24 +2319,6 @@ class DSLWorkflow:
         dispatch_window = config.TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW
         return logical_batch_size, dispatch_window
 
-    def _action_permit_id(self, *, task: ActionStatement, stream_id: StreamID) -> str:
-        return f"{workflow.info().workflow_id}:{stream_id}:{task.ref}"
-
-    def _next_permit_backoff_seconds(self, *, attempt: int) -> float:
-        """Compute deterministic exponential backoff with jitter."""
-        base = max(config.TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS, 0.1)
-        max_backoff = max(config.TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS, base)
-        exponential = min(base * (2**attempt), max_backoff)
-        jitter = workflow.random().uniform(0.8, 1.2)
-        return exponential * jitter
-
-    def _next_permit_heartbeat_sleep_seconds(
-        self, *, heartbeat_interval: float
-    ) -> float:
-        """Compute deterministic heartbeat sleep interval with jitter."""
-        jitter = workflow.random().uniform(0.9, 1.1)
-        return max(heartbeat_interval * jitter, 0.1)
-
     async def _finalize_slackbot(
         self, context: SlackbotContext, *, succeeded: bool
     ) -> None:
@@ -2418,267 +2368,12 @@ class DSLWorkflow:
             )
             await asyncio.shield(cleanup_task)
 
-    async def _workflow_permit_heartbeat_loop(self) -> None:
-        heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
-        if heartbeat_interval <= 0:
-            self.logger.info("Workflow permit heartbeat disabled")
-            return
-
-        wf_id = workflow.info().workflow_id
-        org_id = self.organization_id
-        while self._workflow_permit_acquired:
-            await asyncio.sleep(
-                self._next_permit_heartbeat_sleep_seconds(
-                    heartbeat_interval=heartbeat_interval
-                )
-            )
-            if not self._workflow_permit_acquired:
-                return
-            try:
-                refreshed = await workflow.execute_activity(
-                    heartbeat_workflow_permit_activity,
-                    arg=HeartbeatWorkflowPermitInput(
-                        org_id=org_id,
-                        workflow_id=wf_id,
-                    ),
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-                if not refreshed:
-                    self.logger.warning(
-                        "Workflow permit heartbeat did not find active permit",
-                        workflow_id=wf_id,
-                        org_id=org_id,
-                    )
-            except Exception as e:
-                self.logger.warning("Workflow permit heartbeat failed", error=e)
-
-    async def _action_permit_heartbeat_loop(self, *, action_id: str) -> None:
-        heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
-        if heartbeat_interval <= 0:
-            return
-        org_id = self.organization_id
-        while True:
-            await asyncio.sleep(
-                self._next_permit_heartbeat_sleep_seconds(
-                    heartbeat_interval=heartbeat_interval
-                )
-            )
-            try:
-                refreshed = await workflow.execute_activity(
-                    heartbeat_action_permit_activity,
-                    arg=HeartbeatActionPermitInput(
-                        org_id=org_id,
-                        action_id=action_id,
-                    ),
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-                if not refreshed:
-                    self.logger.warning(
-                        "Action permit heartbeat did not find active permit",
-                        action_id=action_id,
-                        org_id=org_id,
-                    )
-            except Exception as e:
-                self.logger.warning(
-                    "Action permit heartbeat failed",
-                    error=e,
-                    action_id=action_id,
-                )
-
-    def _start_workflow_permit_heartbeat(self) -> None:
-        task = self._workflow_permit_heartbeat_task
-        if task is not None and not task.done():
-            return
-        self._workflow_permit_heartbeat_task = asyncio.create_task(
-            self._workflow_permit_heartbeat_loop()
-        )
-
-    async def _stop_action_permit_heartbeat(self, task: asyncio.Task[None]) -> None:
-        if not task.done():
-            task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-
-    async def _stop_workflow_permit_heartbeat(self) -> None:
-        task = self._workflow_permit_heartbeat_task
-        if task is None:
-            return
-        if not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-        self._workflow_permit_heartbeat_task = None
-
-    async def _acquire_workflow_permit(self, limit: int) -> None:
-        """Acquire a workflow execution permit or wait with exponential backoff.
-
-        Retries until a permit is acquired or max wait time is exceeded.
-        """
-        wf_id = workflow.info().workflow_id
-        org_id = self.organization_id
-        attempt = 0
-        started_at = workflow.now()
-
-        while True:
-            result = await workflow.execute_activity(
-                acquire_workflow_permit_activity,
-                arg=AcquireWorkflowPermitInput(
-                    org_id=org_id,
-                    workflow_id=wf_id,
-                    limit=limit,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-            if result.acquired:
-                self._workflow_permit_acquired = True
-                self._start_workflow_permit_heartbeat()
-                self.logger.info(
-                    "Workflow permit acquired",
-                    current_count=result.current_count,
-                    limit=limit,
-                )
-                return
-
-            elapsed_seconds = (workflow.now() - started_at).total_seconds()
-            max_wait_seconds = config.TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS
-            if elapsed_seconds >= max_wait_seconds:
-                classification = RuntimeErrorClassification.user(
-                    kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
-                    message="The workflow concurrency limit is currently exhausted",
-                    retry_disposition=RetryDisposition.NON_RETRYABLE,
-                )
-                raise_application_error_from_classification(classification)
-
-            sleep_duration = min(
-                self._next_permit_backoff_seconds(attempt=attempt),
-                max_wait_seconds - elapsed_seconds,
-            )
-
-            self.logger.info(
-                "Waiting for workflow permit",
-                current_count=result.current_count,
-                limit=limit,
-                attempt=attempt,
-                elapsed_seconds=elapsed_seconds,
-                sleep_seconds=sleep_duration,
-            )
-
-            # Use asyncio.sleep which becomes a durable timer in Temporal
-            await asyncio.sleep(sleep_duration)
-            attempt += 1
-
-    async def _acquire_action_permit(self, *, action_id: str, limit: int) -> None:
-        """Acquire an action execution permit or wait with exponential backoff."""
-        org_id = self.organization_id
-        attempt = 0
-        started_at = workflow.now()
-
-        while True:
-            result = await workflow.execute_activity(
-                acquire_action_permit_activity,
-                arg=AcquireActionPermitInput(
-                    org_id=org_id,
-                    action_id=action_id,
-                    limit=limit,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-            if result.acquired:
-                self.logger.info(
-                    "Action permit acquired",
-                    action_id=action_id,
-                    current_count=result.current_count,
-                    limit=limit,
-                )
-                return
-
-            elapsed_seconds = (workflow.now() - started_at).total_seconds()
-            max_wait_seconds = config.TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS
-            if elapsed_seconds >= max_wait_seconds:
-                classification = RuntimeErrorClassification.user(
-                    kind=RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED,
-                    message="The action concurrency limit is currently exhausted",
-                    retry_disposition=RetryDisposition.NON_RETRYABLE,
-                )
-                raise_application_error_from_classification(classification)
-
-            sleep_duration = min(
-                self._next_permit_backoff_seconds(attempt=attempt),
-                max_wait_seconds - elapsed_seconds,
-            )
-            self.logger.info(
-                "Waiting for action permit",
-                action_id=action_id,
-                current_count=result.current_count,
-                limit=limit,
-                attempt=attempt,
-                elapsed_seconds=elapsed_seconds,
-                sleep_seconds=sleep_duration,
-            )
-            await asyncio.sleep(sleep_duration)
-            attempt += 1
-
-    async def _release_workflow_permit(self) -> None:
-        """Release the workflow execution permit."""
-        if not self._workflow_permit_acquired:
-            return
-
-        wf_id = workflow.info().workflow_id
-        org_id = self.organization_id
-
-        try:
-            await workflow.execute_activity(
-                release_workflow_permit_activity,
-                arg=ReleaseWorkflowPermitInput(
-                    org_id=org_id,
-                    workflow_id=wf_id,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-            self._workflow_permit_acquired = False
-            self.logger.info("Workflow permit released")
-        except Exception as e:
-            # Log but don't fail - permit will expire via TTL
-            self.logger.error(
-                "Failed to release workflow permit",
-                error=e,
-            )
-
-    async def _release_action_permit(self, *, action_id: str) -> None:
-        """Release an action execution permit."""
-        org_id = self.organization_id
-        try:
-            await workflow.execute_activity(
-                release_action_permit_activity,
-                arg=ReleaseActionPermitInput(
-                    org_id=org_id,
-                    action_id=action_id,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-            self.logger.info("Action permit released", action_id=action_id)
-        except Exception as e:
-            self.logger.error(
-                "Failed to release action permit",
-                error=e,
-                action_id=action_id,
-            )
-
     def _check_action_execution_limit(self) -> None:
         """Check if action execution limit has been exceeded.
 
         Raises ApplicationError if the limit is exceeded.
         """
-        if self._tier_limits is None:
-            return
-
-        max_actions = self._tier_limits.max_action_executions_per_workflow
+        max_actions = self._max_actions_per_run
         if max_actions is None:
             return
 

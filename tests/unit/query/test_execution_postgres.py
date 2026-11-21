@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.query.aggregations import AggregationSpec
 from tracecat.query.compiler import compile_aggregation
 from tracecat.query.errors import TracecatQueryTimeoutError
-from tracecat.query.execution import query_execution_context
+from tracecat.query.execution import query_execution_context, transaction_settings
 
 
 @pytest.mark.anyio
@@ -44,6 +44,22 @@ async def test_nested_query_timeouts_restore_previous_settings(
             assert await session.scalar(text("SHOW statement_timeout")) == "2s"
         assert await session.scalar(text("SHOW statement_timeout")) == "1s"
     assert await session.scalar(text("SHOW statement_timeout")) == previous_timeout
+
+
+@pytest.mark.anyio
+async def test_transaction_settings_apply_inside_and_restore_after(
+    session: AsyncSession,
+) -> None:
+    await session.execute(text("SELECT set_config('enable_seqscan', 'on', true)"))
+    settings = {"enable_seqscan": "off", "jit": "off", "work_mem": "8MB"}
+    before = {name: await session.scalar(text(f"SHOW {name}")) for name in settings}
+    async with transaction_settings(session, settings):
+        for name, value in settings.items():
+            assert await session.scalar(text(f"SHOW {name}")) == value
+        async with transaction_settings(session, {}):
+            assert await session.scalar(text("SHOW work_mem")) == "8MB"
+    for name, value in before.items():
+        assert await session.scalar(text(f"SHOW {name}")) == value
 
 
 @pytest.mark.anyio

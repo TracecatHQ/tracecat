@@ -715,6 +715,7 @@ import type {
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
   OrganizationGetOrganizationEntitlementsResponse,
+  OrganizationGetOrganizationLimitsResponse,
   OrganizationGetOrganizationResponse,
   OrganizationListCurrentUserOrganizationMembershipsResponse,
   OrganizationListOrganizationDomainsResponse,
@@ -909,9 +910,13 @@ import type {
   SearchGetEmbeddingConfigurationResponse,
   SecretsCheckAwsSecretReferenceData,
   SecretsCheckAwsSecretReferenceResponse,
+  SecretsCheckSecretReferenceData,
+  SecretsCheckSecretReferenceResponse,
   SecretsCreateAwsSecretReferenceData,
   SecretsCreateAwsSecretReferenceResponse,
   SecretsCreateSecretData,
+  SecretsCreateSecretReferenceData,
+  SecretsCreateSecretReferenceResponse,
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
   SecretsDeleteSecretByIdResponse,
@@ -931,6 +936,8 @@ import type {
   SecretsUpdateAwsSecretReferenceResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
+  SecretsUpdateSecretReferenceData,
+  SecretsUpdateSecretReferenceResponse,
   ServiceAccountsCreateOrganizationServiceAccountApiKeyData,
   ServiceAccountsCreateOrganizationServiceAccountApiKeyResponse,
   ServiceAccountsCreateOrganizationServiceAccountData,
@@ -4210,8 +4217,90 @@ export const workflowsGetSyncDiff = (
 }
 
 /**
+ * Create Secret Reference
+ * Create a custom secret whose values live in an external secret store.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const secretsCreateSecretReference = (
+  data: SecretsCreateSecretReferenceData
+): CancelablePromise<SecretsCreateSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/references",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Secret Reference
+ * Update the reference or key mapping of an externally backed secret.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const secretsUpdateSecretReference = (
+  data: SecretsUpdateSecretReferenceData
+): CancelablePromise<SecretsUpdateSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/references/{secret_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Secret Reference
+ * Verify a saved external reference resolves. Values are never returned.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @returns SecretReferenceCheckResult Successful Response
+ * @throws ApiError
+ */
+export const secretsCheckSecretReference = (
+  data: SecretsCheckSecretReferenceData
+): CancelablePromise<SecretsCheckSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/references/{secret_id}/check",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * @deprecated
  * Create Aws Secret Reference
  * Create a custom secret whose values live in AWS Secrets Manager.
+ *
+ * Deprecated: use ``POST /secrets/references``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
@@ -4236,8 +4325,11 @@ export const secretsCreateAwsSecretReference = (
 }
 
 /**
+ * @deprecated
  * Update Aws Secret Reference
  * Update the reference or key mapping of an AWS-backed secret.
+ *
+ * Deprecated: use ``POST /secrets/references/{secret_id}``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.secretId
@@ -4264,8 +4356,11 @@ export const secretsUpdateAwsSecretReference = (
 }
 
 /**
+ * @deprecated
  * Check Aws Secret Reference
  * Verify a saved AWS-backed reference resolves. Values are never returned.
+ *
+ * Deprecated: use ``POST /secrets/references/{secret_id}/check``.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.secretId
@@ -5315,6 +5410,20 @@ export const organizationGetOrganizationEntitlements =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization/entitlements",
+    })
+  }
+
+/**
+ * Get Organization Limits
+ * Get the current organization's concurrency limits and observed usage.
+ * @returns OrganizationLimitsRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrganizationLimits =
+  (): CancelablePromise<OrganizationGetOrganizationLimitsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/limits",
     })
   }
 

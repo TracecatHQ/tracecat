@@ -193,7 +193,7 @@ test("update-only users can edit a store from its menu without changing its exte
   await user.click(screen.getByRole("menuitem", { name: "Edit store" }))
   expect(screen.getByLabelText("Name")).toHaveValue("example-production")
   expect(screen.getByLabelText("Role ARN")).toHaveValue(
-    mockStore.config.role_arn
+    "arn:aws:iam::123456789012:role/example-reader"
   )
   expect(screen.getByLabelText("Region")).toHaveValue("us-east-1")
   await user.clear(screen.getByLabelText("Name"))
@@ -212,6 +212,7 @@ test("update-only users can edit a store from its menu without changing its exte
       params: {
         name: "example-renamed",
         config: {
+          provider: "aws_secrets_manager",
           role_arn: "arn:aws:iam::123456789012:role/example-replacement",
           region: "us-west-2",
         },

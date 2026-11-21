@@ -21,6 +21,7 @@ from tracecat import config
 from tracecat.dsl import action as action_module
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.init_activities import (
+    resolve_run_limits_activity,
     resolve_time_anchor_activity,
     resolve_workflow_concurrency_limits_enabled_activity,
 )
@@ -87,6 +88,7 @@ async def run_handled_platform_activity_failure_uses_authored_error_edge(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     action_module.DSLActivities.prepare_subflow_activity,
                 ],
                 task_queue=dsl_queue,
@@ -120,8 +122,10 @@ async def run_engine_terminal_status_does_not_set_error_owner(
     """Cancellation, termination, and workflow timeout retain engine semantics."""
     started = asyncio.Event()
 
-    async def blocking_dispatch(*, backend: object, input: object) -> object:
-        del backend, input
+    async def blocking_dispatch(
+        *, backend: object, input: object, max_concurrency: int | None = None
+    ) -> object:
+        del backend, input, max_concurrency
         started.set()
         await asyncio.Future[None]()
         raise AssertionError("Blocking dispatch unexpectedly resumed")
@@ -145,6 +149,7 @@ async def run_engine_terminal_status_does_not_set_error_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
                 task_queue=dsl_queue,

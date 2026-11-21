@@ -19,7 +19,10 @@ classifiers = [
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
 ]
-dependencies = []
+dependencies = [
+    # Bitwarden SDK License Agreement; only the Bitwarden secret store provider imports it.
+    "bitwarden-sdk==2.1.0",
+]
 dynamic = ["version"]
 
 [project.urls]

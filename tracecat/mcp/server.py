@@ -313,6 +313,8 @@ from tracecat.tables.service import TablesService
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
 from tracecat.tiers.enums import Entitlement
+from tracecat.tiers.schemas import OrganizationLimitsRead
+from tracecat.tiers.service import OrgLimitsService
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -4062,6 +4064,40 @@ async def list_workspaces(
 
 
 @mcp.tool()
+async def get_concurrency_limits(
+    org_id: uuid.UUID | None = None,
+) -> OrganizationLimitsRead:
+    """Read the organization's concurrency limits and observed usage.
+
+    Read-only. Limits are set by the Tracecat platform, not by the
+    organization. Requires the `org:read` scope.
+
+    Returns JSON with a `concurrency` array. Each entry has `name` (the limit,
+    such as `max_concurrent_actions`), `limit` (null means unlimited), `in_use`
+    (null means usage is unknown, not zero) and `observed_at` (when usage was
+    read).
+
+    Args:
+        org_id: Organization ID. Required when the connection covers more than
+            one organization; use the org_id values returned by
+            list_workspaces. May be omitted for single-org connections.
+    """
+    try:
+        role = await _resolve_org_role(org_id)
+        _role_organization_id(role)
+        async with get_async_session_context_manager() as session:
+            return await OrgLimitsService(session, role=role).get_limits()
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except Exception as e:
+        logger.error("Failed to get concurrency limits", error=str(e))
+        raise ToolError(f"Failed to get concurrency limits: {e}") from None
+
+
+@mcp.tool()
 async def update_workspace_attachment_types(
     workspace_id: uuid.UUID,
     allowed_extensions: list[str] | None = None,
@@ -7115,6 +7151,7 @@ async def search_cases(
     include_durations: bool = False,
     include_payload: bool = False,
     include_count: bool = True,
+    cap_broad_matches: bool = False,
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with filtering and sorting.
 
@@ -7175,6 +7212,13 @@ async def search_cases(
         include_durations: Include durations when entitled.
         include_payload: Include payload.
         include_count: Include exact total_estimate.
+        cap_broad_matches: For a full_text search in relevance order (no
+            order_by) that matches more than 10,000 cases, rank only the
+            10,000 newest matches. Much faster for broad keywords; older
+            matches are left out. Has no effect on literal searches or column
+            orders, which return every match. Pass it again with each cursor.
+            Combine with include_count=False: the exact count still reads
+            every match.
 
     Returns a paginated JSON array of case objects. Each case includes
     ``parent`` (set on sub-cases) and ``num_sub_cases``.
@@ -7233,6 +7277,7 @@ async def search_cases(
                 "include_durations": include_durations,
                 "include_payload": include_payload,
                 "include_count": include_count,
+                "cap_broad_matches": cap_broad_matches,
             }
         )
         async with CasesService.with_session(role=role) as svc:

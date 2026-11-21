@@ -11,6 +11,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
+from tracecat.admission.limits import (
+    get_effective_limits as get_admission_effective_limits,
+)
 from tracecat.agent.channels.router import (
     _resolve_service_role_for_workspace,
     handle_channel_event,
@@ -47,7 +50,6 @@ from tracecat.search.indexing_workflow import index_search_collection
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.tiers.activities import get_tier_limits_activity
-from tracecat.tiers.permits import TierPermitService
 from tracecat.webhooks.dependencies import validate_incoming_webhook
 from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
@@ -447,7 +449,7 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
         _resolve_service_role_for_workspace,
         index_search_collection,
         get_tier_limits_activity,
-        TierPermitService.get_effective_limits_for_org,
+        get_admission_effective_limits,
         _build_external_channel_sink,
     ],
 )

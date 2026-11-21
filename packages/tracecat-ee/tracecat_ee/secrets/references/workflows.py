@@ -1,4 +1,4 @@
-"""Check saved references using the executor's AWS workload identity."""
+"""Check saved references on the executor, where runtime resolution happens."""
 
 from datetime import timedelta
 
@@ -7,7 +7,7 @@ from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
-    from tracecat.secrets.enums import AwsSecretResolutionErrorCode
+    from tracecat.secrets.enums import SecretResolutionErrorCode
     from tracecat.secrets.schemas import (
         SecretReferenceCheckRequest,
         SecretReferenceCheckResult,
@@ -28,7 +28,7 @@ async def check_secret_reference_activity(
                 service.session, request.role, Entitlement.EXTERNAL_SECRET_STORES
             )
             secret = await service.get_secret(request.secret_id)
-            return await service.check_aws_secret_reference(secret)
+            return await service.check_secret_reference(secret)
     except Exception as e:
         # Unexpected provider/DB failures must not serialize their details to Temporal.
         logger.warning(
@@ -38,7 +38,7 @@ async def check_secret_reference_activity(
         )
     return SecretReferenceCheckResult(
         ok=False,
-        error_code=AwsSecretResolutionErrorCode.UNKNOWN,
+        error_code=SecretResolutionErrorCode.UNKNOWN,
         message="Reference check could not complete. Try again.",
     )
 

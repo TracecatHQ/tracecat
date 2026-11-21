@@ -1,16 +1,18 @@
-"""Organization-owned external secret stores (AWS Secrets Manager)."""
+"""Organization-owned external secret stores."""
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import exists, func, select
+from pydantic import SecretStr
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     OrganizationSecretStore,
@@ -22,6 +24,7 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
 from tracecat.pagination import Page, PageParams, paginate
+from tracecat.secrets.encryption import encrypt_value
 from tracecat.secrets.schemas import (
     SecretStoreConfig,
     SecretStoreCreate,
@@ -29,9 +32,21 @@ from tracecat.secrets.schemas import (
     SecretStoreWorkspaceUsage,
 )
 from tracecat.service import BaseOrgService
-from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
+from tracecat_ee.secrets.stores.backends import (
+    AnyBackend,
+    get_backend,
+    parse_store_config,
+    store_is_ready,
+)
 
 _NOT_READY_MESSAGE = "Finish setting up the store before enabling it."
+_MAX_ACCESS_TOKEN_LENGTH = 4096
+
+
+def _encrypt_access_token(token: SecretStr) -> bytes:
+    return encrypt_value(
+        token.get_secret_value().encode("utf-8"), key=get_db_encryption_key()
+    )
 
 
 class SecretStoresService(BaseOrgService):
@@ -144,22 +159,56 @@ class SecretStoresService(BaseOrgService):
             )
         return usage
 
-    async def _has_arn_references(self, store_id: uuid.UUID) -> bool:
-        """Whether any workspace secret references the store by full ARN."""
-        stmt = select(
-            exists().where(
-                Secret.store_id == store_id,
-                Secret.remote_reference.startswith("arn:"),
+    async def _saved_references(self, store_id: uuid.UUID) -> set[str]:
+        """Distinct remote references saved against a store (metadata only)."""
+        stmt = (
+            select(Secret.remote_reference)
+            .join(
+                OrganizationSecretStore, Secret.store_id == OrganizationSecretStore.id
             )
+            .where(
+                Secret.store_id == store_id,
+                OrganizationSecretStore.organization_id == self.organization_id,
+                Secret.remote_reference.is_not(None),
+            )
+            .distinct()
         )
         # Same RLS bypass as count_references: org sessions cannot see `secret`.
         await set_rls_context(
             self.session, self.organization_id, None, self.role.user_id, bypass=True
         )
         try:
-            return bool(await self.session.scalar(stmt))
+            result = await self.session.scalars(stmt)
+            return {reference for reference in result if reference is not None}
         finally:
             await set_rls_context_from_role(self.session, self.role)
+
+    @staticmethod
+    def _check_store_settings(
+        backend: AnyBackend,
+        config: SecretStoreConfig,
+        *,
+        token: SecretStr | None,
+        token_set: bool,
+        enabled: bool,
+    ) -> None:
+        """Check a new access token fits the store, and the store can be enabled.
+
+        The length is checked here rather than in the schema, whose 422 would
+        echo the token.
+        """
+        if token is not None:
+            if not 1 <= len(token.get_secret_value()) <= _MAX_ACCESS_TOKEN_LENGTH:
+                raise ValueError(
+                    f"The access token must be 1 to {_MAX_ACCESS_TOKEN_LENGTH}"
+                    " characters."
+                )
+            if not backend.uses_access_token:
+                raise ValueError("This store's provider does not use an access token.")
+        if enabled and not store_is_ready(backend, config, has_access_token=token_set):
+            if backend.is_ready(config):
+                raise ValueError("Set an access token before enabling this store.")
+            raise ValueError(_NOT_READY_MESSAGE)
 
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret_store", action="create")
@@ -167,8 +216,14 @@ class SecretStoresService(BaseOrgService):
         """Create a store. Server-owned config fields are generated here."""
         backend = get_backend(params.provider)
         config = backend.new_config(params.config)
-        if params.enabled and not backend.is_ready(config):
-            raise ValueError(_NOT_READY_MESSAGE)
+        self._check_store_settings(
+            backend,
+            config,
+            token=params.access_token,
+            token_set=params.access_token is not None,
+            enabled=params.enabled,
+        )
+        await backend.check_config(config)
         store = OrganizationSecretStore(
             organization_id=self.organization_id,
             name=params.name,
@@ -177,6 +232,11 @@ class SecretStoresService(BaseOrgService):
             config=config.model_dump(mode="json"),
             enabled=params.enabled,
             all_workspaces=params.all_workspaces,
+            encrypted_access_token=(
+                _encrypt_access_token(params.access_token)
+                if params.access_token is not None
+                else None
+            ),
         )
         self.session.add(store)
         await self.session.commit()
@@ -191,28 +251,48 @@ class SecretStoresService(BaseOrgService):
         """Update store metadata. Server-owned config fields are never changed."""
         fields = params.model_dump(exclude_unset=True)
         fields.pop("config", None)
+        # Written to its encrypted column below, never set as given.
+        fields.pop("access_token", None)
+        if params.config is not None and params.config.provider != store.provider:
+            raise ValueError("config.provider must match the store's provider")
+        backend = get_backend(store.provider)
+        enabled = fields.get("enabled", store.enabled)
+        saved: SecretStoreConfig | None = None
         config: SecretStoreConfig | None = None
-        if params.config is not None:
-            # Block concurrent reference creation between the check and commit.
-            await self.session.refresh(store, with_for_update=True)
-            current = parse_store_config(store)
-            config = get_backend(store.provider).update_config(current, params.config)
-            # Saved ARN references were validated against the current region.
-            if config.region != current.region and await self._has_arn_references(
-                store.id
-            ):
-                raise TracecatConflictError(
-                    "Update or remove secrets that reference this store by ARN"
-                    " before changing its region."
-                )
         # Parse the saved config only when needed, so a store with an
         # unparseable config can still be renamed or disabled.
-        if fields.get("enabled", store.enabled):
-            ready_config = config if config is not None else parse_store_config(store)
-            if not get_backend(store.provider).is_ready(ready_config):
-                raise ValueError(_NOT_READY_MESSAGE)
-        if config is not None:
+        if enabled or params.config is not None or params.access_token is not None:
+            saved = current = parse_store_config(store)
+            if params.config is not None:
+                current = backend.update_config(saved, params.config)
+            config = current
+            self._check_store_settings(
+                backend,
+                current,
+                token=params.access_token,
+                token_set=(
+                    params.access_token is not None
+                    or store.encrypted_access_token is not None
+                ),
+                enabled=enabled,
+            )
+        if config is not None and config != saved:
+            # Only a changed config is checked, so an outage of the store's
+            # DNS cannot block renaming or disabling it. The check may resolve
+            # DNS, so it runs before the lock, which blocks reference writes.
+            await backend.check_config(config)
+            # Block concurrent reference creation between the checks and commit.
+            await self.session.refresh(store, with_for_update=True)
+            if parse_store_config(store) != saved:
+                raise TracecatConflictError(
+                    "The store changed while it was being saved. Try again."
+                )
+            backend.check_change(
+                saved, config, references=await self._saved_references(store.id)
+            )
             store.config = config.model_dump(mode="json")
+        if params.access_token is not None:
+            store.encrypted_access_token = _encrypt_access_token(params.access_token)
         for field, value in fields.items():
             setattr(store, field, value)
         self.session.add(store)

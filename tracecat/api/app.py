@@ -136,6 +136,7 @@ from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
 from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
+from tracecat.cases.router import CASE_SEARCH_PATH_SUFFIXES
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
 from tracecat.cases.rows.router import linked_cases_router as case_linked_cases_router
@@ -197,6 +198,7 @@ from tracecat.mcp.personal_access_tokens.router import (
 from tracecat.middleware import (
     RequestLoggingMiddleware,
 )
+from tracecat.middleware.disconnect import CancelOnDisconnectMiddleware
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.observability.otel import (
     TRACE_ID_HEADER,
@@ -998,6 +1000,11 @@ def create_app(**kwargs) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=[TRACE_ID_HEADER, TRACE_SAMPLED_HEADER],
+    )
+    # Added last so it wraps the BaseHTTPMiddleware layers and sees the
+    # server's own disconnect message. The UI aborts superseded searches.
+    app.add_middleware(
+        CancelOnDisconnectMiddleware, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
     )
     instrument_fastapi_app(app, service_name="tracecat-api")
 

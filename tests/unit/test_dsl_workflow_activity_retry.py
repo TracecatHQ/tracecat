@@ -13,6 +13,8 @@ from temporalio.exceptions import (
     TimeoutError as TemporalTimeoutError,
 )
 
+from tracecat.admission.types import ConcurrencyResource
+from tracecat.admission.waiting import RunAdmission
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
     ActionRetryPolicy,
@@ -20,6 +22,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
 )
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.runtime.errors import RetryDisposition, RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
@@ -68,6 +71,9 @@ def _workflow() -> DSLWorkflow:
     dsl_workflow = object.__new__(DSLWorkflow)
     dsl_workflow.role = cast(Any, object())
     dsl_workflow.logger = Mock()
+    dsl_workflow._action_admission = RunAdmission(
+        resource=ConcurrencyResource.ACTIONS, logger=get_workflow_logger()
+    )
     return dsl_workflow
 
 

@@ -43,6 +43,7 @@ from tracecat.db.models import (
     MCPRefreshToken,
     OAuthIntegration,
     OrganizationSecret,
+    OrganizationSecretStore,
     OrganizationSetting,
     PlatformSecret,
     PlatformSetting,
@@ -68,6 +69,7 @@ DEFAULT_BATCH_SIZE: Final[int] = 200
 ENCRYPTED_COLUMNS: Final[tuple[EncryptedColumn, ...]] = (
     EncryptedColumn(Secret.encrypted_keys),
     EncryptedColumn(OrganizationSecret.encrypted_keys),
+    EncryptedColumn(OrganizationSecretStore.encrypted_access_token),
     EncryptedColumn(PlatformSecret.encrypted_keys),
     EncryptedColumn(MCPIntegration.encrypted_headers),
     EncryptedColumn(MCPIntegration.encrypted_stdio_env),

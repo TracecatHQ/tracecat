@@ -5,9 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import Field
+from pydantic import Field, PositiveInt
 
 from tracecat.core.schemas import Schema
+from tracecat.tiers.enums import ConcurrencyLimitName
 from tracecat.tiers.types import EntitlementsDict
 
 
@@ -34,6 +35,39 @@ class EffectiveLimits(Schema):
     max_concurrent_actions: int | None = Field(
         None,
         description="Max concurrent action executions across all workflows for an org. None = unlimited",
+    )
+    max_concurrent_tool_calls: int | None = Field(
+        default=None,
+        description="Max concurrent agent registry tool calls for an org. None = unlimited",
+    )
+    max_concurrent_agent_turns: int | None = Field(
+        default=None,
+        description="Max concurrent running agent turns for an org. None = unlimited",
+    )
+
+
+class ConcurrencyLimitRead(Schema):
+    """One per-organization concurrency limit with its observed usage."""
+
+    name: ConcurrencyLimitName = Field(..., description="The limit's tier field name")
+    limit: int | None = Field(
+        default=None, description="Effective limit. None = unlimited"
+    )
+    in_use: int | None = Field(
+        default=None,
+        description="Units in use when read. None = unknown (not zero)",
+    )
+    observed_at: datetime | None = Field(
+        default=None,
+        description="When usage was read. None when usage is unknown",
+    )
+
+
+class OrganizationLimitsRead(Schema):
+    """Concurrency limits and observed usage for the current organization."""
+
+    concurrency: list[ConcurrencyLimitRead] = Field(
+        ..., description="Each concurrency limit with its observed usage"
     )
 
 
@@ -138,6 +172,8 @@ class TierRead(Schema):
     max_concurrent_workflows: int | None
     max_action_executions_per_workflow: int | None
     max_concurrent_actions: int | None
+    max_concurrent_tool_calls: int | None
+    max_concurrent_agent_turns: int | None
     api_rate_limit: int | None
     api_burst_capacity: int | None
     entitlements: EntitlementsDict
@@ -152,9 +188,11 @@ class TierCreate(Schema):
     """Create tier request."""
 
     display_name: str = Field(..., min_length=1, max_length=255)
-    max_concurrent_workflows: int | None = None
+    max_concurrent_workflows: PositiveInt | None = None
     max_action_executions_per_workflow: int | None = None
-    max_concurrent_actions: int | None = None
+    max_concurrent_actions: PositiveInt | None = None
+    max_concurrent_tool_calls: PositiveInt | None = None
+    max_concurrent_agent_turns: PositiveInt | None = None
     api_rate_limit: int | None = None
     api_burst_capacity: int | None = None
     entitlements: EntitlementsDict = Field(default={})
@@ -166,9 +204,11 @@ class TierUpdate(Schema):
     """Update tier request."""
 
     display_name: str | None = Field(None, min_length=1, max_length=255)
-    max_concurrent_workflows: int | None = None
+    max_concurrent_workflows: PositiveInt | None = None
     max_action_executions_per_workflow: int | None = None
-    max_concurrent_actions: int | None = None
+    max_concurrent_actions: PositiveInt | None = None
+    max_concurrent_tool_calls: PositiveInt | None = None
+    max_concurrent_agent_turns: PositiveInt | None = None
     api_rate_limit: int | None = None
     api_burst_capacity: int | None = None
     entitlements: EntitlementsDict | None = None
@@ -186,6 +226,8 @@ class OrganizationTierRead(Schema):
     max_concurrent_workflows: int | None
     max_action_executions_per_workflow: int | None
     max_concurrent_actions: int | None
+    max_concurrent_tool_calls: int | None
+    max_concurrent_agent_turns: int | None
     api_rate_limit: int | None
     api_burst_capacity: int | None
     entitlement_overrides: EntitlementsDict | None
@@ -203,9 +245,11 @@ class OrganizationTierUpdate(Schema):
     """Update organization tier assignment request."""
 
     tier_id: uuid.UUID | None = None
-    max_concurrent_workflows: int | None = None
+    max_concurrent_workflows: PositiveInt | None = None
     max_action_executions_per_workflow: int | None = None
-    max_concurrent_actions: int | None = None
+    max_concurrent_actions: PositiveInt | None = None
+    max_concurrent_tool_calls: PositiveInt | None = None
+    max_concurrent_agent_turns: PositiveInt | None = None
     api_rate_limit: int | None = None
     api_burst_capacity: int | None = None
     entitlement_overrides: EntitlementsDict | None = None

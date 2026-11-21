@@ -117,6 +117,11 @@ export interface UseCasesResult {
     options?: { resetPagination?: boolean }
   ) => void
   totalFilteredCaseEstimate: number | null
+  /**
+   * True when a keyword search matched more cases than the server counts, so
+   * totalFilteredCaseEstimate is the cap and stageCounts is null.
+   */
+  isCountCapped: boolean
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
@@ -876,6 +881,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         search_term: query.search_term,
         search_mode: query.search_mode,
         hierarchy: (query.hierarchy ?? "all") as CaseHierarchyFilter,
+        // Broad keywords stop counting at the server's cap and rank only the
+        // newest matches, so a search stays fast at any workspace size. Sent
+        // only with a search, so plain list loads never carry the field.
+        cap_broad_matches: query.search_mode ? true : undefined,
       },
       matchesNone: noMatch !== null,
     }
@@ -953,6 +962,13 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       return false
     }
 
+    // A keyword search can scan many cases. Re-running it every interval
+    // repeats that cost while the user reads results, so only the plain list
+    // refreshes itself.
+    if (appliedSearchQuery) {
+      return false
+    }
+
     if (
       typeof document !== "undefined" &&
       document.visibilityState === "hidden"
@@ -961,7 +977,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     return CASES_REFETCH_INTERVAL_MS
-  }, [autoRefresh])
+  }, [autoRefresh, appliedSearchQuery])
 
   const {
     data: rowsData,
@@ -1139,6 +1155,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setIncludeSubCases,
     replaceFilters,
     totalFilteredCaseEstimate,
+    isCountCapped: !matchesNone && Boolean(visibleAggregateData?.capped),
     stageCounts: matchesNone
       ? EMPTY_STAGE_COUNTS
       : (visibleAggregateData?.status_groups ?? null),

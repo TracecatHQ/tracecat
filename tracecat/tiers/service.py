@@ -9,15 +9,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Organization, OrganizationTier, Tier
-from tracecat.service import BaseService
+from tracecat.service import BaseOrgService, BaseService
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.access import get_org_tier_and_resolved_tier
+from tracecat.tiers.enums import ConcurrencyLimitName
 from tracecat.tiers.exceptions import (
     DefaultTierNotConfiguredError,
     OrganizationNotFoundError,
 )
-from tracecat.tiers.schemas import EffectiveEntitlements, EffectiveLimits
+from tracecat.tiers.schemas import (
+    ConcurrencyLimitRead,
+    EffectiveEntitlements,
+    EffectiveLimits,
+    OrganizationLimitsRead,
+)
+from tracecat.tiers.usage import read_concurrency_usage
 
 if TYPE_CHECKING:
     from tracecat.identifiers import OrganizationID
@@ -119,6 +127,12 @@ class TierService(BaseService):
         org_max_concurrent_actions = (
             org_tier.max_concurrent_actions if org_tier is not None else None
         )
+        org_max_concurrent_tool_calls = (
+            org_tier.max_concurrent_tool_calls if org_tier is not None else None
+        )
+        org_max_concurrent_agent_turns = (
+            org_tier.max_concurrent_agent_turns if org_tier is not None else None
+        )
 
         def resolve(org_value: int | None, tier_value: int | None) -> int | None:
             """Resolve value: org override takes precedence, then tier default."""
@@ -138,6 +152,14 @@ class TierService(BaseService):
             max_concurrent_actions=resolve(
                 org_max_concurrent_actions,
                 tier.max_concurrent_actions,
+            ),
+            max_concurrent_tool_calls=resolve(
+                org_max_concurrent_tool_calls,
+                tier.max_concurrent_tool_calls,
+            ),
+            max_concurrent_agent_turns=resolve(
+                org_max_concurrent_agent_turns,
+                tier.max_concurrent_agent_turns,
             ),
         )
 
@@ -186,3 +208,38 @@ class TierService(BaseService):
             agent_runtime_workflows=resolve_entitlement("agent_runtime_workflows"),
             agent_channels_preview=resolve_entitlement("agent_channels_preview"),
         )
+
+
+class OrgLimitsService(BaseOrgService):
+    """Reads the current organization's limits for its members."""
+
+    service_name = "org_limits"
+
+    @require_scope("org:read")
+    async def get_limits(self) -> OrganizationLimitsRead:
+        """Get each concurrency limit with its observed usage.
+
+        Usage that can't be read is reported as unknown, never as zero.
+        """
+        limits = await TierService(self.session).get_effective_limits(
+            self.organization_id
+        )
+        usage = await read_concurrency_usage(self.organization_id)
+        values = {
+            ConcurrencyLimitName.MAX_CONCURRENT_WORKFLOWS: limits.max_concurrent_workflows,
+            ConcurrencyLimitName.MAX_CONCURRENT_ACTIONS: limits.max_concurrent_actions,
+            ConcurrencyLimitName.MAX_CONCURRENT_TOOL_CALLS: limits.max_concurrent_tool_calls,
+            ConcurrencyLimitName.MAX_CONCURRENT_AGENT_TURNS: limits.max_concurrent_agent_turns,
+        }
+        concurrency: list[ConcurrencyLimitRead] = []
+        for name in ConcurrencyLimitName:
+            observed = usage.get(name)
+            concurrency.append(
+                ConcurrencyLimitRead(
+                    name=name,
+                    limit=values[name],
+                    in_use=observed.in_use if observed else None,
+                    observed_at=observed.observed_at if observed else None,
+                )
+            )
+        return OrganizationLimitsRead(concurrency=concurrency)

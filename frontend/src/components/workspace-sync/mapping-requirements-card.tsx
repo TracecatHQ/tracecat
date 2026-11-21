@@ -282,7 +282,7 @@ export function McpIntegrationMappingRequirements({
 }
 
 /**
- * Rows for AWS-backed secrets whose store name has no authorized match here.
+ * Rows for externally backed secrets whose store name has no authorized match here.
  * Each is optional: unchosen names import their secrets without a store.
  */
 export function SecretStoreMappingRequirements({

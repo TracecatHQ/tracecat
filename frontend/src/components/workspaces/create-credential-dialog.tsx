@@ -59,7 +59,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
+import { SecretReferenceForm } from "@/components/workspaces/secret-reference-form"
 import {
   SecretSourcePicker,
   type SecretSourceValue,
@@ -613,7 +613,7 @@ export function CreateCredentialDialog({
 
   const { control, register } = methods
   const secretType = methods.watch("type")
-  const isAwsReference =
+  const isExternalReference =
     secretType === "custom" &&
     externalSecretStoresEnabled &&
     secretSource !== null
@@ -928,10 +928,10 @@ export function CreateCredentialDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {(!isAwsReference ||
+        {(!isExternalReference ||
           (secretType === "custom" && externalSecretStoresEnabled)) && (
           <div className="shrink-0 space-y-3 border-b p-4">
-            {!isAwsReference && <CreateSecretTooltip />}
+            {!isExternalReference && <CreateSecretTooltip />}
             {secretType === "custom" && externalSecretStoresEnabled && (
               <div className="space-y-2">
                 <Label htmlFor={credentialSourceId}>Secret source</Label>
@@ -945,8 +945,8 @@ export function CreateCredentialDialog({
             )}
           </div>
         )}
-        {isAwsReference ? (
-          <AwsSecretReferenceForm
+        {isExternalReference ? (
+          <SecretReferenceForm
             storeId={secretSource ?? undefined}
             initialName={selectedTool?.name}
             initialKeys={[

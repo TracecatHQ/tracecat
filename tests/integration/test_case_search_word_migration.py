@@ -65,8 +65,10 @@ def test_word_migration_backfills_maintains_and_downgrades(
             ["encoded", "powershell"],
             ["host", "ran", "times", "x86"],
         )
-        # Over the byte budget keeps the NULL fallback marker.
-        assert words(conn, oversized) == (["large", "synthetic"], None)
+        # Over the byte budget this revision stores the NULL fallback marker;
+        # the later revision 67d28dfaff15, which the helper re-applies, then
+        # stores the complete list and adds its words to the vocabulary.
+        assert words(conn, oversized) == (["large", "synthetic"], ["word"])
         assert vocabulary(conn, WORKSPACE) == [
             "encoded",
             "host",
@@ -75,10 +77,11 @@ def test_word_migration_backfills_maintains_and_downgrades(
             "ran",
             "synthetic",
             "times",
+            "word",
             "x86",
         ]
         # A retried backfill does not duplicate stored words.
-        assert conn.scalar(sa.text("SELECT count(*) FROM case_search_word")) == 8
+        assert conn.scalar(sa.text("SELECT count(*) FROM case_search_word")) == 9
 
         inserted = seed_case(conn, 3, "Credential access", workspace=OTHER_WORKSPACE)
         assert words(conn, inserted) == (["access", "credential"], [])

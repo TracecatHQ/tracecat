@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
+import { SecretReferenceForm } from "@/components/workspaces/secret-reference-form"
 
 const mockCreateReference = jest.fn()
 
@@ -31,15 +31,15 @@ jest.mock("@/hooks/use-secret-stores", () => ({
     isLoading: false,
     error: null,
   }),
-  useAwsSecretReferences: () => ({
+  useSecretReferences: () => ({
     createReference: mockCreateReference,
     updateReference: jest.fn(),
   }),
 }))
 
-describe("AwsSecretReferenceForm", () => {
+describe("SecretReferenceForm", () => {
   it("explains a full SECRETS reference typed into the name field", async () => {
-    render(<AwsSecretReferenceForm onSaved={jest.fn()} />)
+    render(<SecretReferenceForm onSaved={jest.fn()} />)
 
     fireEvent.change(screen.getByPlaceholderText("hello_world"), {
       target: { value: "SECRETS.hello_world.hello" },
@@ -55,7 +55,7 @@ describe("AwsSecretReferenceForm", () => {
   })
 
   it("previews the reference for a valid name", () => {
-    render(<AwsSecretReferenceForm onSaved={jest.fn()} />)
+    render(<SecretReferenceForm onSaved={jest.fn()} />)
 
     fireEvent.change(screen.getByPlaceholderText("hello_world"), {
       target: { value: "hello_world" },

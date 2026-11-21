@@ -8,6 +8,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
+from tracecat.admission.types import NotAdmitted, parse_not_admitted
 from tracecat.dsl.action import DSLActivities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
@@ -174,12 +175,19 @@ async def unwrap_action_result(task_result: StoredObject) -> Any:
 _stored_object_validator: TypeAdapter[StoredObject] = TypeAdapter(StoredObject)
 
 
-async def get_result(event: HistoryEvent) -> Any:
+async def get_result(event: HistoryEvent, *, detect_not_admitted: bool = False) -> Any:
     """Extract and unwrap result from a completed workflow history event.
 
     For activity completions, this unwraps TaskResult/StoredObject to return
     the raw result data for UI display. Falls back to raw result for backward
     compatibility with pre-TaskResult workflow history.
+
+    Args:
+        event: A completed event.
+        detect_not_admitted: Return a ``NotAdmitted`` when the executor did
+            not admit the attempt. Pass it only for ``execute_action_activity`` completions
+            (see ``schedules_executor_action``): other activities can return
+            user-shaped values.
     """
     match event.event_type:
         case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -194,7 +202,39 @@ async def get_result(event: HistoryEvent) -> Any:
             raise ValueError("Event is not a completed event")
 
     result = await extract_first(payload)
+    # Checked before unwrapping, so an action whose own output looks like a
+    # not-admitted answer is never mistaken for one.
+    if detect_not_admitted and (not_admitted := parse_not_admitted(result)) is not None:
+        return not_admitted
+    return await _unwrap_result(result)
 
+
+EXECUTOR_ACTION_ACTIVITY = ExecutorActivities.execute_action_activity.__name__
+"""The only activity whose result can be an executor's not-admitted answer."""
+
+
+def schedules_executor_action(event: HistoryEvent) -> bool:
+    """Whether a history event schedules ``execute_action_activity``.
+
+    Not-admitted answers count only for these: other activities (an expression
+    evaluation, say) can return arbitrary user-shaped values.
+    """
+    return (
+        event.event_type is EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+        and event.activity_task_scheduled_event_attributes.activity_type.name
+        == EXECUTOR_ACTION_ACTIVITY
+    )
+
+
+async def get_not_admitted(event: HistoryEvent) -> NotAdmitted | None:
+    """The executor's not-admitted answer in a completed activity, if it is one."""
+    if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+        return None
+    result = await extract_first(event.activity_task_completed_event_attributes.result)
+    return parse_not_admitted(result)
+
+
+async def _unwrap_result(result: Any) -> Any:
     # Try to unwrap TaskResult/StoredObject for display
     # Fall back to raw result for backward compatibility
     logger.debug("Unwrapping result", result=result, type=type(result).__name__)

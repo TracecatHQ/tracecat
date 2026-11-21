@@ -20,10 +20,12 @@ from tracecat.dsl.action import (
     materialize_context,
 )
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.init_activities import RunLimitsSnapshot
 from tracecat.dsl.schemas import ActionStatement, RunActionInput
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.eval import eval_templated_object
+from tracecat.identifiers import OrganizationID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject, StoredObject
@@ -40,6 +42,11 @@ def anyio_backend() -> str:
 @activity.defn(name="resolve_workflow_concurrency_limits_enabled_activity")
 async def _disable_limits() -> bool:
     return False
+
+
+@activity.defn(name="resolve_run_limits_activity")
+async def _unlimited_run_limits(_org_id: OrganizationID) -> RunLimitsSnapshot:
+    return RunLimitsSnapshot()
 
 
 @activity.defn(name="execute_action_activity")
@@ -146,6 +153,7 @@ async def test_dependency_plan_activity_payloads_and_replay(
                 workflow_runner=new_sandbox_runner(),
                 activities=[
                     _disable_limits,
+                    _unlimited_run_limits,
                     DSLActivities.compile_dsl_dependencies_activity,
                     _evaluate_return,
                 ],

@@ -71,8 +71,78 @@ unit matches a field when one complete word of it (a run of letters and digits)
 has pg_trgm strict word similarity of at least 0.65 with the unit. Search first
 finds the workspace vocabulary words within that distance once per query, then
 keeps cases whose stored word list contains one of them. A typo-matched field
-still scores by strict word similarity against its complete text. There is no
-capped initial candidate window.
+scores from its stored word list instead of its complete text: 1.0 when the
+term itself is one of its complete words (a keyword inside a file name or
+host), otherwise the 0.65 threshold. A field without a stored word list still
+scores by strict word similarity against its complete text.
+
+### Broad searches
+
+Ranking costs a few microseconds per matching case, and an exact count reads
+every match, so a keyword that matches most of a large workspace grows
+without bound (about 9 s per relevance page at one million matches). A request
+with `cap_broad_matches` bounds the counts for `search_mode` searches, and the
+ranking for `full_text` searches in relevance order, in the common case (see
+step 3 below). The case UI sets it, and API, workflow and MCP callers keep the
+exact behavior unless they opt in. The code is in
+`tracecat/cases/search_bounds.py`.
+
+- Relevance order ranks only the 10,000 newest matches: the page adds
+  `created_at >= cutoff`, where the cutoff is the creation time of the
+  10,000th newest match. Cases created at that same instant are kept too.
+  Older matches are left out of relevance order; column orders (newest first
+  and the rest) still return every match.
+- `POST /cases/search/aggregate` reads at most 10,001 matches. Beyond 10,000 it
+  returns `total` 10,000, `capped` true and no per-status counts, which an
+  exact count would have to read every match to give. The UI shows
+  "10,000+ cases" and loaded counts per status group.
+- `include_count`'s `total_estimate` stays exact.
+- Column-ordered keyword pages (newest first and the rest) normally turn off
+  plain index scans, so a rare keyword finds its matches through the text
+  indexes and then sorts them instead of walking the date index. When the
+  capped count shows more than 10,000 matches, the page may walk the date
+  index instead: a page fills within its first rows (newest first at one
+  million matches went from 1.4 s to 0.1 s). Planner settings are not part of
+  the cursor fingerprint, so this can change from page to page safely.
+
+The first page finds the cutoff in up to three steps:
+
+1. Count at most 10,001 matches. With 10,000 or fewer there is no cutoff, and
+   every match is ranked as before.
+2. Read the 100,000 newest cases in date order, check each against the
+   search, and take the 10,000th match. A broad keyword usually reaches it
+   well before the end: one in every case needs 10,000 rows.
+3. If the newest 100,000 cases hold fewer than 10,000 matches, find the
+   matches through the text indexes and sort them by date. This step is not
+   bounded: it reads every match, though at about a third of the cost of
+   scoring them.
+
+The first page's cursors carry the cutoff (a signed `anchor` in the shared
+paginator), and later pages reuse it: every page ranks the matches created at
+or after the 10,000th newest match at the time of the first page. Matches
+created while paging can join later pages, as in any keyset pagination. A
+cursor is rejected if its anchor differs, so later pages must send the flag
+too. The request and cursor schemas reject unknown fields, so roll out the
+API before the UI: an older API answers the flag with 422 and rejects
+anchored cursors. Steps 1 and 3 turn
+off plain index and sequential scans for their statement: with a LIMIT or
+OFFSET, PostgreSQL favours plans that read the table in order and stop early,
+and for a keyword it overestimates, those read the whole workspace. Bitmap
+scans keep the text-index plan. Step 1 is the price of the bound: a search
+pays about one capped count to learn whether it is broad. That is 40 ms for a
+keyword with 8,000 matches, but for a search with many candidates and few
+matches, such as two common words that rarely appear together, it is as much
+as the page itself (about 0.2 s at one million cases).
+
+At one million cases (one workspace, local PostgreSQL 16, warm cache):
+
+| Search | Exact page / count | Capped page / count |
+| --- | --- | --- |
+| Keyword in every case | 8.6 s / 1.25 s | 0.26 s / 0.09 s |
+| Keyword only inside file names (25%) | 2.5 s / 0.73 s | 0.40 s / 0.08 s |
+| Keyword in 8% of cases | 0.97 s / 0.17 s | 0.81 s / 0.05 s |
+| Two keywords, no common case | 0.21 s / 0.21 s | 0.41 s / 0.21 s |
+| Rare keyword | 36 ms / 13 ms | 34 ms / 12 ms |
 
 The selected page retains narrow projections and independent detail flags.
 Match attribution and excerpts are fetched only for surviving returned IDs,
@@ -117,15 +187,41 @@ A third migration stores each field's distinct lowercase words in
 `case_search_word`. A second trigger maintains both on the same terms as the
 vectors, and adds a moved case's words to its new workspace. Lists omit
 digit-only words and words with more than 50 distinct trigrams: neither can
-reach 0.65 similarity with a typo unit of at most 32 letters. A source over
-8,192 bytes, or with a remaining word over 1,000 bytes that could exceed an
-index entry, stores a NULL list, and search splits its complete text per row as
-before. The vocabulary has a trigram GIN index and no unique constraint, so
+reach 0.65 similarity with a typo unit of at most 32 letters. A source with a
+remaining word over 1,000 bytes, which could exceed an index entry, stores a
+NULL list, and search splits its complete text per row as before. The
+vocabulary has a trigram GIN index and no unique constraint, so
 concurrent case writes never wait on each other's new words; a race may store
 a duplicate, which search ignores. It copies case text, so it carries the
 standard workspace row-level security policy. The vocabulary is insert-only. Words of
 deleted or edited cases remain until their workspace is deleted, and cannot
 produce matches because each case's own list is always checked.
+
+A fourth migration indexes sources over 8,192 bytes, which the first three
+leave with a NULL vector and word list. Without it, every full-text search
+re-parsed each such row in SQL (about 1.7 ms per row at 9 KB), whatever the
+keyword, so a few thousand long descriptions made every search take seconds.
+A third trigger, `trg_case_search_words_oversized`, runs after the other two
+(PostgreSQL fires same-event BEFORE triggers in name order) and, for a source
+over the budget only:
+
+- stores its distinct native lexemes without positions in `summary_lexemes` or
+  `description_lexemes`, using exactly the token rules of the per-row matcher,
+  so an indexed word match gives the same answer;
+- stores its complete word list in `summary_words` or `description_words`, and
+  adds those words to the vocabulary.
+
+Word clauses then match through the lexeme GIN indexes. A phrase uses them for
+candidates and is checked against the complete source per row. Partial
+trigram indexes over the complete lowercase text of NULL-vector sources
+(`ix_case_*_trgm_fallback`) let literal and legacy substring search find long
+sources without reading each one in full. A source keeps the
+per-row check only if it has neither a vector nor lexemes: an unsafe token
+below the budget, or more than 1 MB of distinct word text, which
+`array_to_tsvector` would otherwise store as a silently corrupt vector. The
+trigger inlines its SQL instead of calling helper functions, so case writes
+need no extra `EXECUTE` grant. Writing a 10 KB source costs about 2 ms more;
+other writes are unaffected.
 
 The immutable safe-vector helper returns a NULL sentinel above 8,192 source
 bytes or for conversion-unsafe tokens. A stored NULL keeps that meaning. Token
@@ -137,7 +233,8 @@ operation.
 Safe ordinary positive phrase matches use the native vector fast path. A
 negative phrase with all required words present is rechecked against the full
 native positional stream to recover positions beyond the 256-occurrence cap.
-Sentinel documents use the same complete stream for words and phrases.
+Sentinel documents without lexemes use the same complete stream for words and
+phrases.
 PostgreSQL's actual default parser, simple token mapping, and simple dictionary
 supply tokens and normalization; there is no application tokenizer. Raw tokens
 at or above 2,047 bytes are ignored without adding a position, matching the
@@ -150,14 +247,29 @@ guards. The complete original source is still used for literal/fuzzy matching.
 Native headline selection uses required words for a field whose phrase match
 has already been proved, so large/position-saturated sources can return useful
 late context. All database work runs within an owned transaction/savepoint,
-and each statement gets its own budget.
+and each statement gets its own budget. Two planner settings apply to the
+same transaction, including the legacy substring search. JIT compilation is
+off: search expressions are long enough to cross `jit_above_cost`, and
+compiling them took about 30 ms per statement, several times the execution
+time of a selective search. `plan_cache_mode` is `force_custom_plan`: whether
+a keyword is rare or broad decides the right plan, and a cached generic plan
+cannot see the keyword (a broad legacy search took 0.97 s instead of 0.31 s).
 `TRACECAT__CASE_SEARCH_STATEMENT_TIMEOUT_MS` sets it (default 30 s). The budget
 lets broad searches finish instead of failing, but it bounds each statement,
 not the request: a search runs its page, match-detail and excerpt queries, and
-the UI requests status counts in parallel. The server does not cancel queries
-when the client aborts a superseded search, so they run until they finish or
-reach the budget. Many concurrent slow searches can therefore exhaust the API's
-connection pool; lower the budget if that happens. A timeout returns the shared
+the UI requests status counts in parallel. When the client aborts a
+superseded search, the API cancels it. `CancelOnDisconnectMiddleware` cancels
+the request handler for `POST .../cases/search` and `.../cases/search/aggregate`,
+and the routes call `pg_cancel_backend` for the request's backend before the
+cancellation unwinds. The call uses its own unpooled connection, so it works
+when the pool is exhausted, and it repeats every second until the search ends,
+since a cancel that lands between two statements has no effect. When it
+succeeds the statement stops in PostgreSQL and the connection returns to the
+pool; if it cannot connect, the statement budget is the fallback. The UI also
+skips its 120 s auto-refresh while a search is applied. Workflow,
+API and MCP callers that do not disconnect still run each statement to its
+budget, and many concurrent slow searches can exhaust the API's connection
+pool; lower the budget if that happens. A timeout returns the shared
 `query_timeout` contract and rolls back the savepoint; it does not silently
 return an incomplete result.
 

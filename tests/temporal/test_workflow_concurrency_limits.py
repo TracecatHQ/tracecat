@@ -1,8 +1,8 @@
-"""Temporal e2e tests for workflow concurrency tier limits.
+"""Temporal e2e tests for per-organization action concurrency limits.
 
-These tests exercise the real tier-limit activities and Redis semaphore behavior
-through running workflows, while mocking action execution for deterministic
-coordination.
+The real executor activity runs the admission gate against real Redis and the
+tier tables; only the action body (``dispatch_action``) is a stub, so tests can
+hold an action open and count what ran.
 """
 
 from __future__ import annotations
@@ -10,53 +10,56 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections import Counter
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from temporalio import activity
-from temporalio.api.enums.v1 import IndexedValueType
+from temporalio.api.enums.v1 import EventType, IndexedValueType
+from temporalio.api.history.v1 import HistoryEvent
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
 from temporalio.client import WorkflowFailureError, WorkflowHandle
-from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
+from tracecat.admission import gate
+from tracecat.admission.leases import LeaseStore
+from tracecat.admission.limits import clear_limits_cache
+from tracecat.admission.types import (
+    ADMISSION_ACK_SIGNAL,
+    ConcurrencyResource,
+    parse_not_admitted,
+)
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.schemas import (
-    ActionRetryPolicy,
-    ActionStatement,
-    GatherArgs,
-    RunActionInput,
-    ScatterArgs,
-)
-from tracecat.dsl.worker import get_activities
-from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionInput
+from tracecat.executor import activities as executor_activities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.redis import client as redis_client_module
 from tracecat.redis.client import get_redis_client
-from tracecat.runtime.errors import (
-    RetryDisposition,
-    RuntimeErrorKind,
-    RuntimeErrorOwner,
-)
-from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.tiers.limits_cache import invalidate_effective_limits_cache
 from tracecat.workflow.executions.enums import TemporalSearchAttr
+from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 pytestmark = [
     pytest.mark.temporal,
     pytest.mark.usefixtures("registry_version_with_manifest"),
 ]
+
+EXECUTE_ACTION = ExecutorActivities.execute_action_activity.__name__
 
 
 @pytest.fixture
@@ -77,91 +80,105 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
 
 
 @pytest.fixture
-async def concurrency_limits_enabled(
+async def limits_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncGenerator[None, None]:
-    """Enable tier-limit enforcement and isolate Redis for this test session.
-
-    This fixture enables the workflow concurrency feature flags and sets timing
-    constants to short values so backoff and permit wait behavior can be exercised
-    quickly in tests. It also points Redis client configuration at the test
-    environment before each test and tears down the shared connection before and
-    after execution.
-    """
+    """Turn the limits on and give the gate a fresh Redis client and caches."""
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     monkeypatch.setattr(
-        config,
-        "TRACECAT__FEATURE_FLAGS",
-        {FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS},
+        config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS}
     )
-    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS", 0.02)
-    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS", 0.1)
-    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS", 30)
-    monkeypatch.setattr(config, "TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS", 30)
-    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS", 10.0)
     monkeypatch.setattr(redis_client_module, "REDIS_URL", os.environ["REDIS_URL"])
-
+    # The time-skipping server advances its clock past real-time heartbeats.
+    monkeypatch.setattr(config, "TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT", 0)
+    clear_limits_cache()
+    gate.reset_breaker()
     redis_wrapper = await get_redis_client()
     await redis_wrapper.close()
     yield
     await redis_wrapper.close()
+    clear_limits_cache()
+    gate.reset_breaker()
 
 
-def _workflow_semaphore_key(org_id: uuid.UUID) -> str:
-    """Build the Redis key used for workflow permit tracking for an org."""
-    return f"tier:org:{org_id}:workflow-semaphore"
+@dataclass
+class FakeActions:
+    """Stands in for ``dispatch_action``: optionally holds an action open."""
+
+    holds: dict[str, asyncio.Event] = field(default_factory=dict)
+    started: list[str] = field(default_factory=list)
+    running: Counter[str] = field(default_factory=Counter)
+    max_running: Counter[str] = field(default_factory=Counter)
+    widths: dict[str, int | None] = field(default_factory=dict)
+    on_start: Callable[[str], Awaitable[None]] | None = None
+    """Runs when an action starts, before its result is returned."""
+    results: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    async def dispatch(
+        self,
+        *,
+        backend: Any,
+        input: RunActionInput,
+        max_concurrency: int | None = None,
+    ) -> dict[str, str]:
+        del backend
+        role = ctx_role.get()
+        org = str(role.organization_id if role else None)
+        ref = input.task.ref
+        self.started.append(ref)
+        self.widths[ref] = max_concurrency
+        self.running[org] += 1
+        self.max_running[org] = max(self.max_running[org], self.running[org])
+        try:
+            if self.on_start is not None:
+                await self.on_start(ref)
+            if (hold := self.holds.get(ref)) is not None:
+                await hold.wait()
+            return self.results.get(ref, {"ref": ref})
+        finally:
+            self.running[org] -= 1
 
 
-def _action_semaphore_key(org_id: uuid.UUID) -> str:
-    """Build the Redis key used for action permit tracking for an org."""
-    return f"tier:org:{org_id}:action-semaphore"
-
-
-def _build_single_action_dsl(
-    *,
-    title: str,
-    ref: str,
-    start_delay_seconds: float = 0.0,
-    retry_until: str | None = None,
-) -> DSLInput:
-    """Build a single-action DSL used by concurrency tests.
-
-    The returned DSL keeps the action name and reference stable, while allowing the
-    caller to vary optional retry timing and start delay behavior per test.
-    """
-    retry_policy = (
-        ActionRetryPolicy(retry_until=retry_until)
-        if retry_until is not None
-        else ActionRetryPolicy()
+@pytest.fixture
+def fake_actions(monkeypatch: pytest.MonkeyPatch) -> FakeActions:
+    fake = FakeActions()
+    monkeypatch.setattr(executor_activities, "dispatch_action", fake.dispatch)
+    monkeypatch.setattr(
+        executor_activities, "get_executor_backend", MagicMock(return_value=None)
     )
+    return fake
+
+
+def _dsl(title: str, refs: list[str], *, chain: bool = False) -> DSLInput:
+    """Actions run in parallel, or one after another with ``chain``."""
+    actions = [
+        ActionStatement(
+            ref=ref,
+            action="core.transform.reshape",
+            args={"value": ref},
+            depends_on=[refs[i - 1]] if chain and i > 0 else [],
+        )
+        for i, ref in enumerate(refs)
+    ]
     return DSLInput(
         title=title,
         description=title,
-        entrypoint=DSLEntrypoint(ref=ref),
-        actions=[
-            ActionStatement(
-                ref=ref,
-                action="core.transform.reshape",
-                args={"ref": ref},
-                start_delay=start_delay_seconds,
-                retry_policy=retry_policy,
-            )
-        ],
+        entrypoint=DSLEntrypoint(ref=refs[0]),
+        actions=actions,
     )
 
 
 async def _configure_org_limits(
     org_id: uuid.UUID,
     *,
-    max_concurrent_workflows: int | None = None,
     max_concurrent_actions: int | None = None,
     max_action_executions_per_workflow: int | None = None,
 ) -> None:
-    """Upsert an organization tier configuration with deterministic e2e limits."""
+    """Upsert an organization tier with the given limits."""
     tier_id = uuid.uuid5(org_id, "temporal-tier")
     tier_values = {
         "display_name": f"Temporal Tier {org_id.hex[:8]}",
-        "max_concurrent_workflows": max_concurrent_workflows,
+        "max_concurrent_workflows": None,
         "max_action_executions_per_workflow": max_action_executions_per_workflow,
         "max_concurrent_actions": max_concurrent_actions,
         "api_rate_limit": None,
@@ -171,7 +188,6 @@ async def _configure_org_limits(
         "sort_order": 0,
         "is_active": True,
     }
-
     async with get_async_session_context_manager() as session:
         await session.execute(
             pg_insert(Organization)
@@ -209,801 +225,567 @@ async def _configure_org_limits(
     await invalidate_effective_limits_cache(org_id)
 
 
-async def _start_batch(
-    *,
-    env: WorkflowEnvironment,
-    role: Role,
-    dsl: DSLInput,
-    workflow_name_prefix: str,
-    size: int,
-) -> list[WorkflowHandle]:
-    """Start a batch of identical workflows using the same role and DSL.
-
-    Returns:
-        A list of workflow handles, one per started workflow, so callers can await
-        completion and assert post-run semaphore state.
-    """
-    handles: list[WorkflowHandle] = []
-    for i in range(size):
-        handle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id(
-                f"{workflow_name_prefix}_{i}_{uuid.uuid4().hex[:6]}"
-            ),
-            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-        )
-        handles.append(handle)
-    return handles
-
-
 def _role_for_org(base_role: Role, org_id: uuid.UUID) -> Role:
-    """Return a role copy scoped to the requested organization."""
     return base_role.model_copy(update={"organization_id": org_id})
 
 
-@pytest.mark.anyio
-async def test_workflow_concurrency_batch_never_exceeds_cap(
-    env: WorkflowEnvironment,
-    test_role: Role,
-    test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
-) -> None:
-    """Verify workflow permit acquisition caps concurrent active workflows.
-
-    The test starts more workflows than the configured permit cap, mocks action
-    execution to park each workflow on permit hold, then checks that active
-    workflow permits never grow beyond the configured limit. It also observes the
-    Redis semaphore directly to verify it reflects the same limit and is cleaned up
-    after all workflows complete.
-    """
-    cap = 3
-    batch_size = 8
-    org_id = test_role.organization_id
-    assert org_id is not None
-    await _configure_org_limits(org_id, max_concurrent_workflows=cap)
-
-    redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    semaphore_key = _workflow_semaphore_key(org_id)
-    await redis_client.delete(semaphore_key)
-
-    in_flight_actions = 0
-    max_in_flight_actions = 0
-    max_workflow_permits = 0
-    lock = asyncio.Lock()
-    reached_cap = asyncio.Event()
-    release_actions = asyncio.Event()
-    stop_monitor = asyncio.Event()
-
-    async def monitor_workflow_permits() -> None:
-        nonlocal max_workflow_permits
-        while not stop_monitor.is_set():
-            count = int(await redis_client.zcard(semaphore_key))
-            max_workflow_permits = max(max_workflow_permits, count)
-            await asyncio.sleep(0.01)
-
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del input, role
-        nonlocal in_flight_actions, max_in_flight_actions
-        async with lock:
-            in_flight_actions += 1
-            max_in_flight_actions = max(max_in_flight_actions, in_flight_actions)
-            if in_flight_actions >= cap:
-                reached_cap.set()
-        try:
-            await release_actions.wait()
-            return InlineObject(data={"ok": True})
-        finally:
-            async with lock:
-                in_flight_actions -= 1
-
-    dsl = _build_single_action_dsl(title="workflow-cap-batch", ref="task")
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
-
-    monitor_task = asyncio.create_task(monitor_workflow_permits())
-
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handles = await _start_batch(
-            env=env,
-            role=test_role,
-            dsl=dsl,
-            workflow_name_prefix="workflow_cap_batch",
-            size=batch_size,
-        )
-
-        await asyncio.wait_for(reached_cap.wait(), timeout=10)
-        assert in_flight_actions == cap
-        assert int(await redis_client.zcard(semaphore_key)) == cap
-
-        release_actions.set()
-        for handle in handles:
-            await handle.result()
-
-    stop_monitor.set()
-    await asyncio.gather(monitor_task, return_exceptions=True)
-
-    assert max_in_flight_actions <= cap
-    assert max_workflow_permits <= cap
-    assert int(await redis_client.zcard(semaphore_key)) == 0
-
-
-@pytest.mark.anyio
-async def test_action_concurrency_never_exceeds_cap(
-    env: WorkflowEnvironment,
-    test_role: Role,
-    test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
-) -> None:
-    """Verify action permit cap is enforced for a workflow batch.
-
-    We configure an organization-level action concurrency limit, launch more workflows
-    than that cap, and hold mocked action executions open. The test asserts that
-    only the capped number of actions can hold permits simultaneously, while
-    remaining workflows wait.
-    """
-    cap = 2
-    batch_size = 7
-    org_id = test_role.organization_id
-    assert org_id is not None
-    await _configure_org_limits(org_id, max_concurrent_actions=cap)
-
-    redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    semaphore_key = _action_semaphore_key(org_id)
-    await redis_client.delete(semaphore_key)
-
-    in_flight_actions = 0
-    max_in_flight_actions = 0
-    max_action_permits = 0
-    lock = asyncio.Lock()
-    reached_cap = asyncio.Event()
-    release_actions = asyncio.Event()
-    stop_monitor = asyncio.Event()
-
-    async def monitor_action_permits() -> None:
-        nonlocal max_action_permits
-        while not stop_monitor.is_set():
-            count = int(await redis_client.zcard(semaphore_key))
-            max_action_permits = max(max_action_permits, count)
-            await asyncio.sleep(0.01)
-
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del input, role
-        nonlocal in_flight_actions, max_in_flight_actions
-        async with lock:
-            in_flight_actions += 1
-            max_in_flight_actions = max(max_in_flight_actions, in_flight_actions)
-            if in_flight_actions >= cap:
-                reached_cap.set()
-        try:
-            await release_actions.wait()
-            return InlineObject(data={"ok": True})
-        finally:
-            async with lock:
-                in_flight_actions -= 1
-
-    dsl = _build_single_action_dsl(title="action-cap-batch", ref="task")
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
-
-    monitor_task = asyncio.create_task(monitor_action_permits())
-
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handles = await _start_batch(
-            env=env,
-            role=test_role,
-            dsl=dsl,
-            workflow_name_prefix="action_cap_batch",
-            size=batch_size,
-        )
-
-        await asyncio.wait_for(reached_cap.wait(), timeout=10)
-        assert in_flight_actions == cap
-        assert int(await redis_client.zcard(semaphore_key)) == cap
-
-        release_actions.set()
-        for handle in handles:
-            await handle.result()
-
-    stop_monitor.set()
-    await asyncio.gather(monitor_task, return_exceptions=True)
-
-    assert max_in_flight_actions <= cap
-    assert max_action_permits <= cap
-    assert int(await redis_client.zcard(semaphore_key)) == 0
-
-
-@pytest.mark.anyio
-async def test_action_concurrency_limit_update_applies_to_pending_acquires(
-    env: WorkflowEnvironment,
-    test_role: Role,
-    test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
-) -> None:
-    """Verify reduced action cap is enforced for acquires after an in-flight update.
-
-    Workflows are started under a higher cap and blocked inside mocked actions. We then
-    lower the org action cap before releasing blocked actions. Any actions that acquire
-    permits after the update must respect the lower cap.
-    """
-    initial_cap = 3
-    updated_cap = 1
-    batch_size = 8
-    org_id = test_role.organization_id
-    assert org_id is not None
-    await _configure_org_limits(org_id, max_concurrent_actions=initial_cap)
-
-    redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    semaphore_key = _action_semaphore_key(org_id)
-    await redis_client.delete(semaphore_key)
-
-    started_actions = 0
-    in_flight_actions = 0
-    post_update_in_flight_actions = 0
-    max_post_update_in_flight_actions = 0
-    lock = asyncio.Lock()
-    initial_cap_reached = asyncio.Event()
-    release_actions = asyncio.Event()
-
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del input, role
-        nonlocal started_actions
-        nonlocal in_flight_actions
-        nonlocal post_update_in_flight_actions
-        nonlocal max_post_update_in_flight_actions
-        is_post_update = False
-        async with lock:
-            started_actions += 1
-            start_index = started_actions
-            in_flight_actions += 1
-            if start_index <= initial_cap and in_flight_actions >= initial_cap:
-                initial_cap_reached.set()
-            is_post_update = start_index > initial_cap
-            if is_post_update:
-                post_update_in_flight_actions += 1
-                max_post_update_in_flight_actions = max(
-                    max_post_update_in_flight_actions,
-                    post_update_in_flight_actions,
-                )
-        try:
-            await release_actions.wait()
-            await asyncio.sleep(0.05)
-            return InlineObject(data={"ok": True})
-        finally:
-            async with lock:
-                in_flight_actions -= 1
-                if is_post_update:
-                    post_update_in_flight_actions -= 1
-
-    dsl = _build_single_action_dsl(title="action-cap-update", ref="task")
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
-
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handles = await _start_batch(
-            env=env,
-            role=test_role,
-            dsl=dsl,
-            workflow_name_prefix="action_cap_dynamic_update",
-            size=batch_size,
-        )
-
-        await asyncio.wait_for(initial_cap_reached.wait(), timeout=10)
-        assert in_flight_actions == initial_cap
-
-        await _configure_org_limits(org_id, max_concurrent_actions=updated_cap)
-
-        release_actions.set()
-        for handle in handles:
-            await handle.result()
-
-    assert started_actions == batch_size
-    assert max_post_update_in_flight_actions <= updated_cap
-    assert int(await redis_client.zcard(semaphore_key)) == 0
-
-
-@pytest.mark.anyio
-async def test_workflow_concurrency_limit_update_applies_to_pending_acquires(
-    env: WorkflowEnvironment,
-    test_role: Role,
-    test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
-) -> None:
-    """Verify reduced workflow cap is enforced for acquires after an update."""
-    initial_cap = 3
-    updated_cap = 1
-    batch_size = 8
-    org_id = test_role.organization_id
-    assert org_id is not None
-    await _configure_org_limits(org_id, max_concurrent_workflows=initial_cap)
-
-    redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    semaphore_key = _workflow_semaphore_key(org_id)
-    await redis_client.delete(semaphore_key)
-
-    started_actions = 0
-    in_flight_actions = 0
-    post_update_in_flight_actions = 0
-    max_post_update_in_flight_actions = 0
-    lock = asyncio.Lock()
-    initial_cap_reached = asyncio.Event()
-    release_actions = asyncio.Event()
-
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del input, role
-        nonlocal started_actions
-        nonlocal in_flight_actions
-        nonlocal post_update_in_flight_actions
-        nonlocal max_post_update_in_flight_actions
-        is_post_update = False
-        async with lock:
-            started_actions += 1
-            start_index = started_actions
-            in_flight_actions += 1
-            if start_index <= initial_cap and in_flight_actions >= initial_cap:
-                initial_cap_reached.set()
-            is_post_update = start_index > initial_cap
-            if is_post_update:
-                post_update_in_flight_actions += 1
-                max_post_update_in_flight_actions = max(
-                    max_post_update_in_flight_actions,
-                    post_update_in_flight_actions,
-                )
-        try:
-            await release_actions.wait()
-            await asyncio.sleep(0.05)
-            return InlineObject(data={"ok": True})
-        finally:
-            async with lock:
-                in_flight_actions -= 1
-                if is_post_update:
-                    post_update_in_flight_actions -= 1
-
-    dsl = _build_single_action_dsl(title="workflow-cap-update", ref="task")
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
-
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handles = await _start_batch(
-            env=env,
-            role=test_role,
-            dsl=dsl,
-            workflow_name_prefix="workflow_cap_dynamic_update",
-            size=batch_size,
-        )
-
-        await asyncio.wait_for(initial_cap_reached.wait(), timeout=10)
-        assert in_flight_actions == initial_cap
-
-        await _configure_org_limits(org_id, max_concurrent_workflows=updated_cap)
-
-        release_actions.set()
-        for handle in handles:
-            await handle.result()
-
-    assert started_actions == batch_size
-    assert max_post_update_in_flight_actions <= updated_cap
-    assert int(await redis_client.zcard(semaphore_key)) == 0
-
-
-@pytest.mark.anyio
-async def test_scatter_gather_respects_action_concurrency_cap(
-    env: WorkflowEnvironment,
-    test_role: Role,
-    test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
-) -> None:
-    """Ensure scatter branch actions obey org action concurrency cap.
-
-    We execute a single workflow with a scatter fan-out larger than the cap and
-    verify that only `cap` branch actions run concurrently while gather completes
-    after release.
-    """
-    cap = 2
-    scatter_width = 6
-    org_id = test_role.organization_id
-    assert org_id is not None
-    await _configure_org_limits(org_id, max_concurrent_actions=cap)
-
-    redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    semaphore_key = _action_semaphore_key(org_id)
-    await redis_client.delete(semaphore_key)
-
-    in_flight_actions = 0
-    max_in_flight_actions = 0
-    max_action_permits = 0
-    lock = asyncio.Lock()
-    reached_cap = asyncio.Event()
-    release_actions = asyncio.Event()
-    stop_monitor = asyncio.Event()
-
-    async def monitor_action_permits() -> None:
-        nonlocal max_action_permits
-        while not stop_monitor.is_set():
-            count = int(await redis_client.zcard(semaphore_key))
-            max_action_permits = max(max_action_permits, count)
-            await asyncio.sleep(0.01)
-
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del role
-        nonlocal in_flight_actions, max_in_flight_actions
-        if input.task.ref != "work":
-            return InlineObject(data={"ok": True})
-        async with lock:
-            in_flight_actions += 1
-            max_in_flight_actions = max(max_in_flight_actions, in_flight_actions)
-            if in_flight_actions >= cap:
-                reached_cap.set()
-        try:
-            await release_actions.wait()
-            return InlineObject(data=input.task.args["value"])
-        finally:
-            async with lock:
-                in_flight_actions -= 1
-
-    dsl = DSLInput(
-        title="scatter-gather-cap",
-        description="scatter/gather action cap",
-        entrypoint=DSLEntrypoint(ref="scatter"),
-        actions=[
-            ActionStatement(
-                ref="scatter",
-                action="core.transform.scatter",
-                args=ScatterArgs(collection=list(range(scatter_width))).model_dump(),
-            ),
-            ActionStatement(
-                ref="work",
-                action="core.transform.reshape",
-                depends_on=["scatter"],
-                args={"value": "${{ ACTIONS.scatter.result }}"},
-            ),
-            ActionStatement(
-                ref="gather",
-                action="core.transform.gather",
-                depends_on=["work"],
-                args=GatherArgs(items="${{ ACTIONS.work.result }}").model_dump(),
-            ),
-        ],
+async def _start(
+    env: WorkflowEnvironment, role: Role, dsl: DSLInput, name: str
+) -> WorkflowHandle[Any, Any]:
+    return await env.client.start_workflow(
+        "DSLWorkflow",
+        DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID),
+        id=generate_test_exec_id(f"{name}_{uuid.uuid4().hex[:6]}"),
+        task_queue=config.TEMPORAL__CLUSTER_QUEUE,
     )
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
 
-    monitor_task = asyncio.create_task(monitor_action_permits())
 
-    async with (
-        test_worker_factory(env.client, activities=activities),
+def _workers(
+    env: WorkflowEnvironment, test_worker_factory: Callable[..., Worker]
+) -> tuple[Worker, Worker]:
+    return (
+        test_worker_factory(env.client),
         test_worker_factory(
             env.client,
-            activities=[execute_action_activity_mock],
+            activities=[ExecutorActivities.execute_action_activity],
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
         ),
-    ):
-        handle: WorkflowHandle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id(f"scatter_gather_cap_{uuid.uuid4().hex[:6]}"),
-            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-        )
+    )
 
-        await asyncio.wait_for(reached_cap.wait(), timeout=10)
-        assert in_flight_actions == cap
-        assert int(await redis_client.zcard(semaphore_key)) == cap
 
-        release_actions.set()
-        await handle.result()
+async def _history(handle: WorkflowHandle[Any, Any]) -> list[HistoryEvent]:
+    return [event async for event in handle.fetch_history_events()]
 
-    stop_monitor.set()
-    await asyncio.gather(monitor_task, return_exceptions=True)
 
-    assert max_in_flight_actions <= cap
-    assert max_action_permits <= cap
-    assert int(await redis_client.zcard(semaphore_key)) == 0
+async def _busy_count(handle: WorkflowHandle[Any, Any]) -> int:
+    converter = get_data_converter(compression_enabled=False)
+    count = 0
+    for event in await _history(handle):
+        if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+            continue
+        payloads = event.activity_task_completed_event_attributes.result.payloads
+        if not payloads:
+            continue
+        (result,) = await converter.decode(payloads)
+        if parse_not_admitted(result) is not None:
+            count += 1
+    return count
+
+
+async def _wait_until(predicate: Callable[[], Any], *, timeout: float = 20) -> None:
+    async with asyncio.timeout(timeout):
+        while not await predicate():
+            await asyncio.sleep(0.05)
+
+
+def _scheduled_activity_types(history: list[HistoryEvent]) -> list[str]:
+    return [
+        e.activity_task_scheduled_event_attributes.activity_type.name
+        for e in history
+        if e.event_type is EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+    ]
+
+
+def _admission_signals(history: list[HistoryEvent]) -> int:
+    return sum(
+        1
+        for e in history
+        if e.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED
+        and e.workflow_execution_signaled_event_attributes.signal_name
+        == ADMISSION_ACK_SIGNAL
+    )
+
+
+def _fired_timer_count(history: list[HistoryEvent]) -> int:
+    return sum(1 for e in history if e.event_type is EventType.EVENT_TYPE_TIMER_FIRED)
+
+
+def _timers(history: list[HistoryEvent]) -> list[timedelta]:
+    return [
+        e.timer_started_event_attributes.start_to_fire_timeout.ToTimedelta()
+        for e in history
+        if e.event_type is EventType.EVENT_TYPE_TIMER_STARTED
+    ]
 
 
 @pytest.mark.anyio
-async def test_start_delay_does_not_consume_action_permit(
+async def test_cap_one_second_action_waits_then_runs_and_bounces_are_hidden(
     env: WorkflowEnvironment,
     test_role: Role,
     test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
+    limits_enabled: None,
+    fake_actions: FakeActions,
 ) -> None:
-    """Show delayed actions do not consume action permits prematurely.
-
-    A workflow with a long delayed action is started alongside an immediate action.
-    The immediate workflow should acquire and hold the only available permit first;
-    the delayed workflow should remain unstarted until its start delay passes and the
-    permit is released.
-    """
     org_id = test_role.organization_id
     assert org_id is not None
     await _configure_org_limits(org_id, max_concurrent_actions=1)
+    fake_actions.holds["first"] = asyncio.Event()
 
-    redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    semaphore_key = _action_semaphore_key(org_id)
-    await redis_client.delete(semaphore_key)
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    # Real time: an activity is held open, so the server must not skip ahead.
+    with env.auto_time_skipping_disabled():
+        async with dsl_worker, executor_worker:
+            holder = await _start(env, test_role, _dsl("holder", ["first"]), "holder")
 
-    immediate_started = asyncio.Event()
-    delayed_started = asyncio.Event()
-    release_immediate = asyncio.Event()
+            async def first_started() -> bool:
+                return "first" in fake_actions.started
 
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del role
-        if input.task.ref == "immediate_action":
-            immediate_started.set()
-            await release_immediate.wait()
-        else:
-            delayed_started.set()
-        return InlineObject(data={"ref": input.task.ref})
+            await _wait_until(first_started)
+            waiter = await _start(env, test_role, _dsl("waiter", ["second"]), "waiter")
 
-    delayed_dsl = _build_single_action_dsl(
-        title="delayed-action",
-        ref="delayed_action",
-        start_delay_seconds=3600,
-    )
-    immediate_dsl = _build_single_action_dsl(
-        title="immediate-action",
-        ref="immediate_action",
-    )
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
+            async def waiter_bounced() -> bool:
+                return await _busy_count(waiter) >= 1
 
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        delayed_handle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            DSLRunArgs(dsl=delayed_dsl, role=test_role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id(f"delayed_{uuid.uuid4().hex[:6]}"),
-            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-        )
-        immediate_handle = await env.client.start_workflow(
-            DSLWorkflow.run,
-            DSLRunArgs(dsl=immediate_dsl, role=test_role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id(f"immediate_{uuid.uuid4().hex[:6]}"),
-            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-        )
+            await _wait_until(waiter_bounced)
+            assert "second" not in fake_actions.started
 
-        await asyncio.wait_for(immediate_started.wait(), timeout=10)
-        assert delayed_started.is_set() is False
-        assert int(await redis_client.zcard(semaphore_key)) == 1
+            fake_actions.holds["first"].set()
+            await holder.result()
+            await waiter.result()
 
-        release_immediate.set()
-        await immediate_handle.result()
+    assert fake_actions.started == ["first", "second"]
+    assert fake_actions.max_running[str(org_id)] == 1
 
-        await env.sleep(timedelta(hours=2))
-        await delayed_handle.result()
-        assert delayed_started.is_set()
+    # Both history views show one execution of "second", with no busy bounce.
+    service = WorkflowExecutionsService(env.client, role=test_role)
+    service.require_execution = AsyncMock()  # visibility isn't needed here
+    compact = await service.list_workflow_execution_events_compact(waiter.id)
+    second_compact = [e for e in compact if e.action_ref == "second"]
+    assert len(second_compact) == 1
+    assert second_compact[0].action_result is not None
+    assert parse_not_admitted(second_compact[0].action_result) is None
 
-    assert int(await redis_client.zcard(semaphore_key)) == 0
+    detailed = await service.list_workflow_execution_events(waiter.id)
+    action_events = [
+        e
+        for e in detailed
+        if e.event_group is not None and e.event_group.action_ref == "second"
+    ]
+    assert [e.event_type.value for e in action_events] == [
+        "ACTIVITY_TASK_SCHEDULED",
+        "ACTIVITY_TASK_STARTED",
+        "ACTIVITY_TASK_COMPLETED",
+    ]
+    assert await _busy_count(waiter) >= 1  # raw history still has the bounce
+    # The admitted probe told the run it got in.
+    assert _admission_signals(await _history(waiter)) == 1
 
 
 @pytest.mark.anyio
-async def test_retry_until_iterations_count_toward_action_execution_limit_e2e(
+async def test_capped_org_waits_while_other_org_starts_at_once(
     env: WorkflowEnvironment,
     test_role: Role,
     test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
+    limits_enabled: None,
+    fake_actions: FakeActions,
 ) -> None:
-    """Confirm retry loops consume the action execution budget and fail at the cap.
+    capped_org = uuid.uuid4()
+    other_org = uuid.uuid4()
+    await _configure_org_limits(capped_org, max_concurrent_actions=1)
+    await _configure_org_limits(other_org, max_concurrent_actions=1)
+    capped_role = _role_for_org(test_role, capped_org)
+    other_role = _role_for_org(test_role, other_org)
+    fake_actions.holds["capped_1"] = asyncio.Event()
+    fake_actions.holds["other_1"] = asyncio.Event()
 
-    The mocked action returns a non-terminal status repeatedly while the DSL's
-    retry policy evaluates a success condition. The test asserts the workflow fails
-    with the expected limit error and that the action was executed exactly at the
-    configured maximum attempts.
-    """
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    # Real time: an activity is held open, so the server must not skip ahead.
+    with env.auto_time_skipping_disabled():
+        async with dsl_worker, executor_worker:
+            first = await _start(env, capped_role, _dsl("c1", ["capped_1"]), "c1")
+
+            async def capped_started() -> bool:
+                return "capped_1" in fake_actions.started
+
+            await _wait_until(capped_started)
+            second = await _start(env, capped_role, _dsl("c2", ["capped_2"]), "c2")
+            other = await _start(env, other_role, _dsl("o1", ["other_1"]), "o1")
+
+            async def other_started() -> bool:
+                return "other_1" in fake_actions.started
+
+            await _wait_until(other_started, timeout=10)
+            assert "capped_2" not in fake_actions.started
+
+            fake_actions.holds["capped_1"].set()
+            fake_actions.holds["other_1"].set()
+            await asyncio.gather(first.result(), second.result(), other.result())
+
+    assert await _busy_count(other) == 0
+    assert await _busy_count(second) >= 1
+    assert fake_actions.max_running[str(capped_org)] == 1
+
+
+@pytest.mark.anyio
+async def test_long_wait_keeps_waiting_with_bounded_history(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """A 20-minute wait never fails, and costs one probe per backoff period."""
     org_id = test_role.organization_id
     assert org_id is not None
-    await _configure_org_limits(org_id, max_action_executions_per_workflow=2)
+    await _configure_org_limits(org_id, max_concurrent_actions=1)
+    refs = ["w1", "w2", "w3"]
 
-    num_activity_executions = 0
-
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del input, role
-        nonlocal num_activity_executions
-        num_activity_executions += 1
-        return InlineObject(data={"status": "loading"})
-
-    dsl = _build_single_action_dsl(
-        title="retry-until-limit",
-        ref="retry_action",
-        retry_until="${{ ACTIONS.retry_action.result.status == 'success' }}",
+    # Another holder keeps the org full for the whole wait.
+    store = await LeaseStore.create()
+    await store.try_acquire(
+        org_id,
+        ConcurrencyResource.ACTIONS,
+        "external-holder",
+        units=1,
+        limit=1,
+        ttl_seconds=90,
     )
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
+    stop_renewing = asyncio.Event()
 
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await env.client.execute_workflow(
-                DSLWorkflow.run,
-                DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
-                id=generate_test_exec_id(f"retry_limit_{uuid.uuid4().hex[:6]}"),
-                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+    async def keep_holding() -> None:
+        while not stop_renewing.is_set():
+            await store.renew(
+                org_id,
+                ConcurrencyResource.ACTIONS,
+                "external-holder",
+                units=1,
+                ttl_seconds=90,
             )
-        assert isinstance(exc_info.value.cause, ApplicationError)
-        classification = extract_error_classification(exc_info.value)
-        assert classification is not None
-        assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
-        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+            await asyncio.sleep(1)
 
-    assert num_activity_executions == 2
+    renewer = asyncio.create_task(keep_holding())
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    try:
+        async with dsl_worker, executor_worker:
+            handle = await _start(env, test_role, _dsl("long", refs), "long")
+
+            async def all_bounced() -> bool:
+                return await _busy_count(handle) >= len(refs)
+
+            await _wait_until(all_bounced)
+            await env.sleep(timedelta(minutes=20))
+            assert fake_actions.started == []
+
+            stop_renewing.set()
+            await renewer
+            await store.release(
+                org_id, ConcurrencyResource.ACTIONS, "external-holder", units=1
+            )
+            await handle.result()
+    finally:
+        stop_renewing.set()
+        await asyncio.gather(renewer, return_exceptions=True)
+
+    assert sorted(fake_actions.started) == refs
+    history = await _history(handle)
+    bounces = await _busy_count(handle)
+    fired = _fired_timer_count(history)
+    waited = history[-1].event_time.ToDatetime() - history[0].event_time.ToDatetime()
+    print(f"long wait: waited={waited} bounces={bounces} fired_timers={fired}")
+    assert waited >= timedelta(minutes=15)
+    assert max(_timers(history)) <= timedelta(seconds=60)
+    # One shared timer: about 20 min / 60 s periods plus the ramp-up, not one
+    # timer per waiting action.
+    assert fired <= 45
+    # Each fired timer allows one probe; on top, the first wave (one per action)
+    # and at most one hand-off probe per action once capacity frees.
+    assert bounces <= fired + 2 * len(refs)
+    executed = [t for t in _scheduled_activity_types(history) if t == EXECUTE_ACTION]
+    assert len(executed) == bounces + len(refs)
 
 
 @pytest.mark.anyio
-async def test_concurrency_caps_are_isolated_per_organization(
+async def test_redis_down_runs_the_action(
     env: WorkflowEnvironment,
     test_role: Role,
     test_worker_factory: Callable[..., Worker],
-    concurrency_limits_enabled: None,
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Validate semaphore namespaces are isolated by organization.
-
-    Two org identifiers are configured with different action limits (1 vs 2) so we
-    can verify each org's semaphore enforces its own cap independently. We launch
-    enough workflows per org to saturate each cap, confirm the per-org permit counts
-    match their respective limits, and verify both semaphores are drained after
-    execution finishes.
-    """
-    cap_a = 1
-    cap_b = 2
-    batch_size_a = 3
-    batch_size_b = 5
-    org_a = test_role.organization_id
-    assert org_a is not None
-    org_b = uuid.uuid5(org_a, "temporal-concurrency-org-b")
-    role_b = _role_for_org(test_role, org_b)
-
-    await _configure_org_limits(org_a, max_concurrent_actions=cap_a)
-    await _configure_org_limits(org_b, max_concurrent_actions=cap_b)
-
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=1)
     redis_wrapper = await get_redis_client()
-    redis_client = await redis_wrapper._get_client()
-    key_a = _action_semaphore_key(org_a)
-    key_b = _action_semaphore_key(org_b)
-    await redis_client.delete(key_a)
-    await redis_client.delete(key_b)
+    await redis_wrapper.close()
+    monkeypatch.setattr(redis_client_module, "REDIS_URL", "redis://localhost:1/0")
 
-    in_flight_a = 0
-    in_flight_b = 0
-    max_in_flight_a = 0
-    max_in_flight_b = 0
-    lock = asyncio.Lock()
-    a_reached_cap = asyncio.Event()
-    b_reached_cap = asyncio.Event()
-    release_actions = asyncio.Event()
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        handle = await _start(env, test_role, _dsl("no-redis", ["solo"]), "noredis")
+        await handle.result()
 
-    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
-    async def execute_action_activity_mock(
-        input: RunActionInput, role: Role
-    ) -> StoredObject:
-        del input
-        nonlocal in_flight_a, in_flight_b, max_in_flight_a, max_in_flight_b
-        is_org_a = role.organization_id == org_a
-        async with lock:
-            if is_org_a:
-                in_flight_a += 1
-                max_in_flight_a = max(max_in_flight_a, in_flight_a)
-                if in_flight_a >= cap_a:
-                    a_reached_cap.set()
-            else:
-                in_flight_b += 1
-                max_in_flight_b = max(max_in_flight_b, in_flight_b)
-                if in_flight_b >= cap_b:
-                    b_reached_cap.set()
-        try:
-            await release_actions.wait()
-            return InlineObject(data={"ok": True})
-        finally:
-            async with lock:
-                if is_org_a:
-                    in_flight_a -= 1
-                else:
-                    in_flight_b -= 1
+    assert fake_actions.started == ["solo"]
+    assert await _busy_count(handle) == 0
+    await redis_wrapper.close()
 
-    dsl = _build_single_action_dsl(title="cross-org", ref="task")
-    activities = get_activities()
-    activities.append(execute_action_activity_mock)
 
-    async with (
-        test_worker_factory(env.client, activities=activities),
-        test_worker_factory(
-            env.client,
-            activities=[execute_action_activity_mock],
-            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-        ),
-    ):
-        handles_a = await _start_batch(
-            env=env,
-            role=test_role,
-            dsl=dsl,
-            workflow_name_prefix="cross_org_a",
-            size=batch_size_a,
+@pytest.mark.anyio
+async def test_uncontended_run_records_no_extra_activities(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=5)
+    dsl = _dsl("uncontended", ["a", "b"], chain=True)
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        limited = await _start(env, test_role, dsl, "limited")
+        await limited.result()
+        monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
+        baseline = await _start(env, test_role, dsl, "baseline")
+        await baseline.result()
+
+    limited_history = await _history(limited)
+    baseline_history = await _history(baseline)
+    limited_types = _scheduled_activity_types(limited_history)
+    assert limited_types == _scheduled_activity_types(baseline_history)
+    assert limited_types.count(EXECUTE_ACTION) == 2
+    assert "get_tier_limits_activity" not in limited_types
+    assert _timers(limited_history) == []
+    assert _admission_signals(limited_history) == 0
+    assert len(limited_history) == len(baseline_history)
+
+
+@pytest.mark.anyio
+async def test_action_budget_still_enforced_from_the_start_of_run_snapshot(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_action_executions_per_workflow=1)
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        handle = await _start(
+            env, test_role, _dsl("budget", ["one", "two"], chain=True), "budget"
         )
-        handles_b = await _start_batch(
-            env=env,
-            role=role_b,
-            dsl=dsl,
-            workflow_name_prefix="cross_org_b",
-            size=batch_size_b,
-        )
-
-        await asyncio.wait_for(a_reached_cap.wait(), timeout=10)
-        await asyncio.wait_for(b_reached_cap.wait(), timeout=10)
-        assert int(await redis_client.zcard(key_a)) == cap_a
-        assert int(await redis_client.zcard(key_b)) == cap_b
-
-        release_actions.set()
-        for handle in handles_a + handles_b:
+        with pytest.raises(WorkflowFailureError) as exc_info:
             await handle.result()
 
-    assert max_in_flight_a <= cap_a
-    assert max_in_flight_b <= cap_b
-    assert int(await redis_client.zcard(key_a)) == 0
-    assert int(await redis_client.zcard(key_b)) == 0
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
+    assert fake_actions.started == ["one"]
+    assert "get_tier_limits_activity" not in _scheduled_activity_types(
+        await _history(handle)
+    )
+
+
+@pytest.mark.anyio
+async def test_rerun_never_reuses_a_busy_answer(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """A run cancelled while waiting offers no fixed result for the waiting action."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=1)
+    store = await LeaseStore.create()
+    await store.try_acquire(
+        org_id,
+        ConcurrencyResource.ACTIONS,
+        "external-holder",
+        units=1,
+        limit=1,
+        ttl_seconds=90,
+    )
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    try:
+        async with dsl_worker, executor_worker:
+            handle = await _start(env, test_role, _dsl("cancel", ["waits"]), "cancel")
+
+            async def bounced() -> bool:
+                return await _busy_count(handle) >= 1
+
+            await _wait_until(bounced)
+            await handle.cancel()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+    finally:
+        await store.release(
+            org_id, ConcurrencyResource.ACTIONS, "external-holder", units=1
+        )
+
+    assert fake_actions.started == []
+    service = WorkflowExecutionsService(env.client, role=test_role)
+    service.require_execution = AsyncMock()
+    source = await service.get_rerun_source(handle.id)
+    assert source.actions["waits"].fixed is None
+
+
+@pytest.mark.anyio
+async def test_lost_admission_signal_still_completes(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no admission signal, the probe token passes on when the probe completes."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    monkeypatch.setattr(executor_activities, "_ack_admission", AsyncMock())
+    store = await LeaseStore.create()
+    await store.try_acquire(
+        org_id,
+        ConcurrencyResource.ACTIONS,
+        "external-holder",
+        units=2,
+        limit=2,
+        ttl_seconds=90,
+    )
+    refs = ["p1", "p2"]
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    try:
+        async with dsl_worker, executor_worker:
+            handle = await _start(env, test_role, _dsl("lost", refs), "lost")
+
+            async def both_bounced() -> bool:
+                return await _busy_count(handle) >= len(refs)
+
+            await _wait_until(both_bounced)
+            await store.release(
+                org_id, ConcurrencyResource.ACTIONS, "external-holder", units=2
+            )
+            await handle.result()
+    finally:
+        await store.release(
+            org_id, ConcurrencyResource.ACTIONS, "external-holder", units=2
+        )
+
+    assert sorted(fake_actions.started) == refs
+    assert _admission_signals(await _history(handle)) == 0
+
+
+@pytest.mark.anyio
+async def test_for_each_never_runs_wider_than_the_cap(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A for_each wider than the org's cap reserves, and runs, only the cap."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 6)
+    store = await LeaseStore.create()
+    in_use_while_running: list[int] = []
+
+    async def record_in_use(_ref: str) -> None:
+        in_use_while_running.append(
+            await store.in_use(org_id, ConcurrencyResource.ACTIONS)
+        )
+
+    fake_actions.on_start = record_in_use
+    dsl = DSLInput(
+        title="fanout",
+        description="fanout",
+        entrypoint=DSLEntrypoint(ref="fanout"),
+        actions=[
+            ActionStatement(
+                ref="fanout",
+                action="core.transform.reshape",
+                args={"value": "${{ var.x }}"},
+                for_each="${{ for var.x in [1, 2, 3, 4, 5, 6, 7, 8] }}",
+            )
+        ],
+    )
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        handle = await _start(env, test_role, dsl, "fanout")
+        await handle.result()
+
+    assert fake_actions.widths["fanout"] == 2
+    assert in_use_while_running == [2]
+    assert await store.in_use(org_id, ConcurrencyResource.ACTIONS) == 0
+
+
+@pytest.mark.anyio
+async def test_rerun_keeps_the_last_real_attempt_after_a_busy_bounce(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+) -> None:
+    """retry_until ran once, then bounced: rerun reuses the attempt that ran."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=2)
+    store = await LeaseStore.create()
+
+    async def fill_the_org(_ref: str) -> None:
+        # While this attempt holds 1 unit, take the rest of the cap and more,
+        # so the next retry_until iteration bounces.
+        await store.try_acquire(
+            org_id,
+            ConcurrencyResource.ACTIONS,
+            "external-holder",
+            units=2,
+            limit=3,
+            ttl_seconds=90,
+        )
+
+    fake_actions.on_start = fill_the_org
+    fake_actions.results["retry_action"] = {"status": "loading"}
+    dsl = DSLInput(
+        title="retry",
+        description="retry",
+        entrypoint=DSLEntrypoint(ref="retry_action"),
+        actions=[
+            ActionStatement(
+                ref="retry_action",
+                action="core.transform.reshape",
+                args={"value": "x"},
+                retry_policy=ActionRetryPolicy(
+                    retry_until="${{ ACTIONS.retry_action.result.status == 'done' }}"
+                ),
+            )
+        ],
+    )
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    try:
+        async with dsl_worker, executor_worker:
+            handle = await _start(env, test_role, dsl, "retry")
+
+            async def bounced() -> bool:
+                return await _busy_count(handle) >= 1
+
+            await _wait_until(bounced)
+            await handle.cancel()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+    finally:
+        await store.release(
+            org_id, ConcurrencyResource.ACTIONS, "external-holder", units=2
+        )
+
+    assert fake_actions.started == ["retry_action"]
+    service = WorkflowExecutionsService(env.client, role=test_role)
+    service.require_execution = AsyncMock()
+    source = await service.get_rerun_source(handle.id)
+    assert source.actions["retry_action"].fixed is not None

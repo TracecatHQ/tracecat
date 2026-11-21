@@ -1398,6 +1398,25 @@ export function MistralIcon({ className, ...rest }: IconProps) {
   )
 }
 
+/** Generic shield mark for Bitwarden Secrets Manager (not the vendor logo). */
+export function BitwardenIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 40 40"
+      role="img"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      {...rest}
+    >
+      <path fill="#175DDC" d="M0 0h40v40H0z" />
+      <path
+        fill="#FFF"
+        d="M12 9h16a1 1 0 0 1 1 1v10.5c0 5.4-4.4 9.4-9 11-4.6-1.6-9-5.6-9-11V10a1 1 0 0 1 1-1Zm8 3v16.8c3.3-1.5 6-4.4 6-8.3V12h-6Z"
+      />
+    </svg>
+  )
+}
+
 export function AwsIcon({ className, ...rest }: IconProps) {
   return (
     <svg

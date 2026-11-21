@@ -158,6 +158,8 @@ class TierRead(BaseModel):
     max_concurrent_workflows: int | None
     max_action_executions_per_workflow: int | None
     max_concurrent_actions: int | None
+    max_concurrent_tool_calls: int | None = None
+    max_concurrent_agent_turns: int | None = None
     api_rate_limit: int | None
     api_burst_capacity: int | None
     entitlements: dict[str, bool]
@@ -177,6 +179,8 @@ class OrganizationTierRead(BaseModel):
     max_concurrent_workflows: int | None
     max_action_executions_per_workflow: int | None
     max_concurrent_actions: int | None
+    max_concurrent_tool_calls: int | None = None
+    max_concurrent_agent_turns: int | None = None
     api_rate_limit: int | None
     api_burst_capacity: int | None
     entitlement_overrides: dict[str, bool] | None

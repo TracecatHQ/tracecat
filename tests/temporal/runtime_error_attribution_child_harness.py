@@ -46,6 +46,7 @@ from tracecat.dsl.enums import (
 )
 from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.init_activities import (
+    resolve_run_limits_activity,
     resolve_time_anchor_activity,
     resolve_workflow_concurrency_limits_enabled_activity,
 )
@@ -228,6 +229,7 @@ async def run_unhandled_subflow_preparation_failure_sets_platform_owner(
             activities=[
                 resolve_time_anchor_activity,
                 resolve_workflow_concurrency_limits_enabled_activity,
+                resolve_run_limits_activity,
                 action_module.DSLActivities.prepare_subflow_activity,
                 WorkflowsManagementService.get_error_handler_workflow_id,
             ],
@@ -309,7 +311,9 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
     slow_started = asyncio.Event()
     slow_cancelled = asyncio.Event()
 
-    async def dispatch_slow_action(*, backend: object, input: object) -> object:
+    async def dispatch_slow_action(
+        *, backend: object, input: object, max_concurrency: int | None = None
+    ) -> object:
         del backend, input
         slow_started.set()
         try:
@@ -345,6 +349,7 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     action_module.DSLActivities.prepare_subflow_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
@@ -408,6 +413,7 @@ async def run_missing_subflow_with_cancelled_run_if_preserves_causal_owner(
             activities=[
                 resolve_time_anchor_activity,
                 resolve_workflow_concurrency_limits_enabled_activity,
+                resolve_run_limits_activity,
                 action_module.DSLActivities.prepare_subflow_activity,
                 WorkflowsManagementService.get_error_handler_workflow_id,
                 evaluate_until_cancelled,
@@ -487,6 +493,7 @@ async def run_gather_raise_preserves_platform_child_attribution(
             activities=[
                 resolve_time_anchor_activity,
                 resolve_workflow_concurrency_limits_enabled_activity,
+                resolve_run_limits_activity,
                 action_module.DSLActivities.handle_scatter_input_activity,
                 action_module.DSLActivities.prepare_subflow_activity,
                 action_module.DSLActivities.finalize_gather_activity,
@@ -550,6 +557,7 @@ async def run_isolated_platform_child_failure_does_not_attribute_parent(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                     action_module.DSLActivities.prepare_subflow_activity,
                     action_module.DSLActivities.synchronize_collection_object_activity,
@@ -631,6 +639,7 @@ async def run_fail_all_preserves_mixed_child_attribution(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                     action_module.DSLActivities.prepare_subflow_activity,
                     action_module.DSLActivities.synchronize_collection_object_activity,
@@ -745,6 +754,7 @@ async def run_concurrent_sibling_cancellation_preserves_causal_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                     action_module.DSLActivities.prepare_subflow_activity,
                     action_module.DSLActivities.evaluate_templated_object_activity,
@@ -907,6 +917,7 @@ async def run_successful_error_handler_does_not_inherit_terminal_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                     get_workflow_definition_activity,
                 ],
@@ -1057,6 +1068,7 @@ async def run_invalid_child_input_with_successful_error_handler_sets_user_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                     get_workflow_definition_activity,
                     action_module.DSLActivities.prepare_subflow_activity,

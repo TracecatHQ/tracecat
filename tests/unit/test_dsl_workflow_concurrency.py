@@ -14,10 +14,13 @@ from temporalio.exceptions import ActivityError, ApplicationError, CancelledErro
 
 import tracecat.dsl.workflow as dsl_workflow_module
 from tracecat import config
+from tracecat.admission.types import ConcurrencyResource
+from tracecat.admission.waiting import RunAdmission
 from tracecat.auth.types import Role
 from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import FailStrategy, PlatformAction, WaitStrategy
+from tracecat.dsl.init_activities import RunLimitsSnapshot
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
@@ -42,25 +45,10 @@ from tracecat.temporal.errors import extract_error_classification
 from tracecat.temporal.exceptions import UserError
 from tracecat.temporal.patches import WorkflowPatch
 from tracecat.tiers.schemas import EffectiveLimits
-from tracecat.tiers.semaphore import AcquireResult
 from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 
 
-def _effective_limits(
-    *,
-    max_action_executions_per_workflow: int | None = None,
-    max_concurrent_actions: int | None = None,
-) -> EffectiveLimits:
-    return EffectiveLimits(
-        api_rate_limit=None,
-        api_burst_capacity=None,
-        max_concurrent_workflows=None,
-        max_action_executions_per_workflow=max_action_executions_per_workflow,
-        max_concurrent_actions=max_concurrent_actions,
-    )
-
-
-def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
+def _build_workflow(*, max_actions_per_run: int | None = None) -> DSLWorkflow:
     workflow = object.__new__(DSLWorkflow)
     workflow.role = Role(
         type="service",
@@ -72,10 +60,11 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
     workflow.organization_id = workflow.role.organization_id
     workflow.logger = get_workflow_logger()
     workflow.runtime_config = DSLConfig()
-    workflow._tier_limits = limits
-    workflow._workflow_permit_acquired = False
-    workflow._workflow_permit_heartbeat_task = None
+    workflow._max_actions_per_run = max_actions_per_run
     workflow._action_execution_count = 0
+    workflow._action_admission = RunAdmission(
+        resource=ConcurrencyResource.ACTIONS, logger=workflow.logger
+    )
     workflow.execution_type = ExecutionType.PUBLISHED
     workflow.run_context = RunContext(
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000001"),
@@ -186,9 +175,7 @@ def _prepared_run_workflow(
 
 @pytest.mark.anyio
 async def test_retry_until_enforces_action_execution_limit() -> None:
-    workflow = _build_workflow(
-        limits=_effective_limits(max_action_executions_per_workflow=2)
-    )
+    workflow = _build_workflow(max_actions_per_run=2)
     task = ActionStatement(
         ref="retry_action",
         action="core.transform.reshape",
@@ -221,89 +208,6 @@ async def test_retry_until_enforces_action_execution_limit() -> None:
     assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
     assert execute_task_mock.await_count == 2
     assert workflow._action_execution_count == 3
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("permit_scope", ["workflow", "action"])
-async def test_permit_wait_expiry_is_user_attributed_quota_exhaustion(
-    monkeypatch: pytest.MonkeyPatch,
-    permit_scope: str,
-) -> None:
-    workflow = _build_workflow()
-    execute_activity = AsyncMock(
-        return_value=AcquireResult(acquired=False, current_count=1)
-    )
-    monkeypatch.setattr(
-        config,
-        (
-            "TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS"
-            if permit_scope == "workflow"
-            else "TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS"
-        ),
-        0,
-    )
-
-    with (
-        patch(
-            "tracecat.dsl.workflow.workflow.info",
-            return_value=SimpleNamespace(workflow_id=workflow.wf_exec_id),
-        ),
-        patch("tracecat.dsl.workflow.workflow.now", return_value=datetime.now(UTC)),
-        patch(
-            "tracecat.dsl.workflow.workflow.execute_activity",
-            new=execute_activity,
-        ),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        if permit_scope == "workflow":
-            await workflow._acquire_workflow_permit(limit=1)
-        else:
-            await workflow._acquire_action_permit(action_id="wf:root:task", limit=1)
-
-    classification = extract_error_classification(exc_info.value)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.USER
-    assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
-    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-    assert exc_info.value.non_retryable is True
-
-
-@pytest.mark.anyio
-async def test_execute_task_handles_timers_before_action_permit_acquisition() -> None:
-    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=1))
-    task = ActionStatement(
-        ref="delayed_action",
-        action="core.transform.reshape",
-        start_delay=30,
-    )
-    events: list[str] = []
-    acquire_mock = AsyncMock(side_effect=lambda **_: events.append("acquire"))
-
-    with (
-        patch.object(
-            workflow,
-            "_handle_timers",
-            new=AsyncMock(side_effect=lambda _: events.append("timers")),
-        ),
-        patch.object(workflow, "_action_permit_id", return_value="permit-id"),
-        patch.object(workflow, "_acquire_action_permit", new=acquire_mock),
-        patch.object(
-            workflow, "_action_permit_heartbeat_loop", new=AsyncMock(return_value=None)
-        ),
-        patch.object(
-            workflow,
-            "_run_action",
-            new=AsyncMock(return_value=InlineObject(data={"ok": True})),
-        ),
-        patch.object(
-            workflow, "_release_action_permit", new=AsyncMock(return_value=None)
-        ),
-    ):
-        result = await workflow._execute_task(task)
-
-    assert events[:2] == ["timers", "acquire"]
-    assert acquire_mock.await_count == 1
-    assert result.get_data() == {"ok": True}
 
 
 @pytest.mark.anyio
@@ -445,59 +349,6 @@ async def test_run_workflow_return_error_classification(
         patched.assert_not_called()
     else:
         patched.assert_called_once_with(WorkflowPatch.PRESERVE_RETURN_CANCELLATION)
-
-
-@pytest.mark.anyio
-async def test_execute_task_releases_action_permit_when_cancelled_during_heartbeat_stop() -> (
-    None
-):
-    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=1))
-    task = ActionStatement(ref="limited_action", action="core.transform.reshape")
-    gather_started = asyncio.Event()
-    unblock_gather = asyncio.Event()
-    release_mock = AsyncMock(return_value=None)
-    original_gather = asyncio.gather
-
-    async def heartbeat_loop(*, action_id: str) -> None:
-        del action_id
-        await asyncio.sleep(3600)
-
-    async def delayed_gather(*args: Any, **kwargs: Any) -> list[Any]:
-        gather_started.set()
-        await unblock_gather.wait()
-        return cast(list[Any], await original_gather(*args, **kwargs))
-
-    with (
-        patch.object(workflow, "_handle_timers", new=AsyncMock(return_value=None)),
-        patch.object(workflow, "_action_permit_id", return_value="permit-id"),
-        patch.object(
-            workflow, "_acquire_action_permit", new=AsyncMock(return_value=None)
-        ),
-        patch.object(
-            workflow,
-            "_action_permit_heartbeat_loop",
-            new=heartbeat_loop,
-        ),
-        patch.object(
-            workflow,
-            "_run_action",
-            new=AsyncMock(return_value=InlineObject(data={"ok": True})),
-        ),
-        patch.object(workflow, "_release_action_permit", new=release_mock),
-        patch("tracecat.dsl.workflow.asyncio.gather", new=delayed_gather),
-    ):
-
-        async def run_execute_task() -> TaskResult:
-            return await workflow._execute_task(task)
-
-        execute_task = asyncio.create_task(run_execute_task())
-        await gather_started.wait()
-        execute_task.cancel()
-        unblock_gather.set()
-        result = await execute_task
-
-    assert result.get_data() == {"ok": True}
-    release_mock.assert_awaited_once_with(action_id="permit-id")
 
 
 @pytest.mark.anyio
@@ -683,9 +534,7 @@ def test_evaluate_loop_iterations_invalid_for_each_raises_user_error() -> None:
         )
 
 
-@pytest.mark.anyio
-async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
-    workflow = _build_workflow()
+def _run_boundary_args(workflow: DSLWorkflow) -> DSLRunArgs:
     task = ActionStatement(
         ref="noop",
         action="core.transform.reshape",
@@ -693,12 +542,12 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
     )
     dsl = DSLInput(
         title="Run boundary",
-        description="feature flag off boundary test",
+        description="run limits boundary test",
         entrypoint=DSLEntrypoint(ref="noop", expects={}),
         actions=[task],
         triggers=[],
     )
-    run_args = DSLRunArgs(
+    return DSLRunArgs(
         role=workflow.role,
         dsl=dsl,
         wf_id=workflow.run_context.wf_id,
@@ -707,9 +556,17 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
             actions={"core.transform.reshape": "tracecat_registry"},
         ),
     )
+
+
+@pytest.mark.anyio
+async def test_run_resolves_limits_in_one_local_activity() -> None:
+    """Patched runs read the budget from one local activity, no regular activity."""
+    workflow = _build_workflow()
     run_result = InlineObject(data={"ok": True})
+    local_activity_mock = AsyncMock(
+        return_value=RunLimitsSnapshot(max_action_executions_per_workflow=7)
+    )
     execute_activity_mock = AsyncMock()
-    acquire_permit_mock = AsyncMock()
 
     with (
         patch.object(workflow, "_initialize_run", return_value=None),
@@ -718,40 +575,89 @@ async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
             "_resolve_organization_id",
             new=AsyncMock(return_value=workflow.organization_id),
         ),
+        patch("tracecat.dsl.workflow.workflow.patched", return_value=True),
         patch(
             "tracecat.dsl.workflow.workflow.execute_local_activity",
-            new=AsyncMock(return_value=False),
+            new=local_activity_mock,
         ),
         patch(
             "tracecat.dsl.workflow.workflow.execute_activity",
             new=execute_activity_mock,
         ),
-        patch.object(workflow, "_acquire_workflow_permit", new=acquire_permit_mock),
         patch.object(workflow, "_run_workflow", new=AsyncMock(return_value=run_result)),
     ):
-        result = await workflow.run(run_args)
+        result = await workflow.run(_run_boundary_args(workflow))
 
-    assert workflow.workflow_concurrency_limits_enabled is False
+    assert local_activity_mock.await_count == 1
+    assert (
+        local_activity_mock.await_args_list[0].args[0]
+        is dsl_workflow_module.resolve_run_limits_activity
+    )
     execute_activity_mock.assert_not_awaited()
-    acquire_permit_mock.assert_not_awaited()
+    assert workflow._max_actions_per_run == 7
     assert isinstance(result, InlineObject)
     assert result.data == {"ok": True}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("flag_enabled", [False, True])
+async def test_run_pre_patch_history_keeps_flag_snapshot(flag_enabled: bool) -> None:
+    """Pre-patch histories replay the flag snapshot and, when on, the tier lookup."""
+    workflow = _build_workflow()
+    run_result = InlineObject(data={"ok": True})
+    execute_activity_mock = AsyncMock(
+        return_value=EffectiveLimits(
+            api_rate_limit=None,
+            api_burst_capacity=None,
+            max_concurrent_workflows=1,
+            max_action_executions_per_workflow=3,
+            max_concurrent_actions=1,
+        )
+    )
+
+    with (
+        patch.object(workflow, "_initialize_run", return_value=None),
+        patch.object(
+            workflow,
+            "_resolve_organization_id",
+            new=AsyncMock(return_value=workflow.organization_id),
+        ),
+        patch("tracecat.dsl.workflow.workflow.patched", return_value=False),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_local_activity",
+            new=AsyncMock(return_value=flag_enabled),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=execute_activity_mock,
+        ),
+        patch.object(workflow, "_run_workflow", new=AsyncMock(return_value=run_result)),
+    ):
+        await workflow.run(_run_boundary_args(workflow))
+
+    if flag_enabled:
+        execute_activity_mock.assert_awaited_once()
+        assert (
+            execute_activity_mock.await_args_list[0].args[0]
+            is dsl_workflow_module.get_tier_limits_activity
+        )
+        assert workflow._max_actions_per_run == 3
+    else:
+        execute_activity_mock.assert_not_awaited()
+        assert workflow._max_actions_per_run is None
 
 
 def test_resolve_child_loop_batch_plan_uses_dispatch_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The plan is (requested batch size, configured dispatch window), independent
-    of the tier action cap and the concurrency flag."""
-    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=1))
+    """The plan is (requested batch size, configured dispatch window)."""
+    workflow = _build_workflow()
     monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW", 12)
 
-    for enabled in (False, True):
-        workflow.workflow_concurrency_limits_enabled = enabled
-        assert workflow._resolve_child_loop_batch_plan(
-            total_count=10,
-            requested_batch_size=6,
-        ) == (6, 12)
+    assert workflow._resolve_child_loop_batch_plan(
+        total_count=10,
+        requested_batch_size=6,
+    ) == (6, 12)
 
 
 @pytest.mark.anyio
@@ -954,26 +860,3 @@ async def test_run_cancellation_safe_cleanup_completes_after_cancellation() -> N
     await cleanup_task
 
     assert completed.is_set()
-
-
-@pytest.mark.anyio
-async def test_release_workflow_permit_is_idempotent() -> None:
-    workflow = _build_workflow()
-    workflow._workflow_permit_acquired = True
-    execute_activity_mock = AsyncMock(return_value=None)
-
-    with (
-        patch(
-            "tracecat.dsl.workflow.workflow.execute_activity",
-            new=execute_activity_mock,
-        ),
-        patch(
-            "tracecat.dsl.workflow.workflow.info",
-            return_value=SimpleNamespace(workflow_id="wf-id"),
-        ),
-    ):
-        await workflow._release_workflow_permit()
-        await workflow._release_workflow_permit()
-
-    assert execute_activity_mock.await_count == 1
-    assert workflow._workflow_permit_acquired is False
