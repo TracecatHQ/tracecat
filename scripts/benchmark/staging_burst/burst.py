@@ -253,18 +253,33 @@ def collect(args: argparse.Namespace) -> None:
         "env", *env, "python", "-",
     ]  # fmt: skip
     script = (HERE / "pod_collect.py").read_text()
-    with open(args.out, "a") as out:
+    labels = {pair.split("=", 1)[0] for pair in env[0].split("=", 1)[1].split(",")}
+    for attempt in range(1, args.attempts + 1):
         proc = subprocess.run(
             cmd, input=script, capture_output=True, text=True, timeout=1800
         )
+        done = {
+            line.split()[1]
+            for line in proc.stdout.splitlines()
+            if line.startswith("DONE ")
+        }
+        # kubectl exec can exit 0 after its stream was reset, so completeness
+        # is judged by the collector's DONE line per workspace.
+        if proc.returncode == 0 and done >= labels:
+            break
+        print(
+            f"collect attempt {attempt} incomplete (done {sorted(done)}): "
+            f"{proc.stderr[-300:]}",
+            file=sys.stderr,
+        )
+    else:
+        sys.exit("collect failed")
+    with open(args.out, "w") as out:
         for line in proc.stdout.splitlines():
             if line.startswith("RUN "):
                 out.write(line[4:] + "\n")
             else:
                 print(line, file=sys.stderr)
-    if proc.returncode != 0:
-        sys.exit(f"collect failed: {proc.stderr[-1000:]}")
-    print(proc.stderr[-500:], file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- report
@@ -346,10 +361,21 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
                 statuses.get(f"{r['type']}:{r['status']}", 0) + 1
             )
         failures = sorted({r["failure"] for r in dsl + tools if r.get("failure")})[:10]
+        # Bounced attempts ran nothing, so they don't count toward the width.
         intervals = [
-            (a[2], a[3]) for a in acts if a[2] is not None and a[3] is not None
+            (a[2], a[3])
+            for a in acts
+            if a[2] is not None and a[3] is not None and a[5] != "not_admitted"
         ]
         ok_lat = [q["latency"] for q in reqs]
+        started_by_id = {r["workflow_id"]: r["started"] for r in dsl}
+        # Server accept time minus client send time: one-way network plus the
+        # API's work before the start lands (includes any clock skew).
+        accept_lag = [
+            started_by_id[q["wf_exec_id"]] - q["sent"]
+            for q in reqs
+            if q.get("wf_exec_id") in started_by_id
+        ]
         result["orgs"][org] = {
             "workflow_start_delay": _stats(start_delay),
             "workflow_start_delay_ex_pacing": _stats(ex_pacing),
@@ -358,6 +384,9 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             "tool_call_schedule_to_start": _stats(tool_s2s),
             "tool_call_start_to_activity_start": _stats(tool_e2e),
             "api_latency": _stats(ok_lat),
+            "api_accept_lag": _stats(accept_lag),
+            "not_admitted": sum(1 for a in acts if a[5] == "not_admitted"),
+            "actions_failed": sum(1 for a in acts if a[5] in ("failed", "timed_out")),
             "api_status": {
                 str(s): sum(1 for q in reqs if q.get("status") == s)
                 for s in sorted({q.get("status") for q in reqs}, key=str)
@@ -422,6 +451,7 @@ METRICS = [
     ("action_schedule_to_start", "Action schedule-to-start"),
     ("tool_call_schedule_to_start", "Tool-call schedule-to-start"),
     ("api_latency", "API latency (webhook, client)"),
+    ("api_accept_lag", "API send → start accepted"),
 ]
 
 
@@ -532,7 +562,8 @@ def report(args: argparse.Namespace) -> None:
         for org, m in summary["orgs"].items():
             lines.append(
                 f"- Org {org}: statuses {m['statuses']}; API status {m['api_status']}; "
-                f"max action width {m['max_action_width']}; max history {m['history_events_max']} "
+                f"max action width {m['max_action_width']}; not admitted {m['not_admitted']}; "
+                f"actions failed {m['actions_failed']}; max history {m['history_events_max']} "
                 f"events; signals {m['signals_total']}"
             )
             for f in m["failures"]:
@@ -591,6 +622,7 @@ def main() -> None:
     )
     p.add_argument("--pod-deployment", default="tracecat-worker")
     p.add_argument("--container", default="worker")
+    p.add_argument("--attempts", type=int, default=3)
 
     p = sub.add_parser("report", help="percentiles and peaks per run directory")
     p.add_argument("dirs", nargs="+")

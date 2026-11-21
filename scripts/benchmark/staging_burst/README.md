@@ -81,7 +81,7 @@ calls each (≥ 240 tool calls).
 
 | # | Org A load | Limits on (org A) |
 |---|---|---|
-| 1 lock pileup | `burst_lock` `{"rows": R, "batches": N, "children": C}` (N concurrent upserts into one table, C subflows), plus `burst_agent` | `max_concurrent_actions` 10, DB cap 4 per executor process |
+| 1 lock pileup | `burst_lock` `{"rows": R ≤ 1000, "batches": N, "children": C}` (N concurrent upserts into one table, C subflows), plus `burst_agent` | `max_concurrent_actions` 10, DB cap 4 per executor process |
 | 2 webhook burst | `burst_hold` flood, `rate` 0, `concurrency` 40, padded payload | `api_rate_limit` 10/s, `api_burst_capacity` 20 |
 | 3 tool-call flood | `burst_agent` `{"calls": 8}` at a high rate | `max_concurrent_tool_calls` 4 |
 | 4 Redis down | scenario 1 on, then executors pointed at an unreachable Redis | as scenario 1 |

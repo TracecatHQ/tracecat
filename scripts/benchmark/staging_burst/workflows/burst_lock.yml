@@ -4,7 +4,8 @@
 # (TableService._lock_batch_writes), so they queue on one lock and each waiter
 # holds a database session while it waits, as in the 2026-11-18 incident.
 # Needs the table `burst_lock` (column `k`, integer, unique index; column `v`,
-# text) and the child workflow with alias `burst_lock_child`.
+# text) and the child workflow with alias `burst_lock_child`. TRIGGER.rows must
+# be at most 1000: insert_rows rejects larger batches before taking the lock.
 definition:
   title: burst lock
   description: Burst replay lock pileup (concurrent upserts into one table)

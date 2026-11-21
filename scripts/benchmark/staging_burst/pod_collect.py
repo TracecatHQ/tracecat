@@ -36,6 +36,10 @@ from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat import config
 from tracecat.dsl.client import get_temporal_client
+from tracecat.workflow.executions.common import (
+    get_not_admitted,
+    schedules_executor_action,
+)
 
 CLOSE_EVENTS = {
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED: "COMPLETED",
@@ -57,13 +61,20 @@ def _ts(event: HistoryEvent) -> float:
     return event.event_time.ToMicroseconds() / 1e6
 
 
-def summarize(events: list[HistoryEvent], executor_queue: str) -> dict[str, object]:
-    """Reduce one history to the timings the report needs."""
+async def summarize(
+    events: list[HistoryEvent], executor_queue: str
+) -> dict[str, object]:
+    """Reduce one history to the timings the report needs.
+
+    An executor action that answered "not admitted" (the org was at its
+    limit and nothing ran) gets the outcome ``not_admitted``.
+    """
     started = pacing = first_wft = closed = None
     status = "RUNNING"
     failure = None
     signals = timers = 0
     scheduled: dict[int, list[object]] = {}
+    actions: set[int] = set()
     for event in events:
         etype = event.event_type
         if etype == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
@@ -79,6 +90,8 @@ def summarize(events: list[HistoryEvent], executor_queue: str) -> dict[str, obje
         elif etype == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
             attrs = event.activity_task_scheduled_event_attributes
             if attrs.task_queue.name == executor_queue:
+                if schedules_executor_action(event):
+                    actions.add(event.event_id)
                 scheduled[event.event_id] = [
                     attrs.activity_id,
                     _ts(event),
@@ -109,6 +122,8 @@ def summarize(events: list[HistoryEvent], executor_queue: str) -> dict[str, obje
             if (act := scheduled.get(sched_id)) is not None:
                 act[3] = _ts(event)
                 act[5] = outcome
+                if sched_id in actions and await get_not_admitted(event) is not None:
+                    act[5] = "not_admitted"
         elif (close := CLOSE_EVENTS.get(etype)) is not None:
             status = close
             closed = _ts(event)
@@ -152,7 +167,7 @@ async def main() -> None:
             try:
                 handle = client.get_workflow_handle(workflow_id, run_id=run_id)
                 history = await handle.fetch_history()
-                row = summarize(list(history.events), executor_queue)
+                row = await summarize(list(history.events), executor_queue)
             except Exception as e:  # report and keep going
                 row = {"error": f"{type(e).__name__}: {e}"[:300]}
             row |= {
