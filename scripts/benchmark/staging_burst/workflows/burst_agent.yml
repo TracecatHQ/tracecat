@@ -1,0 +1,30 @@
+# Agent tool calls (both orgs): one agent turn that makes TRIGGER.calls
+# parallel core.transform.reshape tool calls. Use the cheapest model the
+# environment offers; import re-maps the model to the local catalog entry.
+definition:
+  title: burst agent
+  description: Burst replay agent turn with parallel reshape tool calls
+  entrypoint: {}
+  triggers: []
+  config:
+    environment: default
+    timeout: 0.0
+  actions:
+    - ref: agent
+      action: ai.agent
+      args:
+        actions:
+          - core.transform.reshape
+        max_tool_calls: 40
+        model:
+          model_name: claude-haiku-5-5
+          model_provider: anthropic
+        user_prompt: >-
+          In a single response, call core.transform.reshape ${{ TRIGGER.calls }}
+          times in parallel, with values 1 to ${{ TRIGGER.calls }}. If any call
+          says it was not started and asks you to retry, call it again with the
+          same value. When every call has returned a result, reply with the
+          results as a JSON list and nothing else.
+      retry_policy:
+        max_attempts: 1
+        timeout: 1800

@@ -1,0 +1,38 @@
+# Wide fan-out (org A, scenario 5): a DSL scatter of TRIGGER.n items, each a
+# run_python that sleeps TRIGGER.secs and returns its own start and end time.
+# A scatter, not an action-level for_each: for_each is one executor activity
+# capped at TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY (4), so it can't
+# exceed a limit of 10; each scatter item is its own activity and lease.
+definition:
+  title: burst scatter
+  description: Burst replay wide fan-out (scatter of sleeping run_python items)
+  entrypoint: {}
+  triggers: []
+  config:
+    environment: default
+    timeout: 0.0
+  actions:
+    - ref: scatter
+      action: core.transform.scatter
+      args:
+        collection: ${{ FN.range(0, TRIGGER.n) }}
+    - ref: work
+      action: core.script.run_python
+      depends_on: [scatter]
+      args:
+        inputs:
+          secs: ${{ TRIGGER.secs }}
+        script: |
+          def main(secs):
+              import time
+              start = time.time()
+              time.sleep(secs)
+              return {"start": start, "end": time.time()}
+      retry_policy:
+        max_attempts: 1
+        timeout: 300
+    - ref: gather
+      action: core.transform.gather
+      depends_on: [work]
+      args:
+        items: ${{ ACTIONS.work.result }}
