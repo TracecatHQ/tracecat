@@ -31,6 +31,7 @@ from tracecat.dsl.action import (
     _agent_preparation_error_classification,
     _expression_error_classification,
     _materialization_error_classification,
+    _prepare_subflow,
     _result_persistence_error_classification,
 )
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
@@ -790,6 +791,27 @@ async def test_prepare_subflow_input_failure_keeps_user_semantics() -> None:
     assert classification.message == user_error.message
     assert error.non_retryable is True
     assert error.type == classification.kind.value
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_rejects_vars_with_empty_environment() -> None:
+    """An environment that resolves to None must not read VARS from every environment."""
+    input = _prepare_subflow_input()
+    input.task = input.task.model_copy(
+        update={
+            "args": {"workflow_alias": "${{ VARS.routing.alias }}"},
+            "environment": "${{ ENV.environment }}",
+        }
+    )
+    get_variables = AsyncMock()
+
+    with (
+        patch("tracecat.dsl.action.get_workspace_variables", new=get_variables),
+        pytest.raises(UserError, match="environment must not be empty"),
+    ):
+        await _prepare_subflow(input)
+
+    get_variables.assert_not_awaited()
 
 
 @pytest.mark.anyio

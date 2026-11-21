@@ -79,6 +79,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -401,6 +402,9 @@ class PrepareSubflowActivityInput(BaseModel):
 
     use_committed: bool = True
     """Use committed WorkflowDefinition alias (True) or draft Workflow alias (False)."""
+
+    default_environment: str = DEFAULT_SECRETS_ENVIRONMENT
+    """Parent workflow environment, used to read VARS when the task sets none."""
 
 
 def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
@@ -1446,8 +1450,19 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
 
     task = input.task
 
-    # Materialize any StoredObjects in operand
+    # Materialize any StoredObjects in operand, plus the VARS the args reference
     materialized = await materialize_context(input.operand)
+    collected = await asyncio.to_thread(collect_expressions, task.args)
+    if collected.variables:
+        environment = _resolve_environment(
+            task.environment, input.default_environment, materialized
+        )
+        # A None environment would read the variables from every environment
+        if not environment:
+            raise UserError("The action environment must not be empty")
+        materialized["VARS"] = await get_workspace_variables(
+            collected.variables, environment=environment, role=input.role
+        )
 
     # Evaluate task args to get workflow_id or workflow_alias
     # Run CPU-bound expression evaluation in thread to avoid blocking event loop
@@ -1505,6 +1520,7 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             registry_lock=registry_lock,
             trigger_inputs=None,
             runtime_configs=runtime_config,
+            variables=materialized.get("VARS"),
         )
 
     # For looped subflows: evaluate all trigger_inputs and runtime_configs

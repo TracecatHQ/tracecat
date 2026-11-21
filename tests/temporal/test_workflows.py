@@ -1447,6 +1447,107 @@ async def test_single_child_workflow_alias(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("looped", [False, True], ids=["single", "looped"])
+async def test_child_workflow_trigger_inputs_resolve_workspace_variables(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    looped: bool,
+) -> None:
+    """VARS in subflow args resolve in the parent action's environment."""
+    test_name = test_child_workflow_trigger_inputs_resolve_workspace_variables.__name__
+    wf_exec_id = generate_test_exec_id(f"{test_name}-{looped}")
+    var_name = f"subflow_vars_{uuid.uuid4().hex[:8]}"
+    alias = f"{var_name}_child"
+
+    async with VariablesService.with_session(role=test_role) as service:
+        await service.create_variable(
+            VariableCreate(
+                name=var_name,
+                values={"alias": alias, "token": "default-token", "retries": 3},
+                environment="default",
+            )
+        )
+        await service.create_variable(
+            VariableCreate(
+                name=var_name,
+                values={"token": "staging-token"},
+                environment="staging",
+            )
+        )
+
+    child_dsl = DSLInput(
+        title=f"{test_name}:child",
+        description="Echo the trigger inputs",
+        entrypoint=DSLEntrypoint(ref="echo", expects={}),
+        actions=[
+            ActionStatement(
+                ref="echo",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            )
+        ],
+        returns="${{ ACTIONS.echo.result }}",
+        triggers=[],
+    )
+    await _create_and_commit_workflow(child_dsl, test_role, alias=alias)
+
+    trigger_inputs = {"token": f"${{{{ VARS.{var_name}.token }}}}"}
+    if looped:
+        trigger_inputs["index"] = "${{ var.x }}"
+    parent_dsl = DSLInput(
+        title=f"{test_name}:parent",
+        description="Pass VARS to a subflow",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": f"${{{{ VARS.{var_name}.alias }}}}",
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                    "trigger_inputs": trigger_inputs,
+                },
+                for_each="${{ for var.x in [0, 1] }}" if looped else None,
+            ),
+            ActionStatement(
+                ref="run_child_staging",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": alias,
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                    "trigger_inputs": trigger_inputs,
+                },
+                for_each="${{ for var.x in [0, 1] }}" if looped else None,
+                environment="staging",
+            ),
+        ],
+        returns={
+            "default": "${{ ACTIONS.run_child.result }}",
+            "staging": "${{ ACTIONS.run_child_staging.result }}",
+        },
+        triggers=[],
+    )
+    run_args = DSLRunArgs(dsl=parent_dsl, role=test_role, wf_id=TEST_WF_ID)
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+    if looped:
+        expected = {
+            "default": [{"token": "default-token", "index": i} for i in (0, 1)],
+            "staging": [{"token": "staging-token", "index": i} for i in (0, 1)],
+        }
+    else:
+        expected = {
+            "default": {"token": "default-token"},
+            "staging": {"token": "staging-token"},
+        }
+    assert await to_data(result) == expected
+
+
+@pytest.mark.anyio
 async def test_child_workflow_alias_not_found_surfaces_detail(
     test_role: Role,
     temporal_client: Client,
