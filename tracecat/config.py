@@ -175,8 +175,11 @@ TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS = int(
 """TTL in seconds for cached per-organization effective tier limits."""
 
 # === Agent concurrency limits (ENG-2564) === #
-TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS = float(
-    os.environ.get("TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS") or 5
+TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS = bound_env(
+    "TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS",
+    5.0,
+    lower=0.0,
+    upper=60.0,
 )
 """How long a live agent tool call waits for its organization's concurrent tool-call
 limit before the model gets a retryable "capacity busy" tool error."""

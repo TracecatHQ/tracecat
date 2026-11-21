@@ -112,13 +112,20 @@ async def test_waits_while_full_then_runs(setup: Harness) -> None:
 async def test_wait_time_excludes_the_call_itself(setup: Harness) -> None:
     setup(limit=1, counts=[1, 0])
 
+    loop = asyncio.get_running_loop()
+    call_started_at: list[float] = []
+
     async def slow_call() -> str:
-        await asyncio.sleep(0.3)
+        call_started_at.append(loop.time())
+        await asyncio.sleep(0.05)
         return "ok"
 
+    before = loop.time()
     assert await _wait(AsyncMock(side_effect=slow_call)) == "ok"
     wait_seconds = setup.logger.info.call_args.kwargs["wait_seconds"]
-    assert 0 < wait_seconds < 0.2
+    # Monotonic clock: the wait ends before the call starts, so it can never
+    # exceed the time from entering the wait to the call's start.
+    assert 0 < wait_seconds <= call_started_at[0] - before
 
 
 @pytest.mark.anyio
@@ -200,3 +207,13 @@ async def test_holding_releases_when_the_body_raises() -> None:
 async def test_holding_nothing_is_a_no_op() -> None:
     async with holding(None):
         pass
+
+
+@pytest.mark.anyio
+async def test_nan_wait_gives_up_instead_of_spinning(setup: Harness) -> None:
+    setup(limit=1, counts=[1])
+    run = AsyncMock(return_value="ok")
+
+    with pytest.raises(CapacityBusyError):
+        await _wait(run, wait_seconds=float("nan"))
+    run.assert_not_awaited()

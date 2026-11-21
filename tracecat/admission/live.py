@@ -109,7 +109,8 @@ async def run_with_capacity_wait[T](
                     )
                 return result
             busy = Busy(in_use=result.in_use, limit=result.limit)
-        if (remaining := give_up_at - loop.time()) <= 0:
+        # ``not > 0`` also gives up on a NaN wait setting instead of spinning.
+        if not (remaining := give_up_at - loop.time()) > 0:
             waited_seconds = loop.time() - started_at
             logger.warning(
                 "concurrency.overload",

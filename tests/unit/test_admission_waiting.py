@@ -413,21 +413,23 @@ def test_late_ack_for_a_finished_probe_is_ignored() -> None:
 
 @pytest.mark.anyio
 async def test_interrupt_ends_the_backoff_early(fake: FakeWorkflow) -> None:
-    cancelled = False
+    results: list[Any] = [_busy(), {"type": "inline"}]
     started_at = fake.clock
+    checks = 0
+
+    def cancelled() -> bool:
+        # False when the wait starts; a user cancel arrives a few polls later.
+        nonlocal checks
+        checks += 1
+        return checks > 3
 
     async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
-        nonlocal cancelled
-        if not cancelled:
-            cancelled = True  # e.g. a user cancel arrives while waiting
-            return _busy()
-        return {"type": "inline"}
+        return results.pop(0)
 
-    result = await _admission().execute(
-        dispatch, max_attempts=1, interrupt=lambda: cancelled
-    )
+    result = await _admission().execute(dispatch, max_attempts=1, interrupt=cancelled)
 
     assert result == {"type": "inline"}
+    assert checks > 3  # the interrupt was observed during the wait
     assert fake.sleeps == []  # no plain timer
     assert fake.clock == started_at  # the backoff never ran out
 
