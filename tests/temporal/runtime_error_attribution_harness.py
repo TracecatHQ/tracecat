@@ -38,6 +38,7 @@ from tracecat.dsl.enums import (
     WaitStrategy,
 )
 from tracecat.dsl.init_activities import (
+    resolve_run_limits_activity,
     resolve_time_anchor_activity,
     resolve_workflow_concurrency_limits_enabled_activity,
 )
@@ -132,7 +133,9 @@ class _DispatchFault:
     failures: int
     attempts: int = 0
 
-    async def dispatch(self, *, backend: object, input: object) -> object:
+    async def dispatch(
+        self, *, backend: object, input: object, max_concurrency: int | None = None
+    ) -> object:
         del backend, input
         self.attempts += 1
         if self.attempts <= self.failures:
@@ -156,7 +159,13 @@ class _ChildDispatch:
     platform_diagnostic: str
     calls: list[str]
 
-    async def dispatch(self, *, backend: object, input: RunActionInput) -> object:
+    async def dispatch(
+        self,
+        *,
+        backend: object,
+        input: RunActionInput,
+        max_concurrency: int | None = None,
+    ) -> object:
         del backend
         trigger = input.exec_context.get("TRIGGER")
         mode = trigger.get("mode") if isinstance(trigger, dict) else None
@@ -188,7 +197,13 @@ class _ConcurrentChildDispatch:
     calls: list[str]
     slow_started: asyncio.Event
 
-    async def dispatch(self, *, backend: object, input: RunActionInput) -> object:
+    async def dispatch(
+        self,
+        *,
+        backend: object,
+        input: RunActionInput,
+        max_concurrency: int | None = None,
+    ) -> object:
         del backend
         trigger = input.exec_context.get("TRIGGER")
         mode = trigger.get("mode") if isinstance(trigger, dict) else None
@@ -493,6 +508,7 @@ async def run_retryable_materialization_failure_sets_platform_owner(
             activities=[
                 resolve_time_anchor_activity,
                 resolve_workflow_concurrency_limits_enabled_activity,
+                resolve_run_limits_activity,
                 WorkflowsManagementService.get_error_handler_workflow_id,
             ],
             task_queue=dsl_queue,
@@ -540,6 +556,7 @@ async def run_non_retryable_materialization_failure_does_not_retry(
             activities=[
                 resolve_time_anchor_activity,
                 resolve_workflow_concurrency_limits_enabled_activity,
+                resolve_run_limits_activity,
                 WorkflowsManagementService.get_error_handler_workflow_id,
             ],
             task_queue=dsl_queue,
@@ -597,6 +614,7 @@ async def run_successful_materialization_retry_does_not_set_terminal_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
                 task_queue=dsl_queue,
@@ -646,6 +664,7 @@ async def run_executor_internal_failure_sets_platform_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
                 task_queue=dsl_queue,
@@ -691,7 +710,9 @@ async def run_executor_boundary_failure_sets_owner(
             raise RuntimeError(diagnostic)
         return object()
 
-    async def dispatch(*, backend: object, input: object) -> object:
+    async def dispatch(
+        *, backend: object, input: object, max_concurrency: int | None = None
+    ) -> object:
         nonlocal attempts
         del backend, input
         if fault_point == "loop_platform":
@@ -753,6 +774,7 @@ async def run_executor_boundary_failure_sets_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
                 task_queue=dsl_queue,
@@ -812,6 +834,7 @@ async def run_successful_registry_contention_retry_has_no_terminal_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                 ],
                 task_queue=dsl_queue,
             ),
@@ -861,6 +884,7 @@ async def run_user_action_failure_sets_user_owner(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
                 task_queue=dsl_queue,
@@ -928,6 +952,7 @@ async def run_missing_error_handler_preserves_original_action_failure(
                 activities=[
                     resolve_time_anchor_activity,
                     resolve_workflow_concurrency_limits_enabled_activity,
+                    resolve_run_limits_activity,
                     WorkflowsManagementService.get_error_handler_workflow_id,
                 ],
                 task_queue=dsl_queue,

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import uuid
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
+from tracecat.dsl import init_activities
+from tracecat.dsl.init_activities import RunLimitsSnapshot, resolve_run_limits_activity
+from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -14,106 +17,13 @@ from tracecat.runtime.errors import (
 )
 from tracecat.temporal.errors import extract_error_classification
 from tracecat.tiers.activities import (
-    AcquireActionPermitInput,
-    AcquireWorkflowPermitInput,
     GetTierLimitsInput,
-    acquire_action_permit_activity,
-    acquire_workflow_permit_activity,
     get_tier_limits_activity,
 )
-from tracecat.tiers.exceptions import (
-    DefaultTierNotConfiguredError,
-    InvalidOrganizationConcurrencyCapError,
-)
-from tracecat.tiers.permits import PermitAcquireOutcome
+from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 from tracecat.tiers.schemas import EffectiveLimits
-from tracecat.tiers.semaphore import AcquireResult
 
 ORG_ID = uuid.UUID("00000000-0000-4000-8000-000000000111")
-
-
-@pytest.mark.anyio
-async def test_acquire_action_permit_activity_uses_permit_service() -> None:
-    permit_svc = SimpleNamespace(
-        acquire_action_permit=AsyncMock(
-            return_value=PermitAcquireOutcome(
-                result=AcquireResult(acquired=True, current_count=1),
-                effective_limit=2,
-                cap_source="cache",
-            )
-        )
-    )
-
-    with patch(
-        "tracecat.tiers.activities.TierPermitService.create",
-        new=AsyncMock(return_value=permit_svc),
-    ):
-        result = await acquire_action_permit_activity(
-            AcquireActionPermitInput(org_id=ORG_ID, action_id="wf:root:task", limit=99)
-        )
-
-    assert result.acquired is True
-    permit_svc.acquire_action_permit.assert_awaited_once_with(
-        org_id=ORG_ID,
-        action_id="wf:root:task",
-    )
-
-
-@pytest.mark.anyio
-async def test_acquire_workflow_permit_activity_maps_invalid_cap_error() -> None:
-    permit_svc = SimpleNamespace(
-        acquire_workflow_permit=AsyncMock(
-            side_effect=InvalidOrganizationConcurrencyCapError(
-                scope="workflow",
-                org_id=ORG_ID,
-                limit=0,
-            )
-        )
-    )
-
-    with patch(
-        "tracecat.tiers.activities.TierPermitService.create",
-        new=AsyncMock(return_value=permit_svc),
-    ):
-        with pytest.raises(ApplicationError) as exc_info:
-            await acquire_workflow_permit_activity(
-                AcquireWorkflowPermitInput(
-                    org_id=ORG_ID,
-                    workflow_id="wf-exec",
-                    limit=99,
-                )
-            )
-
-    classification = extract_error_classification(exc_info.value)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
-    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
-    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-    assert str(ORG_ID) not in str(exc_info.value)
-
-
-@pytest.mark.anyio
-async def test_acquire_action_permit_activity_classifies_service_failure() -> None:
-    diagnostic = "permit diagnostic must not enter history"
-    with patch(
-        "tracecat.tiers.activities.TierPermitService.create",
-        new=AsyncMock(side_effect=RuntimeError(diagnostic)),
-    ):
-        with pytest.raises(ApplicationError) as exc_info:
-            await acquire_action_permit_activity(
-                AcquireActionPermitInput(
-                    org_id=ORG_ID,
-                    action_id="wf:root:task",
-                    limit=99,
-                )
-            )
-
-    classification = extract_error_classification(exc_info.value)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
-    assert classification.kind is RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
-    assert classification.retry_disposition is RetryDisposition.RETRYABLE
-    assert diagnostic not in str(exc_info.value)
 
 
 @pytest.mark.anyio
@@ -186,3 +96,76 @@ async def test_get_tier_limits_activity_reads_tier_in_org_scope() -> None:
     assert result == limits
     tenant_session.assert_called_once_with(organization_id=ORG_ID)
     mock_service.get_effective_limits.assert_awaited_once_with(ORG_ID)
+
+
+@pytest.fixture
+def limits_flag_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        config, "TRACECAT__FEATURE_FLAGS", {FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS}
+    )
+
+
+@pytest.mark.anyio
+async def test_resolve_run_limits_activity_skips_lookup_when_flag_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
+    lookup = AsyncMock()
+    with patch.object(init_activities, "get_effective_limits", new=lookup):
+        snapshot = await resolve_run_limits_activity(ORG_ID)
+
+    assert snapshot == RunLimitsSnapshot()
+    lookup.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("limits_flag_on")
+async def test_resolve_run_limits_activity_returns_the_action_budget() -> None:
+    limits = EffectiveLimits(
+        api_rate_limit=None,
+        api_burst_capacity=None,
+        max_concurrent_workflows=None,
+        max_action_executions_per_workflow=12,
+        max_concurrent_actions=3,
+    )
+    with patch.object(
+        init_activities, "get_effective_limits", new=AsyncMock(return_value=limits)
+    ):
+        snapshot = await resolve_run_limits_activity(ORG_ID)
+
+    assert snapshot == RunLimitsSnapshot(max_action_executions_per_workflow=12)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("limits_flag_on")
+@pytest.mark.parametrize(
+    ("error", "kind", "disposition"),
+    [
+        (
+            DefaultTierNotConfiguredError(),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeError("db down"),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+)
+async def test_resolve_run_limits_activity_classifies_lookup_failures(
+    error: Exception, kind: RuntimeErrorKind, disposition: RetryDisposition
+) -> None:
+    with (
+        patch.object(
+            init_activities, "get_effective_limits", new=AsyncMock(side_effect=error)
+        ),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await resolve_run_limits_activity(ORG_ID)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is kind
+    assert classification.retry_disposition is disposition

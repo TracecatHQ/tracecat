@@ -7,8 +7,9 @@ dispatched from DSL workflows.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any, Final
 
 from opentelemetry import metrics
 from temporalio import activity
@@ -21,6 +22,13 @@ from tenacity import (
 )
 
 from tracecat import config
+from tracecat.admission import gate
+from tracecat.admission.gate import Lease, NotAdmittedError
+from tracecat.admission.types import (
+    ADMISSION_ACK_SIGNAL,
+    ConcurrencyResource,
+    NotAdmitted,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
@@ -62,21 +70,94 @@ _ACTIONS = _METER.create_counter(
     ),
 )
 
+LEASE_RENEW_INTERVAL_SECONDS: Final = 30
+"""Longest gap between lease renewals; well under the 90 s lease expiry."""
 
-async def _heartbeat_loop(interval: int, task_ref: str, action_name: str) -> None:
-    """Send periodic heartbeats to Temporal until cancelled.
+ADMISSION_ACK_TIMEOUT_SECONDS: Final = 2.0
+"""Ceiling for the admission signal; the run falls back to probe completion."""
+
+
+async def _heartbeat_loop(
+    interval: float,
+    task_ref: str,
+    action_name: str,
+    *,
+    send_heartbeats: bool = True,
+    renew: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """Send periodic heartbeats to Temporal, and renew a lease, until cancelled.
 
     Runs as a background asyncio task alongside the long-running
     dispatch_action() call. Cancelled by the caller when dispatch completes.
+    Each tick heartbeats first, so a slow renewal never delays a heartbeat.
+    ``renew`` must not raise.
     """
-    elapsed = 0
+    elapsed = 0.0
     try:
         while True:
             await asyncio.sleep(interval)
             elapsed += interval
-            activity.heartbeat(f"{action_name} ({task_ref}): {elapsed}s elapsed")
+            if send_heartbeats:
+                activity.heartbeat(f"{action_name} ({task_ref}): {elapsed:g}s elapsed")
+            if renew is not None:
+                await renew()
     except asyncio.CancelledError:
         pass
+
+
+def _lease_id(info: activity.Info) -> str:
+    """Attempt-specific lease ID: a retried attempt never reuses a lease."""
+    run_id = info.workflow_run_id or info.workflow_id or "no-workflow"
+    return f"{run_id}:{info.activity_id}:{info.attempt}"
+
+
+def _lease_deadline(info: activity.Info) -> datetime:
+    """When this attempt must end; a lease never outlives it."""
+    if info.start_to_close_timeout is not None:
+        return info.started_time + info.start_to_close_timeout
+    if info.schedule_to_close_timeout is not None:
+        return info.scheduled_time + info.schedule_to_close_timeout
+    return datetime.now(UTC) + timedelta(
+        seconds=config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+        + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
+    )
+
+
+async def _ack_admission(info: activity.Info) -> None:
+    """Tell a waiting run that its probe was admitted. Never raises."""
+    if not info.workflow_id:
+        return
+    try:
+        handle = activity.client().get_workflow_handle(
+            info.workflow_id, run_id=info.workflow_run_id
+        )
+        async with asyncio.timeout(ADMISSION_ACK_TIMEOUT_SECONDS):
+            await handle.signal(ADMISSION_ACK_SIGNAL, info.activity_id)
+    except Exception as e:
+        logger.warning(
+            "concurrency.ack_failed",
+            workflow_id=info.workflow_id,
+            activity_id=info.activity_id,
+            error=str(e),
+        )
+
+
+def _for_each_width() -> int:
+    return max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
+
+
+async def _stop_heartbeat_and_release(
+    heartbeat_task: asyncio.Task[None] | None, lease: Lease | None
+) -> None:
+    """Stop heartbeats and renewal, then release the lease (never raises)."""
+    if heartbeat_task is not None:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+    if lease is not None:
+        await lease.release()
 
 
 def _source_capture(
@@ -126,10 +207,12 @@ class ExecutorActivities:
     @activity.defn
     async def execute_action_activity(
         input: RunActionInput, role: Role
-    ) -> StoredObject:
+    ) -> StoredObject | NotAdmitted:
         """Execute an action on the ExecutorWorker.
 
         This activity runs on 'shared-action-queue' and handles:
+        - The organization's action concurrency limit (returns
+          ``NotAdmitted``, having executed nothing, when it is full)
         - Rate limit retries (tenacity)
         - for_each loop execution (via dispatch_action)
         - Sandboxed action execution
@@ -177,30 +260,67 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
+        # Take the lease before any effect or S3 read, so not admitting is cheap.
+        # Agent tool calls are not limited yet (ENG-2564 adds their own limit).
+        lease: Lease | None = None
+        if input.agent_session_id is None and role.organization_id is not None:
+            try:
+                lease = await gate.acquire(
+                    org_id=role.organization_id,
+                    resource=ConcurrencyResource.ACTIONS,
+                    lease_id=_lease_id(act_info),
+                    units=_for_each_width() if task.for_each else 1,
+                    deadline=_lease_deadline(act_info),
+                )
+            except NotAdmittedError as e:
+                return NotAdmitted(
+                    resource=e.resource,
+                    in_use=e.in_use,
+                    limit=e.limit,
+                    attempt=act_attempt,
+                )
+
+        heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
+        send_heartbeats = heartbeat_interval > 0
+
+        # Run a background heartbeat task for the full activity lifetime
+        # (including tenacity backoff sleeps) so Temporal can detect a dead
+        # worker without waiting for start_to_close_timeout. The same task
+        # renews the lease, so it starts before materialization.
+        heartbeat_task: asyncio.Task[None] | None = None
+        if send_heartbeats or lease is not None:
+            tick = (
+                heartbeat_interval if send_heartbeats else LEASE_RENEW_INTERVAL_SECONDS
+            )
+            if lease is not None:
+                tick = min(tick, LEASE_RENEW_INTERVAL_SECONDS)
+            if send_heartbeats:
+                activity.heartbeat(f"{action_name} ({task.ref}) starting")
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_loop(
+                    tick,
+                    task.ref,
+                    action_name,
+                    send_heartbeats=send_heartbeats,
+                    renew=lease.renew if lease is not None else None,
+                )
+            )
+
         try:
+            if input.ack_admission:
+                await _ack_admission(act_info)
             with platform_span("tracecat.action.materialize_inputs"):
                 materialized_input = input.model_copy(
                     update={
                         "exec_context": await materialize_context(input.exec_context)
                     }
                 )
-        except Exception as e:
+        except BaseException as e:
+            await _stop_heartbeat_and_release(heartbeat_task, lease)
             # Already classified at the materialization boundary; only count it.
-            if not is_cancelled_exception(e):
+            if isinstance(e, Exception) and not is_cancelled_exception(e):
                 _ACTIONS.add(1, {"outcome": "failed"})
             raise
-
-        heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
-
-        # Run a background heartbeat task for the full activity lifetime
-        # (including tenacity backoff sleeps) so Temporal can detect a dead
-        # worker without waiting for start_to_close_timeout.
-        heartbeat_task: asyncio.Task[None] | None = None
-        if heartbeat_interval > 0:
-            activity.heartbeat(f"{action_name} ({task.ref}) starting")
-            heartbeat_task = asyncio.create_task(
-                _heartbeat_loop(heartbeat_interval, task.ref, action_name)
-            )
 
         try:
             with activity_error_boundary(
@@ -229,10 +349,14 @@ class ExecutorActivities:
                         },
                     ):
                         result = await dispatch_action(
-                            backend=backend, input=materialized_input
+                            backend=backend,
+                            input=materialized_input,
+                            max_concurrency=(
+                                lease.units if lease is not None else None
+                            ),
                         )
 
-                    if heartbeat_interval > 0:
+                    if send_heartbeats:
                         activity.heartbeat(
                             f"{action_name} ({task.ref}) completed, storing result"
                         )
@@ -301,12 +425,7 @@ class ExecutorActivities:
                 ),
             )
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
+            await _stop_heartbeat_and_release(heartbeat_task, lease)
 
         # Unreachable: AsyncRetrying either returns in the loop or raises RetryError
         # (caught by Exception handler above) when retries are exhausted

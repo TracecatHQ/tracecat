@@ -33,12 +33,15 @@ from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.init_activities import (
+    RunLimitsSnapshot,
+    resolve_run_limits_activity,
     resolve_workflow_concurrency_limits_enabled_activity,
 )
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, RunActionInput
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.identifiers import OrganizationID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -68,6 +71,12 @@ def _activity_name(activity_def: object) -> str:
 )
 async def _disable_workflow_concurrency_limits() -> bool:
     return False
+
+
+@activity.defn(name=_activity_name(resolve_run_limits_activity))
+async def _unlimited_run_limits(_org_id: OrganizationID) -> RunLimitsSnapshot:
+    """No per-run budget, as with the concurrency-limits flag off."""
+    return RunLimitsSnapshot()
 
 
 @activity.defn(
@@ -154,6 +163,7 @@ def _dsl_worker(client: Client, task_queue: str) -> Worker:
         task_queue=task_queue,
         activities=[
             _disable_workflow_concurrency_limits,
+            _unlimited_run_limits,
             DSLActivities.compile_dsl_dependencies_activity,
             _no_error_handler,
         ],

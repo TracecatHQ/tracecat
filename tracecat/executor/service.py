@@ -1197,7 +1197,12 @@ async def invoke_once(
     raise safe_error
 
 
-async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> Any:
+async def dispatch_action(
+    backend: ExecutorBackend,
+    input: RunActionInput,
+    *,
+    max_concurrency: int | None = None,
+) -> Any:
     """Dispatch action for execution.
 
     This function handles dispatching actions to be executed. It supports
@@ -1208,6 +1213,8 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
 
     Args:
         input: The RunActionInput containing the task definition and execution context
+        max_concurrency: Most for_each items to run at once, when a concurrency
+            lease admitted fewer than the configured width.
 
     Returns:
         Any: For single actions, returns the ExecutionResult. For for_each loops, returns
@@ -1245,11 +1252,14 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
     # Items share secrets, variables and credentials; only argument evaluation,
     # token minting and masking run per item.
     loop_context = LoopActionContext(role=role)
-    max_concurrency = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
+    loop_width = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
+    if max_concurrency is not None:
+        # Never run wider than the concurrency lease reserved.
+        loop_width = max(1, min(loop_width, max_concurrency))
     # Use a fixed worker pool instead of a semaphore around one task per loop item.
     # A semaphore would cap active invokes, but still schedules every iteration and
     # retains per-item task state for large loops. Workers pull lazily from the
-    # iterator, so memory and event-loop pressure scale with max_concurrency.
+    # iterator, so memory and event-loop pressure scale with loop_width.
     # Keep this loop-local; cross-activity caps must not use asyncio primitives
     # because activities can run on different event loops.
     loop_items = iter(enumerate(zip(*iterators, strict=False)))
@@ -1286,7 +1296,7 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
 
     try:
         async with asyncio.TaskGroup() as tg:
-            for _ in range(max_concurrency):
+            for _ in range(loop_width):
                 tg.create_task(worker())
     except* ExecutionError as eg:
         grouped_loop_errors = flatten_wrapped_exc_error_group(eg)

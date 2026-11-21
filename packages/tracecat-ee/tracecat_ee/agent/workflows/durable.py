@@ -20,6 +20,7 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
+    from tracecat.admission.types import ensure_admitted
     from tracecat.agent.backends.schemas import (
         AgentWorkflowArgs as AgentWorkflowArgs,
     )
@@ -2025,6 +2026,8 @@ class DurableAgentWorkflow:
                             tool_tunnels=mcp_build_result.tool_tunnels,
                         )
                     )
+                    # Agent tool calls are never concurrency-gated (ENG-2564).
+                    stored = ensure_admitted(stored, caller="Approved tool call")
                     result = PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
                         tool_name=tool_call.tool_name,

@@ -30,11 +30,12 @@ The current controls apply at different scopes:
   tasks inside one workflow execution. Concurrent workflow executions each get
   their own allowance.
 - Self-hosted deployments default the organization-scoped
-  `max_concurrent_actions` permit to unlimited, and permit leasing is not yet
-  activated in current deployments; the workflow skips permit activities when
-  no limit is set.
-- When enabled, an action permit waits with bounded backoff and defaults to a
-  120-second maximum wait.
+  `max_concurrent_actions` limit to unlimited, and action leasing is not yet
+  activated in current deployments; with no limit set the executor takes no
+  lease, and the workflow adds only its one start-of-run local activity
+  (`resolve_run_limits_activity`), which every run records.
+- When enabled, an action the executor answers busy waits on a durable timer
+  (backoff capped near 60 seconds) with no maximum wait.
 - Each executor worker process defaults to 100 concurrent activities. This is a
   per-process control and is multiplied by executor replicas.
 - Each process that creates the shared async SQLAlchemy engine can currently
@@ -65,7 +66,7 @@ Current implementation references:
 - [async SQLAlchemy engine construction](../../tracecat/db/engine.py)
 - [per-workflow scheduler](../../tracecat/dsl/scheduler.py)
 - [self-hosted tier defaults](../../tracecat/tiers/defaults.py)
-- [organization permit semaphore](../../tracecat/tiers/semaphore.py)
+- [organization action leases](../../tracecat/admission/leases.py)
 - [executor worker capacity](../../tracecat/executor/worker.py)
 - [development Compose stack](../../docker-compose.dev.yml)
 - [workflow execution API](../../tracecat/workflow/executions/router.py)
@@ -108,7 +109,7 @@ Current implementation references:
    clean admission decision.
 3. An explicit aggregate pool budget and bounded executor capacity will convert
    connection storms into bounded queuing for the tested topology.
-   Organization-scoped action permit leasing is not activated in current
+   Organization-scoped action leasing is not activated in current
    deployments and is not required for this conversion.
 4. `core.table.insert_rows` will achieve materially better database efficiency
    than scattering the same number of `core.table.insert_row` actions.
@@ -599,9 +600,9 @@ any residual drift is visible.
 
 ## Scenario matrix
 
-Organization-scoped action permit leasing is not activated in current
-deployments (`max_concurrent_actions` defaults to unlimited, and the workflow
-skips permit activities entirely when no limit is set). It is therefore not a
+Organization-scoped action leasing is not activated in current
+deployments (`max_concurrent_actions` defaults to unlimited, and the executor
+takes no lease when no limit is set). It is therefore not a
 control in the primary matrix; it appears only as an optional follow-on phase
 for when the feature activates.
 
@@ -614,22 +615,22 @@ for when the feature activates.
 | 4 | Constrained | Aggregate budget enforced | Explicit per-process bound | Bulk insert | Measure the batching control |
 | 5 | Constrained | Aggregate budget enforced | Explicit per-process bound | Single-row scatter | 10k-action burst absorption via the Temporal queue |
 | 6, optional | Constrained behind PgBouncer | Same application budget | Same explicit bound | Both | Evaluate proxy compatibility and incremental value |
-| 7, optional | Constrained | Aggregate budget enforced | Same explicit bound | Single-row scatter | Validate permit admission once leasing is activated |
+| 7, optional | Constrained | Aggregate budget enforced | Same explicit bound | Single-row scatter | Validate action admission once leasing is activated |
 | 8, follow-on | Constrained | Aggregate budget enforced | Same explicit bound | One-row batch via child workflows | Characterize subflow fan-out as a distinct dimension |
 
 Phase 6 is warranted only if phases 2-5 show a remaining connection-churn or
 failover problem that a proxy could plausibly solve.
 
-Phase 7 is warranted only once action permit leasing is activated in the
-product. When it runs: the Redis action semaphore is keyed by organization, so
+Phase 7 is warranted only once action leasing is activated in the
+product. When it runs: the Redis action lease set is keyed by organization, so
 repeat the phase 3 target as two organizations with half the workflows each,
 keeping total logical work constant, to check that per-organization limits are
 not being mistaken for a deployment-wide database bound. Note the interaction
-with bursts: permit acquisition runs as a separate activity with a 120-second
-default maximum wait, so under a deep backlog a tight organization cap
-converts queue absorption into permit-wait failures. Phase 7 must characterize
-that behavior explicitly; the executor cap, not the permit, is the intended
-burst throttle.
+with bursts: a busy action waits on a durable timer with no maximum wait, so
+under a deep backlog a tight organization cap turns queue absorption into long
+waits and extra workflow history, not failures. Phase 7 must characterize that
+behavior explicitly; the executor cap, not the organization limit, is the
+intended burst throttle.
 
 Phase 8 runs after the primary matrix and burst phases conclude. It replaces
 the action-level scatter with workflow-level fan-out: a parent workflow
@@ -769,7 +770,7 @@ Phase 5 (burst absorption) passes at a given step when:
   additional pressure attributable to backlog size.
 
 The `2 organizations x 4 workflows x 64 branches` topology check moves to
-phase 7 with the permit control it exercises.
+phase 7 with the organization limit it exercises.
 
 The final latency and throughput thresholds must come from a product SLO or a
 measured production-safe target. Do not invent them from local Docker timings.
@@ -782,7 +783,7 @@ ratio; do not use an undefined claim such as "significantly faster."
 
 - If the current defaults fail and a bounded pool plus bounded executor
   capacity pass, prioritize those controls. A proxy is not required to fix the
-  demonstrated failure mode, and activating permit leasing is not a
+  demonstrated failure mode, and activating action leasing is not a
   prerequisite for it either.
 - If both configurations exhaust CPU or I/O while connections remain within
   budget, the test found a database-capacity or query-efficiency limit, not a
@@ -843,7 +844,7 @@ orchestrator are implemented. The experiment still needs to:
   model?
 - What per-executor-worker activity limit should be tested first? (The
   organization `max_concurrent_actions` question is deferred to optional
-  phase 7, gated on permit leasing being activated in the product.)
+  phase 7, gated on action leasing being activated in the product.)
 - Is PostgreSQL activity plus logs sufficient for the first pass, or should
   pool checkout/wait metrics be implemented first?
 - What product SLO supplies the final latency, throughput, and maximum queueing

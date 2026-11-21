@@ -5,7 +5,16 @@ from datetime import datetime
 from pydantic import BaseModel
 from temporalio import activity
 
+from tracecat.admission.limits import get_effective_limits
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.identifiers import OrganizationID
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
+from tracecat.temporal.errors import raise_application_error_from_classification
+from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 from tracecat.workflow.executions.enums import TriggerType
 
 
@@ -36,5 +45,50 @@ def resolve_time_anchor_activity(
 
 @activity.defn
 def resolve_workflow_concurrency_limits_enabled_activity() -> bool:
-    """Resolve and freeze concurrency-limit flag state in workflow history."""
+    """Resolve and freeze concurrency-limit flag state in workflow history.
+
+    Pre-``ADMISSION_RUN_LIMITS`` histories only; new runs use
+    ``resolve_run_limits_activity``.
+    """
     return is_feature_enabled(FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS)
+
+
+class RunLimitsSnapshot(BaseModel):
+    """Per-run limits frozen into workflow history at the start of a run."""
+
+    max_action_executions_per_workflow: int | None = None
+    """Action budget for this run; ``None`` means unlimited."""
+
+
+@activity.defn
+async def resolve_run_limits_activity(org_id: OrganizationID) -> RunLimitsSnapshot:
+    """Resolve the run's limits once, as a local activity.
+
+    Replaces the flag snapshot plus a separate tier-limits activity. With the
+    ``workflow-concurrency-limits`` flag off, nothing is limited and no lookup
+    runs.
+    """
+    if not is_feature_enabled(FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS):
+        return RunLimitsSnapshot()
+    try:
+        limits = await get_effective_limits(org_id)
+    except Exception as e:
+        invalid_data = isinstance(e, DefaultTierNotConfiguredError)
+        classification = RuntimeErrorClassification.platform(
+            kind=(
+                RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA
+                if invalid_data
+                else RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE
+            ),
+            message="Tracecat could not resolve workflow tier limits",
+            retry_disposition=(
+                RetryDisposition.NON_RETRYABLE
+                if invalid_data
+                else RetryDisposition.RETRYABLE
+            ),
+            cause=e,
+        )
+        raise_application_error_from_classification(classification)
+    return RunLimitsSnapshot(
+        max_action_executions_per_workflow=limits.max_action_executions_per_workflow
+    )

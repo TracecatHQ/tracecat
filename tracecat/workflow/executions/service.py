@@ -31,6 +31,7 @@ from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
+from tracecat.admission.types import NotAdmitted, parse_not_admitted
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -72,6 +73,7 @@ from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
     extract_first,
+    get_not_admitted,
     get_result,
     get_source_event_id,
     get_stored_result,
@@ -80,6 +82,7 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
     is_unreadable_temporal_payload,
+    schedules_executor_action,
     unwrap_action_result,
 )
 from tracecat.workflow.executions.constants import (
@@ -252,6 +255,17 @@ async def _task_result_from_completed_event(event: HistoryEvent) -> TaskResult:
         case None:
             # Agent children return raw values that the workflow wraps inline.
             return TaskResult.from_result(await get_result(event))
+
+
+def _not_admitted_failure(not_admitted: NotAdmitted) -> EventFailure:
+    """Describe an activity whose earlier attempts failed and last was not admitted."""
+    return EventFailure(
+        message=(
+            f"Attempt {not_admitted.attempt} was not admitted: the organization was "
+            f"at its action limit ({not_admitted.in_use}/{not_admitted.limit} in use). "
+            "Earlier attempts failed."
+        )
+    )
 
 
 class WorkflowExecutionsService:
@@ -686,6 +700,8 @@ class WorkflowExecutionsService:
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
         # Map of activity ID to compact event
         activity2eventid: dict[str, int] = {}
+        # Scheduled event IDs of execute_action_activity, the only source of not-admitted answers.
+        executor_sources: set[int] = set()
         fixed_results: dict[str, FixedActionResult] = {}
         fixed_action_names: dict[str, str] = {}
 
@@ -712,6 +728,8 @@ class WorkflowExecutionsService:
                         event.activity_task_scheduled_event_attributes.activity_id
                     )
                     activity2eventid[activity_id] = event.event_id
+                    if schedules_executor_action(event):
+                        executor_sources.add(event.event_id)
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                 attrs = event.workflow_execution_started_event_attributes
                 run_args_data = await extract_first(attrs.input)
@@ -804,8 +822,24 @@ class WorkflowExecutionsService:
                 if is_start_event(event):
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
+                    if source_id in executor_sources:
+                        raw_result = await get_result(event, detect_not_admitted=True)
+                    else:
+                        raw_result = await get_result(event)
+                    if isinstance(raw_result, NotAdmitted):
+                        if raw_result.attempt == 1:
+                            # The executor was at the org's limit and this
+                            # activity ran nothing; the workflow dispatches again.
+                            del id2event[source_id]
+                            continue
+                        # Earlier attempts of this activity ran and failed; the
+                        # last one was not admitted. Show it as failed, never as
+                        # an older success.
+                        source.status = WorkflowExecutionEventStatus.FAILED
+                        source.close_time = event.event_time.ToDatetime(datetime.UTC)
+                        source.action_error = _not_admitted_failure(raw_result)
+                        continue
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
-                    raw_result = await get_result(event)
                     source.action_result = _sanitize_action_result(
                         source.should_mask_output, raw_result
                     )
@@ -958,6 +992,9 @@ class WorkflowExecutionsService:
         wf_id, _ = exec_id_to_parts(wf_exec_id)
         handle = self.handle(wf_exec_id)
         scheduled: dict[int, WorkflowExecutionEventCompact] = {}
+        executor_scheduled: set[int] = set()
+        # What each executor attempt replaced in ``latest``, to undo a not-admitted bounce.
+        superseded: dict[int, tuple[int, RerunSourceAction] | None] = {}
         latest: dict[str, tuple[int, RerunSourceAction]] = {}
         action_names: dict[str, str] = {}
         inherited: dict[str, FixedActionResult] = {}
@@ -994,11 +1031,15 @@ class WorkflowExecutionsService:
                     continue
                 ref = source.action_ref
                 scheduled[event.event_id] = source
+                if schedules_executor_action(event):
+                    executor_scheduled.add(event.event_id)
                 reason = (
                     "Detached child workflows always run."
                     if source.status == WorkflowExecutionEventStatus.DETACHED
                     else "Did not succeed in the source run."
                 )
+                if event.event_id in executor_scheduled:
+                    superseded[event.event_id] = latest.get(ref)
                 latest[ref] = (
                     event.event_id,
                     RerunSourceAction(
@@ -1015,6 +1056,19 @@ class WorkflowExecutionsService:
                     continue
                 entry = latest.get(source.action_ref)
                 if entry is None or entry[0] != source_id:
+                    continue
+                if source_id in executor_scheduled and (
+                    not_admitted := await get_not_admitted(event)
+                ):
+                    # The executor was at the org's limit. If this was the
+                    # activity's first attempt it ran nothing, so the execution
+                    # before it still decides the outcome. A later attempt
+                    # means earlier attempts of this activity ran and failed:
+                    # keep it as the latest, with nothing to reuse.
+                    if not_admitted.attempt == 1 and (
+                        previous := superseded.get(source_id)
+                    ):
+                        latest[source.action_ref] = previous
                     continue
                 entry[1].fixed = FixedActionResult(
                     result=await _task_result_from_completed_event(event),
@@ -1249,6 +1303,10 @@ class WorkflowExecutionsService:
         )
         event_group_names: dict[int, EventGroup | None] = {}
         events: list[WorkflowExecutionEvent] = []
+        # Scheduled/started event IDs of attempts the executor did not admit.
+        not_admitted_event_ids: set[int] = set()
+        # Scheduled event IDs of execute_action_activity, the only source of not-admitted answers.
+        executor_scheduled: set[int] = set()
         for event in history.events:
             match event.event_type:
                 # === Child Workflow Execution Events ===
@@ -1402,6 +1460,8 @@ class WorkflowExecutionsService:
                     if not (group := await EventGroup.from_scheduled_activity(event)):
                         continue
                     event_group_names[event.event_id] = group
+                    if schedules_executor_action(event):
+                        executor_scheduled.add(event.event_id)
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -1438,6 +1498,18 @@ class WorkflowExecutionsService:
                     raw_result = await extract_first(
                         event.activity_task_completed_event_attributes.result
                     )
+                    if (
+                        gparent_event_id in executor_scheduled
+                        and (not_admitted := parse_not_admitted(raw_result))
+                        and not_admitted.attempt == 1
+                    ):
+                        # The executor ran nothing in this activity; hide it.
+                        # Later attempts keep their events: earlier ones ran.
+                        not_admitted_event_ids.add(gparent_event_id)
+                        not_admitted_event_ids.add(
+                            event.activity_task_completed_event_attributes.started_event_id
+                        )
+                        continue
                     result = _sanitize_action_result(
                         group.should_mask_output,
                         raw_result,
@@ -1497,6 +1569,8 @@ class WorkflowExecutionsService:
                     )
                 case _:
                     logger.trace("Unhandled event type", event_type=event.event_type)
+        if not_admitted_event_ids:
+            events = [e for e in events if e.event_id not in not_admitted_event_ids]
         return events
 
     async def iter_list_workflow_execution_event_history(
