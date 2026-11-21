@@ -38,8 +38,11 @@ for writers to its own table, and writers to other tables never wait for it.
 Reconfiguring a collection for a new provider binding, and clearing the
 workspace's `reconciliation_required` flag, still take the workspace lock
 exclusively. An unlocked pre-check runs that short transaction only when it is
-needed. Table DDL also stays exclusive, so source columns cannot change under a
-step.
+needed. Table DDL that can change a selected column (changing or deleting a
+column, renaming or deleting the table) also stays exclusive, so selected
+columns cannot change under a step. Adding a column, or creating or dropping a
+unique index, takes no workspace lock, because none of them can change selected
+text.
 
 The full chunker checkpoint is stored directly in the existing `enumeration_cursor`
 JSON column, with one copy of each position. It includes build identity,
