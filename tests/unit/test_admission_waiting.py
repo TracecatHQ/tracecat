@@ -449,3 +449,19 @@ async def test_interrupt_that_stays_false_waits_out_the_backoff(
     assert result == {"type": "inline"}
     assert fake.sleeps == []
     assert fake.clock > started_at  # the timed wait ran to its timeout
+
+
+@pytest.mark.anyio
+async def test_interrupt_ends_only_one_backoff(fake: FakeWorkflow) -> None:
+    """A dispatch that ignores the interrupt still waits on timers after it."""
+    results: list[Any] = [_busy(), _busy(), _busy(), {"type": "inline"}]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return results.pop(0)
+
+    result = await _admission().execute(
+        dispatch, max_attempts=1, interrupt=lambda: True
+    )
+
+    assert result == {"type": "inline"}
+    assert len(fake.sleeps) == 2  # first backoff interrupted, the rest are timers
