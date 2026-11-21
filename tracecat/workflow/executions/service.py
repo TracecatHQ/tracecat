@@ -68,6 +68,7 @@ from tracecat.storage.object import (
     get_object_storage,
     retrieve_stored_object,
 )
+from tracecat.temporal.fairness import org_priority
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -1888,6 +1889,7 @@ class WorkflowExecutionsService:
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 search_attributes=search_attrs,
+                priority=org_priority(self.role.organization_id),
                 **kwargs,
             )
         except WorkflowFailureError as e:
@@ -2055,6 +2057,7 @@ class WorkflowExecutionsService:
                     id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     search_attributes=search_attrs,
+                    priority=org_priority(self.role.organization_id),
                     **kwargs,
                 ),
                 timeout=start_timeout,
