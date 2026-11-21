@@ -170,6 +170,8 @@ async def test_sigterm_lets_in_flight_tool_call_finish(
             response = await call
             body = response.text
         except httpx.HTTPError:
+            if expect_result:
+                raise
             body = ""
 
     async with asyncio.timeout(15):
