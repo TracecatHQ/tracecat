@@ -261,13 +261,18 @@ class ExecutorActivities:
             input=input,
         )
         # Take the lease before any effect or S3 read, so not admitting is cheap.
-        # Agent tool calls are not limited yet (ENG-2564 adds their own limit).
+        # Agent tool calls count against their own limit.
         lease: Lease | None = None
-        if input.agent_session_id is None and role.organization_id is not None:
+        if role.organization_id is not None:
+            resource = (
+                ConcurrencyResource.ACTIONS
+                if input.agent_session_id is None
+                else ConcurrencyResource.TOOL_CALLS
+            )
             try:
                 lease = await gate.acquire(
                     org_id=role.organization_id,
-                    resource=ConcurrencyResource.ACTIONS,
+                    resource=resource,
                     lease_id=_lease_id(act_info),
                     units=_for_each_width() if task.for_each else 1,
                     deadline=_lease_deadline(act_info),

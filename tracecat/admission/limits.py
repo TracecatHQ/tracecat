@@ -56,9 +56,10 @@ def limit_for(limits: EffectiveLimits, resource: ConcurrencyResource) -> int | N
             return limits.max_concurrent_actions
         case ConcurrencyResource.WORKFLOWS:
             return limits.max_concurrent_workflows
-        case ConcurrencyResource.TOOL_CALLS | ConcurrencyResource.AGENT_TURNS:
-            # Limits for these arrive with ENG-2564.
-            return None
+        case ConcurrencyResource.TOOL_CALLS:
+            return limits.max_concurrent_tool_calls
+        case ConcurrencyResource.AGENT_TURNS:
+            return limits.max_concurrent_agent_turns
 
 
 async def resolve_limit(

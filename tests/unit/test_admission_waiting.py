@@ -409,3 +409,43 @@ def test_late_ack_for_a_finished_probe_is_ignored() -> None:
     )
     admission.acknowledge("admission-probe-already-done")
     assert admission._acked == set()  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_interrupt_ends_the_backoff_early(fake: FakeWorkflow) -> None:
+    cancelled = False
+    started_at = fake.clock
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        nonlocal cancelled
+        if not cancelled:
+            cancelled = True  # e.g. a user cancel arrives while waiting
+            return _busy()
+        return {"type": "inline"}
+
+    result = await _admission().execute(
+        dispatch, max_attempts=1, interrupt=lambda: cancelled
+    )
+
+    assert result == {"type": "inline"}
+    assert fake.sleeps == []  # no plain timer
+    assert fake.clock == started_at  # the backoff never ran out
+
+
+@pytest.mark.anyio
+async def test_interrupt_that_stays_false_waits_out_the_backoff(
+    fake: FakeWorkflow,
+) -> None:
+    results: list[Any] = [_busy(), {"type": "inline"}]
+    started_at = fake.clock
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return results.pop(0)
+
+    result = await _admission().execute(
+        dispatch, max_attempts=1, interrupt=lambda: False
+    )
+
+    assert result == {"type": "inline"}
+    assert fake.sleeps == []
+    assert fake.clock > started_at  # the timed wait ran to its timeout

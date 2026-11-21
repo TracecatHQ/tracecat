@@ -12,7 +12,7 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
-    from tracecat.admission.types import ensure_admitted
+    from tracecat.admission.types import NotAdmitted, parse_not_admitted
     from tracecat.agent.workflows.tool_execution import (
         AGENT_TOOL_PRIORITY,
         REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS,
@@ -55,7 +55,9 @@ class ExecuteRegistryToolWorkflow:
     """Short workflow that routes a single registry UDF to executor."""
 
     @workflow.run
-    async def run(self, input: ExecuteRegistryToolWorkflowInput) -> StoredObject:
+    async def run(
+        self, input: ExecuteRegistryToolWorkflowInput
+    ) -> StoredObject | NotAdmitted:
         preserve_cancellation = workflow.patched(
             ExecuteRegistryToolWorkflowPatch.PRESERVE_TEMPORAL_CANCELLATION
         )
@@ -94,6 +96,7 @@ class ExecuteRegistryToolWorkflow:
                 _activity_error_message(e),
                 non_retryable=True,
             ) from e
-        # Agent tool calls are never concurrency-gated (ENG-2564 adds their limit).
-        stored = ensure_admitted(stored, caller="Registry tool call")
+        # Not admitted executed nothing: the caller waits briefly and starts again.
+        if (not_admitted := parse_not_admitted(stored)) is not None:
+            return not_admitted
         return StoredObjectValidator.validate_python(stored)

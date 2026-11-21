@@ -224,7 +224,7 @@ class OrgLimitsService(BaseOrgService):
         limits = await TierService(self.session).get_effective_limits(
             self.organization_id
         )
-        usage = await read_concurrency_usage(self.organization_id)
+        usage = await read_concurrency_usage(self.organization_id, limits)
         values = {
             ConcurrencyLimitName.MAX_CONCURRENT_WORKFLOWS: limits.max_concurrent_workflows,
             ConcurrencyLimitName.MAX_CONCURRENT_ACTIONS: limits.max_concurrent_actions,

@@ -118,6 +118,19 @@ class RunAdmission:
             self._backoff_step = 0
         self._needs_timer = True
 
+    @staticmethod
+    async def _wait_backoff(
+        delay: timedelta, interrupt: Callable[[], bool] | None
+    ) -> None:
+        """Wait out a backoff on a durable timer, or until ``interrupt`` is true."""
+        if interrupt is None:
+            await workflow.sleep(delay)
+            return
+        try:
+            await workflow.wait_condition(interrupt, timeout=delay)
+        except TimeoutError:
+            pass
+
     def acknowledge(self, activity_id: str) -> None:
         """Record an executor's admission signal for a probe still in flight."""
         if activity_id in self._in_flight_probes:
@@ -164,7 +177,13 @@ class RunAdmission:
                 self._in_flight_probes.discard(probe_id)
                 self._acked.discard(probe_id)
 
-    async def execute(self, dispatch: Dispatch, *, max_attempts: int) -> Any:
+    async def execute(
+        self,
+        dispatch: Dispatch,
+        *,
+        max_attempts: int,
+        interrupt: Callable[[], bool] | None = None,
+    ) -> Any:
         """Dispatch until an attempt is admitted; return its result.
 
         Only probes change the run's shared wait state, and each probe records
@@ -174,6 +193,9 @@ class RunAdmission:
         Args:
             dispatch: Starts the activity with the remaining user attempts.
             max_attempts: The user's attempt budget (0 = unlimited).
+            interrupt: Ends a backoff early when it returns true, so the next
+                probe dispatches at once (for example on a user cancel, which
+                the dispatch then handles). ``None`` keeps a plain timer.
 
         Returns:
             The first result that isn't a not-admitted answer.
@@ -198,7 +220,7 @@ class RunAdmission:
                     if self._needs_timer:
                         delay = self._next_backoff()
                         self._backoff_step += 1
-                        await workflow.sleep(delay)
+                        await self._wait_backoff(delay, interrupt)
                     result, progress_recorded = await self._probe(
                         dispatch, remaining, token
                     )

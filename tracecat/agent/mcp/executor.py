@@ -19,6 +19,12 @@ from temporalio.service import RPCError, RPCStatusCode
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
 from tracecat import config
+from tracecat.admission.live import CapacityBusyError, run_with_capacity_wait
+from tracecat.admission.types import (
+    ConcurrencyResource,
+    NotAdmitted,
+    parse_not_admitted,
+)
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.workflows.tool_execution import (
     AGENT_TOOL_PRIORITY,
@@ -130,25 +136,51 @@ async def execute_action(
         agent_session_id=claims.session_id,
         tunnel=claims.tool_tunnels.get(action_name),
     )
-    stored = await _execute_action_workflow(
-        ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
-        workflow_id=build_agent_tool_workflow_id(),
-        memo=ExecuteRegistryToolWorkflowMemo(
-            parent_agent_workflow_id=claims.parent_agent_workflow_id,
-            parent_agent_run_id=claims.parent_agent_run_id,
-            parent_agent_session_id=claims.session_id,
-            tool_call_id=tool_call_id,
-            action_name=action_name,
-        ),
-        search_attributes=TypedSearchAttributes(
-            search_attributes=[
-                build_tool_workflow_correlation_attr(claims.session_id),
-                *build_tool_workflow_alias_attrs(tool_call_id),
-                build_tool_workflow_workspace_attr(claims),
-                *build_tool_workflow_user_attrs(claims),
-            ]
-        ),
+    workflow_input = ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input)
+    memo = ExecuteRegistryToolWorkflowMemo(
+        parent_agent_workflow_id=claims.parent_agent_workflow_id,
+        parent_agent_run_id=claims.parent_agent_run_id,
+        parent_agent_session_id=claims.session_id,
+        tool_call_id=tool_call_id,
+        action_name=action_name,
     )
+    search_attributes = TypedSearchAttributes(
+        search_attributes=[
+            build_tool_workflow_correlation_attr(claims.session_id),
+            *build_tool_workflow_alias_attrs(tool_call_id),
+            build_tool_workflow_workspace_attr(claims),
+            *build_tool_workflow_user_attrs(claims),
+        ]
+    )
+
+    async def run() -> StoredObject | NotAdmitted:
+        # A not-admitted attempt executed nothing; the next one is a fresh workflow.
+        return await _execute_action_workflow(
+            workflow_input,
+            workflow_id=build_agent_tool_workflow_id(),
+            memo=memo,
+            search_attributes=search_attributes,
+        )
+
+    if role.organization_id is None:
+        stored = await run()
+    else:
+        try:
+            stored = await run_with_capacity_wait(
+                run,
+                org_id=role.organization_id,
+                resource=ConcurrencyResource.TOOL_CALLS,
+                wait_seconds=config.TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS,
+            )
+        except CapacityBusyError as e:
+            raise ActionExecutionError(
+                "Tool call not started: this organization is already running its "
+                f"limit of {e.limit} concurrent tool calls. Nothing was executed; "
+                "retry this tool call in a few seconds."
+            ) from e
+    if isinstance(stored, NotAdmitted):
+        # Only reachable without an organization, which the gate never limits.
+        raise ActionExecutionError("Tool call not started: capacity busy")
     return await retrieve_stored_object(stored)
 
 
@@ -205,11 +237,17 @@ async def _execute_action_workflow(
     workflow_id: str,
     memo: ExecuteRegistryToolWorkflowMemo,
     search_attributes: TypedSearchAttributes,
-) -> StoredObject:
-    """Execute a single registry UDF via a short workflow on agent-worker."""
+) -> StoredObject | NotAdmitted:
+    """Execute a single registry UDF via a short workflow on agent-worker.
+
+    Returns ``NotAdmitted`` when the organization was at its tool-call limit and
+    nothing ran.
+    """
     client = await get_temporal_client()
 
-    async def start() -> WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject]:
+    async def start() -> WorkflowHandle[
+        ExecuteRegistryToolWorkflow, StoredObject | NotAdmitted
+    ]:
         try:
             return await client.start_workflow(
                 ExecuteRegistryToolWorkflow.run,
@@ -263,12 +301,18 @@ async def _execute_action_workflow(
             raise asyncio.CancelledError() from error
         message = str(cause) if isinstance(cause, ApplicationError) else str(error)
         raise ActionExecutionError(message) from error
+    if (not_admitted := parse_not_admitted(stored)) is not None:
+        return not_admitted
     return StoredObjectValidator.validate_python(stored)
 
 
 async def _cancel_started_workflow(
-    start_task: asyncio.Task[WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject]],
-    fallback_handle: WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject],
+    start_task: asyncio.Task[
+        WorkflowHandle[ExecuteRegistryToolWorkflow, StoredObject | NotAdmitted]
+    ],
+    fallback_handle: WorkflowHandle[
+        ExecuteRegistryToolWorkflow, StoredObject | NotAdmitted
+    ],
 ) -> None:
     """Request cancellation without replacing the caller's original failure."""
     try:

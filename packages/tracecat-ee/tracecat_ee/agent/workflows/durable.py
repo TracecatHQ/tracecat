@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -20,7 +21,8 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
-    from tracecat.admission.types import ensure_admitted
+    from tracecat.admission.types import ConcurrencyResource, NotAdmitted
+    from tracecat.admission.waiting import RunAdmission
     from tracecat.agent.backends.schemas import (
         AgentWorkflowArgs as AgentWorkflowArgs,
     )
@@ -133,6 +135,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
+    from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
@@ -536,6 +539,11 @@ def _preserved_agents_binding(
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class _TurnCancelledInFlight:
+    """A user cancel stopped the turn activity before it returned a result."""
+
+
 @workflow.defn
 class DurableAgentWorkflow:
     # Instance variables initialized in run() before _run_with_agent_executor()
@@ -562,6 +570,18 @@ class DurableAgentWorkflow:
         self._cancel_requested: bool = False
         self._cancel_reason: str | None = None
         self._executor_terminal_stream_error_emitted: bool | None = None
+        # Turns and approved tool calls run one at a time, so no admission
+        # signals are needed: nothing else in the run waits behind a probe.
+        admission_logger = WorkflowRuntimeLogger().bind(
+            organization_id=str(self.role.organization_id),
+            session_id=str(self.session_id),
+        )
+        self._turn_admission = RunAdmission(
+            resource=ConcurrencyResource.AGENT_TURNS, logger=admission_logger
+        )
+        self._tool_admission = RunAdmission(
+            resource=ConcurrencyResource.TOOL_CALLS, logger=admission_logger
+        )
 
     def _initialize_run(self) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
@@ -1517,62 +1537,18 @@ class DurableAgentWorkflow:
             logger.info("Executing agent turn", turn=self._turn)
 
             # Run one executor activity turn with update-driven cancellation.
+            # At the organization's turn limit, wait on a durable timer (a user
+            # cancel ends the wait early) and dispatch again.
             try:
-                if not workflow.patched(DurableAgentWorkflowPatch.AGENT_REQUEST_CANCEL):
-                    result = await workflow.execute_activity(
-                        run_agent_activity,
-                        executor_input,
-                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                        start_to_close_timeout=timedelta(
-                            seconds=activity_timeout_seconds
-                        ),
-                        heartbeat_timeout=timedelta(seconds=60),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
-                else:
-                    activity_handle = workflow.start_activity(
-                        run_agent_activity,
-                        executor_input,
-                        cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
-                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                        start_to_close_timeout=timedelta(
-                            seconds=activity_timeout_seconds
-                        ),
-                        heartbeat_timeout=timedelta(seconds=60),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
-                    # ActivityHandle is an asyncio.Task subclass, so .done() is
-                    # valid. Neither wait_condition nor the handle poll emits
-                    # history commands, so this race stays replay-safe.
-                    await workflow.wait_condition(
-                        lambda handle=activity_handle: (
-                            handle.done() or self._cancel_requested
-                        )
-                    )
-                    if not activity_handle.done():
-                        activity_handle.cancel()
-                    try:
-                        result = await activity_handle
-                    except ActivityError as e:
-                        if self._cancel_requested and isinstance(
-                            e.cause, TemporalCancelledError
-                        ):
-                            # The activity was cancelled without returning a
-                            # loopback result (never picked up, still in setup, or
-                            # hard-cancelled), so no executor wrote the cancelled/
-                            # done frames to the per-turn stream. Emit them here or
-                            # the client's SSE reader blocks until disconnect.
-                            return await self._cancelled_turn_output(
-                                AgentExecutorResult(
-                                    success=True,
-                                    cancelled=True,
-                                    cancelled_reason=self._cancel_reason
-                                    or "user_cancel",
-                                ),
-                                info,
-                                emit_cancelled=True,
-                            )
-                        raise
+                turn = await self._turn_admission.execute(
+                    functools.partial(
+                        self._dispatch_turn,
+                        executor_input=executor_input,
+                        activity_timeout_seconds=activity_timeout_seconds,
+                    ),
+                    max_attempts=1,
+                    interrupt=lambda: self._cancel_requested,
+                )
             except ActivityError as e:
                 if is_cancelled_exception(e):
                     raise
@@ -1581,6 +1557,22 @@ class DurableAgentWorkflow:
                     fallback_classification=_executor_activity_classification(e),
                     include_implicit_context=False,
                 )
+            if isinstance(turn, _TurnCancelledInFlight):
+                # The activity was cancelled without returning a loopback
+                # result (never picked up, still in setup, or hard-cancelled),
+                # so no executor wrote the cancelled/done frames to the per-turn
+                # stream. Emit them here or the client's SSE reader blocks until
+                # disconnect.
+                return await self._cancelled_turn_output(
+                    AgentExecutorResult(
+                        success=True,
+                        cancelled=True,
+                        cancelled_reason=self._cancel_reason or "user_cancel",
+                    ),
+                    info,
+                    emit_cancelled=True,
+                )
+            result: AgentExecutorResult = turn
 
             if result.cancelled:
                 logger.info(
@@ -1941,6 +1933,48 @@ class DurableAgentWorkflow:
 
         return approved, denied
 
+    async def _dispatch_turn(
+        self,
+        _remaining: int,
+        _probe_id: str | None,
+        *,
+        executor_input: AgentExecutorInput,
+        activity_timeout_seconds: int,
+    ) -> AgentExecutorResult | NotAdmitted | _TurnCancelledInFlight:
+        """Run one turn activity, cancelling it on a user cancel when patched."""
+        if not workflow.patched(DurableAgentWorkflowPatch.AGENT_REQUEST_CANCEL):
+            return await workflow.execute_activity(
+                run_agent_activity,
+                executor_input,
+                task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                start_to_close_timeout=timedelta(seconds=activity_timeout_seconds),
+                heartbeat_timeout=timedelta(seconds=60),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        activity_handle = workflow.start_activity(
+            run_agent_activity,
+            executor_input,
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+            task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+            start_to_close_timeout=timedelta(seconds=activity_timeout_seconds),
+            heartbeat_timeout=timedelta(seconds=60),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        # ActivityHandle is an asyncio.Task subclass, so .done() is valid.
+        # Neither wait_condition nor the handle poll emits history commands,
+        # so this race stays replay-safe.
+        await workflow.wait_condition(
+            lambda: activity_handle.done() or self._cancel_requested
+        )
+        if not activity_handle.done():
+            activity_handle.cancel()
+        try:
+            return await activity_handle
+        except ActivityError as e:
+            if self._cancel_requested and isinstance(e.cause, TemporalCancelledError):
+                return _TurnCancelledInFlight()
+            raise
+
     async def _race_tool_activity_against_cancel[T](
         self, handle: workflow.ActivityHandle[T]
     ) -> T:
@@ -1956,6 +1990,29 @@ class DurableAgentWorkflow:
         if not handle.done():
             handle.cancel()
         return await handle
+
+    async def _dispatch_approved_registry_tool(
+        self,
+        _remaining: int,
+        _probe_id: str | None,
+        *,
+        tool_call: ApprovedToolCall,
+        registry_lock: RegistryLock,
+        service_role: Role,
+        logical_time: datetime,
+        tool_tunnels: dict[str, str] | None,
+    ) -> Any:
+        """Run one approved registry tool activity, raced against a user cancel."""
+        return await self._race_tool_activity_against_cancel(
+            _start_registry_tool_call(
+                tool_call,
+                registry_lock=registry_lock,
+                service_role=service_role,
+                logical_time=logical_time,
+                agent_session_id=self.session_id,
+                tool_tunnels=tool_tunnels,
+            )
+        )
 
     async def _execute_and_reconcile_approved_tools(
         self,
@@ -2016,18 +2073,20 @@ class DurableAgentWorkflow:
                         raw_result=raw_result,
                     )
                 else:
-                    stored = await self._race_tool_activity_against_cancel(
-                        _start_registry_tool_call(
-                            tool_call,
+                    # At the organization's tool-call limit, wait on a durable
+                    # timer (a user cancel ends the wait early) and dispatch again.
+                    stored = await self._tool_admission.execute(
+                        functools.partial(
+                            self._dispatch_approved_registry_tool,
+                            tool_call=tool_call,
                             registry_lock=registry_lock,
                             service_role=service_role,
                             logical_time=logical_time,
-                            agent_session_id=self.session_id,
                             tool_tunnels=mcp_build_result.tool_tunnels,
-                        )
+                        ),
+                        max_attempts=1,
+                        interrupt=lambda: self._cancel_requested,
                     )
-                    # Agent tool calls are never concurrency-gated (ENG-2564).
-                    stored = ensure_admitted(stored, caller="Approved tool call")
                     result = PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
                         tool_name=tool_call.tool_name,

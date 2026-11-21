@@ -11,7 +11,6 @@ from enum import StrEnum
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
-from temporalio.exceptions import ApplicationError
 
 NOT_ADMITTED_TYPE: Final = "tracecat.admission.not_admitted"
 """Discriminator of the result an executor returns when an org is at its limit."""
@@ -100,19 +99,3 @@ def parse_not_admitted(result: Any) -> NotAdmitted | None:
                 return None
         case _:
             return None
-
-
-def ensure_admitted[T](result: T | NotAdmitted, *, caller: str) -> T:
-    """Narrow an activity result for a caller that is never gated.
-
-    Raises:
-        ApplicationError: Non-retryable, if the attempt was not admitted; that
-            means a gate was added without a caller that can wait for it.
-    """
-    if isinstance(result, NotAdmitted) or parse_not_admitted(result) is not None:
-        raise ApplicationError(
-            f"{caller} received a not-admitted result, but it is never gated",
-            non_retryable=True,
-            type=NOT_ADMITTED_TYPE,
-        )
-    return result

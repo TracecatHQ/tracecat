@@ -10,7 +10,7 @@ from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
@@ -25,6 +25,14 @@ from tracecat_ee.workspace_chat.policy import (
 )
 
 from tracecat import config as app_config
+from tracecat.admission import gate
+from tracecat.admission.gate import Lease, NotAdmittedError
+from tracecat.admission.live import (
+    activity_lease_deadline,
+    activity_lease_id,
+    holding,
+)
+from tracecat.admission.types import ConcurrencyResource, NotAdmitted
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
 from tracecat.agent.backends.access import can_use_backend
 from tracecat.agent.backends.base import AgentBackend
@@ -1542,13 +1550,17 @@ async def probe_stdio_mcp_connection_activity(
 
 
 @activity.defn
-async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
+async def run_agent_activity(
+    input: AgentExecutorInput,
+) -> AgentExecutorResult | NotAdmitted:
     """Temporal activity that runs one brokered agent turn.
 
     This activity:
-    1. Creates a SandboxedAgentExecutor
-    2. Dispatches the turn through the worker-global runtime broker
-    3. Returns runtime status, approval state, usage, and terminal output
+    1. Takes a lease on the organization's concurrent agent turn limit
+       (returns ``NotAdmitted``, having done nothing, when it is full)
+    2. Creates a SandboxedAgentExecutor
+    3. Dispatches the turn through the worker-global runtime broker
+    4. Returns runtime status, approval state, usage, and terminal output
 
     The broker-owned transport decides whether the runtime shim runs with nsjail
     or as a direct subprocess based on TRACECAT__EXECUTOR_BACKEND.
@@ -1561,7 +1573,8 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         input: Agent executor configuration and tokens.
 
     Returns:
-        AgentExecutorResult with execution status and terminal output.
+        AgentExecutorResult with execution status and terminal output, or
+        ``NotAdmitted`` when the organization is at its turn limit.
     """
     activity_info = activity.info()
     set_current_span_attributes(
@@ -1572,6 +1585,36 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         }
     )
 
+    # Take the lease before any effect; it ends with this activity, so a turn
+    # paused for approval holds nothing.
+    lease: Lease | None = None
+    if (org_id := input.role.organization_id) is not None:
+        try:
+            lease = await gate.acquire(
+                org_id=org_id,
+                resource=ConcurrencyResource.AGENT_TURNS,
+                lease_id=activity_lease_id(activity_info),
+                units=1,
+                deadline=activity_lease_deadline(
+                    activity_info,
+                    fallback=timedelta(
+                        seconds=clamp_agent_timeout_seconds(input.timeout_seconds)
+                    ),
+                ),
+            )
+        except NotAdmittedError as e:
+            return NotAdmitted(
+                resource=e.resource,
+                in_use=e.in_use,
+                limit=e.limit,
+                attempt=activity_info.attempt,
+            )
+    async with holding(lease):
+        return await _run_agent_turn(input)
+
+
+async def _run_agent_turn(input: AgentExecutorInput) -> AgentExecutorResult:
+    """Run one admitted agent turn."""
     activity.heartbeat(
         f"Starting agent execution ({TRACECAT__EXECUTOR_BACKEND.value} mode): "
         f"{input.session_id}"
