@@ -190,6 +190,24 @@ async def _not_admitted_count(handle: WorkflowHandle[Any, Any], client: Client) 
     return count
 
 
+async def _turn_inputs(
+    handle: WorkflowHandle[Any, Any], client: Client
+) -> list[AgentExecutorInput]:
+    """Inputs of every ``run_agent_activity`` the run scheduled, in order."""
+    inputs: list[AgentExecutorInput] = []
+    async for event in handle.fetch_history_events():
+        if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            continue
+        attributes = event.activity_task_scheduled_event_attributes
+        if attributes.activity_type.name != "run_agent_activity":
+            continue
+        (decoded,) = await client.data_converter.decode(
+            attributes.input.payloads, [AgentExecutorInput]
+        )
+        inputs.append(decoded)
+    return inputs
+
+
 async def _replay(client: Client, history: WorkflowHistory) -> None:
     async def histories() -> AsyncIterator[WorkflowHistory]:
         yield history
@@ -554,6 +572,12 @@ async def test_turn_waits_for_turn_capacity_until_another_turn_stops(
 
     assert fake_turns.calls[second_session] == 1
     assert await _not_admitted_count(first, temporal_client) == 0
+    # Every dispatch after a capacity wait carries freshly minted tokens.
+    dispatched = await _turn_inputs(second, temporal_client)
+    assert len(dispatched) >= 2
+    for earlier, later in zip(dispatched, dispatched[1:], strict=False):
+        assert later.llm_gateway_auth_token != earlier.llm_gateway_auth_token
+        assert later.mcp_auth_token != earlier.mcp_auth_token
     assert await _in_use(org_id, ConcurrencyResource.AGENT_TURNS) == 0
     await _replay(temporal_client, await first.fetch_history())
     await _replay(temporal_client, await second.fetch_history())

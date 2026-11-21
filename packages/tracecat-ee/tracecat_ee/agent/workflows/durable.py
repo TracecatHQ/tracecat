@@ -544,6 +544,15 @@ class _TurnCancelledInFlight:
     """A user cancel stopped the turn activity before it returned a result."""
 
 
+@dataclass(slots=True)
+class _PendingTurn:
+    """A turn's dispatch input, refreshed when it waits for turn capacity."""
+
+    executor_input: AgentExecutorInput
+    compiled_run: CompiledAgentRun
+    dispatched: bool = False
+
+
 @workflow.defn
 class DurableAgentWorkflow:
     # Instance variables initialized in run() before _run_with_agent_executor()
@@ -1539,11 +1548,17 @@ class DurableAgentWorkflow:
             # Run one executor activity turn with update-driven cancellation.
             # At the organization's turn limit, wait on a durable timer (a user
             # cancel ends the wait early) and dispatch again.
+            pending_turn = _PendingTurn(
+                executor_input=executor_input, compiled_run=compiled_run
+            )
             try:
                 turn = await self._turn_admission.execute(
                     functools.partial(
                         self._dispatch_turn,
-                        executor_input=executor_input,
+                        turn=pending_turn,
+                        cfg=cfg,
+                        internal_tool_context=internal_tool_context,
+                        token_ttl_seconds=token_ttl_seconds,
                         activity_timeout_seconds=activity_timeout_seconds,
                     ),
                     max_attempts=1,
@@ -1573,6 +1588,9 @@ class DurableAgentWorkflow:
                     emit_cancelled=True,
                 )
             result: AgentExecutorResult = turn
+            # A capacity wait may have refreshed the turn's tokens.
+            executor_input = pending_turn.executor_input
+            compiled_run = pending_turn.compiled_run
 
             if result.cancelled:
                 logger.info(
@@ -1938,10 +1956,26 @@ class DurableAgentWorkflow:
         _remaining: int,
         _probe_id: str | None,
         *,
-        executor_input: AgentExecutorInput,
+        turn: _PendingTurn,
+        cfg: AgentConfig,
+        internal_tool_context: InternalToolContext | None,
+        token_ttl_seconds: int | None,
         activity_timeout_seconds: int,
     ) -> AgentExecutorResult | NotAdmitted | _TurnCancelledInFlight:
-        """Run one turn activity, cancelling it on a user cancel when patched."""
+        """Run one turn activity, cancelling it on a user cancel when patched.
+
+        A dispatch after a capacity wait re-mints the turn's tokens first: the
+        wait has no limit, so tokens minted before it can expire.
+        """
+        if turn.dispatched:
+            self._refresh_turn_tokens(
+                turn,
+                cfg=cfg,
+                internal_tool_context=internal_tool_context,
+                token_ttl_seconds=token_ttl_seconds,
+            )
+        turn.dispatched = True
+        executor_input = turn.executor_input
         if not workflow.patched(DurableAgentWorkflowPatch.AGENT_REQUEST_CANCEL):
             return await workflow.execute_activity(
                 run_agent_activity,
@@ -1974,6 +2008,47 @@ class DurableAgentWorkflow:
             if self._cancel_requested and isinstance(e.cause, TemporalCancelledError):
                 return _TurnCancelledInFlight()
             raise
+
+    def _refresh_turn_tokens(
+        self,
+        turn: _PendingTurn,
+        *,
+        cfg: AgentConfig,
+        internal_tool_context: InternalToolContext | None,
+        token_ttl_seconds: int | None,
+    ) -> None:
+        """Give a waiting turn fresh scope, LLM gateway and telemetry tokens."""
+        compiled_run = self._remint_scope_tokens(
+            turn.compiled_run,
+            internal_tool_context=internal_tool_context,
+            ttl_seconds=token_ttl_seconds,
+        )
+        llm_gateway_auth_token = mint_llm_token(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            session_id=self.session_id,
+            model=cfg.model_name,
+            provider=cfg.model_provider,
+            catalog_id=cfg.catalog_id,
+            base_url=cfg.base_url,
+            model_settings=cfg.model_settings,
+            routes=compiled_run.llm_routes,
+            ttl_seconds=token_ttl_seconds,
+        )
+        agent_otel_auth_token = mint_agent_otel_token(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            session_id=self.session_id,
+        )
+        turn.compiled_run = compiled_run
+        turn.executor_input = turn.executor_input.model_copy(
+            update={
+                "mcp_auth_token": compiled_run.root.mcp_auth_token,
+                "llm_gateway_auth_token": llm_gateway_auth_token,
+                "agent_otel_auth_token": agent_otel_auth_token,
+                "subagents": compiled_run.sandbox_subagents,
+            }
+        )
 
     async def _race_tool_activity_against_cancel[T](
         self, handle: workflow.ActivityHandle[T]
