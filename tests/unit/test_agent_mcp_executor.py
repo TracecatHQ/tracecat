@@ -20,6 +20,8 @@ from temporalio.exceptions import (
 )
 from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.admission.live import CapacityBusyError
+from tracecat.admission.types import ConcurrencyResource
 from tracecat.agent.mcp import executor
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.registry.lock.types import RegistryLock
@@ -431,3 +433,56 @@ def test_build_run_input_sets_tool_tunnel() -> None:
     direct = executor.build_run_input("core.http_request", {}, lock)
     assert tunneled.task.tunnel == "onprem"
     assert direct.task.tunnel is None
+
+
+@pytest.mark.anyio
+async def test_execute_action_tells_the_model_to_retry_when_capacity_is_busy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    start = AsyncMock()
+    monkeypatch.setattr(executor, "_execute_action_workflow", start)
+    monkeypatch.setattr(
+        executor,
+        "run_with_capacity_wait",
+        AsyncMock(
+            side_effect=CapacityBusyError(
+                resource=ConcurrencyResource.TOOL_CALLS,
+                in_use=5,
+                limit=5,
+                waited_seconds=5.0,
+            )
+        ),
+    )
+
+    with pytest.raises(executor.ActionExecutionError) as raised:
+        await executor.execute_action(
+            "core.http_request", {}, _build_claims(), _build_registry_lock()
+        )
+
+    message = str(raised.value)
+    assert "Tool call not started" in message
+    assert "limit of 5 concurrent tool calls" in message
+    assert "retry" in message
+    start.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_execute_action_waits_on_the_tool_call_limit_of_its_org(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claims = _build_claims()
+    wait = AsyncMock(return_value={"stored": True})
+    monkeypatch.setattr(executor, "run_with_capacity_wait", wait)
+    monkeypatch.setattr(
+        executor, "retrieve_stored_object", AsyncMock(return_value={"ok": True})
+    )
+
+    result = await executor.execute_action(
+        "core.http_request", {}, claims, _build_registry_lock()
+    )
+
+    assert result == {"ok": True}
+    assert wait.await_args is not None
+    kwargs = wait.await_args.kwargs
+    assert kwargs["org_id"] == claims.organization_id
+    assert kwargs["resource"] is ConcurrencyResource.TOOL_CALLS

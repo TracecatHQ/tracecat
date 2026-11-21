@@ -15,6 +15,7 @@ from temporalio.exceptions import (
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
+from tracecat.admission.types import ConcurrencyResource, NotAdmitted
 from tracecat.agent.workflows.tool_execution import ExecuteRegistryToolWorkflowInput
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -187,3 +188,21 @@ async def test_activity_cancellation_respects_replay_gate(
             call(ExecuteRegistryToolWorkflowPatch.ACTIVITY_TIMEOUT),
         ]
     )
+
+
+@pytest.mark.anyio
+async def test_not_admitted_tool_call_is_returned_for_the_caller_to_retry() -> None:
+    not_admitted = NotAdmitted(
+        resource=ConcurrencyResource.TOOL_CALLS, in_use=3, limit=3, attempt=1
+    )
+    with (
+        patch(f"{MODULE}.workflow.patched", return_value=True),
+        patch(
+            f"{MODULE}.workflow.execute_activity",
+            AsyncMock(return_value=not_admitted.model_dump(mode="json")),
+        ),
+    ):
+        result = await ExecuteRegistryToolWorkflow().run(
+            Mock(spec=ExecuteRegistryToolWorkflowInput, run_input=Mock(), role=Mock())
+        )
+    assert result == not_admitted

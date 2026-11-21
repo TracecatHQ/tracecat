@@ -107,7 +107,7 @@ async def run_with_capacity_wait[T](
                     )
                 return result
             busy = Busy(in_use=result.in_use, limit=result.limit)
-        if loop.time() + POLL_INTERVAL_SECONDS > give_up_at:
+        if (remaining := give_up_at - loop.time()) <= 0:
             waited_seconds = loop.time() - started_at
             logger.warning(
                 "concurrency.overload",
@@ -124,7 +124,8 @@ async def run_with_capacity_wait[T](
                 waited_seconds=waited_seconds,
             )
         waited = True
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        # The last check lands on the deadline, so the whole wait is used.
+        await asyncio.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
 
 def activity_lease_id(info: activity.Info) -> str:
