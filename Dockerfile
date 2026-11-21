@@ -369,7 +369,8 @@ ENV PYTHONPATH="/home/apiuser/.local"
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
 EXPOSE $PORT
-CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
+# exec makes uvicorn PID 1 so it receives SIGTERM; sh would swallow it.
+CMD ["sh", "-c", "exec python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload --timeout-graceful-shutdown \"${TRACECAT__API_HTTP_DRAIN_TIMEOUT:-20}\""]
 
 # ====================
 # Stage 7: Development registry manifest
@@ -467,4 +468,9 @@ ENV TRACECAT__BUILD_COMMIT=${TRACECAT__BUILD_COMMIT} \
     TRACECAT__BUILD_TIME=${TRACECAT__BUILD_TIME}
 
 EXPOSE $PORT
-CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]
+# exec makes uvicorn PID 1 so SIGTERM reaches it; sh would swallow it and the
+# container would be SIGKILLed without draining. TRACECAT__API_HTTP_DRAIN_TIMEOUT
+# bounds the wait for open requests (SSE streams never finish on their own) so
+# the lifespan task drain still runs inside the termination grace period. It
+# must be a whole number of seconds; uvicorn rejects anything else at startup.
+CMD ["sh", "-c", "exec python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --timeout-graceful-shutdown \"${TRACECAT__API_HTTP_DRAIN_TIMEOUT:-20}\""]

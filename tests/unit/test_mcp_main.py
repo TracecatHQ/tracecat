@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import signal
 import sys
+from collections.abc import Generator
 from types import SimpleNamespace
 
+import httpx
 import pytest
+import uvicorn
 from fastmcp import FastMCP
+from sse_starlette.sse import AppStatus
 from starlette.testclient import TestClient
 
 from tracecat.db.roles import UnsafeDatabaseLoginError
@@ -66,6 +73,7 @@ def test_run_mcp_server_uses_stateless_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_kwargs: dict[str, object] = {}
+    monkeypatch.setattr(AppStatus, "enable_automatic_graceful_drain", True)
 
     class _MCP:
         def run(self, **kwargs: object) -> None:
@@ -82,6 +90,94 @@ def test_run_mcp_server_uses_stateless_http(
 
     assert run_kwargs["transport"] == "streamable-http"
     assert run_kwargs["stateless_http"] is True
+    assert run_kwargs["uvicorn_config"] == {
+        "timeout_graceful_shutdown": (
+            mcp_main.TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+        )
+    }
+    assert AppStatus.enable_automatic_graceful_drain is False
+
+
+@contextlib.contextmanager
+def _no_signal_capture(_server: uvicorn.Server) -> Generator[None]:
+    yield
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("sse_auto_drain", "expect_result"),
+    [
+        pytest.param(False, True, id="drain-disabled-result-delivered"),
+        pytest.param(True, False, id="sse-starlette-default-result-dropped"),
+    ],
+)
+async def test_sigterm_lets_in_flight_tool_call_finish(
+    monkeypatch: pytest.MonkeyPatch, sse_auto_drain: bool, expect_result: bool
+) -> None:
+    """SIGTERM during a tool call delivers its result only with SSE auto-drain off."""
+    monkeypatch.setattr(AppStatus, "enable_automatic_graceful_drain", sse_auto_drain)
+    monkeypatch.setattr(AppStatus, "should_exit", False)
+    # serve() re-raises captured signals on exit; the simulated SIGTERM below
+    # would then kill the test process.
+    monkeypatch.setattr(uvicorn.Server, "capture_signals", _no_signal_capture)
+
+    server = FastMCP("drain-test")
+    tool_started = asyncio.Event()
+
+    @server.tool()
+    async def slow() -> str:  # pyright: ignore[reportUnusedFunction]
+        tool_started.set()
+        await asyncio.sleep(1)
+        return "slow-done"
+
+    app = server.http_app(path="/mcp", transport="streamable-http", stateless_http=True)
+    uv_server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=0,
+            lifespan="on",
+            log_level="warning",
+            timeout_graceful_shutdown=10,
+        )
+    )
+    serve_task = asyncio.create_task(uv_server.serve())
+    async with asyncio.timeout(10):
+        while not uv_server.started:
+            await asyncio.sleep(0.01)
+    port = uv_server.servers[0].sockets[0].getsockname()[1]
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        call = asyncio.create_task(
+            client.post(
+                f"http://127.0.0.1:{port}/mcp",
+                headers={
+                    "accept": "application/json, text/event-stream",
+                    "content-type": "application/json",
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "slow", "arguments": {}},
+                },
+            )
+        )
+        async with asyncio.timeout(5):
+            await tool_started.wait()
+        uv_server.handle_exit(signal.SIGTERM, None)
+        try:
+            response = await call
+            body = response.text
+        except httpx.HTTPError:
+            if expect_result:
+                raise
+            body = ""
+
+    async with asyncio.timeout(15):
+        await serve_task
+
+    assert ("slow-done" in body) is expect_result
 
 
 def test_main_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:

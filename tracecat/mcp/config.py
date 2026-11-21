@@ -25,6 +25,16 @@ TRACECAT_MCP__TOOL_TIMEOUT_SECONDS: int = int(
 )
 """Maximum execution time in seconds for a single tool call."""
 
+TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int = int(
+    os.environ.get("TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS")
+    or TRACECAT_MCP__TOOL_TIMEOUT_SECONDS
+)
+"""Seconds to let in-flight requests finish after SIGTERM before cancelling them.
+
+Defaults to the tool timeout: no tool call can legitimately run longer, so a
+call accepted just before shutdown can still finish.
+"""
+
 TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
     os.environ.get("TRACECAT_MCP__MAX_INPUT_SIZE_BYTES") or 4 * 1024 * 1024
 )
