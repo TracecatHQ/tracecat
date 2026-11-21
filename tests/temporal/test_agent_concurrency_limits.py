@@ -208,6 +208,18 @@ async def _turn_inputs(
     return inputs
 
 
+async def _executor_scheduled_count(handle: WorkflowHandle[Any, Any]) -> int:
+    count = 0
+    async for event in handle.fetch_history_events():
+        if (
+            event.event_type is EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+            and event.activity_task_scheduled_event_attributes.activity_type.name
+            == "execute_action_activity"
+        ):
+            count += 1
+    return count
+
+
 async def _replay(client: Client, history: WorkflowHistory) -> None:
     async def histories() -> AsyncIterator[WorkflowHistory]:
         yield history
@@ -480,8 +492,8 @@ async def test_approved_tool_call_waits_durably_for_tool_capacity(
     fake_turns: FakeTurns,
 ) -> None:
     del limits_enabled
-    org_id = svc_role.organization_id
-    assert org_id is not None
+    org_id = uuid.uuid4()
+    role = svc_role.model_copy(update={"organization_id": org_id})
     await _set_limits(org_id, tool_calls=1)
     session_id = uuid.uuid4()
     fake_turns.approval_first.add(session_id)
@@ -501,14 +513,14 @@ async def test_approved_tool_call_waits_durably_for_tool_capacity(
     try:
         async with _agent_worker(temporal_client, queue, threadpool, paused=paused):
             handle = await _start_session(
-                temporal_client, queue, svc_role, session_id, approvals=True
+                temporal_client, queue, role, session_id, approvals=True
             )
             await asyncio.wait_for(paused.wait(), timeout=20)
             await handle.execute_update(
                 DurableAgentWorkflow.set_approvals,
                 WorkflowApprovalSubmission(
                     approvals={TOOL_CALL_ID: True},
-                    approved_by=svc_role.user_id,
+                    approved_by=role.user_id,
                 ),
             )
             # The approved call is not admitted and waits on a durable timer.
@@ -548,18 +560,18 @@ async def test_turn_waits_for_turn_capacity_until_another_turn_stops(
     fake_turns: FakeTurns,
 ) -> None:
     del limits_enabled
-    org_id = svc_role.organization_id
-    assert org_id is not None
+    org_id = uuid.uuid4()
+    role = svc_role.model_copy(update={"organization_id": org_id})
     await _set_limits(org_id, agent_turns=1)
     first_session, second_session = uuid.uuid4(), uuid.uuid4()
     fake_turns.holds[first_session] = asyncio.Event()
 
     async with _agent_worker(temporal_client, queue, threadpool):
-        first = await _start_session(temporal_client, queue, svc_role, first_session)
+        first = await _start_session(temporal_client, queue, role, first_session)
         await _wait_until(lambda: first_session in fake_turns.started)
         assert await _in_use(org_id, ConcurrencyResource.AGENT_TURNS) == 1
 
-        second = await _start_session(temporal_client, queue, svc_role, second_session)
+        second = await _start_session(temporal_client, queue, role, second_session)
         async with asyncio.timeout(20):
             while await _not_admitted_count(second, temporal_client) == 0:
                 await asyncio.sleep(0.1)
@@ -594,8 +606,8 @@ async def test_turn_waiting_on_approval_holds_no_turn(
     fake_turns: FakeTurns,
 ) -> None:
     del limits_enabled
-    org_id = svc_role.organization_id
-    assert org_id is not None
+    org_id = uuid.uuid4()
+    role = svc_role.model_copy(update={"organization_id": org_id})
     await _set_limits(org_id, agent_turns=1)
     paused_session, other_session = uuid.uuid4(), uuid.uuid4()
     fake_turns.approval_first.add(paused_session)
@@ -603,13 +615,13 @@ async def test_turn_waiting_on_approval_holds_no_turn(
 
     async with _agent_worker(temporal_client, queue, threadpool, paused=paused):
         paused_handle = await _start_session(
-            temporal_client, queue, svc_role, paused_session, approvals=True
+            temporal_client, queue, role, paused_session, approvals=True
         )
         await asyncio.wait_for(paused.wait(), timeout=20)
         assert await _in_use(org_id, ConcurrencyResource.AGENT_TURNS) == 0
 
         # With the limit at 1, another turn runs while the first waits on approval.
-        other = await _start_session(temporal_client, queue, svc_role, other_session)
+        other = await _start_session(temporal_client, queue, role, other_session)
         await asyncio.wait_for(other.result(), timeout=20)
         assert await _not_admitted_count(other, temporal_client) == 0
 
@@ -628,16 +640,16 @@ async def test_cancel_ends_a_turn_capacity_wait(
     fake_turns: FakeTurns,
 ) -> None:
     del limits_enabled
-    org_id = svc_role.organization_id
-    assert org_id is not None
+    org_id = uuid.uuid4()
+    role = svc_role.model_copy(update={"organization_id": org_id})
     await _set_limits(org_id, agent_turns=1)
     holder, waiter = uuid.uuid4(), uuid.uuid4()
     fake_turns.holds[holder] = asyncio.Event()
 
     async with _agent_worker(temporal_client, queue, threadpool):
-        holder_handle = await _start_session(temporal_client, queue, svc_role, holder)
+        holder_handle = await _start_session(temporal_client, queue, role, holder)
         await _wait_until(lambda: holder in fake_turns.started)
-        waiter_handle = await _start_session(temporal_client, queue, svc_role, waiter)
+        waiter_handle = await _start_session(temporal_client, queue, role, waiter)
         async with asyncio.timeout(20):
             while await _not_admitted_count(waiter_handle, temporal_client) == 0:
                 await asyncio.sleep(0.1)
@@ -648,12 +660,78 @@ async def test_cancel_ends_a_turn_capacity_wait(
             WorkflowCancelRequest(reason="user_cancel"),
         )
         await asyncio.wait_for(waiter_handle.result(), timeout=20)
-        # Ends without waiting out the backoff; the turn never ran.
+        # Ends without waiting out the backoff; the turn never ran, and no turn
+        # activity was scheduled after the cancel (every one was refused).
         assert time.monotonic() - cancelled_at < 5
         assert waiter not in fake_turns.started
+        assert len(await _turn_inputs(waiter_handle, temporal_client)) == (
+            await _not_admitted_count(waiter_handle, temporal_client)
+        )
 
         fake_turns.holds[holder].set()
         await asyncio.wait_for(holder_handle.result(), timeout=20)
 
     await _replay(temporal_client, await waiter_handle.fetch_history())
     assert await _in_use(org_id, ConcurrencyResource.AGENT_TURNS) == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_cancel_during_tool_capacity_wait_never_starts_the_tool(
+    svc_role: Role,
+    temporal_client: Client,
+    threadpool: ThreadPoolExecutor,
+    queue: str,
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    fake_turns: FakeTurns,
+) -> None:
+    del limits_enabled
+    org_id = uuid.uuid4()
+    role = svc_role.model_copy(update={"organization_id": org_id})
+    await _set_limits(org_id, tool_calls=1)
+    session_id = uuid.uuid4()
+    fake_turns.approval_first.add(session_id)
+    tool_key = f"tool-{session_id}"
+    paused = asyncio.Event()
+
+    store = await LeaseStore.create()
+    await store.try_acquire(
+        org_id,
+        ConcurrencyResource.TOOL_CALLS,
+        "other-tool-call",
+        units=1,
+        limit=1,
+        ttl_seconds=90,
+    )
+    try:
+        async with _agent_worker(temporal_client, queue, threadpool, paused=paused):
+            handle = await _start_session(
+                temporal_client, queue, role, session_id, approvals=True
+            )
+            await asyncio.wait_for(paused.wait(), timeout=20)
+            await handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={TOOL_CALL_ID: True},
+                    approved_by=role.user_id,
+                ),
+            )
+            async with asyncio.timeout(20):
+                while await _not_admitted_count(handle, temporal_client) == 0:
+                    await asyncio.sleep(0.1)
+            scheduled_before = await _executor_scheduled_count(handle)
+
+            await handle.execute_update(
+                DurableAgentWorkflow.request_cancel,
+                WorkflowCancelRequest(reason="user_cancel"),
+            )
+            await asyncio.wait_for(handle.result(), timeout=20)
+
+        assert tool_key not in fake_actions.started
+        assert await _executor_scheduled_count(handle) == scheduled_before
+        await _replay(temporal_client, await handle.fetch_history())
+    finally:
+        await store.release(
+            org_id, ConcurrencyResource.TOOL_CALLS, "other-tool-call", units=1
+        )

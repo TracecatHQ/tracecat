@@ -544,6 +544,11 @@ class _TurnCancelledInFlight:
     """A user cancel stopped the turn activity before it returned a result."""
 
 
+@dataclass(frozen=True, slots=True)
+class _CancelledBeforeDispatch:
+    """A user cancel arrived during a capacity wait; nothing was started."""
+
+
 @dataclass(slots=True)
 class _PendingTurn:
     """A turn's dispatch input, refreshed when it waits for turn capacity."""
@@ -1572,7 +1577,7 @@ class DurableAgentWorkflow:
                     fallback_classification=_executor_activity_classification(e),
                     include_implicit_context=False,
                 )
-            if isinstance(turn, _TurnCancelledInFlight):
+            if isinstance(turn, _TurnCancelledInFlight | _CancelledBeforeDispatch):
                 # The activity was cancelled without returning a loopback
                 # result (never picked up, still in setup, or hard-cancelled),
                 # so no executor wrote the cancelled/done frames to the per-turn
@@ -1961,12 +1966,21 @@ class DurableAgentWorkflow:
         internal_tool_context: InternalToolContext | None,
         token_ttl_seconds: int | None,
         activity_timeout_seconds: int,
-    ) -> AgentExecutorResult | NotAdmitted | _TurnCancelledInFlight:
+    ) -> (
+        AgentExecutorResult
+        | NotAdmitted
+        | _TurnCancelledInFlight
+        | _CancelledBeforeDispatch
+    ):
         """Run one turn activity, cancelling it on a user cancel when patched.
 
         A dispatch after a capacity wait re-mints the turn's tokens first: the
         wait has no limit, so tokens minted before it can expire.
         """
+        if turn.dispatched and self._cancel_requested:
+            # Redispatch after a capacity wait: never start a turn the user
+            # cancelled. The first dispatch keeps its original commands.
+            return _CancelledBeforeDispatch()
         if turn.dispatched:
             self._refresh_turn_tokens(
                 turn,
@@ -2077,7 +2091,14 @@ class DurableAgentWorkflow:
         logical_time: datetime,
         tool_tunnels: dict[str, str] | None,
     ) -> Any:
-        """Run one approved registry tool activity, raced against a user cancel."""
+        """Run one approved registry tool activity, raced against a user cancel.
+
+        The loop checks for a cancel just before the first dispatch, with no
+        wait in between, so this check only changes redispatches after a
+        capacity wait: a cancelled tool is never started.
+        """
+        if self._cancel_requested:
+            return _CancelledBeforeDispatch()
         return await self._race_tool_activity_against_cancel(
             _start_registry_tool_call(
                 tool_call,
@@ -2162,6 +2183,18 @@ class DurableAgentWorkflow:
                         max_attempts=1,
                         interrupt=lambda: self._cancel_requested,
                     )
+                    if isinstance(stored, _CancelledBeforeDispatch):
+                        # Cancelled while waiting for tool-call capacity: this
+                        # and every later tool count as never started.
+                        skipped_calls = approved_tools[index:]
+                        cancelled_tool_call_ids.extend(
+                            skipped.tool_call_id for skipped in skipped_calls
+                        )
+                        pending_results.extend(
+                            _cancelled_tool_result(skipped, started=False)
+                            for skipped in skipped_calls
+                        )
+                        break
                     result = PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
                         tool_name=tool_call.tool_name,
