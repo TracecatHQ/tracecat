@@ -48,6 +48,7 @@ from tracecat.search.types import (
     SearchState,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.importer import CSVImporter
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -899,6 +900,40 @@ async def test_batch_writes_to_one_table_run_one_at_a_time(
     finally:
         release.set()
         await engine.dispose()
+
+
+async def test_batch_insert_deadlock_is_a_retryable_conflict(
+    tables: TablesService, table: Table
+):
+    await tables.create_unique_index(table, "key")
+    table_id = table.id
+    await tables.session.commit()
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    first_written = {"a": asyncio.Event(), "b": asyncio.Event()}
+
+    async def insert(first: str, second: str) -> None:
+        # Plain batch inserts skip the batch-write lock, so two that insert the
+        # same new keys in opposite orders wait on each other's index entries.
+        async with sessions.begin() as session:
+            service = BaseTablesService(session, tables.role)
+            live = await service.get_table(table_id)
+            await service.batch_insert_rows(live, [{"key": first}])
+            first_written[first].set()
+            await first_written[second].wait()
+            await service.batch_insert_rows(live, [{"key": second}])
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(insert("a", "b"), insert("b", "a"), return_exceptions=True),
+            10,
+        )
+    finally:
+        await engine.dispose()
+    errors = [result for result in results if isinstance(result, BaseException)]
+    assert len(errors) == 1
+    assert isinstance(errors[0], TableRowError)
+    assert errors[0].code == "write_conflict"
 
 
 async def test_progress_retry_and_stale_generation(tables: TablesService, table: Table):

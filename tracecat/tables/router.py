@@ -877,7 +877,19 @@ async def import_csv(
 
         # Process remaining rows
         await importer.process_chunk(current_chunk, service, table)
-    except (HTTPException, TableRowError):
+    except TableRowError as e:
+        # Each chunk commits, so rows from earlier chunks stay imported, and
+        # importing the whole file again would duplicate them. Say so.
+        saved = importer.total_rows_inserted
+        if not saved:
+            raise
+        raise TableRowError(
+            e.code,
+            f"{saved} rows were imported before this error. "
+            f"{e.detail['message']} Import only the remaining rows.",
+            column=e.detail["column"],
+        ) from None
+    except HTTPException:
         raise
     except TracecatImportError as e:
         logger.warning(f"Error during import: {e}")

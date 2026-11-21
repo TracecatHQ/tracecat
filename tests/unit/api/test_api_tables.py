@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from types import ModuleType
 from unittest.mock import AsyncMock, patch
 
+import orjson
 import pytest
 from asyncpg import DuplicateTableError
 from fastapi import status
@@ -19,6 +20,7 @@ from tracecat.tables import internal_router as internal_tables_router
 from tracecat.tables import router as tables_router
 from tracecat.tables.enums import SqlType
 from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.importer import CSVImporter
 
 
 @pytest.fixture
@@ -258,6 +260,12 @@ async def test_invalid_row_values_return_400(
             ),
             409,
         ),
+        (
+            TableRowError(
+                "write_conflict", "The write conflicted with a concurrent write."
+            ),
+            409,
+        ),
     ],
 )
 async def test_row_errors_have_structured_client_responses(
@@ -460,6 +468,63 @@ async def test_import_table_from_csv_resolves_folder_path(
     else:
         mock_folder_svc.get_folder_by_path.assert_not_awaited()
         assert call.kwargs["folder_id"] is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        pytest.param(
+            TableRowError("write_conflict", "The write conflicted."),
+            status.HTTP_409_CONFLICT,
+            id="write_conflict",
+        ),
+        pytest.param(
+            TableRowError("invalid_value", "Bad value.", column="name"),
+            status.HTTP_400_BAD_REQUEST,
+            id="invalid_value",
+        ),
+    ],
+)
+async def test_csv_import_error_reports_rows_already_imported(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    error: TableRowError,
+    expected_status: int,
+) -> None:
+    """Earlier chunks commit, so a later row error must say what was saved."""
+    mock_table.columns = [
+        TableColumn(
+            id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeee1"),
+            table_id=mock_table.id,
+            name="name",
+            type=SqlType.TEXT.value,
+            nullable=True,
+            default=None,
+        )
+    ]
+    chunk = CSVImporter([]).chunk_size
+    rows = "".join(f"row{n}\n" for n in range(chunk + 1))
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service.batch_insert_rows.side_effect = [chunk, error]
+        service_type.return_value = service
+        response = client.post(
+            f"/tables/{mock_table.id}/import",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={"file": ("rows.csv", f"name\n{rows}".encode(), "text/csv")},
+            data={"column_mapping": orjson.dumps({"name": "name"}).decode()},
+        )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == {
+        "code": error.code,
+        "column": error.detail["column"],
+        "message": f"{chunk} rows were imported before this error. "
+        f"{error.detail['message']} Import only the remaining rows.",
+    }
 
 
 @pytest.mark.anyio

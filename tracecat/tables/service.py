@@ -14,6 +14,7 @@ from asyncpg.exceptions import (
     CardinalityViolationError,
     DataError,
     DatatypeMismatchError,
+    DeadlockDetectedError,
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
     NotNullViolationError,
@@ -222,8 +223,10 @@ def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]
 async def _execute_row_write[T](
     operation: Awaitable[T], column_names: Collection[str]
 ) -> T:
-    """Translate known row input errors without exposing SQL or submitted values.
+    """Translate known row errors without exposing SQL or submitted values.
 
+    A deadlock reported by this statement becomes a ``write_conflict``.
+    Deadlocks raised by other statements in the transaction are not translated.
     Unknown NOT NULL columns and constraint types remain server errors.
     """
     error: TableRowError | None = None
@@ -250,6 +253,12 @@ async def _execute_row_write[T](
                 error = TableRowError(
                     "duplicate_value",
                     "Rows in an upsert batch must have distinct unique column values.",
+                )
+                break
+            if isinstance(cause, DeadlockDetectedError):
+                error = TableRowError(
+                    "write_conflict",
+                    "The write conflicted with a concurrent write. Retry it.",
                 )
                 break
             if isinstance(cause, DataError):
