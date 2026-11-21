@@ -96,6 +96,8 @@ async def run_with_capacity_wait[T](
     while True:
         busy = await _at_limit(org_id, resource)
         if busy is None:
+            # Measured before the call: the wait, not the work.
+            waited_seconds = loop.time() - started_at
             result = await run()
             if not isinstance(result, NotAdmitted):
                 if waited:
@@ -103,7 +105,7 @@ async def run_with_capacity_wait[T](
                         "concurrency.admitted_after_wait",
                         org_id=str(org_id),
                         resource=resource.value,
-                        wait_seconds=loop.time() - started_at,
+                        wait_seconds=waited_seconds,
                     )
                 return result
             busy = Busy(in_use=result.in_use, limit=result.limit)

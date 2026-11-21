@@ -109,6 +109,19 @@ async def test_waits_while_full_then_runs(setup: Harness) -> None:
 
 
 @pytest.mark.anyio
+async def test_wait_time_excludes_the_call_itself(setup: Harness) -> None:
+    setup(limit=1, counts=[1, 0])
+
+    async def slow_call() -> str:
+        await asyncio.sleep(0.3)
+        return "ok"
+
+    assert await _wait(AsyncMock(side_effect=slow_call)) == "ok"
+    wait_seconds = setup.logger.info.call_args.kwargs["wait_seconds"]
+    assert 0 < wait_seconds < 0.2
+
+
+@pytest.mark.anyio
 async def test_lost_race_runs_again(setup: Harness) -> None:
     setup(limit=1, counts=[0])
     run = AsyncMock(side_effect=[_not_admitted(), "ok"])
