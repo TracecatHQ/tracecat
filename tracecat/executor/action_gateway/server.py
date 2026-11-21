@@ -8,6 +8,7 @@ from pathlib import Path
 
 import uvicorn
 
+from tracecat import config
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.logger import logger
@@ -49,6 +50,8 @@ class ActionGateway:
                 logger.info(
                     "Action Gateway started",
                     socket_path=str(socket_path),
+                    # None means no per-org DB session cap (the default).
+                    org_session_cap=config.TRACECAT__DB_ORG_SESSION_CAP,
                 )
                 return
             if self._task.done():
