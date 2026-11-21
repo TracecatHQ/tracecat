@@ -2472,15 +2472,43 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
 
 @pytest.mark.anyio
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    (
+        "tool_definition_name",
+        "approval_key",
+        "runtime_tool_name",
+        "expected_remote_tool_name",
+    ),
+    [
+        pytest.param(
+            "mcp__Jira__getIssue",
+            "mcp.Jira.getIssue",
+            "mcp__tracecat-registry__mcp__Jira__getIssue",
+            "mcp__Jira__getIssue",
+            id="user-mcp",
+        ),
+        pytest.param(
+            "internal.workflows.get",
+            "internal.workflows.get",
+            "mcp__tracecat-registry__internal__workflows__get",
+            "internal__workflows__get",
+            id="internal-workflow-tool",
+        ),
+    ],
+)
 async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
     svc_role: Role,
     temporal_client: Client,
     agent_worker_factory,
     mock_session_id: uuid.UUID,
+    tool_definition_name: str,
+    approval_key: str,
+    runtime_tool_name: str,
+    expected_remote_tool_name: str,
 ) -> None:
-    """An approved user MCP tool must execute via execute_remote_mcp_tool, not
-    the registry executor, and the workflow must replay before and after the
-    approval signal."""
+    """An approved user MCP or internal tool must execute via
+    execute_remote_mcp_tool, not the registry executor, and the workflow must
+    replay before and after the approval signal."""
     queue = f"test-agent-queue-{mock_session_id}"
     integration_id = uuid.uuid4()
     approval_request_recorded = asyncio.Event()
@@ -2509,8 +2537,8 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
     ) -> BuildAgentToolDefsResult:
         tool_result = BuildToolDefsResult(
             tool_definitions={
-                "mcp__Jira__getIssue": MCPToolDefinition(
-                    name="mcp__Jira__getIssue",
+                tool_definition_name: MCPToolDefinition(
+                    name=tool_definition_name,
                     description="Get an issue",
                     parameters_json_schema={
                         "type": "object",
@@ -2522,7 +2550,12 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
             },
             registry_lock=RegistryLock(origins={}, actions={}),
             user_mcp_claims=[UserMCPServerClaim(name="Jira", id=integration_id)],
-            tool_approvals={"mcp.Jira.getIssue": True},
+            allowed_internal_tools=(
+                [tool_definition_name]
+                if tool_definition_name.startswith("internal.")
+                else None
+            ),
+            tool_approvals={approval_key: True},
         )
         return BuildAgentToolDefsResult(
             scopes={scope.scope: tool_result for scope in args.scopes}
@@ -2541,7 +2574,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
                 approval_items=[
                     ToolCallContent(
                         id="call-user-mcp",
-                        name="mcp__tracecat-registry__mcp__Jira__getIssue",
+                        name=runtime_tool_name,
                         input={"issue_key": "ISSUE-1"},
                     )
                 ],
@@ -2576,7 +2609,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
     @activity.defn(name="execute_remote_mcp_tool")
     async def mock_execute_remote_mcp_tool(args: ExecuteRemoteMCPToolArgs) -> str:
         remote_activity_inputs.append(args)
-        assert args.tool_name == "mcp__Jira__getIssue"
+        assert args.tool_name == expected_remote_tool_name
         assert args.args == {"issue_key": "ISSUE-1"}
         assert args.mcp_auth_token
         return '{"ok": true}'
@@ -2616,7 +2649,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
                 model_name="claude-3-5-sonnet-20241022",
                 model_provider="anthropic",
                 actions=[],
-                tool_approvals={"mcp.Jira.getIssue": True},
+                tool_approvals={approval_key: True},
             ),
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
@@ -2675,7 +2708,7 @@ async def test_agent_workflow_routes_approved_user_mcp_tool_to_remote_activity(
 
     assert result.output == {"continued": True}
     assert len(remote_activity_inputs) == 1
-    assert remote_activity_inputs[0].tool_name == "mcp__Jira__getIssue"
+    assert remote_activity_inputs[0].tool_name == expected_remote_tool_name
     assert remote_activity_inputs[0].args == {"issue_key": "ISSUE-1"}
     # The approved user MCP tool must NOT fall through to the registry executor.
     assert registry_activity_inputs == []

@@ -1,21 +1,47 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.exceptions import ApplicationError
+from tracecat_ee.agent import activities as agent_activities
 from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
-from tracecat.agent.mcp import internal_tools
-from tracecat.agent.preset.schemas import AgentPresetRead
-from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
+from tracecat.agent.mcp import internal_tool_defs, internal_tools
+from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
+from tracecat.agent.schemas import ToolFilters
+from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.tokens import (
+    InternalToolContext,
+    MCPTokenClaims,
+    mint_mcp_token,
+    verify_mcp_token,
+)
+from tracecat.agent.tools import BuildToolsResult
+from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
+from tracecat.authz.controls import scope_matches
+from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import AgentSession
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    ObjectRef,
+)
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 
 class _AsyncContext:
@@ -423,3 +449,621 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     )
 
     assert result["actions"] == ["tools.alpha", "tools.google_docs.create_document"]
+
+
+# -----------------------------------------------------------------------------
+# Workflow tools
+# -----------------------------------------------------------------------------
+
+_WF_ID = "wf_4itKqkgCZrLhgYiq5L211X"
+_EXEC_ID = f"{_WF_ID}/exec_6Fu6rb1QpVvcn2kQ2y1ecZ"
+
+
+def _workflow_claims() -> MCPTokenClaims:
+    return MCPTokenClaims(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        allowed_actions=[],
+        allowed_internal_tools=list(internal_tool_defs.WORKFLOW_INTERNAL_TOOL_NAMES),
+    )
+
+
+def _scopes_without(scope: str) -> frozenset[str]:
+    """Editor scopes minus `scope` and every scope that implies it."""
+    return frozenset(
+        granted for granted in EDITOR_SCOPES if not scope_matches(granted, scope)
+    )
+
+
+def _patch_caller_scopes(monkeypatch, scopes: frozenset[str]) -> None:
+    """Stub the DB-backed scope lookup the workflow tools use for the caller."""
+
+    async def _compute(_role):
+        return scopes
+
+    monkeypatch.setattr(internal_tools, "compute_effective_scopes", _compute)
+
+
+@pytest.fixture(autouse=True)
+def caller_has_editor_scopes(monkeypatch):
+    _patch_caller_scopes(monkeypatch, EDITOR_SCOPES)
+
+
+class _FakeExecutions:
+    def __init__(self, execution: object | None, outcome: object = None):
+        self.execution = execution
+        self.outcome = outcome
+        self.cancelled: list[str] = []
+
+    async def get_execution(self, _execution_id):
+        return self.execution
+
+    def handle(self, _execution_id):
+        outcome = self.outcome
+
+        async def _result():
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        return SimpleNamespace(result=_result)
+
+    async def cancel_workflow_execution(self, execution_id):
+        self.cancelled.append(execution_id)
+
+
+def _patch_workspace_workflow(monkeypatch, *, found: bool = True) -> None:
+    async def _get_workflow(_wf_id):
+        return object() if found else None
+
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        lambda role: _AsyncContext(SimpleNamespace(get_workflow=_get_workflow)),
+    )
+
+
+def _patch_executions(monkeypatch, executions: _FakeExecutions) -> None:
+    async def _connect(role):
+        return executions
+
+    monkeypatch.setattr(
+        "tracecat.workflow.executions.service.WorkflowExecutionsService.connect",
+        _connect,
+    )
+
+
+def test_workflow_tools_have_handlers_and_definitions():
+    definitions = internal_tool_defs.get_internal_tool_definitions()
+    for name in internal_tool_defs.WORKFLOW_INTERNAL_TOOL_NAMES:
+        assert name in internal_tools.INTERNAL_TOOL_HANDLERS
+        assert definitions[name].name == name
+
+
+@pytest.mark.anyio
+async def test_start_workflow_resolves_alias_and_runs_published(monkeypatch):
+    claims = _workflow_claims()
+    wf_uuid = WorkflowUUID.new(_WF_ID)
+    calls: dict[str, object] = {}
+
+    async def _resolve_alias(alias, *, use_committed):
+        calls["alias"] = (alias, use_committed)
+        return wf_uuid
+
+    async def _run_workflow(workflow_id, **kwargs):
+        calls["run"] = (workflow_id, kwargs)
+        return {"wf_id": wf_uuid, "wf_exec_id": _EXEC_ID, "message": "started"}
+
+    service = SimpleNamespace(
+        resolve_workflow_alias=_resolve_alias, run_workflow=_run_workflow
+    )
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    result = await internal_tools.start_workflow(
+        {"workflow_alias": "triage", "inputs": {"x": 1}}, claims
+    )
+
+    assert result == {
+        "workflow_id": _WF_ID,
+        "workflow_execution_id": _EXEC_ID,
+        "message": "started",
+    }
+    assert calls["alias"] == ("triage", True)
+    assert calls["run"] == (
+        wf_uuid,
+        {"inputs": {"x": 1}, "use_draft": False, "version": None},
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "args",
+    [{}, {"workflow_id": _WF_ID, "workflow_alias": "triage"}],
+)
+async def test_start_workflow_requires_exactly_one_target(args):
+    with pytest.raises(internal_tools.InternalToolError, match="exactly one"):
+        await internal_tools.start_workflow(args, _workflow_claims())
+
+
+@pytest.mark.anyio
+async def test_start_workflow_requires_execute_scope(monkeypatch):
+    """The real service method enforces `workflow:execute`, as for MCP."""
+    claims = _workflow_claims()
+    _patch_caller_scopes(monkeypatch, _scopes_without("workflow:execute"))
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        lambda role: _AsyncContext(
+            WorkflowsManagementService(session=AsyncMock(), role=role)
+        ),
+    )
+
+    with pytest.raises(internal_tools.InternalToolError, match="workflow:execute"):
+        await internal_tools.start_workflow({"workflow_id": _WF_ID}, claims)
+
+
+@pytest.mark.anyio
+async def test_get_workflow_run_returns_status_while_running(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    started = datetime(2026, 11, 20, tzinfo=UTC)
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.RUNNING,
+            start_time=started,
+            close_time=None,
+        ),
+        outcome=AssertionError("result must not be read while running"),
+    )
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert result == {
+        "workflow_execution_id": _EXEC_ID,
+        "status": "RUNNING",
+        "start_time": started,
+        "close_time": None,
+    }
+
+
+@pytest.mark.anyio
+async def test_get_workflow_run_returns_result_when_completed(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.COMPLETED,
+            start_time=None,
+            close_time=None,
+        ),
+        outcome=InlineObject(data={"verdict": "benign"}),
+    )
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert result["result"] == {"verdict": "benign"}
+
+
+@pytest.mark.anyio
+async def test_get_workflow_run_returns_error_when_failed(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    failure = WorkflowFailureError(cause=ApplicationError("boom"))
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.FAILED,
+            start_time=None,
+            close_time=None,
+        ),
+        outcome=failure,
+    )
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert result["status"] == "FAILED"
+    assert "boom" in result["error"]
+    assert "result" not in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "handler",
+    [internal_tools.get_workflow_run, internal_tools.cancel_workflow_run],
+)
+async def test_workflow_run_tools_hide_other_workspaces(monkeypatch, handler):
+    _patch_workspace_workflow(monkeypatch, found=False)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    with pytest.raises(internal_tools.InternalToolError, match="not found"):
+        await handler({"workflow_execution_id": _EXEC_ID}, _workflow_claims())
+    assert executions.cancelled == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("handler", "scope"),
+    [
+        (internal_tools.get_workflow_run, "workflow:read"),
+        (internal_tools.cancel_workflow_run, "workflow:terminate"),
+    ],
+)
+async def test_workflow_run_tools_enforce_scopes(monkeypatch, handler, scope):
+    claims = _workflow_claims()
+    _patch_caller_scopes(monkeypatch, _scopes_without(scope))
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    with pytest.raises(internal_tools.InternalToolError, match=scope):
+        await handler({"workflow_execution_id": _EXEC_ID}, claims)
+    assert executions.cancelled == []
+
+
+@pytest.mark.anyio
+async def test_cancel_workflow_run_requests_cancellation(monkeypatch):
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    result = await internal_tools.cancel_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert executions.cancelled == [_EXEC_ID]
+    assert result["workflow_execution_id"] == _EXEC_ID
+
+
+@pytest.mark.anyio
+async def test_workflow_run_tools_reject_malformed_execution_id():
+    with pytest.raises(internal_tools.InternalToolError, match="Invalid arguments"):
+        await internal_tools.get_workflow_run(
+            {"workflow_execution_id": "not-an-id"}, _workflow_claims()
+        )
+
+
+@pytest.mark.anyio
+async def test_build_grants_only_requested_workflow_tools(monkeypatch):
+    """Workflow tools are opt-in through actions and skip the registry build."""
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    build_tools = AsyncMock(
+        return_value=BuildToolsResult(tools=[], collected_secrets=set())
+    )
+    monkeypatch.setattr(agent_activities, "build_agent_tools", build_tools)
+    lock_service = MagicMock(spec=RegistryLockService)
+    lock_service.resolve_lock_with_bindings = AsyncMock(
+        return_value=RegistryLock(origins={}, actions={})
+    )
+    monkeypatch.setattr(
+        RegistryLockService, "with_session", lambda: _AsyncContext(lock_service)
+    )
+
+    result = await agent_activities.AgentActivities().build_tool_definitions(
+        agent_activities.BuildToolDefsArgs(
+            role=role,
+            tool_filters=ToolFilters(
+                actions=["core.cases.get_case", "internal.workflows.start"]
+            ),
+        )
+    )
+
+    assert build_tools.await_args is not None
+    assert build_tools.await_args.kwargs["actions"] == ["core.cases.get_case"]
+    assert result.allowed_internal_tools == ["internal.workflows.start"]
+    assert set(result.tool_definitions) == {"internal.workflows.start"}
+    lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
+
+
+@pytest.mark.anyio
+async def test_build_respects_namespaces_for_workflow_tools(monkeypatch):
+    """A namespace filter narrows workflow tools like any other tool."""
+    role = Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    monkeypatch.setattr(
+        agent_activities,
+        "build_agent_tools",
+        AsyncMock(return_value=BuildToolsResult(tools=[], collected_secrets=set())),
+    )
+    lock_service = MagicMock(spec=RegistryLockService)
+    lock_service.resolve_lock_with_bindings = AsyncMock(
+        return_value=RegistryLock(origins={}, actions={})
+    )
+    monkeypatch.setattr(
+        RegistryLockService, "with_session", lambda: _AsyncContext(lock_service)
+    )
+
+    result = await agent_activities.AgentActivities().build_tool_definitions(
+        agent_activities.BuildToolDefsArgs(
+            role=role,
+            tool_filters=ToolFilters(
+                namespaces=["core"], actions=["internal.workflows.start"]
+            ),
+        )
+    )
+
+    assert result.allowed_internal_tools is None
+    assert "internal.workflows.start" not in result.tool_definitions
+
+
+@pytest.mark.anyio
+async def test_session_config_drops_workflow_tools_without_caller_scope():
+    """Case chat and preset sessions gate workflow tools on the caller's scopes."""
+    caller = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "action:*:execute", "workflow:read"}),
+    )
+    service = AgentSessionService(session=AsyncMock(), role=caller)
+    unscoped = AgentConfig(
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        actions=[
+            "core.cases.get_case",
+            "internal.workflows.get",
+            "internal.workflows.cancel",
+        ],
+    )
+
+    @asynccontextmanager
+    async def _unscoped_config(_session):
+        yield unscoped
+
+    with patch.object(service, "_build_session_agent_config", _unscoped_config):
+        async with service._build_agent_config(MagicMock()) as config:
+            assert config.actions == ["core.cases.get_case", "internal.workflows.get"]
+
+
+@pytest.mark.anyio
+async def test_start_workflow_runs_as_the_calling_user(monkeypatch):
+    """The run gets the caller's role, so the executor checks their action scopes."""
+    claims = _workflow_claims()
+    wf_uuid = WorkflowUUID.new(_WF_ID)
+    roles: list[Role] = []
+
+    async def _run_workflow(workflow_id, **kwargs):
+        return {"wf_id": wf_uuid, "wf_exec_id": _EXEC_ID, "message": "started"}
+
+    def _with_session(role):
+        roles.append(role)
+        return _AsyncContext(SimpleNamespace(run_workflow=_run_workflow))
+
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        _with_session,
+    )
+
+    await internal_tools.start_workflow({"workflow_id": _WF_ID}, claims)
+
+    assert roles[0].type == "user"
+    assert roles[0].user_id == claims.user_id
+    assert roles[0].scopes == EDITOR_SCOPES
+
+
+@pytest.mark.anyio
+async def test_workflow_tools_without_user_use_service_role(monkeypatch):
+    claims = _workflow_claims().model_copy(update={"user_id": None})
+    role = await internal_tools._caller_role(claims)
+    assert role.type == "service"
+    assert role.service_id == "tracecat-mcp"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "stored",
+    [
+        ExternalObject(
+            ref=ObjectRef(
+                bucket="results",
+                key="big.json",
+                size_bytes=internal_tools.MAX_WORKFLOW_RESULT_BYTES + 1,
+                sha256="0" * 64,
+            )
+        ),
+        InlineObject(data="x" * (internal_tools.MAX_WORKFLOW_RESULT_BYTES + 1)),
+        CollectionObject(
+            manifest_ref=ObjectRef(
+                bucket="results", key="manifest.json", size_bytes=10, sha256="0" * 64
+            ),
+            count=5000,
+            chunk_size=100,
+            element_kind="value",
+        ),
+    ],
+)
+async def test_get_workflow_run_omits_large_results(monkeypatch, stored):
+    """Large results are never downloaded into the tool-serving process."""
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(
+        SimpleNamespace(
+            status=WorkflowExecutionStatus.COMPLETED,
+            start_time=None,
+            close_time=None,
+        ),
+        outcome=stored,
+    )
+    _patch_executions(monkeypatch, executions)
+    monkeypatch.setattr(
+        internal_tools,
+        "retrieve_stored_object",
+        AsyncMock(side_effect=AssertionError("must not download")),
+    )
+
+    result = await internal_tools.get_workflow_run(
+        {"workflow_execution_id": _EXEC_ID}, _workflow_claims()
+    )
+
+    assert "result" not in result
+    assert result["result_omitted"]
+
+
+def _auth_session_returning(service_account: object) -> SimpleNamespace:
+    result = SimpleNamespace(scalar_one_or_none=lambda: service_account)
+    return SimpleNamespace(execute=AsyncMock(return_value=result))
+
+
+@pytest.mark.anyio
+async def test_workflow_tools_act_as_the_service_account(monkeypatch):
+    """A service account's own scopes apply, not the MCP service principal's."""
+    claims = _workflow_claims().model_copy(
+        update={"user_id": None, "service_account_id": uuid.uuid4()}
+    )
+    scopes = [SimpleNamespace(name="workflow:read")]
+    service_account = SimpleNamespace(
+        id=claims.service_account_id,
+        workspace_id=claims.workspace_id,
+        disabled_at=None,
+        scopes=scopes,
+    )
+    session = _auth_session_returning(service_account)
+    monkeypatch.setattr(
+        internal_tools,
+        "get_async_session_auth_context_manager",
+        lambda: _AsyncContext(session),
+    )
+    _patch_workspace_workflow(monkeypatch)
+    executions = _FakeExecutions(None)
+    _patch_executions(monkeypatch, executions)
+
+    role = await internal_tools._caller_role(claims)
+    assert role.type == "service_account"
+    assert role.scopes == frozenset({"workflow:read"})
+    with pytest.raises(internal_tools.InternalToolError, match="workflow:terminate"):
+        await internal_tools.cancel_workflow_run(
+            {"workflow_execution_id": _EXEC_ID}, claims
+        )
+    assert executions.cancelled == []
+
+
+@pytest.mark.anyio
+async def test_disabled_service_account_cannot_use_workflow_tools(monkeypatch):
+    claims = _workflow_claims().model_copy(
+        update={"user_id": None, "service_account_id": uuid.uuid4()}
+    )
+    disabled = SimpleNamespace(
+        id=claims.service_account_id,
+        workspace_id=None,
+        disabled_at=datetime(2026, 11, 1, tzinfo=UTC),
+        scopes=[],
+    )
+    monkeypatch.setattr(
+        internal_tools,
+        "get_async_session_auth_context_manager",
+        lambda: _AsyncContext(_auth_session_returning(disabled)),
+    )
+
+    with pytest.raises(internal_tools.InternalToolError, match="not active"):
+        await internal_tools._caller_role(claims)
+
+
+def test_mcp_token_carries_service_account():
+    service_account_id = uuid.uuid4()
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        allowed_actions=[],
+        session_id=uuid.uuid4(),
+        registry_lock=RegistryLock(origins={}, actions={}),
+        service_account_id=service_account_id,
+    )
+    assert verify_mcp_token(token).service_account_id == service_account_id
+
+
+def _patch_builder_services(monkeypatch, *, preset_actions, entries, updates):
+    async def _get_preset(_preset_id):
+        return SimpleNamespace(actions=preset_actions)
+
+    async def _update_preset(preset, params):
+        updates.append(params)
+        return preset
+
+    async def _build_preset(_preset):
+        return SimpleNamespace(model_dump=lambda mode: {"updated": True})
+
+    async def _search_actions(_query):
+        return entries
+
+    async def _no_inventory(_role):
+        return {}, {}
+
+    async def _no_oauth(_role):
+        return set()
+
+    async def _registry_lookup(*_args, **_kwargs):
+        raise AssertionError("workflow tools must not hit the registry check")
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.AgentPresetService.with_session",
+        lambda role: _AsyncContext(
+            SimpleNamespace(
+                get_preset=_get_preset,
+                update_preset=_update_preset,
+                build_preset_read=_build_preset,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.mcp.internal_tools.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(
+            SimpleNamespace(search_actions_from_index=_search_actions)
+        ),
+    )
+    monkeypatch.setattr(internal_tools, "_load_secret_inventory", _no_inventory)
+    monkeypatch.setattr(internal_tools, "_load_oauth_inventory", _no_oauth)
+    monkeypatch.setattr(internal_tools, "_get_action_configuration", _registry_lookup)
+
+
+@pytest.mark.anyio
+async def test_builder_can_add_workflow_tools(monkeypatch):
+    """Workflow tools have no registry entry or secrets, so the builder adds them."""
+    updates: list[AgentPresetUpdate] = []
+    _patch_builder_services(monkeypatch, preset_actions=[], entries=[], updates=updates)
+
+    result = await internal_tools.update_preset(
+        {"actions": ["internal.workflows.start", "internal.workflows.get"]},
+        _build_claims(uuid.uuid4()),
+    )
+
+    assert result == {"updated": True}
+    assert len(updates) == 1
+    assert updates[0].actions == ["internal.workflows.start", "internal.workflows.get"]
+
+
+@pytest.mark.anyio
+async def test_builder_discovers_workflow_tools(monkeypatch):
+    _patch_builder_services(
+        monkeypatch,
+        preset_actions=["internal.workflows.get"],
+        entries=[],
+        updates=[],
+    )
+
+    result = await internal_tools.list_available_tools(
+        {"query": "workflow"}, _build_claims(uuid.uuid4())
+    )
+
+    by_id = {tool["action_id"]: tool for tool in result["tools"]}
+    assert set(by_id) == set(internal_tool_defs.WORKFLOW_INTERNAL_TOOL_NAMES)
+    assert by_id["internal.workflows.start"]["configured"] is True
+    assert by_id["internal.workflows.get"]["already_in_preset"] is True

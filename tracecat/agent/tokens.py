@@ -106,6 +106,12 @@ class MCPTokenClaims(BaseModel):
     """Workspace UUID for authorization context."""
     user_id: UserID | None = None
     """Optional user ID for audit/traceability."""
+    service_account_id: uuid.UUID | None = None
+    """Service account the session acts as, when it has no user.
+
+    Workflow internal tools use it to act with the service account's own
+    scopes instead of the MCP service principal's.
+    """
     session_id: uuid.UUID
     """Agent session ID for traceability."""
     parent_agent_workflow_id: str | None = None
@@ -160,6 +166,7 @@ def mint_mcp_token(
     registry_lock: RegistryLock,
     deferred_actions: list[str] | None = None,
     user_id: UserID | None = None,
+    service_account_id: uuid.UUID | None = None,
     parent_agent_workflow_id: str | None = None,
     parent_agent_run_id: str | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
@@ -187,6 +194,7 @@ def mint_mcp_token(
         deferred_actions: Action names listed for discovery but never
             executable with this token, such as approval-gated tools
         user_id: Optional user ID for audit/traceability
+        service_account_id: Service account the session acts as, if any
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
         internal_tool_context: Context for internal tools (preset_id, entity_type)
@@ -225,6 +233,7 @@ def mint_mcp_token(
             workspace_id=workspace_id,
             organization_id=organization_id,
             user_id=user_id,
+            service_account_id=service_account_id,
             session_id=session_id,
             parent_agent_workflow_id=parent_agent_workflow_id,
             parent_agent_run_id=parent_agent_run_id,

@@ -47,10 +47,10 @@ from tracecat.agent.mcp.executor import (
     ActionNotAllowedError,
     execute_action,
 )
+from tracecat.agent.mcp.internal_tool_defs import get_internal_tool_definitions
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
     InternalToolError,
-    get_builder_internal_tool_definitions,
 )
 from tracecat.agent.mcp.metadata import (
     build_registry_tool_schema,
@@ -752,7 +752,7 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
             )
             registry_tool_count += 1
 
-    internal_definitions = get_builder_internal_tool_definitions()
+    internal_definitions = get_internal_tool_definitions()
     for tool_name in _internal_tool_names(claims):
         if definition := internal_definitions.get(tool_name):
             tools.append(

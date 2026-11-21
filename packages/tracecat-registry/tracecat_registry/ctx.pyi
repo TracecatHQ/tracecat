@@ -1372,9 +1372,6 @@ class _WorkflowsAsync:
         workflow_alias: str | None = ...,
         trigger_inputs: Any | Unset = ...,
         environment: str | None = ...,
-        wait_strategy: Literal["wait", "detach"] = ...,
-        timeout: float | None = ...,
-        poll_interval: float = ...,
         parent_workflow_execution_id: str | None = ...,
     ) -> dict[str, Any]: ...
     async def get_status(
@@ -1468,9 +1465,6 @@ class _Workflows:
         workflow_alias: str | None = ...,
         trigger_inputs: Any | Unset = ...,
         environment: str | None = ...,
-        wait_strategy: Literal["wait", "detach"] = ...,
-        timeout: float | None = ...,
-        poll_interval: float = ...,
         parent_workflow_execution_id: str | None = ...,
     ) -> dict[str, Any]: ...
     def get_status(

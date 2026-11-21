@@ -30,6 +30,7 @@ from tracecat.agent.common.types import (
     MCPStdioServerConfig,
     is_stdio_mcp_server,
 )
+from tracecat.agent.mcp.internal_tool_defs import WORKFLOW_INTERNAL_TOOL_NAMES
 from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
@@ -734,8 +735,13 @@ class AgentPresetService(BaseWorkspaceService):
         return set(policy.actions)
 
     async def _validate_actions(self, actions: list[str]) -> None:
-        """Validate that all actions are in the registry index."""
-        actions_set = set(actions)
+        """Validate that all actions are in the registry index.
+
+        Workflow internal tools are not registry actions, so they pass as is.
+        """
+        actions_set = set(actions) - set(WORKFLOW_INTERNAL_TOOL_NAMES)
+        if not actions_set:
+            return
         registry_service = RegistryActionsService(self.session, role=self.role)
         index_entries = await registry_service.list_actions_from_index(
             include_keys=actions_set

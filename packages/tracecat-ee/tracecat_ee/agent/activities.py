@@ -31,10 +31,12 @@ from tracecat.agent.error_policy import (
     registry_lock_invalid_data,
     tenant_entitlement_denied,
 )
-from tracecat.agent.mcp.internal_tools import (
+from tracecat.agent.mcp.internal_tool_defs import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
+    WORKFLOW_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
+    get_workflow_internal_tool_definitions,
 )
 from tracecat.agent.mcp.stdio_runner import (
     stdio_mcp_tool_definition,
@@ -416,8 +418,24 @@ class AgentActivities:
             and args.internal_tool_context.entity_type == "agent_preset_builder"
         )
 
+        # Workflow internal tools are opt-in through the actions list. They are
+        # served by the trusted MCP server, not the registry.
+        # A namespace filter narrows them like any other tool.
+        requested_actions = list(args.tool_filters.actions or [])
+        namespaces = args.tool_filters.namespaces
+        workflow_tools = [
+            name
+            for name in requested_actions
+            if name in WORKFLOW_INTERNAL_TOOL_NAMES
+            and (not namespaces or any(name.startswith(ns) for ns in namespaces))
+        ]
+        actions_to_build = [
+            name
+            for name in requested_actions
+            if name not in WORKFLOW_INTERNAL_TOOL_NAMES
+        ]
+
         # For builder sessions, add bundled actions to the tool filters
-        actions_to_build = list(args.tool_filters.actions or [])
         if is_builder:
             # Add bundled registry actions for builder (core.table.*, tools.exa.*)
             for action in BUILDER_BUNDLED_ACTIONS:
@@ -459,6 +477,10 @@ class AgentActivities:
                 tool_count=len(internal_defs),
                 tools=list(internal_defs.keys()),
             )
+        if workflow_tools:
+            workflow_defs = get_workflow_internal_tool_definitions()
+            defs.update({name: workflow_defs[name] for name in workflow_tools})
+            allowed_internal_tools = [*(allowed_internal_tools or []), *workflow_tools]
 
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
