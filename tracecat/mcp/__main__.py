@@ -11,6 +11,8 @@ import importlib
 import sys
 import time
 
+from sse_starlette.sse import AppStatus
+
 from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.db.roles import UnsafeDatabaseLoginError
 from tracecat.logger import logger
@@ -30,6 +32,10 @@ def _run_mcp_server() -> None:
         module = importlib.reload(sys.modules[server_module_name])
     else:
         module = importlib.import_module(server_module_name)
+    # sse-starlette cancels every open SSE response as soon as uvicorn receives
+    # SIGTERM, which drops in-flight tool results. Let uvicorn's graceful
+    # shutdown timeout bound the drain instead.
+    AppStatus.disable_automatic_graceful_drain()
     module.mcp.run(
         transport="streamable-http",
         host=TRACECAT_MCP__HOST,

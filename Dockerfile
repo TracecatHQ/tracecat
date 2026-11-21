@@ -472,4 +472,4 @@ EXPOSE $PORT
 # container would be SIGKILLed without draining. TRACECAT__API_HTTP_DRAIN_TIMEOUT
 # bounds the wait for open requests (SSE streams never finish on their own) so
 # the lifespan task drain still runs inside the termination grace period.
-CMD ["sh", "-c", "exec python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --timeout-graceful-shutdown ${TRACECAT__API_HTTP_DRAIN_TIMEOUT:-20}"]
+CMD ["sh", "-c", "exec python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --timeout-graceful-shutdown \"${TRACECAT__API_HTTP_DRAIN_TIMEOUT:-20}\""]
