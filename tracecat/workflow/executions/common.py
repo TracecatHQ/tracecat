@@ -8,7 +8,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
-from tracecat.admission.types import parse_not_admitted
+from tracecat.admission.types import NotAdmitted, parse_not_admitted
 from tracecat.dsl.action import DSLActivities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
@@ -226,12 +226,12 @@ def schedules_executor_action(event: HistoryEvent) -> bool:
     )
 
 
-async def is_not_admitted_completion(event: HistoryEvent) -> bool:
-    """Whether a completed activity is an executor's not-admitted answer (it ran nothing)."""
+async def get_not_admitted(event: HistoryEvent) -> NotAdmitted | None:
+    """The executor's not-admitted answer in a completed activity, if it is one."""
     if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
-        return False
+        return None
     result = await extract_first(event.activity_task_completed_event_attributes.result)
-    return parse_not_admitted(result) is not None
+    return parse_not_admitted(result)
 
 
 async def _unwrap_result(result: Any) -> Any:

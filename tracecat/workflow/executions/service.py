@@ -73,12 +73,12 @@ from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
     extract_first,
+    get_not_admitted,
     get_result,
     get_source_event_id,
     get_stored_result,
     is_close_event,
     is_error_event,
-    is_not_admitted_completion,
     is_scheduled_event,
     is_start_event,
     is_unreadable_temporal_payload,
@@ -1038,12 +1038,17 @@ class WorkflowExecutionsService:
                 entry = latest.get(source.action_ref)
                 if entry is None or entry[0] != source_id:
                     continue
-                if source_id in executor_scheduled and await is_not_admitted_completion(
-                    event
+                if source_id in executor_scheduled and (
+                    not_admitted := await get_not_admitted(event)
                 ):
-                    # The executor was at the org's limit and ran nothing: the
-                    # attempt before this one still decides the outcome.
-                    if (previous := superseded.get(source_id)) is not None:
+                    # The executor was at the org's limit. If this was the
+                    # activity's first attempt it ran nothing, so the execution
+                    # before it still decides the outcome. A later attempt
+                    # means earlier attempts of this activity ran and failed:
+                    # keep it as the latest, with nothing to reuse.
+                    if not_admitted.attempt == 1 and (
+                        previous := superseded.get(source_id)
+                    ):
                         latest[source.action_ref] = previous
                     continue
                 entry[1].fixed = FixedActionResult(
