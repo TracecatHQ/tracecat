@@ -82,6 +82,11 @@ def test_run_mcp_server_uses_stateless_http(
 
     assert run_kwargs["transport"] == "streamable-http"
     assert run_kwargs["stateless_http"] is True
+    assert run_kwargs["uvicorn_config"] == {
+        "timeout_graceful_shutdown": (
+            mcp_main.TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+        )
+    }
 
 
 def test_main_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:

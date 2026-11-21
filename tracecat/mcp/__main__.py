@@ -15,6 +15,7 @@ from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.db.roles import UnsafeDatabaseLoginError
 from tracecat.logger import logger
 from tracecat.mcp.config import (
+    TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     TRACECAT_MCP__HOST,
     TRACECAT_MCP__PORT,
     TRACECAT_MCP__STARTUP_MAX_ATTEMPTS,
@@ -34,6 +35,10 @@ def _run_mcp_server() -> None:
         host=TRACECAT_MCP__HOST,
         port=TRACECAT_MCP__PORT,
         stateless_http=True,
+        # FastMCP defaults this to 2s, which cancels in-flight tool calls.
+        uvicorn_config={
+            "timeout_graceful_shutdown": TRACECAT_MCP__GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+        },
     )
 
 
