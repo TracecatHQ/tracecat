@@ -257,6 +257,17 @@ async def _task_result_from_completed_event(event: HistoryEvent) -> TaskResult:
             return TaskResult.from_result(await get_result(event))
 
 
+def _not_admitted_failure(not_admitted: NotAdmitted) -> EventFailure:
+    """Describe an activity whose earlier attempts failed and last was not admitted."""
+    return EventFailure(
+        message=(
+            f"Attempt {not_admitted.attempt} was not admitted: the organization was "
+            f"at its action limit ({not_admitted.in_use}/{not_admitted.limit} in use). "
+            "Earlier attempts failed."
+        )
+    )
+
+
 class WorkflowExecutionsService:
     """Workflow executions service."""
 
@@ -816,9 +827,17 @@ class WorkflowExecutionsService:
                     else:
                         raw_result = await get_result(event)
                     if isinstance(raw_result, NotAdmitted):
-                        # The executor was at the org's limit and ran nothing;
-                        # the workflow dispatches again.
-                        del id2event[source_id]
+                        if raw_result.attempt == 1:
+                            # The executor was at the org's limit and this
+                            # activity ran nothing; the workflow dispatches again.
+                            del id2event[source_id]
+                            continue
+                        # Earlier attempts of this activity ran and failed; the
+                        # last one was not admitted. Show it as failed, never as
+                        # an older success.
+                        source.status = WorkflowExecutionEventStatus.FAILED
+                        source.close_time = event.event_time.ToDatetime(datetime.UTC)
+                        source.action_error = _not_admitted_failure(raw_result)
                         continue
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = _sanitize_action_result(
@@ -1481,9 +1500,11 @@ class WorkflowExecutionsService:
                     )
                     if (
                         gparent_event_id in executor_scheduled
-                        and parse_not_admitted(raw_result) is not None
+                        and (not_admitted := parse_not_admitted(raw_result))
+                        and not_admitted.attempt == 1
                     ):
-                        # The executor ran nothing; hide the whole attempt.
+                        # The executor ran nothing in this activity; hide it.
+                        # Later attempts keep their events: earlier ones ran.
                         not_admitted_event_ids.add(gparent_event_id)
                         not_admitted_event_ids.add(
                             event.activity_task_completed_event_attributes.started_event_id
