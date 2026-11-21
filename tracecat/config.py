@@ -451,6 +451,17 @@ TRACECAT__DB_AGENT_RUNTIME_PASSWORD = (
 )
 """Password that ``tracecat.db.roles bootstrap --login password`` sets on ``agent_runtime``."""
 
+TRACECAT__DB_MIGRATOR_ROLE = (
+    os.environ.get("TRACECAT__DB_MIGRATOR_ROLE") or ""
+).strip() or "migrator"
+"""Name of the migrations' login role in ``tracecat db roles``. Defaults to ``migrator``."""
+TRACECAT__DB_APP_ROLE = (os.environ.get("TRACECAT__DB_APP_ROLE") or "").strip() or "app"
+"""Name of the app components' login role in ``tracecat db roles``. Defaults to ``app``."""
+TRACECAT__DB_AGENT_RUNTIME_ROLE = (
+    os.environ.get("TRACECAT__DB_AGENT_RUNTIME_ROLE") or ""
+).strip() or "agent_runtime"
+"""Name of the agent runtime's login role in ``tracecat db roles``. Defaults to ``agent_runtime``."""
+
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
@@ -483,6 +494,29 @@ TRACECAT__DB_AUTH_MAX_OVERFLOW = int(
     os.environ.get("TRACECAT__DB_AUTH_MAX_OVERFLOW") or 5
 )
 """The maximum number of overflow connections for the authentication pool."""
+
+# === Per-org DB session gate === #
+TRACECAT__DB_ORG_SESSION_CAP = (
+    int(cap) if (cap := os.environ.get("TRACECAT__DB_ORG_SESSION_CAP")) else None
+)
+"""Concurrent action gateway operations one organization may run per process.
+
+Unset (the default) means no limit. A unit is one gateway operation; budget up
+to 3 connections per operation (a published workflow start holds the request
+session, a management session and a workspace-settings session at once), and
+leave headroom for other orgs:
+
+    cap x peak executor processes (including surge and draining) x 3
+        <= PgDog backends - headroom
+
+Sessions outside the gateway are not counted. Regions differ: EU is tightest
+(PgDog 2 x 30 = 60 backends).
+"""
+if TRACECAT__DB_ORG_SESSION_CAP is not None and TRACECAT__DB_ORG_SESSION_CAP < 1:
+    raise ValueError(
+        "TRACECAT__DB_ORG_SESSION_CAP must be at least 1 "
+        f"(got {TRACECAT__DB_ORG_SESSION_CAP}); unset it for no limit"
+    )
 
 
 # === Auth config === #

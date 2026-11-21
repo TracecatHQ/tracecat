@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
-from collections.abc import Coroutine, Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
 
 from pydantic import SecretStr
-from tracecat_ee.secrets.stores.backends import get_backend
+from tracecat_ee.secrets.resolver import resolve_external_references
 
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
@@ -19,7 +17,6 @@ from tracecat.exceptions import TracecatCredentialsError
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues
-from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import SecretKeyValue, SecretSearch
 from tracecat.secrets.service import (
     SecretsService,
@@ -29,20 +26,6 @@ from tracecat.secrets.service import (
 from tracecat.secrets.types import ExternalSecretReference
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-
-
-def _run_coroutine_sync[T](coro: Coroutine[Any, Any, T]) -> T:
-    """Run a coroutine to completion from synchronous code.
-
-    Falls back to a worker thread when an event loop is already running in
-    this thread so ``asyncio.run()`` is never nested.
-    """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
 
 
 class AuthSandbox:
@@ -74,30 +57,6 @@ class AuthSandbox:
         self._optional_secrets = set(optional_secrets or [])
         self._encryption_key = get_db_encryption_key()
 
-    def __enter__(self) -> Self:
-        if self._secret_paths:
-            try:
-                self._secret_objs = _run_coroutine_sync(self._load_secrets())
-                self._set_secrets()
-            except BaseException:
-                # __exit__ never runs on a failed entry; drop fetched plaintext.
-                self._unset_secrets()
-                raise
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException],
-        exc_value: BaseException,
-        traceback: TracebackType,
-    ) -> None:
-        self._unset_secrets()
-        if exc_type is not None:
-            logger.error(
-                "An error occurred inside AuthSandbox. If you are seeing this, please contact support.",
-                exc_info=(exc_type, exc_value, traceback),
-            )
-
     async def __aenter__(self) -> Self:
         if self._secret_paths:
             try:
@@ -120,13 +79,9 @@ class AuthSandbox:
             for secret in secrets
             if is_external_reference(secret)
         ]
-        by_provider: dict[SecretStoreProvider, list[ExternalSecretReference]] = {}
-        for reference in self._external_references:
-            by_provider.setdefault(reference.provider, []).append(reference)
-        self._external_values = {}
-        for provider, references in by_provider.items():
-            resolved = await get_backend(provider).resolve(references)
-            self._external_values.update(resolved)
+        self._external_values = await resolve_external_references(
+            self._external_references
+        )
         return secrets
 
     async def __aexit__(
@@ -135,7 +90,12 @@ class AuthSandbox:
         exc_value: BaseException,
         traceback: TracebackType,
     ) -> None:
-        return self.__exit__(exc_type, exc_value, traceback)
+        self._unset_secrets()
+        if exc_type is not None:
+            logger.error(
+                "An error occurred inside AuthSandbox. If you are seeing this, please contact support.",
+                exc_info=(exc_type, exc_value, traceback),
+            )
 
     @property
     def secrets(self) -> dict[str, Any]:

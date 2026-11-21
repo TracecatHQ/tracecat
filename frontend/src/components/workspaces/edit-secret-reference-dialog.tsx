@@ -11,12 +11,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
-import { useAwsSecretReference } from "@/hooks/use-secret-stores"
+import { SecretReferenceForm } from "@/components/workspaces/secret-reference-form"
+import { useSecretReference } from "@/hooks/use-secret-stores"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-/** Edit an existing AWS reference using metadata, never remote secret values. */
-export function EditAwsSecretReferenceDialog({
+/** Edit an existing external reference using metadata, never remote secret values. */
+export function EditSecretReferenceDialog({
   secret,
   onClose,
 }: {
@@ -24,7 +24,7 @@ export function EditAwsSecretReferenceDialog({
   onClose: () => void
 }) {
   const workspaceId = useWorkspaceId()
-  const { data, isLoading, error } = useAwsSecretReference(
+  const { data, isLoading, error } = useSecretReference(
     workspaceId,
     secret.id,
     secret.environment
@@ -41,8 +41,8 @@ export function EditAwsSecretReferenceDialog({
         <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
           <DialogDescription>
-            Update the AWS secret reference and key mapping. Values stay in AWS
-            Secrets Manager.
+            Update the secret reference and key mapping. Values stay in the
+            external secret store.
           </DialogDescription>
         </DialogHeader>
         {(isLoading || error) && (
@@ -59,7 +59,7 @@ export function EditAwsSecretReferenceDialog({
           </DialogBody>
         )}
         {data && !error && (
-          <AwsSecretReferenceForm secret={data} onSaved={onClose} />
+          <SecretReferenceForm secret={data} onSaved={onClose} />
         )}
       </DialogContent>
     </Dialog>

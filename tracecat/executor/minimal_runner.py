@@ -17,7 +17,9 @@ import contextlib
 import errno
 import importlib
 import json
+import math
 import os
+import random
 import re
 import resource
 import signal
@@ -81,9 +83,53 @@ _ACTION_GATEWAY_SOCKET = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET") or No
 _CAPTURED_OUTPUT_CHAR_LIMIT = 8192
 _SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
 
+# The Action Gateway's pre-route capacity refusal
+# (tracecat.executor.action_gateway.db_gate). Registry SDKs that predate it
+# don't retry it, so the compatibility shim below adds the same retry.
+_TENANT_BUSY_ERROR_CODE = "tenant_db_busy"
+_TENANT_BUSY_MIN_RETRY_AFTER_SECONDS = 1.0
+_TENANT_BUSY_MAX_RETRY_AFTER_SECONDS = 10.0
+
+
+def _is_tenant_busy(response: Any) -> bool:
+    """Whether a gateway response is the pre-route tenant-busy refusal."""
+    if response.status_code != 503:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    match body:
+        case {"detail": {"code": str(code)}}:
+            return code == _TENANT_BUSY_ERROR_CODE
+        case _:
+            return False
+
+
+def _tenant_busy_delay(response: Any, retries: int) -> float:
+    """Jittered backoff from ``Retry-After`` (capped at 10 s) up, as the SDK does."""
+    try:
+        floor = float(response.headers.get("Retry-After", "1"))
+    except ValueError:
+        floor = 1.0
+    if not math.isfinite(floor):
+        floor = 1.0
+    floor = min(
+        max(floor, _TENANT_BUSY_MIN_RETRY_AFTER_SECONDS),
+        _TENANT_BUSY_MAX_RETRY_AFTER_SECONDS,
+    )
+    ceiling = min(floor * 2 ** min(retries, 10), _TENANT_BUSY_MAX_RETRY_AFTER_SECONDS)
+    return random.uniform(floor, max(floor, ceiling))
+
 
 def _install_action_gateway_sdk_transport() -> None:
-    """Patch legacy registry SDK clients to use the executor gateway socket."""
+    """Patch older registry SDK clients for the executor gateway.
+
+    Legacy clients get the gateway socket transport. Clients that predate the
+    tenant-busy retry (locked registry artifacts keep their SDK) get it too:
+    the gateway's pre-route capacity refusal is retried until the action ends.
+    Current SDKs, which define ``TENANT_BUSY_ERROR_CODE``, are left alone.
+    """
     if _ACTION_GATEWAY_SOCKET is None:
         return
     socket_path = _ACTION_GATEWAY_SOCKET
@@ -99,11 +145,13 @@ def _install_action_gateway_sdk_transport() -> None:
     if tracecat_client_cls is None:
         return
 
-    if hasattr(tracecat_client_cls, "_request_url_and_transport"):
+    if getattr(sdk_client, "TENANT_BUSY_ERROR_CODE", None) is not None:
         return
 
     if getattr(tracecat_client_cls, "_tracecat_action_gateway_transport", False):
         return
+
+    has_native_transport = hasattr(tracecat_client_cls, "_request_url_and_transport")
 
     async def request(
         self: Any,
@@ -114,21 +162,35 @@ def _install_action_gateway_sdk_transport() -> None:
         json: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
+        if has_native_transport:
+            url, transport = self._request_url_and_transport(path)
+        else:
+            url = f"http://tracecat-action-gateway/internal{path}"
+            transport = httpx.AsyncHTTPTransport(uds=socket_path)
         request_headers = self._get_headers()
         if headers:
             request_headers.update(headers)
 
         async with httpx.AsyncClient(
-            transport=httpx.AsyncHTTPTransport(uds=socket_path),
+            transport=transport,
             timeout=getattr(self, "_timeout", 120.0),
         ) as client:
-            response = await client.request(
-                method,
-                f"http://tracecat-action-gateway/internal{path}",
-                params=params,
-                json=json,
-                headers=request_headers,
-            )
+            # Retry only the pre-route refusal, with no count limit; the
+            # action's own timeout ends the wait.
+            retries = 0
+            while True:
+                response = await client.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json,
+                    headers=request_headers,
+                )
+                if not _is_tenant_busy(response):
+                    break
+                delay = _tenant_busy_delay(response, retries)
+                retries += 1
+                await asyncio.sleep(delay)
 
         if not response.is_success:
             self._handle_error_response(response)

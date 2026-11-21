@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy import cast, func, or_, select
 from sqlalchemy.dialects.postgresql import INTERVAL
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.orm import load_only, raiseload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
@@ -36,7 +37,6 @@ from tracecat.cases.schemas import (
     CaseReadMinimal,
     CaseSearchAggregateRead,
     CaseSearchMatchRead,
-    CaseStatusGroupCounts,
 )
 from tracecat.cases.search_adapters import (
     UNASSIGNED_IDENTIFIERS,
@@ -45,6 +45,15 @@ from tracecat.cases.search_adapters import (
     parse_dropdown_entry,
     requesting_user_id,
     resolve_user_refs,
+)
+from tracecat.cases.search_bounds import (
+    aggregate_read,
+    capped_status_counts,
+    matches_more_than_cap,
+    ranks_newest_matches,
+    relevance_window_start,
+    status_count_columns,
+    window_anchor,
 )
 from tracecat.cases.search_metadata import validate_case_filter_metadata
 from tracecat.cases.search_schemas import (
@@ -56,9 +65,11 @@ from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.search import resolve_case_tag_filters
 from tracecat.cases.text_search import (
+    SEARCH_PLANNER_SETTINGS,
     CaseTextQuery,
     build_case_text_expressions,
     case_search_execution_context,
+    case_substring_match,
     get_case_search_excerpts,
     parse_case_text_query,
     validate_case_text_lexemes,
@@ -67,6 +78,7 @@ from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, C
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.query.compiler import compile_filter
+from tracecat.query.execution import transaction_settings
 from tracecat.query.filters import Filter
 from tracecat.query.lexical_types import SearchMatchMetadata, SearchMode
 from tracecat.service import BaseWorkspaceService
@@ -78,6 +90,10 @@ if TYPE_CHECKING:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+# Every short ID is this prefix and zero-padded digits, such as CASE-0042.
+_SHORT_ID_PREFIX = "CASE-"
+# A suffix of the prefix (or none), then digits: the tail of a short ID.
+_SHORT_ID_FRAGMENT = re.compile(r"(?:(?:CASE|ASE|SE|E)?-)?[0-9]+", re.IGNORECASE)
 
 
 def parse_case_short_id(value: str) -> int | None:
@@ -96,6 +112,17 @@ def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement
         ],
         else_=len(ordered_values),
     )
+
+
+# Planner settings for a keyword page in column order (ORDER BY ... LIMIT).
+# Without them PostgreSQL may read ix_case_cursor_pagination in order and stop
+# once it has a page. Its row estimates for keyword predicates are unreliable,
+# and for a rare keyword that plan reads the whole workspace: a newest-first
+# page took 0.6 s instead of 0.1 s at 100,000 cases. Bitmap scans stay on, so
+# matches are still found through the GIN and trigram indexes and then sorted.
+# Sequential scans stay on too: for a keyword in most cases they are the best
+# plan (turning them off made such a page 0.19 s -> 0.30 s).
+TEXT_INDEX_PLAN: Mapping[str, str] = {"enable_indexscan": "off"}
 
 
 def relative_window_start(
@@ -125,26 +152,43 @@ def _require_resolved_view(query: CaseQuery) -> None:
         raise ValueError("Resolve view_id with CaseViewsService before searching")
 
 
+def _may_occur_in_short_id(term: str) -> bool:
+    """Return whether ``term`` can be a case-insensitive part of ``CASE-0042``.
+
+    A short ID is ``CASE-`` followed by digits, so a substring of one is part
+    of ``CASE-``, or a suffix of ``CASE-`` followed by digits.
+    """
+    return (
+        term.upper() in _SHORT_ID_PREFIX
+        or _SHORT_ID_FRAGMENT.fullmatch(term) is not None
+    )
+
+
 def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
     """Build literal text and exact-ID predicates independent of boolean filters."""
     filters: list[ColumnElement[bool]] = []
     if query.case_id is not None:
         filters.append(Case.id == query.case_id)
     if query.search_term and query.search_mode is None:
-        case_number_text = cast(Case.case_number, sa.String)
-        short_id_expr = func.concat(
-            "CASE-",
-            func.lpad(
-                case_number_text,
-                func.greatest(4, func.length(case_number_text)),
-                "0",
-            ),
-        )
-        search_conditions: list[Any] = [
-            Case.summary.icontains(query.search_term, autoescape=True, escape="\\"),
-            Case.description.icontains(query.search_term, autoescape=True, escape="\\"),
-            short_id_expr.icontains(query.search_term, autoescape=True, escape="\\"),
-        ]
+        term = query.search_term
+        # Same matches as ILIKE on each field. From three characters they are
+        # found through the trigram indexes instead of reading the workspace.
+        search_conditions: list[Any] = [case_substring_match(term)]
+        # The formatted short ID has no index. Leaving it out when it cannot
+        # match keeps the OR above fully index-backed for ordinary words.
+        if _may_occur_in_short_id(term):
+            case_number_text = cast(Case.case_number, sa.String)
+            short_id_expr = func.concat(
+                _SHORT_ID_PREFIX,
+                func.lpad(
+                    case_number_text,
+                    func.greatest(4, func.length(case_number_text)),
+                    "0",
+                ),
+            )
+            search_conditions.append(
+                short_id_expr.icontains(term, autoescape=True, escape="\\")
+            )
         case_number = parse_case_short_id(query.search_term)
         if case_number is not None and case_number <= MAX_CASE_NUMBER:
             search_conditions.append(Case.case_number == case_number)
@@ -348,7 +392,7 @@ class CaseSearchService(BaseWorkspaceService):
         """Own lexical execution/rollback while preserving the legacy read path."""
         _require_resolved_view(request)
         lexical = self.parse_lexical_query(request)
-        if lexical is None:
+        if lexical is None and not request.search_term:
             return await self._query_cases(
                 request,
                 case_addons_enabled=case_addons_enabled,
@@ -356,13 +400,23 @@ class CaseSearchService(BaseWorkspaceService):
                 linked_row=linked_row,
                 exclude_case_id=exclude_case_id,
             )
-        transaction = (
-            self.session.begin_nested()
-            if self.session.in_transaction()
-            else self.session.begin()
-        )
+        if lexical is None:
+            # The omitted-mode substring search uses the lexical predicates, so
+            # it needs the same planner settings. The savepoint undoes them if
+            # the search fails.
+            async with (
+                self._search_transaction(),
+                transaction_settings(self.session, SEARCH_PLANNER_SETTINGS),
+            ):
+                return await self._query_cases(
+                    request,
+                    case_addons_enabled=case_addons_enabled,
+                    legacy_filters=legacy_filters,
+                    linked_row=linked_row,
+                    exclude_case_id=exclude_case_id,
+                )
         async with (
-            transaction,
+            self._search_transaction(),
             case_search_execution_context(
                 self.session,
                 check_readiness=True,
@@ -378,6 +432,12 @@ class CaseSearchService(BaseWorkspaceService):
                 exclude_case_id=exclude_case_id,
                 lexical=lexical,
             )
+
+    def _search_transaction(self) -> AsyncSessionTransaction:
+        """A savepoint (or transaction) whose rollback undoes search settings."""
+        if self.session.in_transaction():
+            return self.session.begin_nested()
+        return self.session.begin()
 
     @staticmethod
     def parse_lexical_query(query: CaseQuery) -> CaseTextQuery | None:
@@ -434,11 +494,26 @@ class CaseSearchService(BaseWorkspaceService):
                 search_term=request.search_term,
                 filters=filters,
             )
-        result_filters = filters
+        # Scoring is the expensive part of relevance order, and it grows with
+        # every match; a capped search ranks only the newest matches.
+        window_start = (
+            await relevance_window_start(
+                self.session,
+                workspace_id=self.workspace_id,
+                request=request,
+                filters=filters,
+            )
+            if ranks_newest_matches(request)
+            else None
+        )
+        ordinary_filters = filters
+        if window_start is not None:
+            ordinary_filters = [*filters, Case.created_at >= window_start]
+        result_filters = ordinary_filters
         if exact_match is not None:
             result_filters = [
                 Case.workspace_id == self.workspace_id,
-                sa.or_(sa.and_(*filters), exact_match.predicate),
+                sa.or_(sa.and_(*ordinary_filters), exact_match.predicate),
             ]
 
         include_case_addons = case_addons_enabled
@@ -547,20 +622,39 @@ class CaseSearchService(BaseWorkspaceService):
             else:
                 ordering = (sort_attr.desc(),)
         else:
+            # The paginator omits NULLS LAST for NOT NULL columns (created_at,
+            # updated_at, case_number). For created_at that lets
+            # ix_case_cursor_pagination supply the order; updated_at and
+            # case_number have no matching index. Computed keys can be NULL
+            # and keep NULLS LAST.
             if sort_direction == "asc":
-                ordering = (sort_attr.asc().nulls_last(), Case.id.asc())
+                ordering = (sort_attr.asc(), Case.id.asc())
             else:
-                ordering = (sort_attr.desc().nulls_last(), Case.id.desc())
+                ordering = (sort_attr.desc(), Case.id.desc())
 
         if exact_match is not None:
             ordering = (sa.case((exact_match.predicate, 0), else_=1).asc(), *ordering)
 
-        case_page = await paginate(
-            self.session,
-            stmt,
-            page=PageParams(limit=request.limit, cursor=request.cursor),
-            order_by=ordering,
-        )
+        index_plan: Mapping[str, str] = {}
+        if sort_column != "relevance" and request.search_term:
+            index_plan = TEXT_INDEX_PLAN
+            # A search that matches more than the cap fills a page within the
+            # first rows of the date index, so it may read the index in order
+            # (1.4 s became about 0.1 s at one million matches).
+            if (
+                request.cap_broad_matches
+                and request.search_mode is not None
+                and await matches_more_than_cap(self.session, filters)
+            ):
+                index_plan = {}
+        async with transaction_settings(self.session, index_plan):
+            case_page = await paginate(
+                self.session,
+                stmt,
+                page=PageParams(limit=request.limit, cursor=request.cursor),
+                order_by=ordering,
+                anchor=window_anchor(window_start),
+            )
         cases = case_page.items
 
         hydration_options: list[ExecutableOption] = [
@@ -835,19 +929,24 @@ class CaseSearchService(BaseWorkspaceService):
         """Count the identical lexical predicate under the same execution limits."""
         _require_resolved_view(query)
         lexical = self.parse_lexical_query(query)
-        if lexical is None:
+        if lexical is None and not query.search_term:
             return await self._query_aggregates(
                 query,
                 case_addons_enabled=case_addons_enabled,
                 legacy_filters=legacy_filters,
             )
-        transaction = (
-            self.session.begin_nested()
-            if self.session.in_transaction()
-            else self.session.begin()
-        )
+        if lexical is None:
+            async with (
+                self._search_transaction(),
+                transaction_settings(self.session, SEARCH_PLANNER_SETTINGS),
+            ):
+                return await self._query_aggregates(
+                    query,
+                    case_addons_enabled=case_addons_enabled,
+                    legacy_filters=legacy_filters,
+                )
         async with (
-            transaction,
+            self._search_transaction(),
             case_search_execution_context(
                 self.session,
                 check_readiness=True,
@@ -870,7 +969,11 @@ class CaseSearchService(BaseWorkspaceService):
         legacy_filters: Filter | None = None,
         lexical: CaseTextQuery | None = None,
     ) -> CaseSearchAggregateRead:
-        """Return exact status totals using the same matching predicates as rows."""
+        """Return status totals using the same matching predicates as rows.
+
+        With cap_broad_matches, a search_mode search counts at most
+        SEARCH_MATCH_CAP matches.
+        """
         filters = await self.prepare_query(
             query,
             case_addons_enabled=case_addons_enabled,
@@ -879,57 +982,11 @@ class CaseSearchService(BaseWorkspaceService):
         )
         if query.match_none:
             filters.append(sa.false())
-        aggregate_stmt = select(
-            func.count(Case.id).label("total"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
-                0,
-            ).label("new"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
-                0,
-            ).label("in_progress"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
-                0,
-            ).label("on_hold"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)),
-                0,
-            ).label("resolved"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.CLOSED, 1), else_=0)),
-                0,
-            ).label("closed"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.UNKNOWN, 1), else_=0)),
-                0,
-            ).label("unknown"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (Case.status == CaseStatus.OTHER, 1),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("other"),
-        )
-
-        for clause in filters:
-            aggregate_stmt = aggregate_stmt.where(clause)
-
-        row = (await self.session.execute(aggregate_stmt)).one()
-
-        return CaseSearchAggregateRead(
-            total=int(row.total or 0),
-            status_groups=CaseStatusGroupCounts(
-                new=int(row.new or 0),
-                in_progress=int(row.in_progress or 0),
-                on_hold=int(row.on_hold or 0),
-                resolved=int(row.resolved or 0),
-                closed=int(row.closed or 0),
-                unknown=int(row.unknown or 0),
-                other=int(row.other or 0),
-            ),
-        )
+        if lexical is not None and query.cap_broad_matches:
+            return await capped_status_counts(self.session, filters)
+        row = (
+            await self.session.execute(
+                select(*status_count_columns(Case.status)).where(*filters)
+            )
+        ).one()
+        return aggregate_read(row)

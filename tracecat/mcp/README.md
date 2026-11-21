@@ -100,6 +100,14 @@ Each list replaces the workspace allowlist for case attachments, and an empty
 list restores the system defaults. Call it with no lists to read the current
 and effective values. Writes need the `workspace:update` scope.
 
+## Organization limit tools
+
+- `get_concurrency_limits(org_id=None)`
+
+Read-only. Returns each per-organization concurrency limit (`limit` null means
+unlimited) with its observed usage (`in_use` null means unknown, not zero).
+Needs the `org:read` scope. There is no write tool: the platform sets limits.
+
 ## Action discovery and authoring context
 
 - `list_actions(workspace_id, query=None, namespace=None, limit=50, cursor=None)`
@@ -142,6 +150,10 @@ stored config whole. Submissions are not exposed over MCP.
 - `list_tags_for_workflow(workspace_id, workflow_id, limit=20, cursor=None)`
 - `add_workflow_tag(workspace_id, workflow_id, tag_id)`
 - `remove_workflow_tag(workspace_id, workflow_id, tag_id)`
+
+## Case search
+
+- `search_cases(..., search_mode="full_text", cap_broad_matches=True, include_count=False)` ranks only the 10,000 newest matches when a keyword matches more cases than that, in relevance order. Broad keywords then return in milliseconds instead of seconds at large case counts, but older matches are left out. Pass `order_by` (for example `created_at`) to page through every match, and pass the flag again with each cursor. `include_count`'s `total_estimate` stays exact, so it still reads every match.
 
 ## Sub-case tools
 

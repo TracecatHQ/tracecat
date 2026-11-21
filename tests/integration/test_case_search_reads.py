@@ -202,6 +202,7 @@ async def test_population_count_can_be_skipped_on_initial_and_continuation_pages
             include_count=False,
         )
     assert len(population_counts(ui_queries)) == 1
+    assert aggregates.status_groups is not None
     assert aggregates.total == aggregates.status_groups.new == 3
     assert first.total_estimate is following.total_estimate is None
     assert first.items[0].id == synthetic_search_cases.ids[0]

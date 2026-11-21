@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.providers.aws_secrets_manager import generate_store_external_id
 from tracecat_ee.secrets.references.service import SecretReferencesService
-from tracecat_ee.secrets.stores.backends import parse_store_config
+from tracecat_ee.secrets.stores.backends import parse_store_config as parse_any_config
 from tracecat_ee.secrets.stores.service import SecretStoresService
 
 from tests.support.managed_resources import mark_managed
@@ -33,15 +33,16 @@ from tracecat.exceptions import (
 )
 from tracecat.managed_resources.guard import ManagedResourceLockedError
 from tracecat.pagination import PageParams
-from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
+from tracecat.secrets.enums import SecretMappingMode, SecretSource
 from tracecat.secrets.schemas import (
-    AwsSecretJsonField,
-    AwsSecretKeyMapping,
     AwsSecretReferenceCreate,
     AwsSecretReferenceUpdate,
+    AwsSecretsManagerStoreConfig,
     AwsSecretsManagerStoreCreate,
     AwsSecretsManagerStoreUpdate,
     SecretCreate,
+    SecretJsonField,
+    SecretKeyMapping,
     SecretKeyValue,
     SecretStoreCreate,
     SecretStoreUpdate,
@@ -51,6 +52,13 @@ from tracecat.secrets.service import build_external_secret_reference
 from tracecat.workspace_sync.enums import SyncResourceType
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def parse_aws_config(store: OrganizationSecretStore) -> AwsSecretsManagerStoreConfig:
+    config = parse_any_config(store)
+    assert isinstance(config, AwsSecretsManagerStoreConfig)
+    return config
+
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/tracecat-secrets-reader"
 REGION = "us-east-1"
@@ -70,8 +78,8 @@ async def secrets(
     return SecretReferencesService(session=session, role=svc_admin_role)
 
 
-def whole_string_mapping(key: str = "API_TOKEN") -> AwsSecretKeyMapping:
-    return AwsSecretKeyMapping(mode=AwsSecretMappingMode.WHOLE_STRING, keys=[key])
+def whole_string_mapping(key: str = "API_TOKEN") -> SecretKeyMapping:
+    return SecretKeyMapping(mode=SecretMappingMode.WHOLE_STRING, keys=[key])
 
 
 def reference_params(
@@ -142,7 +150,7 @@ async def test_create_store_persists_external_id_across_updates(
             config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
         )
     )
-    external_id = parse_store_config(store).external_id
+    external_id = parse_aws_config(store).external_id
     assert external_id.startswith("tracecat-")
 
     await stores.update_store(
@@ -158,7 +166,7 @@ async def test_create_store_persists_external_id_across_updates(
     refreshed = await stores.get_store(store.id)
     assert refreshed.name == "renamed"
     assert refreshed.enabled is False
-    refreshed_config = parse_store_config(refreshed)
+    refreshed_config = parse_aws_config(refreshed)
     assert refreshed_config.external_id == external_id
     assert refreshed_config.role_arn == "arn:aws:iam::123456789012:role/other"
 
@@ -183,7 +191,7 @@ async def test_store_without_role_arn_cannot_be_enabled_until_set(
         )
     )
     store_id = store.id
-    draft_config = parse_store_config(store)
+    draft_config = parse_aws_config(store)
     assert draft_config.role_arn is None
     assert draft_config.external_id.startswith("tracecat-")
 
@@ -200,7 +208,7 @@ async def test_store_without_role_arn_cannot_be_enabled_until_set(
     )
     refreshed = await stores.get_store(store_id)
     assert refreshed.enabled is True
-    refreshed_config = parse_store_config(refreshed)
+    refreshed_config = parse_aws_config(refreshed)
     assert refreshed_config.role_arn == ROLE_ARN
     assert refreshed_config.external_id == draft_config.external_id
 
@@ -358,11 +366,11 @@ async def test_region_change_rejected_while_arn_references_exist(
     )
     if region_change_allowed:
         await stores.update_store(store, region_update)
-        assert parse_store_config(store).region == "eu-west-1"
+        assert parse_aws_config(store).region == "eu-west-1"
     else:
         with pytest.raises(TracecatConflictError, match="by ARN"):
             await stores.update_store(store, region_update)
-        assert parse_store_config(store).region == REGION
+        assert parse_aws_config(store).region == REGION
 
 
 @pytest.mark.anyio
@@ -410,15 +418,15 @@ async def test_managed_aws_reference_compares_the_mapping_a_rollout_wrote(
         SyncResourceType.SECRET_METADATA,
         created.id,
     )
-    loaded_mapping = AwsSecretKeyMapping.model_validate(created.remote_key_mapping)
+    loaded_mapping = SecretKeyMapping.model_validate(created.remote_key_mapping)
     # A rollout commits a new mapping after this caller loaded the secret.
     await secrets.session.execute(
         update(Secret)
         .where(Secret.id == created.id)
         .values(
-            remote_key_mapping=AwsSecretKeyMapping(
-                mode=AwsSecretMappingMode.JSON,
-                fields=[AwsSecretJsonField(key="USER", field="username")],
+            remote_key_mapping=SecretKeyMapping(
+                mode=SecretMappingMode.JSON,
+                fields=[SecretJsonField(key="USER", field="username")],
             ).model_dump(mode="json")
         )
         .execution_options(synchronize_session=False)
@@ -456,11 +464,11 @@ async def test_aws_reference_rejects_local_value_updates(
     await secrets.update_aws_secret_reference(
         created,
         AwsSecretReferenceUpdate(
-            key_mapping=AwsSecretKeyMapping(
-                mode=AwsSecretMappingMode.JSON,
+            key_mapping=SecretKeyMapping(
+                mode=SecretMappingMode.JSON,
                 fields=[
-                    AwsSecretJsonField(key="USER", field="username"),
-                    AwsSecretJsonField(key="PASS", field="password"),
+                    SecretJsonField(key="USER", field="username"),
+                    SecretJsonField(key="PASS", field="password"),
                 ],
             )
         ),
@@ -468,7 +476,8 @@ async def test_aws_reference_rejects_local_value_updates(
     refreshed = await secrets.get_secret(created.id)
     assert secrets.secret_key_names(refreshed) == ["USER", "PASS"]
     reference = build_external_secret_reference(refreshed)
-    assert reference.store_config.external_id == parse_store_config(store).external_id
+    assert isinstance(reference.store_config, AwsSecretsManagerStoreConfig)
+    assert reference.store_config.external_id == parse_aws_config(store).external_id
     assert reference.store_config.role_arn == ROLE_ARN
     assert reference.fetch_key == (store.id, SECRET_ARN)
 
@@ -664,7 +673,7 @@ async def test_store_config_round_trips_and_rejects_unknown_provider(
             config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
         )
     )
-    config = parse_store_config(store)
+    config = parse_aws_config(store)
     assert config.role_arn == ROLE_ARN
     assert config.region == REGION
     assert config.external_id.startswith("tracecat-")

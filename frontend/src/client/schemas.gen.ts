@@ -7152,68 +7152,6 @@ export const $AwsAssumeRoleAccessRead = {
     "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
 } as const
 
-export const $AwsSecretJsonField = {
-  properties: {
-    key: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
-      title: "Key",
-    },
-    field: {
-      type: "string",
-      maxLength: 255,
-      minLength: 1,
-      title: "Field",
-    },
-  },
-  type: "object",
-  required: ["key", "field"],
-  title: "AwsSecretJsonField",
-  description: "One declared output key sourced from a top-level JSON field.",
-} as const
-
-export const $AwsSecretKeyMapping = {
-  properties: {
-    mode: {
-      $ref: "#/components/schemas/AwsSecretMappingMode",
-    },
-    keys: {
-      items: {
-        type: "string",
-        pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
-      },
-      type: "array",
-      maxItems: 100,
-      title: "Keys",
-    },
-    fields: {
-      items: {
-        $ref: "#/components/schemas/AwsSecretJsonField",
-      },
-      type: "array",
-      maxItems: 100,
-      title: "Fields",
-    },
-  },
-  type: "object",
-  required: ["mode"],
-  title: "AwsSecretKeyMapping",
-  description: `Declares how a remote AWS secret value maps onto output keys.
-
-\`\`whole_string\`\` maps the entire \`\`SecretString\`\` onto exactly one key.
-\`\`json\`\` maps selected top-level string fields onto declared keys.`,
-} as const
-
-export const $AwsSecretMappingMode = {
-  type: "string",
-  enum: ["whole_string", "json"],
-  title: "AwsSecretMappingMode",
-  description:
-    "How an AWS Secrets Manager value maps onto declared secret keys.",
-} as const
-
 export const $AwsSecretReferenceCreate = {
   properties: {
     name: {
@@ -7269,14 +7207,15 @@ export const $AwsSecretReferenceCreate = {
       title: "Remote Reference",
     },
     key_mapping: {
-      $ref: "#/components/schemas/AwsSecretKeyMapping",
+      $ref: "#/components/schemas/SecretKeyMapping",
     },
   },
   type: "object",
   required: ["name", "store_id", "remote_reference", "key_mapping"],
   title: "AwsSecretReferenceCreate",
-  description:
-    "Create a workspace custom secret backed by AWS Secrets Manager.",
+  description: `Create a workspace custom secret backed by AWS Secrets Manager.
+
+Deprecated: use :class:\`SecretReferenceCreate\`.`,
 } as const
 
 export const $AwsSecretReferenceUpdate = {
@@ -7363,7 +7302,7 @@ export const $AwsSecretReferenceUpdate = {
     key_mapping: {
       anyOf: [
         {
-          $ref: "#/components/schemas/AwsSecretKeyMapping",
+          $ref: "#/components/schemas/SecretKeyMapping",
         },
         {
           type: "null",
@@ -7373,31 +7312,9 @@ export const $AwsSecretReferenceUpdate = {
   },
   type: "object",
   title: "AwsSecretReferenceUpdate",
-  description:
-    "Update an AWS-backed workspace secret. Values are never accepted.",
-} as const
+  description: `Update an AWS-backed workspace secret. Values are never accepted.
 
-export const $AwsSecretResolutionErrorCode = {
-  type: "string",
-  enum: [
-    "store_disabled",
-    "store_not_authorized",
-    "assume_role_failed",
-    "access_denied",
-    "not_found",
-    "decryption_failed",
-    "throttled",
-    "timeout",
-    "binary_value",
-    "malformed_json",
-    "missing_field",
-    "non_string_field",
-    "invalid_mapping",
-    "region_mismatch",
-    "unknown",
-  ],
-  title: "AwsSecretResolutionErrorCode",
-  description: "Sanitized failure classes for AWS Secrets Manager resolution.",
+Deprecated: use :class:\`SecretReferenceUpdate\`.`,
 } as const
 
 export const $AwsSecretsManagerStoreConfig = {
@@ -7478,6 +7395,12 @@ export const $AwsSecretsManagerStoreCreate = {
 
 export const $AwsSecretsManagerStoreUpdate = {
   properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
     role_arn: {
       anyOf: [
         {
@@ -7973,6 +7896,101 @@ export const $BitbucketTokenCredentialsStatus = {
   type: "object",
   required: ["exists"],
   title: "BitbucketTokenCredentialsStatus",
+} as const
+
+export const $BitwardenSecretsManagerStoreConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "bitwarden_secrets_manager",
+      title: "Provider",
+      default: "bitwarden_secrets_manager",
+    },
+    server: {
+      type: "string",
+      maxLength: 2048,
+      minLength: 2,
+      title: "Server",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+  },
+  type: "object",
+  required: ["server", "organization_id"],
+  title: "BitwardenSecretsManagerStoreConfig",
+  description: `Persisted provider configuration for a Bitwarden Secrets Manager store.
+
+The machine-account access token is not part of the config; it is stored
+encrypted in the store's \`\`encrypted_access_token\`\` column.`,
+} as const
+
+export const $BitwardenSecretsManagerStoreCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "bitwarden_secrets_manager",
+      title: "Provider",
+    },
+    server: {
+      type: "string",
+      maxLength: 2048,
+      minLength: 2,
+      title: "Server",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+  },
+  type: "object",
+  required: ["provider", "server", "organization_id"],
+  title: "BitwardenSecretsManagerStoreCreate",
+  description:
+    "Client-supplied fields when creating a Bitwarden Secrets Manager store.",
+} as const
+
+export const $BitwardenSecretsManagerStoreUpdate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "bitwarden_secrets_manager",
+      title: "Provider",
+    },
+    server: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          minLength: 2,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Server",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "BitwardenSecretsManagerStoreUpdate",
+  description:
+    "Client-supplied fields when updating a Bitwarden Secrets Manager store.",
 } as const
 
 export const $Body_auth_reset_forgot_password = {
@@ -11781,6 +11799,13 @@ export const $CaseQuery = {
       description: "The ordinary filter population matches no cases.",
       default: false,
     },
+    cap_broad_matches: {
+      type: "boolean",
+      title: "Cap Broad Matches",
+      description:
+        "Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
@@ -12141,9 +12166,26 @@ export const $CaseSearchAggregateRead = {
     total: {
       type: "integer",
       title: "Total",
+      description:
+        "Number of matching cases. When capped is true, more cases match and this is the cap.",
     },
     status_groups: {
-      $ref: "#/components/schemas/CaseStatusGroupCounts",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseStatusGroupCounts",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Matching cases per status. Null when capped is true.",
+    },
+    capped: {
+      type: "boolean",
+      title: "Capped",
+      description:
+        "True when a keyword search matched more cases than the count cap (10,000), so counting stopped there.",
+      default: false,
     },
   },
   type: "object",
@@ -12544,6 +12586,13 @@ export const $CaseSearchRequest = {
       type: "boolean",
       title: "Match None",
       description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
+    cap_broad_matches: {
+      type: "boolean",
+      title: "Cap Broad Matches",
+      description:
+        "Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.",
       default: false,
     },
     order_by: {
@@ -15809,6 +15858,70 @@ export const $CommitInfo = {
   type: "object",
   required: ["status", "sha", "ref", "base_ref"],
   title: "CommitInfo",
+} as const
+
+export const $ConcurrencyLimitName = {
+  type: "string",
+  enum: [
+    "max_concurrent_workflows",
+    "max_concurrent_actions",
+    "max_concurrent_tool_calls",
+    "max_concurrent_agent_turns",
+  ],
+  title: "ConcurrencyLimitName",
+  description:
+    "Per-organization concurrency limits, named after their tier fields.",
+} as const
+
+export const $ConcurrencyLimitRead = {
+  properties: {
+    name: {
+      $ref: "#/components/schemas/ConcurrencyLimitName",
+      description: "The limit's tier field name",
+    },
+    limit: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Limit",
+      description: "Effective limit. None = unlimited",
+    },
+    in_use: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "In Use",
+      description: "Units in use when read. None = unknown (not zero)",
+    },
+    observed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Observed At",
+      description: "When usage was read. None when usage is unknown",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "ConcurrencyLimitRead",
+  description:
+    "One per-organization concurrency limit with its observed usage.",
 } as const
 
 export const $Condition_Input = {
@@ -28882,6 +28995,24 @@ export const $OrgUpdate = {
   description: "Update organization request.",
 } as const
 
+export const $OrganizationLimitsRead = {
+  properties: {
+    concurrency: {
+      items: {
+        $ref: "#/components/schemas/ConcurrencyLimitRead",
+      },
+      type: "array",
+      title: "Concurrency",
+      description: "Each concurrency limit with its observed usage",
+    },
+  },
+  type: "object",
+  required: ["concurrency"],
+  title: "OrganizationLimitsRead",
+  description:
+    "Concurrency limits and observed usage for the current organization.",
+} as const
+
 export const $OrganizationSecretRead = {
   properties: {
     id: {
@@ -29011,6 +29142,28 @@ export const $OrganizationTierRead = {
       ],
       title: "Max Concurrent Actions",
     },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
+    },
     api_rate_limit: {
       anyOf: [
         {
@@ -29106,6 +29259,8 @@ export const $OrganizationTierRead = {
     "max_concurrent_workflows",
     "max_action_executions_per_workflow",
     "max_concurrent_actions",
+    "max_concurrent_tool_calls",
+    "max_concurrent_agent_turns",
     "api_rate_limit",
     "api_burst_capacity",
     "entitlement_overrides",
@@ -29137,6 +29292,7 @@ export const $OrganizationTierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
@@ -29159,12 +29315,37 @@ export const $OrganizationTierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Max Concurrent Actions",
+    },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
     },
     api_rate_limit: {
       anyOf: [
@@ -35519,6 +35700,60 @@ export const $SecretDefinition = {
   description: "Aggregated secret definition from registry actions.",
 } as const
 
+export const $SecretJsonField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      title: "Key",
+    },
+    field: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Field",
+    },
+  },
+  type: "object",
+  required: ["key", "field"],
+  title: "SecretJsonField",
+  description: "One declared output key sourced from a top-level JSON field.",
+} as const
+
+export const $SecretKeyMapping = {
+  properties: {
+    mode: {
+      $ref: "#/components/schemas/SecretMappingMode",
+    },
+    keys: {
+      items: {
+        type: "string",
+        pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Keys",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/SecretJsonField",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: ["mode"],
+  title: "SecretKeyMapping",
+  description: `Declares how a remote secret value maps onto output keys.
+
+\`\`whole_string\`\` maps the entire remote string onto exactly one key.
+\`\`json\`\` maps selected top-level string fields onto declared keys.`,
+} as const
+
 export const $SecretKeyValue = {
   properties: {
     key: {
@@ -35535,6 +35770,13 @@ export const $SecretKeyValue = {
   type: "object",
   required: ["key", "value"],
   title: "SecretKeyValue",
+} as const
+
+export const $SecretMappingMode = {
+  type: "string",
+  enum: ["whole_string", "json"],
+  title: "SecretMappingMode",
+  description: "How an external secret value maps onto declared secret keys.",
 } as const
 
 export const $SecretRead = {
@@ -35630,7 +35872,7 @@ export const $SecretRead = {
     remote_key_mapping: {
       anyOf: [
         {
-          $ref: "#/components/schemas/AwsSecretKeyMapping",
+          $ref: "#/components/schemas/SecretKeyMapping",
         },
         {
           type: "null",
@@ -35747,7 +35989,7 @@ export const $SecretReferenceCheckResult = {
     error_code: {
       anyOf: [
         {
-          $ref: "#/components/schemas/AwsSecretResolutionErrorCode",
+          $ref: "#/components/schemas/SecretResolutionErrorCode",
         },
         {
           type: "null",
@@ -35779,11 +36021,207 @@ export const $SecretReferenceCheckResult = {
   description: "Outcome of a reference check. Never contains the remote value.",
 } as const
 
+export const $SecretReferenceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      pattern: "^[a-z_][a-z0-9_]*$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Environment",
+      default: "default",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    remote_reference: {
+      type: "string",
+      maxLength: 2048,
+      minLength: 1,
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      $ref: "#/components/schemas/SecretKeyMapping",
+    },
+  },
+  type: "object",
+  required: ["name", "store_id", "remote_reference", "key_mapping"],
+  title: "SecretReferenceCreate",
+  description: `Create a workspace custom secret backed by an external store.
+
+The store's provider validates \`\`remote_reference\`\` when it is saved.`,
+} as const
+
+export const $SecretReferenceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          pattern: "^[a-z_][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "SecretReferenceUpdate",
+  description:
+    "Update an externally backed workspace secret. Values are never accepted.",
+} as const
+
+export const $SecretResolutionErrorCode = {
+  type: "string",
+  enum: [
+    "store_disabled",
+    "store_not_authorized",
+    "assume_role_failed",
+    "access_denied",
+    "not_found",
+    "decryption_failed",
+    "throttled",
+    "timeout",
+    "binary_value",
+    "malformed_json",
+    "missing_field",
+    "non_string_field",
+    "invalid_mapping",
+    "region_mismatch",
+    "unknown",
+    "auth_failed",
+    "unavailable",
+    "invalid_reference",
+    "credential_missing",
+  ],
+  title: "SecretResolutionErrorCode",
+  description: `Sanitized failure classes for external secret resolution.
+
+Values appear in API responses and the generated client, so existing
+members are never renamed or merged; providers add codes instead.`,
+} as const
+
 export const $SecretSource = {
   type: "string",
-  enum: ["local", "aws_secrets_manager"],
+  enum: ["local", "aws_secrets_manager", "bitwarden_secrets_manager"],
   title: "SecretSource",
-  description: "Where a workspace secret's values live.",
+  description: `Where a workspace secret's values live.
+
+Every external member has the same value as its store's
+:class:\`SecretStoreProvider\`, so rows, API responses and synced YAML name
+the provider.`,
 } as const
 
 export const $SecretStoreAuthorizationCreate = {
@@ -35853,7 +36291,15 @@ export const $SecretStoreCreate = {
       default: "aws_secrets_manager",
     },
     config: {
-      $ref: "#/components/schemas/AwsSecretsManagerStoreCreate",
+      oneOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretsManagerStoreCreate",
+        },
+        {
+          $ref: "#/components/schemas/BitwardenSecretsManagerStoreCreate",
+        },
+      ],
+      title: "Config",
     },
     enabled: {
       type: "boolean",
@@ -35865,6 +36311,21 @@ export const $SecretStoreCreate = {
       title: "All Workspaces",
       description: "Allow all current and future workspaces.",
       default: false,
+    },
+    access_token: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Access Token",
+      description:
+        "Access token, for providers that need one. Stored encrypted and never returned.",
     },
   },
   type: "object",
@@ -36018,7 +36479,7 @@ export const $SecretStoreMappingSelection = {
 
 export const $SecretStoreProvider = {
   type: "string",
-  enum: ["aws_secrets_manager"],
+  enum: ["aws_secrets_manager", "bitwarden_secrets_manager"],
   title: "SecretStoreProvider",
   description: "Supported external secret store providers.",
 } as const
@@ -36054,7 +36515,15 @@ export const $SecretStoreRead = {
       $ref: "#/components/schemas/SecretStoreProvider",
     },
     config: {
-      $ref: "#/components/schemas/AwsSecretsManagerStoreConfig",
+      oneOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretsManagerStoreConfig",
+        },
+        {
+          $ref: "#/components/schemas/BitwardenSecretsManagerStoreConfig",
+        },
+      ],
+      title: "Config",
     },
     enabled: {
       type: "boolean",
@@ -36063,6 +36532,13 @@ export const $SecretStoreRead = {
     all_workspaces: {
       type: "boolean",
       title: "All Workspaces",
+    },
+    access_token_set: {
+      type: "boolean",
+      title: "Access Token Set",
+      description:
+        "Whether the store has an access token. The token itself is never returned.",
+      default: false,
     },
     tracecat_aws_account_id: {
       anyOf: [
@@ -36226,12 +36702,20 @@ export const $SecretStoreUpdate = {
     config: {
       anyOf: [
         {
-          $ref: "#/components/schemas/AwsSecretsManagerStoreUpdate",
+          oneOf: [
+            {
+              $ref: "#/components/schemas/AwsSecretsManagerStoreUpdate",
+            },
+            {
+              $ref: "#/components/schemas/BitwardenSecretsManagerStoreUpdate",
+            },
+          ],
         },
         {
           type: "null",
         },
       ],
+      title: "Config",
     },
     enabled: {
       anyOf: [
@@ -36249,6 +36733,21 @@ export const $SecretStoreUpdate = {
       title: "All Workspaces",
       description: "Allow all current and future workspaces.",
       default: false,
+    },
+    access_token: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Access Token",
+      description:
+        "Replace the access token. Omit to leave it unchanged. Never returned.",
     },
   },
   type: "object",
@@ -41892,6 +42391,7 @@ export const $TierCreate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
@@ -41914,12 +42414,37 @@ export const $TierCreate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Max Concurrent Actions",
+    },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
     },
     api_rate_limit: {
       anyOf: [
@@ -42008,6 +42533,28 @@ export const $TierRead = {
       ],
       title: "Max Concurrent Actions",
     },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
+    },
     api_rate_limit: {
       anyOf: [
         {
@@ -42063,6 +42610,8 @@ export const $TierRead = {
     "max_concurrent_workflows",
     "max_action_executions_per_workflow",
     "max_concurrent_actions",
+    "max_concurrent_tool_calls",
+    "max_concurrent_agent_turns",
     "api_rate_limit",
     "api_burst_capacity",
     "entitlements",
@@ -42095,6 +42644,7 @@ export const $TierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
@@ -42117,12 +42667,37 @@ export const $TierUpdate = {
       anyOf: [
         {
           type: "integer",
+          exclusiveMinimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Max Concurrent Actions",
+    },
+    max_concurrent_tool_calls: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Tool Calls",
+    },
+    max_concurrent_agent_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          exclusiveMinimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Concurrent Agent Turns",
     },
     api_rate_limit: {
       anyOf: [
@@ -49764,8 +50339,16 @@ export const $WorkspaceSecretStoreRead = {
       $ref: "#/components/schemas/SecretStoreProvider",
     },
     region: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Region",
+      description: "AWS region of the store. Set for AWS stores only.",
     },
     enabled: {
       type: "boolean",
@@ -49773,7 +50356,7 @@ export const $WorkspaceSecretStoreRead = {
     },
   },
   type: "object",
-  required: ["id", "name", "provider", "region", "enabled"],
+  required: ["id", "name", "provider", "enabled"],
   title: "WorkspaceSecretStoreRead",
   description:
     "Workspace view of an authorized store. Never exposes the external ID.",

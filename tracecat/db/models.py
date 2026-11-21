@@ -1138,7 +1138,12 @@ class Secret(WorkspaceModel, BaseSecret):
 
 
 class OrganizationSecretStore(OrganizationModel):
-    """Organization-owned external secret store (AWS Secrets Manager)."""
+    """Organization-owned external secret store.
+
+    ``encrypted_access_token`` holds the store's access token, for providers
+    that need one (Bitwarden Secrets Manager). It is write-only: the API only
+    reports whether it is set.
+    """
 
     __tablename__ = "organization_secret_store"
     __table_args__ = (
@@ -1168,6 +1173,9 @@ class OrganizationSecretStore(OrganizationModel):
     )
     all_workspaces: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    encrypted_access_token: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
     )
 
     secrets: Mapped[list[Secret]] = relationship(
@@ -3192,6 +3200,8 @@ class Case(WorkspaceModel):
             "description_tsv",
             "summary_words",
             "description_words",
+            "summary_lexemes",
+            "description_lexemes",
         ]
     }
     __table_args__ = (
@@ -3243,6 +3253,10 @@ class Case(WorkspaceModel):
     # trg_case_search_words trigger.
     summary_words = Column(ARRAY(Text), nullable=True)
     description_words = Column(ARRAY(Text), nullable=True)
+    # Position-free words of a field over the search byte budget, maintained by
+    # the trg_case_search_words_oversized trigger (revision 67d28dfaff15).
+    summary_lexemes = Column(TSVECTOR, nullable=True)
+    description_lexemes = Column(TSVECTOR, nullable=True)
     priority: Mapped[CasePriority] = mapped_column(
         CASE_PRIORITY_ENUM,
         nullable=False,
@@ -6894,6 +6908,8 @@ class Tier(Base, TimestampMixin):
     max_concurrent_workflows: Mapped[int | None] = mapped_column(Integer)
     max_action_executions_per_workflow: Mapped[int | None] = mapped_column(Integer)
     max_concurrent_actions: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_tool_calls: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_agent_turns: Mapped[int | None] = mapped_column(Integer)
     api_rate_limit: Mapped[int | None] = mapped_column(Integer)
     api_burst_capacity: Mapped[int | None] = mapped_column(Integer)
 
@@ -6928,6 +6944,8 @@ class OrganizationTier(Base, TimestampMixin):
     max_concurrent_workflows: Mapped[int | None] = mapped_column(Integer)
     max_action_executions_per_workflow: Mapped[int | None] = mapped_column(Integer)
     max_concurrent_actions: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_tool_calls: Mapped[int | None] = mapped_column(Integer)
+    max_concurrent_agent_turns: Mapped[int | None] = mapped_column(Integer)
     api_rate_limit: Mapped[int | None] = mapped_column(Integer)
     api_burst_capacity: Mapped[int | None] = mapped_column(Integer)
 

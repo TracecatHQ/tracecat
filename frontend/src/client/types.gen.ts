@@ -1920,32 +1920,9 @@ export type AwsAssumeRoleAccessRead = {
 }
 
 /**
- * One declared output key sourced from a top-level JSON field.
- */
-export type AwsSecretJsonField = {
-  key: string
-  field: string
-}
-
-/**
- * Declares how a remote AWS secret value maps onto output keys.
- *
- * ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
- * ``json`` maps selected top-level string fields onto declared keys.
- */
-export type AwsSecretKeyMapping = {
-  mode: AwsSecretMappingMode
-  keys?: Array<string>
-  fields?: Array<AwsSecretJsonField>
-}
-
-/**
- * How an AWS Secrets Manager value maps onto declared secret keys.
- */
-export type AwsSecretMappingMode = "whole_string" | "json"
-
-/**
  * Create a workspace custom secret backed by AWS Secrets Manager.
+ *
+ * Deprecated: use :class:`SecretReferenceCreate`.
  */
 export type AwsSecretReferenceCreate = {
   name: string
@@ -1956,11 +1933,13 @@ export type AwsSecretReferenceCreate = {
   } | null
   store_id: string
   remote_reference: string
-  key_mapping: AwsSecretKeyMapping
+  key_mapping: SecretKeyMapping
 }
 
 /**
  * Update an AWS-backed workspace secret. Values are never accepted.
+ *
+ * Deprecated: use :class:`SecretReferenceUpdate`.
  */
 export type AwsSecretReferenceUpdate = {
   name?: string | null
@@ -1971,28 +1950,8 @@ export type AwsSecretReferenceUpdate = {
   } | null
   store_id?: string | null
   remote_reference?: string | null
-  key_mapping?: AwsSecretKeyMapping | null
+  key_mapping?: SecretKeyMapping | null
 }
-
-/**
- * Sanitized failure classes for AWS Secrets Manager resolution.
- */
-export type AwsSecretResolutionErrorCode =
-  | "store_disabled"
-  | "store_not_authorized"
-  | "assume_role_failed"
-  | "access_denied"
-  | "not_found"
-  | "decryption_failed"
-  | "throttled"
-  | "timeout"
-  | "binary_value"
-  | "malformed_json"
-  | "missing_field"
-  | "non_string_field"
-  | "invalid_mapping"
-  | "region_mismatch"
-  | "unknown"
 
 /**
  * Persisted provider configuration for an AWS Secrets Manager store.
@@ -2017,6 +1976,7 @@ export type AwsSecretsManagerStoreCreate = {
  * Client-supplied fields when updating an AWS Secrets Manager store.
  */
 export type AwsSecretsManagerStoreUpdate = {
+  provider?: "aws_secrets_manager"
   role_arn?: string | null
   region?: string | null
 }
@@ -2147,6 +2107,36 @@ export type BitbucketTokenCredentialsStatus = {
   is_corrupted?: boolean
   email?: string | null
   created_at?: string | null
+}
+
+/**
+ * Persisted provider configuration for a Bitwarden Secrets Manager store.
+ *
+ * The machine-account access token is not part of the config; it is stored
+ * encrypted in the store's ``encrypted_access_token`` column.
+ */
+export type BitwardenSecretsManagerStoreConfig = {
+  provider?: "bitwarden_secrets_manager"
+  server: string
+  organization_id: string
+}
+
+/**
+ * Client-supplied fields when creating a Bitwarden Secrets Manager store.
+ */
+export type BitwardenSecretsManagerStoreCreate = {
+  provider: "bitwarden_secrets_manager"
+  server: string
+  organization_id: string
+}
+
+/**
+ * Client-supplied fields when updating a Bitwarden Secrets Manager store.
+ */
+export type BitwardenSecretsManagerStoreUpdate = {
+  provider: "bitwarden_secrets_manager"
+  server?: string | null
+  organization_id?: string | null
 }
 
 export type Body_auth_reset_forgot_password = {
@@ -3199,6 +3189,10 @@ export type CaseQuery = {
    * The ordinary filter population matches no cases.
    */
   match_none?: boolean
+  /**
+   * Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.
+   */
+  cap_broad_matches?: boolean
 }
 
 export type CaseQueryErrorCode = "current_user_required"
@@ -3284,8 +3278,18 @@ export type CaseRef = {
 }
 
 export type CaseSearchAggregateRead = {
+  /**
+   * Number of matching cases. When capped is true, more cases match and this is the cap.
+   */
   total: number
-  status_groups: CaseStatusGroupCounts
+  /**
+   * Matching cases per status. Null when capped is true.
+   */
+  status_groups: CaseStatusGroupCounts | null
+  /**
+   * True when a keyword search matched more cases than the count cap (10,000), so counting stopped there.
+   */
+  capped?: boolean
 }
 
 /**
@@ -3373,6 +3377,10 @@ export type CaseSearchRequest = {
    * The ordinary filter population matches no cases.
    */
   match_none?: boolean
+  /**
+   * Bound the work for a search_mode search that matches more than 10,000 cases. Search status counts stop at 10,000 and report capped, and relevance order ranks only the 10,000 newest matches; older matches are left out. Column orders still return every match, and include_count's total_estimate stays exact.
+   */
+  cap_broad_matches?: boolean
   order_by?: CaseSearchOrder | null
   sort?: "asc" | "desc" | null
   include_rows?: boolean
@@ -4415,6 +4423,37 @@ export type CommitInfo = {
   pr_number?: number | null
   pr_reused?: boolean
   message?: string
+}
+
+/**
+ * Per-organization concurrency limits, named after their tier fields.
+ */
+export type ConcurrencyLimitName =
+  | "max_concurrent_workflows"
+  | "max_concurrent_actions"
+  | "max_concurrent_tool_calls"
+  | "max_concurrent_agent_turns"
+
+/**
+ * One per-organization concurrency limit with its observed usage.
+ */
+export type ConcurrencyLimitRead = {
+  /**
+   * The limit's tier field name
+   */
+  name: ConcurrencyLimitName
+  /**
+   * Effective limit. None = unlimited
+   */
+  limit?: number | null
+  /**
+   * Units in use when read. None = unknown (not zero)
+   */
+  in_use?: number | null
+  /**
+   * When usage was read. None when usage is unknown
+   */
+  observed_at?: string | null
 }
 
 /**
@@ -8834,6 +8873,16 @@ export type OrgUpdate = {
 }
 
 /**
+ * Concurrency limits and observed usage for the current organization.
+ */
+export type OrganizationLimitsRead = {
+  /**
+   * Each concurrency limit with its observed usage
+   */
+  concurrency: Array<ConcurrencyLimitRead>
+}
+
+/**
  * Read schema for organization-scoped secrets.
  */
 export type OrganizationSecretRead = {
@@ -8861,6 +8910,8 @@ export type OrganizationTierRead = {
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
   max_concurrent_actions: number | null
+  max_concurrent_tool_calls: number | null
+  max_concurrent_agent_turns: number | null
   api_rate_limit: number | null
   api_burst_capacity: number | null
   entitlement_overrides: EntitlementsDict | null
@@ -8880,6 +8931,8 @@ export type OrganizationTierUpdate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlement_overrides?: EntitlementsDict | null
@@ -10912,10 +10965,35 @@ export type SecretDefinition = {
   action_count: number
 }
 
+/**
+ * One declared output key sourced from a top-level JSON field.
+ */
+export type SecretJsonField = {
+  key: string
+  field: string
+}
+
+/**
+ * Declares how a remote secret value maps onto output keys.
+ *
+ * ``whole_string`` maps the entire remote string onto exactly one key.
+ * ``json`` maps selected top-level string fields onto declared keys.
+ */
+export type SecretKeyMapping = {
+  mode: SecretMappingMode
+  keys?: Array<string>
+  fields?: Array<SecretJsonField>
+}
+
 export type SecretKeyValue = {
   key: string
   value: string
 }
+
+/**
+ * How an external secret value maps onto declared secret keys.
+ */
+export type SecretMappingMode = "whole_string" | "json"
 
 /**
  * Read schema for workspace-scoped secrets.
@@ -10936,7 +11014,7 @@ export type SecretRead = {
   source?: SecretSource
   store_id?: string | null
   remote_reference?: string | null
-  remote_key_mapping?: AwsSecretKeyMapping | null
+  remote_key_mapping?: SecretKeyMapping | null
 }
 
 export type SecretReadMinimal = {
@@ -10958,15 +11036,81 @@ export type SecretReadMinimal = {
  */
 export type SecretReferenceCheckResult = {
   ok: boolean
-  error_code?: AwsSecretResolutionErrorCode | null
+  error_code?: SecretResolutionErrorCode | null
   message?: string | null
   resolved_keys?: Array<string>
 }
 
 /**
- * Where a workspace secret's values live.
+ * Create a workspace custom secret backed by an external store.
+ *
+ * The store's provider validates ``remote_reference`` when it is saved.
  */
-export type SecretSource = "local" | "aws_secrets_manager"
+export type SecretReferenceCreate = {
+  name: string
+  description?: string | null
+  environment?: string
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id: string
+  remote_reference: string
+  key_mapping: SecretKeyMapping
+}
+
+/**
+ * Update an externally backed workspace secret. Values are never accepted.
+ */
+export type SecretReferenceUpdate = {
+  name?: string | null
+  description?: string | null
+  environment?: string | null
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id?: string | null
+  remote_reference?: string | null
+  key_mapping?: SecretKeyMapping | null
+}
+
+/**
+ * Sanitized failure classes for external secret resolution.
+ *
+ * Values appear in API responses and the generated client, so existing
+ * members are never renamed or merged; providers add codes instead.
+ */
+export type SecretResolutionErrorCode =
+  | "store_disabled"
+  | "store_not_authorized"
+  | "assume_role_failed"
+  | "access_denied"
+  | "not_found"
+  | "decryption_failed"
+  | "throttled"
+  | "timeout"
+  | "binary_value"
+  | "malformed_json"
+  | "missing_field"
+  | "non_string_field"
+  | "invalid_mapping"
+  | "region_mismatch"
+  | "unknown"
+  | "auth_failed"
+  | "unavailable"
+  | "invalid_reference"
+  | "credential_missing"
+
+/**
+ * Where a workspace secret's values live.
+ *
+ * Every external member has the same value as its store's
+ * :class:`SecretStoreProvider`, so rows, API responses and synced YAML name
+ * the provider.
+ */
+export type SecretSource =
+  | "local"
+  | "aws_secrets_manager"
+  | "bitwarden_secrets_manager"
 
 /**
  * Authorize a workspace to reference a store.
@@ -10989,12 +11133,16 @@ export type SecretStoreCreate = {
   name: string
   description?: string | null
   provider?: SecretStoreProvider
-  config: AwsSecretsManagerStoreCreate
+  config: AwsSecretsManagerStoreCreate | BitwardenSecretsManagerStoreCreate
   enabled?: boolean
   /**
    * Allow all current and future workspaces.
    */
   all_workspaces?: boolean
+  /**
+   * Access token, for providers that need one. Stored encrypted and never returned.
+   */
+  access_token?: string | null
 }
 
 /**
@@ -11039,7 +11187,9 @@ export type SecretStoreMappingSelection = {
 /**
  * Supported external secret store providers.
  */
-export type SecretStoreProvider = "aws_secrets_manager"
+export type SecretStoreProvider =
+  | "aws_secrets_manager"
+  | "bitwarden_secrets_manager"
 
 /**
  * Organization view of a secret store, including trust-policy inputs.
@@ -11050,9 +11200,13 @@ export type SecretStoreRead = {
   name: string
   description?: string | null
   provider: SecretStoreProvider
-  config: AwsSecretsManagerStoreConfig
+  config: AwsSecretsManagerStoreConfig | BitwardenSecretsManagerStoreConfig
   enabled: boolean
   all_workspaces: boolean
+  /**
+   * Whether the store has an access token. The token itself is never returned.
+   */
+  access_token_set?: boolean
   tracecat_aws_account_id?: string | null
   tracecat_aws_principal_arn?: string | null
   /**
@@ -11088,12 +11242,19 @@ export type SecretStoreRequestValidationError = {
 export type SecretStoreUpdate = {
   name?: string | null
   description?: string | null
-  config?: AwsSecretsManagerStoreUpdate | null
+  config?:
+    | AwsSecretsManagerStoreUpdate
+    | BitwardenSecretsManagerStoreUpdate
+    | null
   enabled?: boolean | null
   /**
    * Allow all current and future workspaces.
    */
   all_workspaces?: boolean
+  /**
+   * Replace the access token. Omit to leave it unchanged. Never returned.
+   */
+  access_token?: string | null
 }
 
 /**
@@ -12825,6 +12986,8 @@ export type TierCreate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlements?: EntitlementsDict
@@ -12841,6 +13004,8 @@ export type TierRead = {
   max_concurrent_workflows: number | null
   max_action_executions_per_workflow: number | null
   max_concurrent_actions: number | null
+  max_concurrent_tool_calls: number | null
+  max_concurrent_agent_turns: number | null
   api_rate_limit: number | null
   api_burst_capacity: number | null
   entitlements: EntitlementsDict
@@ -12859,6 +13024,8 @@ export type TierUpdate = {
   max_concurrent_workflows?: number | null
   max_action_executions_per_workflow?: number | null
   max_concurrent_actions?: number | null
+  max_concurrent_tool_calls?: number | null
+  max_concurrent_agent_turns?: number | null
   api_rate_limit?: number | null
   api_burst_capacity?: number | null
   entitlements?: EntitlementsDict | null
@@ -14995,7 +15162,10 @@ export type WorkspaceSecretStoreRead = {
   name: string
   description?: string | null
   provider: SecretStoreProvider
-  region: string
+  /**
+   * AWS region of the store. Set for AWS stores only.
+   */
+  region?: string | null
   enabled: boolean
 }
 
@@ -16227,6 +16397,28 @@ export type WorkflowsGetSyncDiffData = {
 
 export type WorkflowsGetSyncDiffResponse = PullResourceDiff
 
+export type SecretsCreateSecretReferenceData = {
+  requestBody: SecretReferenceCreate
+  workspaceId: string
+}
+
+export type SecretsCreateSecretReferenceResponse = unknown
+
+export type SecretsUpdateSecretReferenceData = {
+  requestBody: SecretReferenceUpdate
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsUpdateSecretReferenceResponse = void
+
+export type SecretsCheckSecretReferenceData = {
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsCheckSecretReferenceResponse = SecretReferenceCheckResult
+
 export type SecretsCreateAwsSecretReferenceData = {
   requestBody: AwsSecretReferenceCreate
   workspaceId: string
@@ -16549,6 +16741,8 @@ export type OrganizationListOrganizationDomainsResponse =
 
 export type OrganizationGetOrganizationEntitlementsResponse =
   EffectiveEntitlements
+
+export type OrganizationGetOrganizationLimitsResponse = OrganizationLimitsRead
 
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
@@ -22443,6 +22637,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/secrets/references": {
+    post: {
+      req: SecretsCreateSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/references/{secret_id}": {
+    post: {
+      req: SecretsUpdateSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/references/{secret_id}/check": {
+    post: {
+      req: SecretsCheckSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretReferenceCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/secrets/aws": {
     post: {
       req: SecretsCreateAwsSecretReferenceData
@@ -23052,6 +23291,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: EffectiveEntitlements
+      }
+    }
+  }
+  "/organization/limits": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrganizationLimitsRead
       }
     }
   }

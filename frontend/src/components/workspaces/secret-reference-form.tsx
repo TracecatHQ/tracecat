@@ -6,10 +6,11 @@ import React from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
-  AwsSecretKeyMapping,
-  AwsSecretReferenceCreate,
+  SecretKeyMapping,
   SecretRead,
+  SecretReferenceCreate,
 } from "@/client"
+import { providerForSource } from "@/components/organization/secret-store-providers"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DialogBody, DialogFooter } from "@/components/ui/dialog"
@@ -33,10 +34,9 @@ import {
 import { useManagedResources } from "@/hooks/use-managed-resources"
 import {
   useAuthorizedSecretStores,
-  useAwsSecretReferences,
+  useSecretReferences,
 } from "@/hooks/use-secret-stores"
 import {
-  validateAwsSecretId,
   validateSecretKey,
   validateSecretName,
 } from "@/lib/aws-secret-validation"
@@ -51,13 +51,40 @@ function refineWith(validate: (value: string) => string | null) {
   }
 }
 
-const awsReferenceSchema = z
+/** Generic checks for a remote reference before a store is chosen. */
+function validateRemoteReference(value: string): string | null {
+  const reference = value.trim()
+  if (!reference) return "Enter the secret's reference in the store"
+  if (reference.length > 2048) return "The reference is too long"
+  return null
+}
+
+/**
+ * Builds the form schema. `validateReference` checks the remote reference
+ * with the selected store's provider rules.
+ */
+function referenceSchema(
+  validateReference: (storeId: string, value: string) => string | null
+) {
+  return baseReferenceSchema.superRefine((values, ctx) => {
+    const message = validateReference(values.store_id, values.remote_reference)
+    if (message) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["remote_reference"],
+        message,
+      })
+    }
+  })
+}
+
+const baseReferenceSchema = z
   .object({
     name: z.string().superRefine(refineWith(validateSecretName)),
     description: z.string().max(255).default(""),
     environment: z.string().default(""),
     store_id: z.string().min(1, "Select an authorized store"),
-    remote_reference: z.string().superRefine(refineWith(validateAwsSecretId)),
+    remote_reference: z.string(),
     mode: z.enum(["whole_string", "json"]),
     whole_string_key: z.string().default(""),
     fields: z
@@ -117,13 +144,13 @@ const awsReferenceSchema = z
     })
   })
 
-type AwsReferenceForm = z.infer<typeof awsReferenceSchema>
+type ReferenceForm = z.infer<typeof baseReferenceSchema>
 
 /**
  * Converts form values into the API key mapping. Only key names and JSON
  * field selectors are sent; the remote value is never read by the browser.
  */
-export function buildKeyMapping(values: AwsReferenceForm): AwsSecretKeyMapping {
+export function buildKeyMapping(values: ReferenceForm): SecretKeyMapping {
   if (values.mode === "whole_string") {
     return { mode: "whole_string", keys: [values.whole_string_key.trim()] }
   }
@@ -136,7 +163,7 @@ export function buildKeyMapping(values: AwsReferenceForm): AwsSecretKeyMapping {
   }
 }
 
-interface AwsSecretReferenceFormProps {
+interface SecretReferenceFormProps {
   /** Existing reference metadata when editing. */
   secret?: SecretRead
   /** Pre-filled secret name (e.g. from an integration template). */
@@ -149,34 +176,46 @@ interface AwsSecretReferenceFormProps {
 }
 
 /**
- * Form for creating or editing a workspace custom secret whose values live in AWS
- * Secrets Manager. Collects a store, a secret name or ARN, and a key mapping.
+ * Form for creating or editing a workspace custom secret whose values live in
+ * an external secret store. Collects a store, the secret's reference in that
+ * store, and a key mapping; the reference field follows the store's provider.
  * There is intentionally no value editor, value preview, or rotation control.
  */
-export function AwsSecretReferenceForm({
+export function SecretReferenceForm({
   secret,
   initialName = "",
   initialKeys = [],
   storeId,
   onSaved,
-}: AwsSecretReferenceFormProps) {
+}: SecretReferenceFormProps) {
   const workspaceId = useWorkspaceId()
   const {
     stores,
     isLoading: storesLoading,
     error: storesError,
   } = useAuthorizedSecretStores(workspaceId)
-  const { createReference, updateReference } =
-    useAwsSecretReferences(workspaceId)
-  // A managed AWS secret only lets the customer change the secret name or
-  // ARN. Inputs are read-only rather than disabled so their values still
-  // submit unchanged.
+  const { createReference, updateReference } = useSecretReferences(workspaceId)
+  // A managed secret only lets the customer change the remote reference.
+  // Inputs are read-only rather than disabled so their values still submit
+  // unchanged.
   const { isManaged } = useManagedResources(workspaceId)
   const referenceOnly = isManaged("secret_metadata", secret?.id)
   const mapping = secret?.remote_key_mapping
 
-  const methods = useForm<AwsReferenceForm>({
-    resolver: zodResolver(awsReferenceSchema),
+  const storesById = React.useMemo(
+    () => new Map((stores ?? []).map((store) => [store.id, store])),
+    [stores]
+  )
+  const schema = React.useMemo(
+    () =>
+      referenceSchema((storeId, value) => {
+        const provider = providerForSource(storesById.get(storeId)?.provider)
+        return (provider?.reference.validate ?? validateRemoteReference)(value)
+      }),
+    [storesById]
+  )
+  const methods = useForm<ReferenceForm>({
+    resolver: zodResolver(schema),
     defaultValues: {
       name: secret?.name ?? initialName,
       description: secret?.description ?? "",
@@ -192,6 +231,10 @@ export function AwsSecretReferenceForm({
   const { control, register } = methods
   const mode = methods.watch("mode")
   const name = methods.watch("name")
+  const selectedProvider = providerForSource(
+    storesById.get(methods.watch("store_id"))?.provider
+  )
+  const referenceField = selectedProvider?.reference
   const { fields, append, remove } = useFieldArray({ control, name: "fields" })
   const storeControlled = storeId !== undefined
   React.useEffect(() => {
@@ -204,8 +247,8 @@ export function AwsSecretReferenceForm({
     (store) => store.enabled || store.id === secret?.store_id
   )
 
-  async function onSubmit(values: AwsReferenceForm) {
-    const params: AwsSecretReferenceCreate = {
+  async function onSubmit(values: ReferenceForm) {
+    const params: SecretReferenceCreate = {
       name: values.name,
       description: values.description || null,
       environment: values.environment.trim() || "default",
@@ -230,7 +273,7 @@ export function AwsSecretReferenceForm({
       <form
         onSubmit={methods.handleSubmit(onSubmit)}
         className="flex min-h-0 flex-1 flex-col"
-        data-testid="aws-secret-reference-form"
+        data-testid="secret-reference-form"
       >
         <DialogBody>
           {!storeControlled && storesError && (
@@ -247,11 +290,11 @@ export function AwsSecretReferenceForm({
             availableStores.length === 0 && (
               <Alert>
                 <CloudIcon className="size-4" />
-                <AlertTitle>No authorized AWS stores</AlertTitle>
+                <AlertTitle>No authorized secret stores</AlertTitle>
                 <AlertDescription>
-                  An organization admin must add an AWS Secrets Manager store
-                  and authorize this workspace before you can reference secrets
-                  from it.
+                  An organization admin must add an external secret store and
+                  authorize this workspace before you can reference secrets from
+                  it.
                 </AlertDescription>
               </Alert>
             )}
@@ -323,7 +366,7 @@ export function AwsSecretReferenceForm({
               name="store_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-sm">AWS secret store</FormLabel>
+                  <FormLabel className="text-sm">Secret store</FormLabel>
                   <FormDescription className="text-sm">
                     Only stores authorized for this workspace are listed.
                   </FormDescription>
@@ -338,14 +381,20 @@ export function AwsSecretReferenceForm({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {availableStores.map((store) => (
-                        <SelectItem key={store.id} value={store.id}>
-                          {store.name}{" "}
-                          <span className="text-muted-foreground">
-                            ({store.region}){!store.enabled && " · Disabled"}
-                          </span>
-                        </SelectItem>
-                      ))}
+                      {availableStores.map((store) => {
+                        const hint = providerForSource(
+                          store.provider
+                        )?.reference.storeHint(store)
+                        return (
+                          <SelectItem key={store.id} value={store.id}>
+                            {store.name}{" "}
+                            <span className="text-muted-foreground">
+                              {hint && `(${hint})`}
+                              {!store.enabled && " · Disabled"}
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -358,15 +407,17 @@ export function AwsSecretReferenceForm({
             name="remote_reference"
             render={() => (
               <FormItem>
-                <FormLabel className="text-sm">Secret name or ARN</FormLabel>
+                <FormLabel className="text-sm">
+                  {referenceField?.label ?? "Secret reference"}
+                </FormLabel>
                 <FormDescription className="text-sm">
-                  The secret name as shown in the AWS console (looked up in the
-                  store's region) or its full ARN.
+                  {referenceField?.description ??
+                    "The secret's identifier in the selected store."}
                 </FormDescription>
                 <FormControl>
                   <Input
                     className="font-mono text-xs"
-                    placeholder="prod/app/api-key"
+                    placeholder={referenceField?.placeholder}
                     {...register("remote_reference")}
                   />
                 </FormControl>
@@ -381,7 +432,7 @@ export function AwsSecretReferenceForm({
               <FormItem>
                 <FormLabel className="text-sm">Value mapping</FormLabel>
                 <FormDescription className="text-sm">
-                  How the remote SecretString maps onto secret keys.
+                  How the remote secret value maps onto secret keys.
                 </FormDescription>
                 <Select
                   onValueChange={field.onChange}

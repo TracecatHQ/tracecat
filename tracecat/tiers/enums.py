@@ -23,3 +23,12 @@ class Entitlement(StrEnum):
     AGENT_RUNTIME_PREVIEW = "agent_runtime_preview"
     AGENT_RUNTIME_WORKFLOWS = "agent_runtime_workflows"
     AGENT_CHANNELS_PREVIEW = "agent_channels_preview"
+
+
+class ConcurrencyLimitName(StrEnum):
+    """Per-organization concurrency limits, named after their tier fields."""
+
+    MAX_CONCURRENT_WORKFLOWS = "max_concurrent_workflows"
+    MAX_CONCURRENT_ACTIONS = "max_concurrent_actions"
+    MAX_CONCURRENT_TOOL_CALLS = "max_concurrent_tool_calls"
+    MAX_CONCURRENT_AGENT_TURNS = "max_concurrent_agent_turns"

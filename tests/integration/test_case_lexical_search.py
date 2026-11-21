@@ -8,11 +8,13 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
+import orjson
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from starlette.types import Message
 
 from tests.database import TEST_DB_CONFIG
 from tests.integration.test_case_search_reads import (
@@ -20,6 +22,7 @@ from tests.integration.test_case_search_reads import (
     population_counts,
 )
 from tests.integration.test_case_text_search_postgres import (
+    load_oversized_migration,
     load_search_migration,
     load_vector_migration,
     load_word_migration,
@@ -29,12 +32,13 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseStatus
-from tracecat.cases.router import cases_router
+from tracecat.cases.router import CASE_SEARCH_PATH_SUFFIXES, cases_router
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.service import CasesService
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import Case, Organization, Workspace
 from tracecat.executor.action_gateway.app import create_app
+from tracecat.middleware.disconnect import CancelOnDisconnectMiddleware
 from tracecat.pagination import PaginationError, PaginationErrorCode
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import SearchMode
@@ -47,8 +51,8 @@ pytestmark = [pytest.mark.anyio, pytest.mark.integration]
 async def provision_case_search(session: AsyncSession) -> None:
     """Install the case search revisions' objects in the disposable test database.
 
-    The model already declares the vector and word columns and the vocabulary
-    table, so only functions, triggers, and indexes are created here.
+    The model already declares the vector, word, and lexeme columns and the
+    vocabulary table, so only functions, triggers, and indexes are created here.
     """
     await session.execute(
         sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
@@ -92,6 +96,17 @@ async def provision_case_search(session: AsyncSession) -> None:
         sa.text(words._TRIGGER_SQL.replace("CREATE ", "CREATE OR REPLACE ", 1))
     )
     for _, definition in (*words._TABLE_INDEXES, *words._WORD_INDEXES):
+        await session.execute(
+            sa.text(
+                definition.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+            )
+        )
+    oversized = load_oversized_migration()
+    for command in (oversized._TRIGGER_FUNCTION_SQL, oversized._TRIGGER_SQL):
+        await session.execute(
+            sa.text(command.replace("CREATE ", "CREATE OR REPLACE ", 1))
+        )
+    for _, definition in oversized._INDEXES:
         await session.execute(
             sa.text(
                 definition.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
@@ -423,6 +438,48 @@ async def test_legacy_matching_and_detail_count_projection_are_preserved(
     assert [expected.id] in excerpt_parameters[0]
 
 
+async def test_legacy_substring_search_matches_ilike_through_indexes(
+    lexical_service: CasesService,
+) -> None:
+    """Omitted-mode search keeps case-insensitive substring semantics."""
+    cases = [
+        await text_case(lexical_service, "Lateral MOVEMENT detected"),
+        # Over the 8,192-byte budget, so only the fallback index finds it.
+        # Two-byte characters fit the ORM's 5,000-character column.
+        await text_case(
+            lexical_service, "synthetic long", "é" * 4200 + " late MovementX token"
+        ),
+        await text_case(lexical_service, "100% done_ok"),
+        await text_case(lexical_service, "short"),
+    ]
+    terms = [
+        "movement",
+        "MOVE",
+        "ve",
+        "0% d",
+        "_o",
+        "e_o",
+        "ase-00",
+        cases[0].short_id,
+        cases[0].short_id[-2:],
+        "zebra",
+    ]
+    for term in terms:
+        page = await lexical_service.query_cases(
+            CaseSearchRequest(search_term=term, include_count=True, limit=100)
+        )
+        expected = {
+            case.id
+            for case in cases
+            if any(
+                term.lower() in text.lower()
+                for text in (case.summary, case.description, case.short_id)
+            )
+        }
+        assert {item.id for item in page.items} == expected, term
+        assert page.total_estimate == len(expected), term
+
+
 @pytest.mark.parametrize(
     "options",
     [
@@ -735,6 +792,7 @@ async def test_promoted_identity_and_native_mentions_share_one_stable_cursor(
         )
     )
     assert counts.total == 2
+    assert counts.status_groups is not None
     assert counts.status_groups.new == 2
 
 
@@ -788,6 +846,7 @@ async def test_literal_promotion_reports_ordinary_membership_for_group_counts(
         )
     )
     assert counts.total == 1
+    assert counts.status_groups is not None
     assert counts.status_groups.new == 1
 
 
@@ -835,3 +894,314 @@ async def test_promoted_reference_preserves_explicit_hierarchy(
             assert body["total_estimate"] == (
                 1 if strict or mode == SearchMode.LITERAL else 2
             )
+
+
+def _asgi_scope(path: str) -> dict[str, Any]:
+    """An HTTP POST scope as uvicorn builds it."""
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1234),
+        "server": ("test", 80),
+    }
+
+
+async def _active_marker_count(observer: AsyncConnection, marker: str) -> int:
+    return int(
+        await observer.scalar(
+            sa.text(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE query LIKE :marker AND state = 'active' "
+                "AND pid <> pg_backend_pid()"
+            ),
+            {"marker": f"%{marker} */"},
+        )
+        or 0
+    )
+
+
+@pytest.mark.parametrize("path", ["/cases/search", "/cases/search/aggregate"])
+async def test_client_disconnect_cancels_the_running_search_statement(
+    lexical_client: httpx.AsyncClient,
+    lexical_service: CasesService,
+    aggregate_app: Any,
+    path: str,
+) -> None:
+    """A search the browser abandoned stops running in PostgreSQL."""
+    assert lexical_client is not None  # Installs the routes and the role.
+    marker = f"disconnect-probe-{uuid4().hex}"
+
+    async def slow_search(self: CasesService, _query: object) -> object:
+        async with self.session.begin_nested():
+            await self.session.execute(sa.text(f"SELECT pg_sleep(30) /* {marker} */"))
+        raise AssertionError("the statement should have been cancelled")
+
+    body = orjson.dumps({"search_term": "synthetic", "search_mode": "literal"})
+    body_sent = False
+    seen_running = False
+    engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
+
+    async def receive() -> Message:
+        # Like uvicorn: the body first, then nothing until the client leaves.
+        # The client leaves once the search statement is running.
+        nonlocal body_sent, seen_running
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        async with engine.connect() as observer:
+            while not await _active_marker_count(observer, marker):
+                await asyncio.sleep(0.05)
+        seen_running = True
+        return {"type": "http.disconnect"}
+
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    method = "query_cases" if path == "/cases/search" else "query_case_aggregates"
+    try:
+        with patch.object(CasesService, method, slow_search):
+            started = asyncio.get_running_loop().time()
+            # The API app installs this middleware outermost; wrap the test app
+            # the same way, outside its BaseHTTPMiddleware layers.
+            guarded = CancelOnDisconnectMiddleware(
+                aggregate_app, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
+            )
+            await asyncio.wait_for(guarded(_asgi_scope(path), receive, send), 10)
+            elapsed = asyncio.get_running_loop().time() - started
+        # pg_cancel_backend stops the statement; poll briefly in case the
+        # server takes a moment to report the backend idle.
+        running = None
+        async with engine.connect() as observer:
+            for _ in range(30):
+                running = await _active_marker_count(observer, marker)
+                if running == 0:
+                    break
+                await asyncio.sleep(0.1)
+    finally:
+        await engine.dispose()
+    assert seen_running
+    assert elapsed < 5
+    assert running == 0
+    assert not [message for message in sent if message["type"] == "http.response.start"]
+    # The statement was cancelled in PostgreSQL before the task, so its
+    # savepoint rolled back cleanly and the connection is still usable.
+    assert await lexical_service.session.scalar(sa.text("SELECT 1")) == 1
+
+
+async def test_disconnect_after_the_response_cancels_nothing(
+    lexical_client: httpx.AsyncClient,
+    lexical_service: CasesService,
+    aggregate_app: Any,
+) -> None:
+    """A finished search returns its response; the closing disconnect is normal."""
+    assert lexical_client is not None  # Installs the routes and the role.
+    await text_case(lexical_service, "synthetic disconnect target")
+    body = orjson.dumps({"search_term": "disconnect target", "search_mode": "literal"})
+    messages = [{"type": "http.request", "body": body, "more_body": False}]
+    response_complete = asyncio.Event()
+
+    async def receive() -> Message:
+        if messages:
+            return messages.pop(0)
+        await response_complete.wait()
+        return {"type": "http.disconnect"}
+
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+        if message["type"] == "http.response.body" and not message.get("more_body"):
+            response_complete.set()
+
+    guarded = CancelOnDisconnectMiddleware(
+        aggregate_app, path_suffixes=CASE_SEARCH_PATH_SUFFIXES
+    )
+    await asyncio.wait_for(guarded(_asgi_scope("/cases/search"), receive, send), 10)
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    assert start["status"] == 200
+    payload = orjson.loads(
+        b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    )
+    assert [item["summary"] for item in payload["items"]] == [
+        "synthetic disconnect target"
+    ]
+
+
+async def test_cap_broad_matches_ranks_newest_matches_and_caps_counts(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Broad searches rank and count a bounded set; opting out stays exact."""
+    monkeypatch.setattr("tracecat.cases.search_bounds.SEARCH_MATCH_CAP", 3)
+    base = datetime(2026, 3, 1, tzinfo=UTC)
+    # The oldest match is the most relevant one: its whole summary matches.
+    oldest = await add_case(lexical_service, created_at=base)
+    oldest.summary, oldest.description = "powershell", ""
+    newer: list[Case] = []
+    for minute, status in enumerate(
+        (CaseStatus.NEW, CaseStatus.CLOSED, CaseStatus.NEW, CaseStatus.RESOLVED),
+        start=1,
+    ):
+        case = await add_case(
+            lexical_service, status=status, created_at=base + timedelta(minutes=minute)
+        )
+        case.summary, case.description = "Synthetic alert", "powershell spawned"
+        newer.append(case)
+    unrelated = await add_case(lexical_service, created_at=base + timedelta(hours=1))
+    unrelated.summary, unrelated.description = "Synthetic alert", "nothing here"
+    await lexical_service.session.flush()
+    newest_three = {case.id for case in newer[1:]}
+
+    search: dict[str, Any] = {"search_term": "powershell", "search_mode": "full_text"}
+    capped = {**search, "cap_broad_matches": True}
+
+    exact = await lexical_client.post("/cases/search", json=search)
+    assert exact.status_code == 200, exact.text
+    assert exact.json()["items"][0]["id"] == str(oldest.id)
+    assert exact.json()["total_estimate"] == 5
+
+    ranked = await lexical_client.post("/cases/search", json=capped)
+    assert ranked.status_code == 200, ranked.text
+    assert {row["id"] for row in ranked.json()["items"]} == {
+        str(case_id) for case_id in newest_three
+    }
+    # The window bounds ranking only; the requested exact count is unchanged.
+    assert ranked.json()["total_estimate"] == 5
+
+    by_date = await lexical_client.post(
+        "/cases/search", json={**capped, "order_by": "created_at"}
+    )
+    assert by_date.status_code == 200, by_date.text
+    assert len(by_date.json()["items"]) == 5
+
+    counts = await lexical_client.post("/cases/search/aggregate", json=capped)
+    assert counts.status_code == 200, counts.text
+    assert counts.json() == {"total": 3, "status_groups": None, "capped": True}
+    exact_counts = await lexical_client.post("/cases/search/aggregate", json=search)
+    assert exact_counts.status_code == 200, exact_counts.text
+    assert exact_counts.json()["total"] == 5
+    assert exact_counts.json()["capped"] is False
+    assert exact_counts.json()["status_groups"]["new"] == 3
+
+    # Under the cap, counts stay exact and per status.
+    narrow = await lexical_client.post(
+        "/cases/search/aggregate",
+        json={**capped, "status": ["new", "resolved"], "search_term": "spawned"},
+    )
+    assert narrow.status_code == 200, narrow.text
+    assert narrow.json()["capped"] is False
+    assert narrow.json()["total"] == 3
+    assert narrow.json()["status_groups"]["resolved"] == 1
+
+    # A new match moves the window, but cursors issued before it stay valid.
+    first = await lexical_client.post(
+        "/cases/search", json={**capped, "limit": 2, "include_count": False}
+    )
+    assert first.status_code == 200, first.text
+    later = await add_case(lexical_service, created_at=base + timedelta(minutes=30))
+    later.summary, later.description = "Synthetic alert", "powershell again"
+    await lexical_service.session.flush()
+    second = await lexical_client.post(
+        "/cases/search",
+        json={
+            **capped,
+            "limit": 2,
+            "include_count": False,
+            "cursor": first.json()["next_cursor"],
+        },
+    )
+    assert second.status_code == 200, second.text
+    first_ids = [row["id"] for row in first.json()["items"]]
+    second_ids = [row["id"] for row in second.json()["items"]]
+    assert second_ids
+    assert not set(first_ids) & set(second_ids)
+    # Page two ranks the same window: the oldest match stays out.
+    assert set(first_ids + second_ids) <= {
+        str(case_id) for case_id in (*newest_three, later.id)
+    }
+
+
+@pytest.mark.parametrize("newest_cases_scan", [2, 100])
+async def test_cap_broad_matches_finds_the_cutoff_past_the_newest_cases(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    newest_cases_scan: int,
+) -> None:
+    """Reading the newest cases and sorting all matches give the same cutoff."""
+    monkeypatch.setattr("tracecat.cases.search_bounds.SEARCH_MATCH_CAP", 3)
+    monkeypatch.setattr(
+        "tracecat.cases.search_bounds.NEWEST_CASES_SCAN", newest_cases_scan
+    )
+    base = datetime(2026, 3, 1, tzinfo=UTC)
+    matches: list[Case] = []
+    for minute in range(5):
+        case = await add_case(
+            lexical_service, created_at=base + timedelta(minutes=minute)
+        )
+        case.summary, case.description = "Synthetic alert", "powershell spawned"
+        matches.append(case)
+    # The newest cases do not match, so a scan of two finds no cutoff there.
+    for minute in (10, 11, 12):
+        other = await add_case(
+            lexical_service, created_at=base + timedelta(minutes=minute)
+        )
+        other.summary, other.description = "Synthetic alert", "nothing here"
+    await lexical_service.session.flush()
+
+    response = await lexical_client.post(
+        "/cases/search",
+        json={
+            "search_term": "powershell",
+            "search_mode": "full_text",
+            "cap_broad_matches": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert {row["id"] for row in response.json()["items"]} == {
+        str(case.id) for case in matches[2:]
+    }
+
+
+async def test_cap_broad_matches_still_promotes_an_older_exact_case(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The window limits ordinary matches, not the promoted exact case."""
+    monkeypatch.setattr("tracecat.cases.search_bounds.SEARCH_MATCH_CAP", 1)
+    base = datetime(2026, 3, 1, tzinfo=UTC)
+    exact = await add_case(lexical_service, created_at=base)
+    exact.summary = "Synthetic exact"
+    for minute in (1, 2):
+        mention = await add_case(
+            lexical_service, created_at=base + timedelta(minutes=minute)
+        )
+        mention.summary, mention.description = "Synthetic", f"See {exact.id}"
+    await lexical_service.session.flush()
+
+    response = await lexical_client.post(
+        "/cases/search",
+        json={
+            "search_term": str(exact.id),
+            "search_mode": "full_text",
+            "promote_exact_match": True,
+            "cap_broad_matches": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert items[0]["id"] == str(exact.id)
+    assert items[0]["is_exact_match"] is True
+    assert len(items) == 2

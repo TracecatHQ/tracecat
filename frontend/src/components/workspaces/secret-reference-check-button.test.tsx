@@ -1,35 +1,37 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import {
-  AwsSecretReferenceCheckButton,
-  AwsSecretReferenceCheckHint,
-  AwsSecretReferenceCheckScope,
-} from "@/components/workspaces/aws-secret-reference-check-button"
+  SecretReferenceCheckButton,
+  SecretReferenceCheckHint,
+  SecretReferenceCheckScope,
+} from "@/components/workspaces/secret-reference-check-button"
 
 const mockCheckReference = jest.fn()
 
 jest.mock("@/hooks/use-secret-stores", () => ({
   describeApiError: () => "API error",
-  useAwsSecretReferences: () => ({
+  useSecretReferences: () => ({
     checkReference: mockCheckReference,
   }),
 }))
 
-function renderCheck() {
+function renderCheck(
+  source:
+    | "aws_secrets_manager"
+    | "bitwarden_secrets_manager" = "aws_secrets_manager"
+) {
   render(
-    <AwsSecretReferenceCheckScope
+    <SecretReferenceCheckScope
       workspaceId="workspace-synthetic"
       secretId="secret-synthetic"
+      source={source}
     >
       {(check) => (
         <>
-          <AwsSecretReferenceCheckButton
-            state={check.state}
-            onCheck={check.run}
-          />
-          <AwsSecretReferenceCheckHint state={check.state} />
+          <SecretReferenceCheckButton state={check.state} onCheck={check.run} />
+          <SecretReferenceCheckHint state={check.state} />
         </>
       )}
-    </AwsSecretReferenceCheckScope>
+    </SecretReferenceCheckScope>
   )
 }
 
@@ -37,7 +39,7 @@ beforeEach(() => {
   mockCheckReference.mockReset()
 })
 
-describe("AwsSecretReferenceCheckButton", () => {
+describe("SecretReferenceCheckButton", () => {
   it("shows the failure on the button and the fix inline", async () => {
     mockCheckReference.mockResolvedValue({
       ok: false,
@@ -58,6 +60,29 @@ describe("AwsSecretReferenceCheckButton", () => {
       "title",
       expect.stringContaining("AccessDeniedException")
     )
+  })
+
+  it("shows the hint of the secret's provider", async () => {
+    mockCheckReference.mockResolvedValue({
+      ok: false,
+      error_code: "access_denied",
+      message:
+        "Reference check failed: access_denied (Bitwarden error code http_403)",
+    })
+    renderCheck("bitwarden_secrets_manager")
+
+    fireEvent.click(screen.getByRole("button", { name: "Check access" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Access denied" })
+    ).toBeInTheDocument()
+    expect(screen.getByText(/machine account can read/)).toHaveAttribute(
+      "title",
+      expect.stringContaining("http_403")
+    )
+    expect(
+      screen.queryByText(/secretsmanager:GetSecretValue/)
+    ).not.toBeInTheDocument()
   })
 
   it("checks again from the result button", async () => {

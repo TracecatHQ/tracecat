@@ -26,6 +26,11 @@ from tracecat.api.common import (
     without_inputs,
 )
 from tracecat.contexts import ctx_role
+from tracecat.executor.action_gateway.db_gate import (
+    GatewayAdmissionRefusedError,
+    admission_refused_exception_handler,
+    hold_org_db_session_unit,
+)
 from tracecat.executor.action_gateway.policy import (
     enforce_agent_script_gateway_access,
 )
@@ -216,6 +221,10 @@ def _add_exception_handlers(app: FastAPI) -> None:
         AuthPoolExhaustedError,
         auth_pool_exhausted_exception_handler,
     )
+    app.add_exception_handler(
+        GatewayAdmissionRefusedError,
+        admission_refused_exception_handler,
+    )
     app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
@@ -240,6 +249,8 @@ def create_app(**kwargs) -> FastAPI:
     dependencies = [
         *kwargs.pop("dependencies", ()),
         Depends(enforce_agent_script_gateway_access),
+        # After the policy, so a denied call never takes a unit.
+        Depends(hold_org_db_session_unit),
     ]
     app = FastAPI(
         title="Tracecat Action Gateway",

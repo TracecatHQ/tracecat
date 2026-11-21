@@ -40,7 +40,8 @@ const CASE: CaseReadMinimal = {
 function setup(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
-  })
+  }),
+  { autoRefresh = false }: { autoRefresh?: boolean } = {}
 ) {
   let workspaceId = WORKSPACE_ID
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -50,7 +51,7 @@ function setup(
       </WorkspaceIdProvider>
     </QueryClientProvider>
   )
-  const hook = renderHook(() => useCases({ autoRefresh: false }), { wrapper })
+  const hook = renderHook(() => useCases({ autoRefresh }), { wrapper })
   return {
     ...hook,
     client,
@@ -303,6 +304,39 @@ describe("case search aggregate counts", () => {
     expect(casesQueryCaseAggregates).toHaveBeenCalledTimes(1)
     expect(result.current.totalFilteredCaseEstimate).toBe(12)
     expect(result.current.stageCounts?.new).toBe(12)
+  })
+
+  it("asks rows and counts to cap broad matches and reports a capped total", async () => {
+    jest.mocked(casesQueryCaseAggregates).mockImplementation(() =>
+      resolved<CasesSearchCaseAggregatesResponse>({
+        total: 10000,
+        status_groups: null,
+        capped: true,
+      })
+    )
+    const { result } = setup()
+    await advance()
+    // A plain list load does not send the flag (undefined is dropped on the wire).
+    expect(
+      jest.mocked(casesQueryCases).mock.lastCall?.[0].requestBody
+        .cap_broad_matches
+    ).toBeUndefined()
+    act(() => result.current.setSearchQuery("powershell"))
+    await advance(300)
+    for (const request of [casesQueryCases, casesQueryCaseAggregates]) {
+      expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            search_term: "powershell",
+            cap_broad_matches: true,
+          }),
+        })
+      )
+    }
+    await advance()
+    expect(result.current.totalFilteredCaseEstimate).toBe(10000)
+    expect(result.current.isCountCapped).toBe(true)
+    expect(result.current.stageCounts).toBeNull()
   })
 
   it("keeps successful rows when population counts exhaust retries", async () => {
@@ -567,6 +601,29 @@ describe("case search ordering", () => {
         }),
       })
     )
+  })
+})
+
+describe("auto-refresh", () => {
+  it("refreshes the plain list but not an applied keyword search", async () => {
+    const { result } = setup(undefined, { autoRefresh: true })
+    await advance()
+    const listCalls = searchCases.mock.calls.length
+    const listCountCalls = searchAggregates.mock.calls.length
+    await advance(120_000)
+    // The plain case list and its counts refresh on the interval.
+    expect(searchCases.mock.calls.length).toBeGreaterThan(listCalls)
+    expect(searchAggregates.mock.calls.length).toBeGreaterThan(listCountCalls)
+
+    act(() => result.current.setSearchQuery("powershell"))
+    await advance(301)
+    expect(searchTerms(searchCases).at(-1)).toBe("powershell")
+    const searchCalls = searchCases.mock.calls.length
+    const countCalls = searchAggregates.mock.calls.length
+    await advance(240_000)
+    // A keyword search is not re-run while the user reads its results.
+    expect(searchCases.mock.calls.length).toBe(searchCalls)
+    expect(searchAggregates.mock.calls.length).toBe(countCalls)
   })
 })
 

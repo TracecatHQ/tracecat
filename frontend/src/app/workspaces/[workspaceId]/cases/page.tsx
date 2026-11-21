@@ -277,6 +277,7 @@ function CasesPageBody({
     setCreatedAfter,
     setIncludeSubCases,
     totalFilteredCaseEstimate,
+    isCountCapped,
     stageCounts,
     isCountsLoading,
     isCountsFetching,
@@ -363,6 +364,7 @@ function CasesPageBody({
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
         totalFilteredCaseEstimate={totalFilteredCaseEstimate}
+        isCountCapped={isCountCapped}
         stageCounts={stageCounts}
         isCountsLoading={isCountsLoading}
         isCountsFetching={isCountsFetching}

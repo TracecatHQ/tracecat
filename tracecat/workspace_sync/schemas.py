@@ -12,11 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
-from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.secrets.enums import SecretSource, SecretType, is_external_source
 from tracecat.secrets.schemas import (
     AWS_SECRET_ID_PATTERN,
     EXPRESSION_SECRET_NAME_PATTERN,
-    AwsSecretKeyMapping,
+    SecretKeyMapping,
 )
 from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
@@ -710,11 +710,11 @@ class SecretMetadataResourceSpec(BaseModel):
     )
     remote_reference: str | None = Field(
         default=None,
-        pattern=AWS_SECRET_ID_PATTERN,
+        min_length=1,
         max_length=2048,
-        description="Secret name or ARN in the external store.",
+        description="The secret's identifier in the external store: an AWS secret name or ARN, or the provider's secret ID.",
     )
-    key_mapping: AwsSecretKeyMapping | None = Field(
+    key_mapping: SecretKeyMapping | None = Field(
         default=None,
         description="How the external value maps onto the declared keys.",
     )
@@ -731,22 +731,27 @@ class SecretMetadataResourceSpec(BaseModel):
     def validate_external_reference(self) -> SecretMetadataResourceSpec:
         """Require a reference and mapping for external secrets, and none otherwise."""
         reference = (self.store, self.remote_reference, self.key_mapping)
-        if self.source != SecretSource.AWS_SECRETS_MANAGER:
+        if not is_external_source(self.source):
             if any(part is not None for part in reference):
                 raise ValueError(
                     "store, remote_reference, and key_mapping require source "
-                    "aws_secrets_manager"
+                    "to name an external secret store"
                 )
             return self
         if self.key_mapping is None or self.remote_reference is None:
             raise ValueError(
-                "AWS-backed secret metadata requires remote_reference and key_mapping"
+                "Externally backed secret metadata requires remote_reference and"
+                " key_mapping"
             )
+        if self.source == SecretSource.AWS_SECRETS_MANAGER and not re.fullmatch(
+            AWS_SECRET_ID_PATTERN, self.remote_reference
+        ):
+            raise ValueError("remote_reference must be an AWS secret name or ARN")
         if self.secret_type not in (None, SecretType.CUSTOM.value):
-            raise ValueError("AWS-backed secrets must use the custom type")
+            raise ValueError("Externally backed secrets must use the custom type")
         if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, self.name):
             raise ValueError(
-                "AWS-backed secret names must be snake_case and start with a "
+                "Externally backed secret names must be snake_case and start with a "
                 "letter or underscore"
             )
         if sorted(self.keys) != sorted(self.key_mapping.output_keys()):

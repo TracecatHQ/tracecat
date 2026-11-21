@@ -75,8 +75,8 @@ from tracecat.managed_resources.presets import (
 )
 from tracecat.managed_resources.rollout import ManagedRolloutEngine
 from tracecat.managed_resources.router import list_managed_resources
-from tracecat.secrets.enums import AwsSecretMappingMode, SecretSource
-from tracecat.secrets.schemas import AwsSecretKeyMapping, SecretKeyValue, SecretUpdate
+from tracecat.secrets.enums import SecretMappingMode, SecretSource
+from tracecat.secrets.schemas import SecretKeyMapping, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableRowInsert
@@ -399,8 +399,8 @@ async def test_rollout_keeps_the_customer_aws_secret_reference(
             source=SecretSource.AWS_SECRETS_MANAGER,
             store="org-store",
             remote_reference=reference,
-            key_mapping=AwsSecretKeyMapping(
-                mode=AwsSecretMappingMode.WHOLE_STRING, keys=["API_KEY"]
+            key_mapping=SecretKeyMapping(
+                mode=SecretMappingMode.WHOLE_STRING, keys=["API_KEY"]
             ),
         )
 

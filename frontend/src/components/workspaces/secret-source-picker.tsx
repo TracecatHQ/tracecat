@@ -4,7 +4,8 @@ import { CheckIcon, ChevronsUpDownIcon } from "lucide-react"
 import Image from "next/image"
 import TracecatIcon from "public/icon.png"
 import React from "react"
-import { AwsIcon } from "@/components/icons"
+import type { SecretStoreProvider, WorkspaceSecretStoreRead } from "@/client"
+import { SECRET_STORE_PROVIDERS } from "@/components/organization/secret-store-providers"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -49,6 +50,13 @@ export function SecretSourcePicker({
   const enabledStores = (stores ?? []).filter((store) => store.enabled)
   const selected = enabledStores.find((store) => store.id === value) ?? null
   const isStale = stores !== undefined && value !== null && selected === null
+  const selectedProvider = selected
+    ? SECRET_STORE_PROVIDERS[selected.provider]
+    : null
+  const selectedHint = selected
+    ? selectedProvider?.reference.storeHint(selected)
+    : null
+  const groups = groupByProvider(enabledStores)
 
   // A store disabled mid-dialog would leave the form writing to it.
   React.useEffect(() => {
@@ -71,18 +79,15 @@ export function SecretSourcePicker({
           aria-expanded={open}
           className="w-full justify-start gap-2 px-3 text-sm font-normal shadow-none"
         >
-          {selected ? (
-            <AwsIcon className="size-4 shrink-0 rounded-sm" />
+          {selectedProvider ? (
+            <selectedProvider.Icon className="size-4 shrink-0 rounded-sm" />
           ) : (
             <Image src={TracecatIcon} alt="" className="size-4 rounded-sm" />
           )}
           <span className="min-w-0 flex-1 truncate text-left">
             {selected ? selected.name : "Tracecat"}
-            {selected && (
-              <span className="text-muted-foreground">
-                {" "}
-                · {selected.region}
-              </span>
+            {selectedHint && (
+              <span className="text-muted-foreground"> · {selectedHint}</span>
             )}
           </span>
           <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
@@ -94,7 +99,7 @@ export function SecretSourcePicker({
       >
         <Command>
           {enabledStores.length > SEARCH_THRESHOLD && (
-            <CommandInput placeholder="Search stores or regions" />
+            <CommandInput placeholder="Search stores" />
           )}
           <CommandList className="max-h-72">
             <CommandEmpty>No stores match.</CommandEmpty>
@@ -109,51 +114,82 @@ export function SecretSourcePicker({
                 className={cn("size-4", value !== null && "invisible")}
               />
             </CommandItem>
-            <CommandGroup
-              heading={
-                <span className="flex items-center gap-1.5">
-                  <AwsIcon className="size-3.5 rounded-sm" />
-                  AWS Secrets Manager
-                </span>
-              }
-            >
-              {enabledStores.map((store) => (
-                <CommandItem
-                  key={store.id}
-                  value={`${store.name} ${store.region}`}
-                  onSelect={() => choose(store.id)}
-                  className="gap-2 pl-7"
+            {groups.map(([provider, providerStores]) => {
+              const entry = SECRET_STORE_PROVIDERS[provider]
+              return (
+                <CommandGroup
+                  key={provider}
+                  heading={
+                    <span className="flex items-center gap-1.5">
+                      <entry.Icon className="size-3.5 rounded-sm" />
+                      {entry.label}
+                    </span>
+                  }
                 >
-                  <span className="min-w-0 flex-1 truncate">{store.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {store.region}
-                  </span>
-                  <CheckIcon
-                    className={cn("size-4", value !== store.id && "invisible")}
-                  />
-                </CommandItem>
-              ))}
-              {isLoading && (
-                <p className="py-1.5 pl-7 pr-2 text-xs text-muted-foreground">
-                  Loading stores…
-                </p>
-              )}
-              {error && (
-                <p className="py-1.5 pl-7 pr-2 text-xs text-destructive">
-                  Could not load secret stores. Reopen this dialog to try again.
-                </p>
-              )}
-              {!isLoading && !error && enabledStores.length === 0 && (
-                <p className="py-1.5 pl-7 pr-2 text-xs text-muted-foreground">
-                  {stores?.length
-                    ? "No stores are enabled for this workspace. Ask an organization admin to enable one or finish its setup."
-                    : "No stores are authorized for this workspace. Ask an organization admin to add one."}
-                </p>
-              )}
-            </CommandGroup>
+                  {providerStores.map((store) => {
+                    const hint = entry.reference.storeHint(store)
+                    return (
+                      <CommandItem
+                        key={store.id}
+                        value={`${store.name} ${hint ?? ""}`}
+                        onSelect={() => choose(store.id)}
+                        className="gap-2 pl-7"
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {store.name}
+                        </span>
+                        {hint && (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {hint}
+                          </span>
+                        )}
+                        <CheckIcon
+                          className={cn(
+                            "size-4",
+                            value !== store.id && "invisible"
+                          )}
+                        />
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              )
+            })}
+            {isLoading && (
+              <p className="py-1.5 pl-7 pr-2 text-xs text-muted-foreground">
+                Loading stores…
+              </p>
+            )}
+            {error && (
+              <p className="py-1.5 pl-7 pr-2 text-xs text-destructive">
+                Could not load secret stores. Reopen this dialog to try again.
+              </p>
+            )}
+            {!isLoading && !error && enabledStores.length === 0 && (
+              <p className="py-1.5 pl-7 pr-2 text-xs text-muted-foreground">
+                {stores?.length
+                  ? "No stores are enabled for this workspace. Ask an organization admin to enable one or finish its setup."
+                  : "No stores are authorized for this workspace. Ask an organization admin to add one."}
+              </p>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>
     </Popover>
   )
+}
+
+/** Stores grouped under their provider, in the registry's provider order. */
+function groupByProvider(
+  stores: WorkspaceSecretStoreRead[]
+): [SecretStoreProvider, WorkspaceSecretStoreRead[]][] {
+  return (Object.keys(SECRET_STORE_PROVIDERS) as SecretStoreProvider[])
+    .map(
+      (provider) =>
+        [provider, stores.filter((store) => store.provider === provider)] as [
+          SecretStoreProvider,
+          WorkspaceSecretStoreRead[],
+        ]
+    )
+    .filter(([, providerStores]) => providerStores.length > 0)
 }

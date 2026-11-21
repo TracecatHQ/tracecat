@@ -52,9 +52,7 @@ test("lists each enabled store under its provider and selects one", async () => 
   expect(screen.getByText("AWS Secrets Manager")).toBeInTheDocument()
   expect(screen.getByRole("option", { name: /Tracecat/ })).toBeInTheDocument()
   expect(screen.queryByText("legacy-secrets")).not.toBeInTheDocument()
-  expect(
-    screen.queryByPlaceholderText("Search stores or regions")
-  ).not.toBeInTheDocument()
+  expect(screen.queryByPlaceholderText("Search stores")).not.toBeInTheDocument()
 
   await user.click(screen.getByRole("option", { name: /eu-secrets/ }))
   expect(onChange).toHaveBeenCalledWith("id-eu-secrets")
@@ -85,10 +83,7 @@ test("searches by store name or region once the list is long", async () => {
   )
 
   await user.click(screen.getByRole("combobox"))
-  await user.type(
-    screen.getByPlaceholderText("Search stores or regions"),
-    "ap-"
-  )
+  await user.type(screen.getByPlaceholderText("Search stores"), "ap-")
 
   expect(screen.getByRole("option", { name: /team-3/ })).toBeInTheDocument()
   expect(

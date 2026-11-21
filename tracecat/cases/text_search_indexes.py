@@ -39,6 +39,19 @@ CASE_SEARCH_WORD_INDEXES = {
     "ix_case_search_word_workspace_id_word": "CREATE INDEX ix_case_search_word_workspace_id_word ON public.case_search_word USING btree (workspace_id, word)",
     "ix_case_search_word_word_trgm": "CREATE INDEX ix_case_search_word_word_trgm ON public.case_search_word USING gin (word gin_trgm_ops)",
 }
+# Lexemes and word lists for sources over the byte budget, from revision
+# 67d28dfaff15. The trigger inlines its SQL, so there are no helper functions.
+CASE_SEARCH_OVERSIZED_TRIGGER = "trg_case_search_words_oversized"
+CASE_SEARCH_OVERSIZED_TRIGGER_FUNCTION = "tracecat_case_search_oversized_v1"
+CASE_SEARCH_OVERSIZED_TRIGGER_BODY_HASH = "a94312b5111ba9d371847ac29c864590"
+CASE_SEARCH_OVERSIZED_INDEXES = {
+    "ix_case_summary_lexemes": 'CREATE INDEX ix_case_summary_lexemes ON public."case" USING gin (summary_lexemes)',
+    "ix_case_description_lexemes": 'CREATE INDEX ix_case_description_lexemes ON public."case" USING gin (description_lexemes)',
+    "ix_case_summary_lexemes_fallback": 'CREATE INDEX ix_case_summary_lexemes_fallback ON public."case" USING btree (workspace_id, id) WHERE ((summary_tsv IS NULL) AND (summary_lexemes IS NULL))',
+    "ix_case_description_lexemes_fallback": 'CREATE INDEX ix_case_description_lexemes_fallback ON public."case" USING btree (workspace_id, id) WHERE ((description_tsv IS NULL) AND (description_lexemes IS NULL))',
+    "ix_case_summary_trgm_fallback": "CREATE INDEX ix_case_summary_trgm_fallback ON public.\"case\" USING gin (lower(COALESCE((summary)::text, ''::text)) gin_trgm_ops) WHERE (summary_tsv IS NULL)",
+    "ix_case_description_trgm_fallback": "CREATE INDEX ix_case_description_trgm_fallback ON public.\"case\" USING gin (lower(COALESCE((description)::text, ''::text)) gin_trgm_ops) WHERE (description_tsv IS NULL)",
+}
 # pg_trigger.tgtype bits: ROW (1) | BEFORE (2) | INSERT (4) | UPDATE (16).
 _BEFORE_ROW_INSERT_UPDATE = 23
 
@@ -188,9 +201,23 @@ async def ensure_case_text_indexes(session: AsyncSession) -> None:
         CASE_SEARCH_TRIGGER,
         CASE_SEARCH_TRIGGER_FUNCTION,
         CASE_SEARCH_TRIGGER_BODY_HASH,
+        trgm_schema=trgm_schema,
     )
     await _ensure_indexes(session, CASE_SEARCH_VECTOR_INDEXES, trgm_schema)
     await _ensure_stored_words(session, trgm_schema)
+    await _ensure_oversized_sources(session, trgm_schema)
+
+
+async def _ensure_oversized_sources(session: AsyncSession, trgm_schema: str) -> None:
+    """Verify the trigger and indexes that maintain over-budget sources."""
+    await _ensure_trigger(
+        session,
+        CASE_SEARCH_OVERSIZED_TRIGGER,
+        CASE_SEARCH_OVERSIZED_TRIGGER_FUNCTION,
+        CASE_SEARCH_OVERSIZED_TRIGGER_BODY_HASH,
+        trgm_schema=trgm_schema,
+    )
+    await _ensure_indexes(session, CASE_SEARCH_OVERSIZED_INDEXES, trgm_schema)
 
 
 async def _ensure_stored_words(session: AsyncSession, trgm_schema: str) -> None:
@@ -242,14 +269,24 @@ async def _ensure_stored_words(session: AsyncSession, trgm_schema: str) -> None:
         CASE_SEARCH_WORDS_TRIGGER,
         CASE_SEARCH_WORDS_TRIGGER_FUNCTION,
         CASE_SEARCH_WORDS_TRIGGER_BODY_HASH,
+        trgm_schema=trgm_schema,
     )
     await _ensure_indexes(session, CASE_SEARCH_WORD_INDEXES, trgm_schema)
 
 
 async def _ensure_trigger(
-    session: AsyncSession, name: str, function: str, body_hash: str
+    session: AsyncSession,
+    name: str,
+    function: str,
+    body_hash: str,
+    *,
+    trgm_schema: str,
 ) -> None:
-    """Verify a BEFORE INSERT/UPDATE row trigger that maintains search columns."""
+    """Verify a BEFORE INSERT/UPDATE row trigger that maintains search columns.
+
+    A body that calls pg_trgm is hashed in its canonical form, which names
+    public; ``trgm_schema`` is where the migration pointed those calls.
+    """
     compatible = (
         await session.execute(
             sa.text("""
@@ -263,7 +300,10 @@ async def _ensure_trigger(
             -- proconfig is NULL without a SET clause; keep the result non-NULL
             -- so that is a configuration change, not missing indexing.
             AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-            AND md5(regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g')) = :body_hash
+            AND md5(replace(
+                regexp_replace(p.prosrc, '^[[:space:]]+|[[:space:]]+$', '', 'g'),
+                :show_trgm, 'public.show_trgm('
+            )) = :body_hash
         FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
         JOIN pg_language l ON l.oid = p.prolang
         WHERE t.tgrelid = 'public.case'::regclass AND t.tgname = :name
@@ -273,6 +313,7 @@ async def _ensure_trigger(
                 "function": f"public.{function}()",
                 "trigger_type": _BEFORE_ROW_INSERT_UPDATE,
                 "body_hash": body_hash,
+                "show_trgm": f"{trgm_schema}.show_trgm(",
             },
         )
     ).scalar_one_or_none()

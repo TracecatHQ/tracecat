@@ -235,6 +235,8 @@ async def _ensure_default_tier(
             max_concurrent_workflows=None,
             max_action_executions_per_workflow=None,
             max_concurrent_actions=None,
+            max_concurrent_tool_calls=None,
+            max_concurrent_agent_turns=None,
             api_rate_limit=None,
             api_burst_capacity=None,
             entitlements=cast(EntitlementsDict, entitlements),

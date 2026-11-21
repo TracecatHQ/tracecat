@@ -212,6 +212,7 @@ function CreateSecretStoreDialog({
       setCreatedStore(
         await createStore({
           name: name.trim(),
+          provider: providerKey,
           config: provider.toCreateConfig(config),
           enabled: false,
           all_workspaces: allWorkspaces,
@@ -599,7 +600,7 @@ function StoreSetupDialogContent({
     try {
       await updateStore({
         storeId: store.id,
-        params: { config: provider.toSetupConfig(config), enabled: true },
+        params: { ...provider.toSetupUpdate(config), enabled: true },
       })
       onClose()
     } catch {
@@ -942,13 +943,12 @@ function EditSecretStoreDialog({
 }) {
   const { updateStore } = useOrgSecretStores()
   const [name, setName] = React.useState(store.name)
-  const [config, setConfig] = React.useState<CreateConfigState>({
-    role_arn: store.config.role_arn ?? "",
-    region: store.config.region,
-  })
+  const provider = SECRET_STORE_PROVIDERS[store.provider]
+  const [config, setConfig] = React.useState<CreateConfigState>(() =>
+    provider.editState(store)
+  )
   const [pending, setPending] = React.useState(false)
   const [showErrors, setShowErrors] = React.useState(false)
-  const provider = SECRET_STORE_PROVIDERS[store.provider]
   const configErrors = provider.validateEdit(config, store)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -961,7 +961,7 @@ function EditSecretStoreDialog({
     try {
       await updateStore({
         storeId: store.id,
-        params: { name: name.trim(), config: provider.toUpdateConfig(config) },
+        params: { ...provider.toUpdate(config), name: name.trim() },
       })
       onClose()
     } catch {
@@ -981,10 +981,7 @@ function EditSecretStoreDialog({
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Edit {store.name}</DialogTitle>
-          <DialogDescription>
-            Update the store connection. The external ID stays the same, so the
-            trust policy keeps working.
-          </DialogDescription>
+          <DialogDescription>{provider.editDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogBody>
