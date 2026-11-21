@@ -23,11 +23,11 @@ from tenacity import (
 
 from tracecat import config
 from tracecat.admission import gate
-from tracecat.admission.gate import ConcurrencyBusyError, Lease
+from tracecat.admission.gate import Lease, NotAdmittedError
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
-    ConcurrencyBusyResult,
     ConcurrencyResource,
+    NotAdmitted,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import backfill_legacy_role_scopes
@@ -207,12 +207,12 @@ class ExecutorActivities:
     @activity.defn
     async def execute_action_activity(
         input: RunActionInput, role: Role
-    ) -> StoredObject | ConcurrencyBusyResult:
+    ) -> StoredObject | NotAdmitted:
         """Execute an action on the ExecutorWorker.
 
         This activity runs on 'shared-action-queue' and handles:
         - The organization's action concurrency limit (returns
-          ``ConcurrencyBusyResult``, having executed nothing, when it is full)
+          ``NotAdmitted``, having executed nothing, when it is full)
         - Rate limit retries (tenacity)
         - for_each loop execution (via dispatch_action)
         - Sandboxed action execution
@@ -260,7 +260,7 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
-        # Take the lease before any effect or S3 read, so a busy answer is cheap.
+        # Take the lease before any effect or S3 read, so not admitting is cheap.
         # Agent tool calls are not limited yet (ENG-2564 adds their own limit).
         lease: Lease | None = None
         if input.agent_session_id is None and role.organization_id is not None:
@@ -272,8 +272,8 @@ class ExecutorActivities:
                     units=_for_each_width() if task.for_each else 1,
                     deadline=_lease_deadline(act_info),
                 )
-            except ConcurrencyBusyError as e:
-                return ConcurrencyBusyResult(
+            except NotAdmittedError as e:
+                return NotAdmitted(
                     resource=e.resource,
                     in_use=e.in_use,
                     limit=e.limit,

@@ -2,12 +2,12 @@
 
 Workflow code only: deterministic and Temporal-sandbox safe.
 
-One ``RunAdmission`` serves one run and one resource. After a busy answer the
+One ``RunAdmission`` serves one run and one resource. After a not-admitted answer the
 run is *blocked*: one dispatch holds the probe token and waits on a durable
 timer before dispatching again; the run's other dispatches wait for the token
 instead of probing on their own timers. A probe that gets in hands the token to
 the next waiter, which probes at once. A probe that is still busy restarts the
-timer with a longer backoff. Because a busy answer is the activity's result, the
+timer with a longer backoff. Because not admitting is the activity's result, the
 workflow can't see admission directly: a probe carries ``ack_admission`` and the
 executor signals the run when it admits it, so the token passes on then rather
 than when the action finishes. A lost signal costs only time: the token also
@@ -26,7 +26,7 @@ from typing import Any, Final
 
 from temporalio import workflow
 
-from tracecat.admission.types import ConcurrencyResource, parse_busy_result
+from tracecat.admission.types import ConcurrencyResource, parse_not_admitted
 from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger
 
 BACKOFF_BASE_SECONDS: Final = 2.0
@@ -169,14 +169,14 @@ class RunAdmission:
 
         Only probes change the run's shared wait state, and each probe records
         its admission once. A dispatch sent before the run was blocked never
-        unblocks it: its completion says nothing about newer busy answers.
+        unblocks it: its completion says nothing about newer not-admitted answers.
 
         Args:
             dispatch: Starts the activity with the remaining user attempts.
             max_attempts: The user's attempt budget (0 = unlimited).
 
         Returns:
-            The first result that isn't a busy answer.
+            The first result that isn't a not-admitted answer.
 
         Raises:
             Whatever ``dispatch`` raises for an admitted attempt.
@@ -207,8 +207,8 @@ class RunAdmission:
             finally:
                 if token is not None:
                     self._release_token(token)
-            busy = parse_busy_result(result)
-            if busy is None:
+            not_admitted = parse_not_admitted(result)
+            if not_admitted is None:
                 if not progress_recorded:
                     self._on_progress()
                 if waited_since is not None:
@@ -222,7 +222,7 @@ class RunAdmission:
 
             self._on_busy()
             bounces += 1
-            remaining = remaining_attempts_after_busy(remaining, busy.attempt)
+            remaining = remaining_attempts_after_busy(remaining, not_admitted.attempt)
             waited_since = waited_since or workflow.now()
             waited = (workflow.now() - waited_since).total_seconds()
             if not long_wait_logged and waited >= LONG_WAIT_SECONDS:
@@ -230,8 +230,8 @@ class RunAdmission:
                 self._logger.warning(
                     "concurrency.long_wait",
                     resource=self.resource.value,
-                    in_use=busy.in_use,
-                    limit=busy.limit,
+                    in_use=not_admitted.in_use,
+                    limit=not_admitted.limit,
                     wait_seconds=waited,
                     bounces=bounces,
                 )

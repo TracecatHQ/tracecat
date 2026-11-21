@@ -11,7 +11,7 @@ import pytest
 
 from tracecat import config
 from tracecat.admission import gate, limits
-from tracecat.admission.gate import ConcurrencyBusyError, admit
+from tracecat.admission.gate import NotAdmittedError, admit
 from tracecat.admission.types import Admitted, Busy, ConcurrencyResource
 from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.tiers.schemas import EffectiveLimits
@@ -103,7 +103,7 @@ async def test_busy_raises_with_usage() -> None:
     with (
         patch.object(gate, "resolve_limit", new=AsyncMock(return_value=3)),
         patch.object(gate.LeaseStore, "create", new=AsyncMock(return_value=store)),
-        pytest.raises(ConcurrencyBusyError) as exc_info,
+        pytest.raises(NotAdmittedError) as exc_info,
     ):
         await _admit()
     assert exc_info.value.in_use == 3

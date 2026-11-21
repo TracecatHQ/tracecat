@@ -34,7 +34,7 @@ from tracecat.admission.limits import clear_limits_cache
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
     ConcurrencyResource,
-    parse_busy_result,
+    parse_not_admitted,
 )
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -267,7 +267,7 @@ async def _busy_count(handle: WorkflowHandle[Any, Any]) -> int:
         if not payloads:
             continue
         (result,) = await converter.decode(payloads)
-        if parse_busy_result(result) is not None:
+        if parse_not_admitted(result) is not None:
             count += 1
     return count
 
@@ -353,7 +353,7 @@ async def test_cap_one_second_action_waits_then_runs_and_bounces_are_hidden(
     second_compact = [e for e in compact if e.action_ref == "second"]
     assert len(second_compact) == 1
     assert second_compact[0].action_result is not None
-    assert parse_busy_result(second_compact[0].action_result) is None
+    assert parse_not_admitted(second_compact[0].action_result) is None
 
     detailed = await service.list_workflow_execution_events(waiter.id)
     action_events = [

@@ -1,6 +1,6 @@
 """Admission gate: take a concurrency lease before any effect.
 
-The gate never waits for capacity. It admits, raises ``ConcurrencyBusyError``,
+The gate never waits for capacity. It admits, raises ``NotAdmittedError``,
 or, when Redis or the limit lookup can't answer within about 2 s, lets the work
 run uncounted (fail open) and logs it. Callers decide how to wait.
 """
@@ -45,7 +45,7 @@ RELEASE_TIMEOUT_SECONDS: Final = 2.0
 _breaker_open_until: float = 0.0
 
 
-class ConcurrencyBusyError(Exception):
+class NotAdmittedError(Exception):
     """The organization is at its limit; the attempt executed nothing."""
 
     def __init__(
@@ -215,7 +215,7 @@ async def acquire(
     """Take a lease, or return ``None`` when the work should run uncounted.
 
     Raises:
-        ConcurrencyBusyError: The organization is at its limit.
+        NotAdmittedError: The organization is at its limit.
     """
     global _breaker_open_until
 
@@ -257,9 +257,7 @@ async def acquire(
                     in_use=in_use,
                     limit=limit,
                 )
-                raise ConcurrencyBusyError(
-                    resource=resource, in_use=in_use, limit=limit
-                )
+                raise NotAdmittedError(resource=resource, in_use=in_use, limit=limit)
             case Unenforced(error=error, store_unavailable=store_unavailable):
                 if time.monotonic() + backoff >= give_up_at:
                     if store_unavailable:
@@ -292,7 +290,7 @@ async def admit(
     """Hold a lease for the body; yields ``None`` when running uncounted.
 
     Raises:
-        ConcurrencyBusyError: The organization is at its limit. Raised before the
+        NotAdmittedError: The organization is at its limit. Raised before the
             body runs.
     """
     lease = await acquire(

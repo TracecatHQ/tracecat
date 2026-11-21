@@ -15,9 +15,9 @@ import pytest
 
 from tracecat.admission import waiting
 from tracecat.admission.types import (
-    ConcurrencyBusyResult,
     ConcurrencyResource,
-    parse_busy_result,
+    NotAdmitted,
+    parse_not_admitted,
 )
 from tracecat.admission.waiting import RunAdmission, remaining_attempts_after_busy
 from tracecat.dsl._converter import get_data_converter
@@ -80,7 +80,7 @@ def _admission() -> RunAdmission:
 
 
 def _busy(attempt: int = 1) -> dict[str, Any]:
-    return ConcurrencyBusyResult(
+    return NotAdmitted(
         resource=ConcurrencyResource.ACTIONS, in_use=1, limit=1, attempt=attempt
     ).model_dump(mode="json")
 
@@ -236,22 +236,22 @@ async def test_long_wait_logs_once_and_keeps_waiting(fake: FakeWorkflow) -> None
 
 
 @pytest.mark.anyio
-async def test_busy_result_survives_the_temporal_data_converter() -> None:
-    """The converter drops unset fields; the busy tag must still arrive."""
+async def test_not_admitted_result_survives_the_temporal_data_converter() -> None:
+    """The converter drops unset fields; the not-admitted tag must still arrive."""
     converter = get_data_converter(compression_enabled=False)
-    busy = ConcurrencyBusyResult(
+    busy = NotAdmitted(
         resource=ConcurrencyResource.ACTIONS, in_use=2, limit=2, attempt=3
     )
 
     (decoded,) = await converter.decode(await converter.encode([busy]))
 
-    assert decoded["type"] == "tracecat.concurrency.busy"
-    assert parse_busy_result(decoded) == busy
+    assert decoded["type"] == "tracecat.admission.not_admitted"
+    assert parse_not_admitted(decoded) == busy
 
 
-def test_malformed_busy_payload_is_not_busy() -> None:
-    assert parse_busy_result({"type": "tracecat.concurrency.busy"}) is None
-    assert parse_busy_result({"type": "inline", "data": 1}) is None
+def test_malformed_not_admitted_payload_is_ignored() -> None:
+    assert parse_not_admitted({"type": "tracecat.admission.not_admitted"}) is None
+    assert parse_not_admitted({"type": "inline", "data": 1}) is None
 
 
 async def _two_waiters_with_one_long_action(
@@ -391,7 +391,7 @@ async def test_older_completion_keeps_newer_contention(fake: FakeWorkflow) -> No
     release_a.set()
     for _ in range(50):
         await asyncio.sleep(0)
-    # A's completion said nothing about B's newer busy answer.
+    # A's completion said nothing about B's newer not-admitted answer.
     assert admission._blocked is True  # pyright: ignore[reportPrivateUsage]
     assert admission._needs_timer is True  # pyright: ignore[reportPrivateUsage]
 

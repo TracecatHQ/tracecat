@@ -31,7 +31,7 @@ from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
-from tracecat.admission.types import ConcurrencyBusyResult, parse_busy_result
+from tracecat.admission.types import NotAdmitted, parse_not_admitted
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -76,9 +76,9 @@ from tracecat.workflow.executions.common import (
     get_result,
     get_source_event_id,
     get_stored_result,
-    is_busy_completion,
     is_close_event,
     is_error_event,
+    is_not_admitted_completion,
     is_scheduled_event,
     is_start_event,
     is_unreadable_temporal_payload,
@@ -689,7 +689,7 @@ class WorkflowExecutionsService:
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
         # Map of activity ID to compact event
         activity2eventid: dict[str, int] = {}
-        # Scheduled event IDs of execute_action_activity, the only busy source.
+        # Scheduled event IDs of execute_action_activity, the only source of not-admitted answers.
         executor_sources: set[int] = set()
         fixed_results: dict[str, FixedActionResult] = {}
         fixed_action_names: dict[str, str] = {}
@@ -812,10 +812,10 @@ class WorkflowExecutionsService:
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
                     if source_id in executor_sources:
-                        raw_result = await get_result(event, busy_aware=True)
+                        raw_result = await get_result(event, detect_not_admitted=True)
                     else:
                         raw_result = await get_result(event)
-                    if isinstance(raw_result, ConcurrencyBusyResult):
+                    if isinstance(raw_result, NotAdmitted):
                         # The executor was at the org's limit and ran nothing;
                         # the workflow dispatches again.
                         del id2event[source_id]
@@ -974,7 +974,7 @@ class WorkflowExecutionsService:
         handle = self.handle(wf_exec_id)
         scheduled: dict[int, WorkflowExecutionEventCompact] = {}
         executor_scheduled: set[int] = set()
-        # What each executor attempt replaced in ``latest``, to undo a busy bounce.
+        # What each executor attempt replaced in ``latest``, to undo a not-admitted bounce.
         superseded: dict[int, tuple[int, RerunSourceAction] | None] = {}
         latest: dict[str, tuple[int, RerunSourceAction]] = {}
         action_names: dict[str, str] = {}
@@ -1038,7 +1038,9 @@ class WorkflowExecutionsService:
                 entry = latest.get(source.action_ref)
                 if entry is None or entry[0] != source_id:
                     continue
-                if source_id in executor_scheduled and await is_busy_completion(event):
+                if source_id in executor_scheduled and await is_not_admitted_completion(
+                    event
+                ):
                     # The executor was at the org's limit and ran nothing: the
                     # attempt before this one still decides the outcome.
                     if (previous := superseded.get(source_id)) is not None:
@@ -1277,9 +1279,9 @@ class WorkflowExecutionsService:
         )
         event_group_names: dict[int, EventGroup | None] = {}
         events: list[WorkflowExecutionEvent] = []
-        # Scheduled/started event IDs of attempts the executor answered busy.
-        busy_event_ids: set[int] = set()
-        # Scheduled event IDs of execute_action_activity, the only busy source.
+        # Scheduled/started event IDs of attempts the executor did not admit.
+        not_admitted_event_ids: set[int] = set()
+        # Scheduled event IDs of execute_action_activity, the only source of not-admitted answers.
         executor_scheduled: set[int] = set()
         for event in history.events:
             match event.event_type:
@@ -1474,11 +1476,11 @@ class WorkflowExecutionsService:
                     )
                     if (
                         gparent_event_id in executor_scheduled
-                        and parse_busy_result(raw_result) is not None
+                        and parse_not_admitted(raw_result) is not None
                     ):
                         # The executor ran nothing; hide the whole attempt.
-                        busy_event_ids.add(gparent_event_id)
-                        busy_event_ids.add(
+                        not_admitted_event_ids.add(gparent_event_id)
+                        not_admitted_event_ids.add(
                             event.activity_task_completed_event_attributes.started_event_id
                         )
                         continue
@@ -1541,8 +1543,8 @@ class WorkflowExecutionsService:
                     )
                 case _:
                     logger.trace("Unhandled event type", event_type=event.event_type)
-        if busy_event_ids:
-            events = [e for e in events if e.event_id not in busy_event_ids]
+        if not_admitted_event_ids:
+            events = [e for e in events if e.event_id not in not_admitted_event_ids]
         return events
 
     async def iter_list_workflow_execution_event_history(

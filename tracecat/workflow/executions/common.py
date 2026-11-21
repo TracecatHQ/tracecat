@@ -8,7 +8,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
-from tracecat.admission.types import parse_busy_result
+from tracecat.admission.types import parse_not_admitted
 from tracecat.dsl.action import DSLActivities
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
@@ -175,7 +175,7 @@ async def unwrap_action_result(task_result: StoredObject) -> Any:
 _stored_object_validator: TypeAdapter[StoredObject] = TypeAdapter(StoredObject)
 
 
-async def get_result(event: HistoryEvent, *, busy_aware: bool = False) -> Any:
+async def get_result(event: HistoryEvent, *, detect_not_admitted: bool = False) -> Any:
     """Extract and unwrap result from a completed workflow history event.
 
     For activity completions, this unwraps TaskResult/StoredObject to return
@@ -184,8 +184,8 @@ async def get_result(event: HistoryEvent, *, busy_aware: bool = False) -> Any:
 
     Args:
         event: A completed event.
-        busy_aware: Return a ``ConcurrencyBusyResult`` for an executor's busy
-            answer. Pass it only for ``execute_action_activity`` completions
+        detect_not_admitted: Return a ``NotAdmitted`` when the executor did
+            not admit the attempt. Pass it only for ``execute_action_activity`` completions
             (see ``schedules_executor_action``): other activities can return
             user-shaped values.
     """
@@ -203,20 +203,20 @@ async def get_result(event: HistoryEvent, *, busy_aware: bool = False) -> Any:
 
     result = await extract_first(payload)
     # Checked before unwrapping, so an action whose own output looks like a
-    # busy answer is never mistaken for one.
-    if busy_aware and (busy := parse_busy_result(result)) is not None:
-        return busy
+    # not-admitted answer is never mistaken for one.
+    if detect_not_admitted and (not_admitted := parse_not_admitted(result)) is not None:
+        return not_admitted
     return await _unwrap_result(result)
 
 
 EXECUTOR_ACTION_ACTIVITY = ExecutorActivities.execute_action_activity.__name__
-"""The only activity whose result can be an executor's busy answer."""
+"""The only activity whose result can be an executor's not-admitted answer."""
 
 
 def schedules_executor_action(event: HistoryEvent) -> bool:
     """Whether a history event schedules ``execute_action_activity``.
 
-    Busy answers count only for these: other activities (an expression
+    Not-admitted answers count only for these: other activities (an expression
     evaluation, say) can return arbitrary user-shaped values.
     """
     return (
@@ -226,12 +226,12 @@ def schedules_executor_action(event: HistoryEvent) -> bool:
     )
 
 
-async def is_busy_completion(event: HistoryEvent) -> bool:
-    """Whether a completed activity is an executor's busy answer (it ran nothing)."""
+async def is_not_admitted_completion(event: HistoryEvent) -> bool:
+    """Whether a completed activity is an executor's not-admitted answer (it ran nothing)."""
     if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
         return False
     result = await extract_first(event.activity_task_completed_event_attributes.result)
-    return parse_busy_result(result) is not None
+    return parse_not_admitted(result) is not None
 
 
 async def _unwrap_result(result: Any) -> Any:

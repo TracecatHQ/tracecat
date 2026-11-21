@@ -12,7 +12,7 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
-    from tracecat.admission.types import ensure_not_busy
+    from tracecat.admission.types import ensure_admitted
     from tracecat.agent.workflows.tool_execution import (
         AGENT_TOOL_PRIORITY,
         REGISTRY_TOOL_ACTIVITY_BUFFER_SECONDS,
@@ -95,5 +95,5 @@ class ExecuteRegistryToolWorkflow:
                 non_retryable=True,
             ) from e
         # Agent tool calls are never concurrency-gated (ENG-2564 adds their limit).
-        stored = ensure_not_busy(stored, caller="Registry tool call")
+        stored = ensure_admitted(stored, caller="Registry tool call")
         return StoredObjectValidator.validate_python(stored)

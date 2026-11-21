@@ -14,11 +14,11 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat import config
-from tracecat.admission.gate import ConcurrencyBusyError
+from tracecat.admission.gate import NotAdmittedError
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
-    ConcurrencyBusyResult,
     ConcurrencyResource,
+    NotAdmitted,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -124,16 +124,16 @@ def mocks() -> Iterator[SimpleNamespace]:
 
 
 @pytest.mark.anyio
-async def test_busy_returns_result_before_any_effect(
+async def test_not_admitted_returns_before_any_effect(
     role: Role, mocks: SimpleNamespace
 ) -> None:
-    mocks.acquire.side_effect = ConcurrencyBusyError(
+    mocks.acquire.side_effect = NotAdmittedError(
         resource=ConcurrencyResource.ACTIONS, in_use=4, limit=4
     )
 
     result = await ExecutorActivities.execute_action_activity(_run_input(), role)
 
-    assert result == ConcurrencyBusyResult(
+    assert result == NotAdmitted(
         resource=ConcurrencyResource.ACTIONS, in_use=4, limit=4, attempt=2
     )
     mocks.materialize.assert_not_awaited()
@@ -154,7 +154,7 @@ async def test_agent_tool_calls_are_not_gated(
         _run_input(agent_session_id=uuid.uuid4()), role
     )
 
-    assert not isinstance(result, ConcurrencyBusyResult)
+    assert not isinstance(result, NotAdmitted)
     mocks.dispatch.assert_awaited_once()
     mocks.acquire.assert_not_awaited()
 
@@ -295,13 +295,13 @@ async def test_admitted_probe_signals_the_run(
 
 
 @pytest.mark.anyio
-async def test_busy_probe_and_plain_dispatch_send_no_signal(
+async def test_not_admitted_probe_and_plain_dispatch_send_no_signal(
     role: Role, mocks: SimpleNamespace
 ) -> None:
     mocks.acquire.return_value = _lease()
     await ExecutorActivities.execute_action_activity(_run_input(), role)
 
-    mocks.acquire.side_effect = ConcurrencyBusyError(
+    mocks.acquire.side_effect = NotAdmittedError(
         resource=ConcurrencyResource.ACTIONS, in_use=1, limit=1
     )
     await ExecutorActivities.execute_action_activity(_probe_input(), role)
@@ -320,7 +320,7 @@ async def test_failed_admission_signal_does_not_fail_the_action(
 
     result = await ExecutorActivities.execute_action_activity(_probe_input(), role)
 
-    assert not isinstance(result, ConcurrencyBusyResult)
+    assert not isinstance(result, NotAdmitted)
     mocks.dispatch.assert_awaited_once()
 
 
