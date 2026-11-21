@@ -299,10 +299,16 @@ async def test_executor_worker_continues_after_registry_cache_warmup_failure(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("max_cached_workflows", [None, 200, 0])
 async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, max_cached_workflows: int | None
 ) -> None:
+    from tracecat import config
     from tracecat.dsl import worker
+
+    # Pin the setting: the default case must not read the developer's env.
+    expected_cache = 1000 if max_cached_workflows is None else max_cached_workflows
+    monkeypatch.setattr(config, "TEMPORAL__MAX_CACHED_WORKFLOWS", expected_cache)
 
     shutdown_event = asyncio.Event()
     captured: dict[str, object] = {}
@@ -321,6 +327,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             activity_executor: ThreadPoolExecutor,
             max_concurrent_activities: int,
             max_concurrent_workflow_tasks: int,
+            max_cached_workflows: int,
             graceful_shutdown_timeout: timedelta,
         ) -> None:
             del (
@@ -337,6 +344,7 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
             captured["threadpool_max_workers"] = activity_executor._max_workers
             captured["max_concurrent_activities"] = max_concurrent_activities
             captured["max_concurrent_workflow_tasks"] = max_concurrent_workflow_tasks
+            captured["max_cached_workflows"] = max_cached_workflows
             captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
@@ -369,6 +377,8 @@ async def test_dsl_worker_treats_empty_concurrency_env_vars_as_defaults(
         "threadpool_max_workers": 100,
         "max_concurrent_activities": 100,
         "max_concurrent_workflow_tasks": 100,
+        # Unset keeps the Temporal SDK default; 0 disables the cache.
+        "max_cached_workflows": expected_cache,
         "graceful_shutdown_timeout": timedelta(seconds=30),
         "interceptor_types": ("RuntimeErrorAttributionInterceptor",),
     }
@@ -434,9 +444,11 @@ async def test_agent_worker_registers_runtime_error_attribution_interceptor(
 async def test_dsl_worker_rejects_invalid_slot_counts(
     monkeypatch: pytest.MonkeyPatch, env_var: str, value: str, message: str
 ) -> None:
+    from tracecat import config
     from tracecat.dsl import worker
 
     temporal_worker = Mock()
+    monkeypatch.setattr(config, "TEMPORAL__MAX_CACHED_WORKFLOWS", 1000)
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     monkeypatch.setenv(env_var, value)
     monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
@@ -447,6 +459,49 @@ async def test_dsl_worker_rejects_invalid_slot_counts(
         await worker.main(shutdown_event=asyncio.Event())
 
     temporal_worker.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_dsl_worker_allows_one_workflow_task_without_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two-task minimum applies only while workflow caching is on."""
+    from tracecat import config
+    from tracecat.dsl import worker
+
+    shutdown_event = asyncio.Event()
+    captured: dict[str, int] = {}
+
+    class _FakeWorker:
+        def __init__(
+            self,
+            *_args: object,
+            max_concurrent_workflow_tasks: int,
+            max_cached_workflows: int,
+            **_kwargs: object,
+        ) -> None:
+            captured["max_concurrent_workflow_tasks"] = max_concurrent_workflow_tasks
+            captured["max_cached_workflows"] = max_cached_workflows
+
+        async def __aenter__(self) -> _FakeWorker:
+            shutdown_event.set()
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+    monkeypatch.setattr(config, "TEMPORAL__MAX_CACHED_WORKFLOWS", 0)
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "1")
+    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker, "get_activities", lambda: [])
+    monkeypatch.setattr(worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
+    monkeypatch.setattr(worker, "close_storage_client_cache", AsyncMock())
+
+    await asyncio.wait_for(worker.main(shutdown_event=shutdown_event), 2)
+
+    assert captured == {"max_concurrent_workflow_tasks": 1, "max_cached_workflows": 0}
 
 
 @pytest.mark.anyio

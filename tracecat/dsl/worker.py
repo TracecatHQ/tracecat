@@ -154,7 +154,13 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
     if max_concurrent_activities < _MIN_CONCURRENT_ACTIVITIES:
         raise ValueError("TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1.")
-    if max_concurrent_workflow_tasks < _MIN_CONCURRENT_WORKFLOW_TASKS:
+    max_cached_workflows = config.TEMPORAL__MAX_CACHED_WORKFLOWS
+    if max_cached_workflows < 0:
+        raise ValueError("TEMPORAL__MAX_CACHED_WORKFLOWS must be at least 0.")
+    if (
+        max_cached_workflows > 0
+        and max_concurrent_workflow_tasks < _MIN_CONCURRENT_WORKFLOW_TASKS
+    ):
         raise ValueError(
             "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2 when workflow caching is enabled."
         )
@@ -177,6 +183,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 activity_executor=executor,
                 max_concurrent_activities=max_concurrent_activities,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                max_cached_workflows=max_cached_workflows,
                 graceful_shutdown_timeout=timedelta(seconds=30),
             ):
                 logger.info(
@@ -185,6 +192,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     threadpool_max_workers=threadpool_max_workers,
                     max_concurrent_activities=max_concurrent_activities,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                    max_cached_workflows=max_cached_workflows,
                 )
                 await shutdown_event.wait()
                 logger.info("Worker shutdown requested")

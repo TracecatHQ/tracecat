@@ -51,6 +51,9 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
     for attr in TemporalSearchAttr
 }
 
+TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS = 5
+"""`Retry-After` seconds sent with a 503 when Temporal can't take a call."""
+
 _TRANSIENT_TEMPORAL_RPC_STATUSES = frozenset(
     {
         RPCStatusCode.DEADLINE_EXCEEDED,
@@ -213,6 +216,7 @@ async def temporal_rpc_exception_handler(request: Request, exc: Exception) -> Re
                 ),
             }
         },
+        headers={"Retry-After": str(TEMPORAL_UNAVAILABLE_RETRY_AFTER_SECONDS)},
     )
 
 

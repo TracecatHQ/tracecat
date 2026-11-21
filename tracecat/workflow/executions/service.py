@@ -31,6 +31,7 @@ from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
+from tracecat.admission.pacing import UNPACED, StartPacer, StartSlot
 from tracecat.admission.types import NotAdmitted, parse_not_admitted
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
@@ -139,6 +140,10 @@ class WorkflowExecutionResultMaskedError(PermissionError):
 
 class WorkflowExecutionNotFoundError(ValueError):
     """Raised when a workflow execution is not visible in the current workspace."""
+
+
+class WorkflowStartTimeoutError(TimeoutError):
+    """Temporal didn't answer a workflow start in time; the run may exist."""
 
 
 @dataclass(frozen=True)
@@ -1891,6 +1896,7 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+        start_slot = await self._reserve_start()
 
         # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
@@ -1904,12 +1910,9 @@ class WorkflowExecutionsService:
             time_anchor = datetime.datetime.now(datetime.UTC)
 
         # Storing the trigger inputs as a StoredObject
-        trigger_inputs_ref: StoredObject | None = None
-        if trigger_inputs is not None:
-            storage = get_object_storage()
-            trigger_inputs_ref = await storage.store(
-                f"{wf_exec_id}/trigger.json", trigger_inputs
-            )
+        trigger_inputs_ref = await self._store_trigger_inputs(
+            wf_exec_id, trigger_inputs, start_slot
+        )
 
         logger.info(
             "Executing DSL workflow",
@@ -1946,6 +1949,8 @@ class WorkflowExecutionsService:
         # Add execution type search attribute
         pairs.append(execution_type.to_temporal_search_attr_pair())
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
+        # Apply the delay last: Temporal counts it from submission.
+        self._apply_start_delay(kwargs, start_slot.remaining_delay())
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
@@ -1964,6 +1969,10 @@ class WorkflowExecutionsService:
                 search_attributes=search_attrs,
                 **kwargs,
             )
+        except WorkflowAlreadyStartedError:
+            # The execution ID is taken, so this call made no run.
+            await self._refund_start(start_slot)
+            raise
         except WorkflowFailureError as e:
             if isinstance(e.cause, TerminatedError):
                 self.logger.info(
@@ -2012,6 +2021,51 @@ class WorkflowExecutionsService:
         self.logger.debug("Workflow result", result=result)
         return WorkflowDispatchResponse(wf_id=wf_id, result=result)
 
+    async def _reserve_start(self) -> StartSlot:
+        """Reserve one paced start for the role's org."""
+        if self.role is None or self.role.organization_id is None:
+            return UNPACED
+        return await StartPacer().reserve(self.role.organization_id)
+
+    async def _refund_start(self, start_slot: StartSlot) -> None:
+        """Give back the role's org a start slot that made no run."""
+        if self.role is None or self.role.organization_id is None:
+            return
+        await StartPacer().refund(self.role.organization_id, start_slot)
+
+    async def _store_trigger_inputs(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        trigger_inputs: TriggerInputs | None,
+        start_slot: StartSlot,
+    ) -> StoredObject | None:
+        """Store a start's trigger inputs; a failure gives back its start slot."""
+        if trigger_inputs is None:
+            return None
+        try:
+            return await get_object_storage().store(
+                f"{wf_exec_id}/trigger.json", trigger_inputs
+            )
+        except Exception:
+            # Nothing reached Temporal, so the start made no run.
+            await self._refund_start(start_slot)
+            raise
+
+    @staticmethod
+    def _apply_start_delay(
+        kwargs: dict[str, Any], start_delay: datetime.timedelta
+    ) -> None:
+        """Delay the run in Temporal without shortening its execution timeout.
+
+        Temporal counts the start delay against the execution timeout, so the
+        timeout grows by the delay and still measures time from the real start.
+        """
+        if not start_delay:
+            return
+        kwargs["start_delay"] = start_delay
+        if (execution_timeout := kwargs.get("execution_timeout")) is not None:
+            kwargs["execution_timeout"] = execution_timeout + start_delay
+
     async def _start_workflow(
         self,
         dsl: DSLInput,
@@ -2027,6 +2081,7 @@ class WorkflowExecutionsService:
         correlation_id: str | None = None,
         **kwargs: Any,
     ) -> None:
+        """Start a DSL workflow run, paced by the org's start rate."""
         if self.role is None:
             raise ValueError("Role is required to dispatch a workflow")
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -2039,6 +2094,7 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+        start_slot = await self._reserve_start()
 
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
@@ -2048,12 +2104,9 @@ class WorkflowExecutionsService:
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 
-        trigger_inputs_ref: StoredObject | None = None
-        if trigger_inputs is not None:
-            storage = get_object_storage()
-            trigger_inputs_ref = await storage.store(
-                f"{wf_exec_id}/trigger.json", trigger_inputs
-            )
+        trigger_inputs_ref = await self._store_trigger_inputs(
+            wf_exec_id, trigger_inputs, start_slot
+        )
 
         try:
             dispatch_timeout_seconds = float(config.TEMPORAL__CLIENT_RPC_TIMEOUT)
@@ -2107,6 +2160,8 @@ class WorkflowExecutionsService:
         if correlation_id is not None:
             pairs.append(TemporalSearchAttr.CORRELATION_ID.create_pair(correlation_id))
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
+        # Apply the delay last: Temporal counts it from submission.
+        self._apply_start_delay(kwargs, start_slot.remaining_delay())
 
         try:
             await asyncio.wait_for(
@@ -2133,6 +2188,12 @@ class WorkflowExecutionsService:
                 ),
                 timeout=start_timeout,
             )
+        except WorkflowAlreadyStartedError:
+            # A retried start with a fixed execution ID made no new run, so
+            # it gives its pacing slot back. Otherwise retries of runs that
+            # already started would use up the org's rate.
+            await self._refund_start(start_slot)
+            raise
         except TimeoutError as e:
             self.logger.error(
                 "Timed out while dispatching workflow start",
@@ -2141,7 +2202,7 @@ class WorkflowExecutionsService:
                 timeout_seconds=start_timeout,
                 error=str(e),
             )
-            raise TimeoutError(
+            raise WorkflowStartTimeoutError(
                 "Timed out while dispatching workflow to Temporal. "
                 "Verify Temporal reachability, namespace, and worker availability."
             ) from e
