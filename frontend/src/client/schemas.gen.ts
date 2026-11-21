@@ -35468,6 +35468,7 @@ export const $SearchErrorCode = {
     "PROVIDER_UNAVAILABLE",
     "INVALID_CURSOR",
     "INVALID_TABLE_NAME",
+    "SOURCE_BUSY",
   ],
   title: "SearchErrorCode",
   description:

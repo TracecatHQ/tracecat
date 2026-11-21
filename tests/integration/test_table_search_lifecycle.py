@@ -56,6 +56,7 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
+from tracecat.tables.search import service as search_service_module
 from tracecat.tables.search.router import (
     require_semantic_search_entitlement,
 )
@@ -409,6 +410,72 @@ async def test_enablement_waits_for_unconfigured_writer(
         )
     finally:
         release.set()
+        await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "workspace_lock",
+    [
+        # Times out on the workspace lock, held shared by today's row writers.
+        pytest.param(True, id="workspace-lock-writer"),
+        # Times out on the table lock alone, as writers will once they stop
+        # taking the workspace lock.
+        pytest.param(False, id="table-lock-only-writer"),
+    ],
+)
+async def test_selection_gives_up_on_a_busy_table(
+    tables: TablesService,
+    table: Table,
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_lock: bool,
+):
+    monkeypatch.setattr(search_service_module, "SELECTION_LOCK_TIMEOUT", "200ms")
+    engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    table_id = table.id
+    column_id = next(c.id for c in table.columns if c.name == "body")
+    physical = f'"{tables._get_schema_name()}"."{table.name}"'
+    await tables.session.commit()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def writer():
+        async with sessions.begin() as session:
+            if workspace_lock:
+                service = BaseTablesService(session, tables.role)
+                live = await service.get_table(table_id)
+                await service.insert_row(live, TableRowInsert(data={"body": "open"}))
+            else:
+                # A writer that takes no workspace lock, as row writers will
+                # once enablement relies on the table lock alone.
+                await session.execute(
+                    sa.text(f"INSERT INTO {physical} (body) VALUES ('open')")
+                )
+            entered.set()
+            await release.wait()
+
+    async def select() -> SearchCollection | None:
+        async with sessions.begin() as session:
+            store = TableSearchService(session, tables.search.scope)
+            return await store.select_column(
+                table_id,
+                TableSearchSelection(
+                    column_id=column_id, enabled=True, expected_generation=0
+                ),
+            )
+
+    task = asyncio.create_task(writer())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        with pytest.raises(SearchError) as exc:
+            await asyncio.wait_for(select(), 5)
+        assert exc.value.code == SearchErrorCode.SOURCE_BUSY
+        release.set()
+        await asyncio.wait_for(task, 5)
+        assert await asyncio.wait_for(select(), 5) is not None
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
         await engine.dispose()
 
 

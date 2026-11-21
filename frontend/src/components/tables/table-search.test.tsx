@@ -522,6 +522,28 @@ test("conflicts refresh and preserve confirmed selection without a success toast
   ).toBeEnabled()
 })
 
+test("busy search settings ask to try again without refreshing", async () => {
+  jest.mocked(tablesSelectTableSearchColumn).mockRejectedValue(
+    Object.assign(new Error("busy"), {
+      status: 409,
+      body: { detail: { code: "SOURCE_BUSY" } },
+    })
+  )
+  setup(menus())
+  const dialog = await chooseSearchItem(ENABLE)
+  fireEvent.click(within(dialog).getByRole("button", { name: ENABLE }))
+  await waitFor(() =>
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Search settings are busy" })
+    )
+  )
+  expect(toast).toHaveBeenCalledTimes(1)
+  expect(tablesGetTableSearch).toHaveBeenCalledTimes(1)
+  expect(
+    await within(dialog).findByRole("button", { name: ENABLE })
+  ).toBeEnabled()
+})
+
 test("the confirm shows a loading state while its write is pending and a failure keeps confirmed state", async () => {
   let rejectWrite: (error: unknown) => void = () => undefined
   jest.mocked(tablesSelectTableSearchColumn).mockImplementation(

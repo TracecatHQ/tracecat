@@ -10887,6 +10887,7 @@ export type SearchErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "INVALID_CURSOR"
   | "INVALID_TABLE_NAME"
+  | "SOURCE_BUSY"
 
 /**
  * Index availability and document counts for a collection.
