@@ -307,6 +307,7 @@ async def test_run_agent_activity_classifies_missing_stdio_source_id(
     monkeypatch.setattr(executor_activity, "activity", _fake_temporal_activity())
 
     result = await run_agent_activity(executor_input)
+    assert isinstance(result, AgentExecutorResult)
 
     assert result.success is False
     assert result.error == "Agent configuration is invalid"
@@ -1253,6 +1254,7 @@ async def _run_full_claude_harness_runtime_case(
                 enable_internet_access=enable_internet_access
             )
         )
+        assert isinstance(result, AgentExecutorResult)
     finally:
         await broker.stop()
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -1648,6 +1650,7 @@ async def _run_mcp_compression_initialize_case(
 
     try:
         result = await run_agent_activity(executor_input)
+        assert isinstance(result, AgentExecutorResult)
     finally:
         await broker.stop()
         if mcp_proxy is not None:
@@ -2263,6 +2266,7 @@ async def _run_activity_with_fake_loopback_runtime(
     await broker.start()
     try:
         result = await run_agent_activity(executor_input)
+        assert isinstance(result, AgentExecutorResult)
     finally:
         await broker.stop()
         _FakeLoopbackRuntime.script = None
@@ -2610,6 +2614,7 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
         result = await run_agent_activity(
             _make_passthrough_executor_input(enable_internet_access=False),
         )
+        assert isinstance(result, AgentExecutorResult)
     finally:
         await broker.stop()
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -2773,6 +2778,7 @@ async def _run_attached_skills_visible_case(
 
     try:
         result = await run_agent_activity(executor_input)
+        assert isinstance(result, AgentExecutorResult)
     finally:
         await broker.stop()
 
@@ -2904,6 +2910,7 @@ async def _run_duckdb_cli_available_case(
         result = await run_agent_activity(
             _make_passthrough_executor_input(enable_internet_access=False)
         )
+        assert isinstance(result, AgentExecutorResult)
     finally:
         await broker.stop()
 

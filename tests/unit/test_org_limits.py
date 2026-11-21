@@ -14,7 +14,12 @@ from tracecat.exceptions import ScopeDeniedError
 from tracecat.identifiers import OrganizationID
 from tracecat.tiers import service as tier_service_module
 from tracecat.tiers.enums import ConcurrencyLimitName
-from tracecat.tiers.schemas import OrganizationTierUpdate, TierCreate, TierUpdate
+from tracecat.tiers.schemas import (
+    EffectiveLimits,
+    OrganizationTierUpdate,
+    TierCreate,
+    TierUpdate,
+)
 from tracecat.tiers.service import OrgLimitsService, TierService
 from tracecat.tiers.types import ConcurrencyUsage
 
@@ -103,9 +108,12 @@ async def test_new_limits_inherit_tier_unless_overridden(
 
 @pytest.mark.anyio
 async def test_get_limits_reports_unknown_usage(
-    session: AsyncSession, test_org: Organization
+    session: AsyncSession,
+    test_org: Organization,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Every limit is listed; usage is unknown (None), never zero."""
+    """Every limit is listed; without enforcement usage is unknown, never zero."""
+    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
     await _assign_tier(
         session,
         test_org.id,
@@ -148,8 +156,10 @@ async def test_get_limits_reports_observed_usage(
 
     async def _read_usage(
         org_id: OrganizationID,
+        limits: EffectiveLimits,
     ) -> dict[ConcurrencyLimitName, ConcurrencyUsage]:
         assert org_id == test_org.id
+        assert limits.max_concurrent_tool_calls is None
         return {
             ConcurrencyLimitName.MAX_CONCURRENT_ACTIONS: ConcurrencyUsage(
                 in_use=3, observed_at=observed_at

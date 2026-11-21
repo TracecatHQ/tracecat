@@ -147,16 +147,39 @@ async def test_not_admitted_returns_before_any_effect(
 
 
 @pytest.mark.anyio
-async def test_agent_tool_calls_are_not_gated(
+async def test_agent_tool_calls_count_against_the_tool_call_limit(
     role: Role, mocks: SimpleNamespace
 ) -> None:
+    mocks.acquire.return_value = _lease()
+
     result = await ExecutorActivities.execute_action_activity(
         _run_input(agent_session_id=uuid.uuid4()), role
     )
 
     assert not isinstance(result, NotAdmitted)
     mocks.dispatch.assert_awaited_once()
-    mocks.acquire.assert_not_awaited()
+    assert mocks.acquire.await_args.kwargs["resource"] is (
+        ConcurrencyResource.TOOL_CALLS
+    )
+
+
+@pytest.mark.anyio
+async def test_not_admitted_tool_call_executes_nothing(
+    role: Role, mocks: SimpleNamespace
+) -> None:
+    mocks.acquire.side_effect = NotAdmittedError(
+        resource=ConcurrencyResource.TOOL_CALLS, in_use=2, limit=2
+    )
+
+    result = await ExecutorActivities.execute_action_activity(
+        _run_input(agent_session_id=uuid.uuid4()), role
+    )
+
+    assert result == NotAdmitted(
+        resource=ConcurrencyResource.TOOL_CALLS, in_use=2, limit=2, attempt=2
+    )
+    mocks.materialize.assert_not_awaited()
+    mocks.dispatch.assert_not_awaited()
 
 
 @pytest.mark.anyio

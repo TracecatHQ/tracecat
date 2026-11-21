@@ -409,3 +409,61 @@ def test_late_ack_for_a_finished_probe_is_ignored() -> None:
     )
     admission.acknowledge("admission-probe-already-done")
     assert admission._acked == set()  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_interrupt_ends_the_backoff_early(fake: FakeWorkflow) -> None:
+    results: list[Any] = [_busy(), {"type": "inline"}]
+    started_at = fake.clock
+    checks = 0
+
+    def cancelled() -> bool:
+        # False when the wait starts; a user cancel arrives a few polls later.
+        nonlocal checks
+        checks += 1
+        return checks > 3
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return results.pop(0)
+
+    result = await _admission().execute(dispatch, max_attempts=1, interrupt=cancelled)
+
+    assert result == {"type": "inline"}
+    assert checks > 3  # the interrupt was observed during the wait
+    assert fake.sleeps == []  # no plain timer
+    assert fake.clock == started_at  # the backoff never ran out
+
+
+@pytest.mark.anyio
+async def test_interrupt_that_stays_false_waits_out_the_backoff(
+    fake: FakeWorkflow,
+) -> None:
+    results: list[Any] = [_busy(), {"type": "inline"}]
+    started_at = fake.clock
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return results.pop(0)
+
+    result = await _admission().execute(
+        dispatch, max_attempts=1, interrupt=lambda: False
+    )
+
+    assert result == {"type": "inline"}
+    assert fake.sleeps == []
+    assert fake.clock > started_at  # the timed wait ran to its timeout
+
+
+@pytest.mark.anyio
+async def test_interrupt_ends_only_one_backoff(fake: FakeWorkflow) -> None:
+    """A dispatch that ignores the interrupt still waits on timers after it."""
+    results: list[Any] = [_busy(), _busy(), _busy(), {"type": "inline"}]
+
+    async def dispatch(_max_attempts: int, _probe_id: str | None) -> Any:
+        return results.pop(0)
+
+    result = await _admission().execute(
+        dispatch, max_attempts=1, interrupt=lambda: True
+    )
+
+    assert result == {"type": "inline"}
+    assert len(fake.sleeps) == 2  # first backoff interrupted, the rest are timers
