@@ -284,6 +284,9 @@ async def acquire(
 
     give_up_at = time.monotonic() + FAIL_OPEN_AFTER_SECONDS
     backoff = RETRY_BACKOFF_SECONDS
+    # An attempt whose Redis reply was lost may hold the lease; release it on
+    # any way out that doesn't keep it.
+    lease_uncertain = False
     while True:
         admission, lease = await _try_admit(
             org_id=org_id,
@@ -316,8 +319,7 @@ async def acquire(
                 )
                 raise NotAdmittedError(resource=resource, in_use=in_use, limit=limit)
             case Deferred(reason=reason, error=error):
-                if reason is NotAdmittedReason.EXECUTOR_OVERLOADED:
-                    # The acquire may have run with its reply lost.
+                if lease_uncertain or reason is NotAdmittedReason.EXECUTOR_OVERLOADED:
                     await _release_quietly(org_id, resource, lease_id, units)
                 logger.warning(
                     "concurrency.deferred",
@@ -335,6 +337,7 @@ async def acquire(
                     reason=reason,
                 )
             case Unenforced(error=error):
+                lease_uncertain = True
                 if time.monotonic() + backoff >= give_up_at:
                     # Redis is shared by every org: skip it for a while.
                     _breaker_open_until = time.monotonic() + BREAKER_SECONDS

@@ -600,3 +600,35 @@ def test_pool_check_never_raises_on_an_unexpected_pool() -> None:
     client.connection_pool = object()  # No redis-py internals.
     store = LeaseStore(client)
     assert store.pool_exhausted() is False
+
+
+@pytest.mark.anyio
+async def test_lookup_deferral_after_a_lost_reply_releases_the_lease() -> None:
+    """An outage-path retry that then defers on the lookup must not strand a lease."""
+    store = _timeout_store(TimeoutError("reply lost"))
+    resolve = AsyncMock(side_effect=[5, LimitUnavailableError("db down")])
+    with (
+        patch.object(gate, "resolve_limit", new=resolve),
+        patch.object(gate.LeaseStore, "create", new=AsyncMock(return_value=store)),
+        pytest.raises(NotAdmittedError) as exc_info,
+    ):
+        await _admit(units=2)
+    assert exc_info.value.reason is NotAdmittedReason.LIMIT_UNAVAILABLE
+    store.release.assert_awaited_once_with(ORG_ID, ACTIONS, "run:1:1", units=2)
+    assert gate._breaker_open_until == 0.0
+
+
+@pytest.mark.anyio
+async def test_first_attempt_lookup_deferral_never_touches_redis() -> None:
+    create = AsyncMock()
+    with (
+        patch.object(
+            gate,
+            "resolve_limit",
+            new=AsyncMock(side_effect=LimitUnavailableError("db down")),
+        ),
+        patch.object(gate.LeaseStore, "create", new=create),
+        pytest.raises(NotAdmittedError),
+    ):
+        await _admit()
+    create.assert_not_awaited()
