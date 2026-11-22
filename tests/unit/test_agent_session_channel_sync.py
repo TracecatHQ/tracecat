@@ -366,15 +366,16 @@ def _client(role: Role, agent_session: AgentSession):
 
 
 @pytest.mark.parametrize(
-    ("created_by", "entity_type", "allowed"),
+    ("created_by", "entity_type", "participated", "allowed"),
     [
-        pytest.param(USER_ID, "agent_preset", True, id="own-session"),
-        pytest.param(None, "external_channel", True, id="channel-started"),
-        pytest.param(uuid.uuid4(), "agent_preset", False, id="teammate-session"),
+        pytest.param(USER_ID, "agent_preset", False, True, id="own-session"),
+        pytest.param(None, "external_channel", False, True, id="channel-started"),
+        pytest.param(uuid.uuid4(), "agent_preset", False, False, id="teammate-session"),
+        pytest.param(uuid.uuid4(), "agent_preset", True, True, id="teammate-who-sent"),
     ],
 )
 def test_toggling_needs_the_right_to_talk_to_the_agent(
-    created_by: uuid.UUID | None, entity_type: str, allowed: bool
+    created_by: uuid.UUID | None, entity_type: str, participated: bool, allowed: bool
 ) -> None:
     role = _user_role()
     assert role.workspace_id is not None
@@ -383,8 +384,14 @@ def test_toggling_needs_the_right_to_talk_to_the_agent(
     )
     app, get_session = _client(role, agent_session)
     toggled = AgentSessionChannelSyncRead(available=True, enabled=False)
+    sent_in = {agent_session.id} if participated else set()
     with (
         get_session,
+        patch.object(
+            AgentSessionService,
+            "participated_session_ids",
+            AsyncMock(return_value=sent_in),
+        ),
         patch.object(
             session_router,
             "_require_workspace_chat_entitlement_for_session_tree",
@@ -413,6 +420,11 @@ def test_reading_a_session_the_actor_cannot_toggle_hides_the_toggle() -> None:
     app, get_session = _client(role, agent_session)
     with (
         get_session,
+        patch.object(
+            AgentSessionService,
+            "participated_session_ids",
+            AsyncMock(return_value=set()),
+        ),
         patch.object(
             session_router, "get_channel_sync_enabled", AsyncMock(return_value=True)
         ),
