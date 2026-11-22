@@ -549,6 +549,29 @@ describe("message authors", () => {
     expect(screen.queryByText("U1")).not.toBeInTheDocument()
   })
 
+  it("labels a linked channel sender with their Tracecat name", () => {
+    const message: UIMessage = {
+      id: "u2-linked",
+      role: "user",
+      parts: [
+        {
+          type: "data-channel-message",
+          data: {
+            provider: "slack",
+            text: "triage this",
+            sender: { provider_user_id: "U1", name: "dana.slack" },
+            quoted: [],
+            people: [{ provider_user_id: "U1", name: "Dana Scully" }],
+          },
+        },
+      ],
+    }
+    render(<MessageParts message={message} status="ready" isLastMessage />)
+
+    expect(screen.getByText("Dana Scully")).toBeInTheDocument()
+    expect(screen.queryByText("dana.slack")).not.toBeInTheDocument()
+  })
+
   it("draws no label when no author was recorded", () => {
     const message: UIMessage = {
       id: "u3",

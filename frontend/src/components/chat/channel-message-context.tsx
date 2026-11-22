@@ -49,6 +49,15 @@ function quotedAuthor(
   return channelPersonName(message, quoted.author_id, fallback)
 }
 
+/** The sender's linked Tracecat name, else their provider display name. */
+export function channelSenderName(message: ChannelMessageData): string | null {
+  const person = (message.people ?? []).find(
+    (candidate) =>
+      candidate.provider_user_id === message.sender.provider_user_id
+  )
+  return person?.name ?? message.sender.name ?? null
+}
+
 /** The text with Slack user mentions shown by name instead of ID. */
 export function withChannelMentionNames(
   text: string,

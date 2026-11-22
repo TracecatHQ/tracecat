@@ -41,6 +41,7 @@ import { ApprovalRequestPart } from "@/components/chat/approval-request-part"
 import { AgentReplyText } from "@/components/chat/artifact-mention"
 import {
   ChannelMessageContext,
+  channelSenderName,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
@@ -229,7 +230,11 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={message.text}
         channelMessage={message.channelMessage}
-        authorName={message.channelMessage?.sender.name ?? authorName}
+        authorName={
+          (message.channelMessage &&
+            channelSenderName(message.channelMessage)) ??
+          authorName
+        }
       />
     )
   }
@@ -242,7 +247,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={channelMessage.text}
         channelMessage={channelMessage}
-        authorName={channelMessage.sender.name ?? authorName}
+        authorName={channelSenderName(channelMessage) ?? authorName}
       />
     )
   }
