@@ -21,6 +21,12 @@ jobs:
       should_run: ${{ steps.decision.outputs.should_run }}
       cache_hit: ${{ steps.decision.outputs.cache_hit }}
     steps:
+      - name: Configure credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: admin
+          profile-region: us-east-1
       - name: Check trigger policy
         id: trigger-policy
         env:
@@ -98,6 +104,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+      - name: Configure credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: admin
+          profile-region: us-east-1
+          async: true
 
       # Load the private deploy key into an ssh-agent.
       # The secret value MUST be the *raw* PEM text, not base64.
