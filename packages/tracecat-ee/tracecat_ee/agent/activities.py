@@ -36,6 +36,7 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.plugin_tools import granted_plugin_internal_tools
 from tracecat.agent.mcp.stdio_runner import (
     stdio_mcp_tool_definition,
     usable_stdio_mcp_tools,
@@ -82,6 +83,9 @@ class BuildToolDefsArgs(BaseModel):
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
     """Context for internal tools (e.g., preset_id for builder assistant)."""
+    session_id: uuid.UUID | None = None
+    """The root agent's session, which plugins grant internal tools by.
+    Unset for subagent scopes, which never get plugin tools."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
     include_stdio_mcp_servers: bool = False
@@ -102,6 +106,9 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
     """Context for internal tools (e.g., preset_id for builder assistant)."""
+    session_id: uuid.UUID | None = None
+    """The root agent's session, which plugins grant internal tools by.
+    Unset for subagent scopes, which never get plugin tools."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
     include_stdio_mcp_servers: bool = False
@@ -463,6 +470,17 @@ class AgentActivities:
                 tool_count=len(internal_defs),
                 tools=list(internal_defs.keys()),
             )
+        if args.session_id is not None:
+            for plugin_tool in await granted_plugin_internal_tools(
+                role, args.session_id
+            ):
+                defs[plugin_tool.name] = plugin_tool.definition
+                allowed_internal_tools = [
+                    *(allowed_internal_tools or []),
+                    plugin_tool.name,
+                ]
+                if plugin_tool.requires_approval:
+                    effective_tool_approvals.setdefault(plugin_tool.name, True)
 
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
@@ -836,6 +854,7 @@ class AgentActivities:
                 tool_tunnels=args.tool_tunnels,
                 mcp_servers=args.mcp_servers,
                 internal_tool_context=args.internal_tool_context,
+                session_id=args.session_id,
                 fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,
                 include_stdio_mcp_servers=args.include_stdio_mcp_servers,
             ),

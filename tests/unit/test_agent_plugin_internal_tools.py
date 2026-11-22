@@ -1,0 +1,165 @@
+"""Internal tools registered by plugins through the entry point."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from collections.abc import Collection, Iterator, Sequence
+from typing import Any
+
+import pytest
+from fastmcp.exceptions import ToolError
+from tracecat_ee.agent.workflows.durable import _approved_internal_tool_name
+
+from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.mcp import plugin_tools, trusted_server
+from tracecat.agent.mcp.internal_tools import InternalToolError
+from tracecat.agent.mcp.plugin_tools import (
+    PluginInternalTool,
+    granted_plugin_internal_tools,
+    plugin_internal_tools,
+)
+from tracecat.agent.tokens import MCPTokenClaims
+from tracecat.auth.types import Role
+
+READ = "internal.demo.read"
+WRITE = "internal.demo.write"
+
+
+async def _echo(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
+    if args.get("fail"):
+        raise InternalToolError("refused for the agent")
+    return {"session": str(claims.session_id), "args": args}
+
+
+def _tool(name: str, *, requires_approval: bool = False) -> PluginInternalTool:
+    return PluginInternalTool(
+        definition=MCPToolDefinition(
+            name=name,
+            description=name,
+            parameters_json_schema={"type": "object", "additionalProperties": False},
+        ),
+        handler=_echo,
+        requires_approval=requires_approval,
+    )
+
+
+class _Plugin:
+    def __init__(
+        self,
+        tools: Sequence[PluginInternalTool],
+        granted: Collection[str] = (),
+        *,
+        fails: bool = False,
+    ) -> None:
+        self._tools = tools
+        self._granted = granted
+        self._fails = fails
+
+    def tools(self) -> Sequence[PluginInternalTool]:
+        return self._tools
+
+    async def granted_tools(self, role: Role, session_id: uuid.UUID) -> Collection[str]:
+        if self._fails:
+            raise RuntimeError("boom")
+        return self._granted
+
+
+@pytest.fixture
+def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    def install(*plugins: _Plugin) -> None:
+        plugin_internal_tools.cache_clear()
+        monkeypatch.setattr(plugin_tools, "_plugins", lambda: plugins)
+
+    yield install
+    plugin_internal_tools.cache_clear()
+
+
+def _role() -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-agent-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+
+def _claims(allowed: list[str], deferred: list[str] | None = None) -> MCPTokenClaims:
+    return MCPTokenClaims(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=allowed,
+        allowed_internal_tools=allowed,
+        deferred_actions=deferred or [],
+    )
+
+
+def test_plugin_tool_names_must_be_internal_and_unique(install: Any) -> None:
+    install(_Plugin([_tool("core.demo")]))
+    with pytest.raises(ValueError, match="must start with"):
+        plugin_internal_tools()
+    install(_Plugin([_tool(READ)]), _Plugin([_tool(READ)]))
+    with pytest.raises(ValueError, match="registered twice"):
+        plugin_internal_tools()
+    install(_Plugin([_tool("internal.builder.update_preset")]))
+    with pytest.raises(ValueError, match="registered twice"):
+        plugin_internal_tools()
+
+
+@pytest.mark.anyio
+async def test_a_session_gets_only_granted_tools_and_a_failing_plugin_grants_none(
+    install: Any,
+) -> None:
+    install(
+        _Plugin([_tool(READ), _tool(WRITE)], granted=[WRITE, "internal.other.x"]),
+        _Plugin(
+            [_tool("internal.broken.tool")],
+            granted=["internal.broken.tool"],
+            fails=True,
+        ),
+    )
+    granted = await granted_plugin_internal_tools(_role(), uuid.uuid4())
+    assert [tool.name for tool in granted] == [WRITE]
+
+
+@pytest.mark.anyio
+async def test_the_trusted_server_lists_and_runs_only_allowed_plugin_tools(
+    install: Any,
+) -> None:
+    install(_Plugin([_tool(READ), _tool(WRITE, requires_approval=True)]))
+    claims = _claims([READ], deferred=[WRITE])
+    build = await trusted_server._build_token_scoped_tools(claims)
+    assert sorted(tool.name for tool in build.tools) == [
+        "internal__demo__read",
+        "internal__demo__write",
+    ]
+
+    result = json.loads(
+        await trusted_server.call_token_scoped_tool(
+            "internal__demo__read", {"a": 1}, claims
+        )
+    )
+    assert result == {"session": str(claims.session_id), "args": {"a": 1}}
+    with pytest.raises(ToolError, match="requires approval"):
+        await trusted_server.call_token_scoped_tool("internal__demo__write", {}, claims)
+    with pytest.raises(ToolError, match="not authorized"):
+        await trusted_server.call_token_scoped_tool(
+            "internal__demo__read", {}, _claims([])
+        )
+    with pytest.raises(ToolError, match="refused for the agent"):
+        await trusted_server.call_token_scoped_tool(
+            "internal__demo__read", {"fail": True}, claims
+        )
+
+
+def test_approved_internal_calls_route_to_the_trusted_router() -> None:
+    assert (
+        _approved_internal_tool_name("mcp__tracecat-registry__internal__demo__write")
+        == "internal__demo__write"
+    )
+    assert (
+        _approved_internal_tool_name("internal.demo.write") == "internal__demo__write"
+    )
+    assert _approved_internal_tool_name("core.http_request") is None
+    assert _approved_internal_tool_name("mcp.Jira.getIssue") is None
