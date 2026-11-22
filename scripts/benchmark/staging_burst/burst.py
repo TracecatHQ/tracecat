@@ -222,9 +222,12 @@ def sample(args: argparse.Namespace) -> None:
                             for c in p["status"].get("containerStatuses", [])
                         ),
                         "last_terminated": [
-                            c.get("lastState", {}).get("terminated", {}).get("reason")
+                            {
+                                "reason": term.get("reason"),
+                                "finished_at": term.get("finishedAt"),
+                            }
                             for c in p["status"].get("containerStatuses", [])
-                            if c.get("lastState", {}).get("terminated")
+                            if (term := c.get("lastState", {}).get("terminated"))
                         ],
                     }
                     for p in pods["items"]
@@ -262,17 +265,28 @@ def collect(args: argparse.Namespace) -> None:
         "env", *env, "python", "-",
     ]  # fmt: skip
     collector = HERE / "pod_collect.py"
-    # The collector runs in the worker pod with its credentials, so only ever
-    # ship the committed file, never local edits.
-    dirty = subprocess.run(
-        ["git", "-C", str(HERE), "status", "--porcelain", "--", collector.name],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    if dirty and not args.allow_dirty:
-        sys.exit(f"{collector} differs from git HEAD; commit it or pass --allow-dirty")
-    script = collector.read_text()
+    # The collector runs in the worker pod with its credentials, so ship the
+    # bytes committed at HEAD (what was reviewed), not whatever is on disk.
+    # Committed code is trusted like any other script in the repo.
+    if args.allow_dirty:
+        print(f"warning: shipping the working-tree {collector}", file=sys.stderr)
+        script = collector.read_text()
+    else:
+        script = subprocess.run(
+            ["git", "-C", str(HERE), "show", f"HEAD:./{collector.name}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        if script != collector.read_text():
+            sys.exit(
+                f"{collector} differs from git HEAD; commit it or pass --allow-dirty"
+            )
+    print(
+        f"collect: running pod_collect.py in {args.context}/{args.namespace} "
+        f"deploy/{args.pod_deployment}",
+        file=sys.stderr,
+    )
     labels = {pair.split("=", 1)[0] for pair in env[0].split("=", 1)[1].split(",")}
     for attempt in range(1, args.attempts + 1):
         proc = subprocess.run(
@@ -350,7 +364,7 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     requests = _read_jsonl(run_dir / "requests.jsonl")
     samples = _read_jsonl(run_dir / "samples.jsonl")
     orgs = sorted(
-        {r["org"] for r in runs} | {q["label"].split("-", 1)[0] for q in requests}
+        {r["org"] for r in collected} | {q["label"].split("-", 1)[0] for q in requests}
     )
     result: dict[str, Any] = {"run": run_dir.name, "orgs": {}}
     for org in orgs:
@@ -445,6 +459,7 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
         ),
     }
     peaks["coverage"] = coverage
+    window_start = min((s["t"] for s in samples), default=0.0)
     for s in samples:
         for pod, dbs in s.get("pgdog", {}).items():
             for db, gauges in dbs.items():
@@ -458,9 +473,14 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             peaks["mem_mib"][pod] = max(peaks["mem_mib"].get(pod, 0), mib)
         for pod, info in s.get("pods", {}).items():
             peaks["restarts"][pod] = info["restarts"]
-            if (
-                "OOMKilled" in info.get("last_terminated", [])
-                and pod not in peaks["oom"]
+            # Kubernetes keeps a container's last termination across runs, so
+            # only count an OOM kill that happened inside this run's window.
+            if pod not in peaks["oom"] and any(
+                term["reason"] == "OOMKilled"
+                and term["finished_at"]
+                and datetime.fromisoformat(term["finished_at"]).timestamp()
+                >= window_start
+                for term in info.get("last_terminated", [])
             ):
                 peaks["oom"].append(pod)
     totals = [
@@ -549,29 +569,39 @@ def _svg_timeline(run_dir: Path) -> str:
             )
         parts.append(
             f'<text x="{width - 150}" y="{30 + 14 * i}" fill="{colors.get(org, "#888")}">'
-            f"org {org} (peak {peak}/5 s)</text>"
+            f"org {html.escape(org)} (peak {peak}/5 s)</text>"
         )
-    totals = [
+    # None marks a sample whose PgDog scrape failed: drawn as a gap, not a zero.
+    totals: list[tuple[float, float | None]] = [
         (
             s["t"],
             sum(
                 g.get("sv_active", 0)
-                for dbs in s.get("pgdog", {}).values()
+                for dbs in s["pgdog"].values()
                 for db, g in dbs.items()
                 if isinstance(g, dict) and db != "_all"
-            ),
+            )
+            if s.get("pgdog") and all("error" not in dbs for dbs in s["pgdog"].values())
+            else None,
         )
         for s in samples
     ]
-    if totals:
-        top = max(140.0, max(v for _, v in totals))
-        pts = " ".join(
-            f"{x(t):.1f},{height - pad - v / top * (height - 2 * pad):.1f}"
-            for t, v in totals
-        )
-        parts.append(
-            f'<polyline points="{pts}" fill="none" stroke="#333" stroke-width="1.5"/>'
-        )
+    if observed := [v for _, v in totals if v is not None]:
+        top = max(140.0, max(observed))
+        segments: list[list[str]] = [[]]
+        for t, v in totals:
+            if v is None:
+                segments.append([])
+                continue
+            segments[-1].append(
+                f"{x(t):.1f},{height - pad - v / top * (height - 2 * pad):.1f}"
+            )
+        for segment in segments:
+            if segment:
+                parts.append(
+                    f'<polyline points="{" ".join(segment)}" fill="none" '
+                    'stroke="#333" stroke-width="1.5"/>'
+                )
         parts.append(
             f'<text x="{width - 150}" y="{30 + 14 * 2}">sv_active (axis 0-{top:.0f})</text>'
         )
@@ -603,13 +633,13 @@ def report(args: argparse.Namespace) -> None:
                 s = m[key]
                 if s["n"]:
                     lines.append(
-                        f"| {title} | {org} | {s['n']} | {_fmt(s['p50'])} | {_fmt(s['p95'])} "
+                        f"| {title} | {_md_text(org)} | {s['n']} | {_fmt(s['p50'])} | {_fmt(s['p95'])} "
                         f"| {_fmt(s['p99'])} | {_fmt(s['max'])} |"
                     )
         lines.append("")
         for org, m in summary["orgs"].items():
             lines.append(
-                f"- Org {org}: statuses {m['statuses']}; API status {m['api_status']}; "
+                f"- Org {_md_text(org)}: statuses {m['statuses']}; API status {m['api_status']}; "
                 f"max action width {m['max_action_width']}; not admitted {m['not_admitted']}; "
                 f"actions failed {m['actions_failed']}; max history {m['history_events_max']} "
                 f"events; signals {m['signals_total']}; "

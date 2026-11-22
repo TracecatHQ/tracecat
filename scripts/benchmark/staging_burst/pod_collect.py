@@ -1,10 +1,8 @@
 """Read Temporal histories for a burst replay run and print per-run timings.
 
 Runs inside a Tracecat DSL worker pod, fed on stdin, so it uses the pod's own
-Temporal client and namespace and no credential leaves the cluster:
-
-    kubectl exec -i deploy/tracecat-worker -- env BURST_WORKSPACES=... \
-        BURST_SINCE=... BURST_UNTIL=... python - < pod_collect.py
+Temporal client and namespace and no credential leaves the cluster. Run it
+through ``burst.py collect``, which ships the copy committed at HEAD.
 
 Read-only: lists workflow executions by workspace and start time and fetches
 their histories. To tell a "not admitted" bounce from a real run, it decodes
@@ -137,11 +135,11 @@ async def summarize(
             status = close
             closed = _ts(event)
             if etype == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
-                failure = EventFailure.sanitize_error_text(
-                    event.workflow_execution_failed_event_attributes.failure.message[
-                        :300
-                    ]
+                # Redact the whole message first: a cut could split a secret.
+                redacted = EventFailure.sanitize_error_text(
+                    event.workflow_execution_failed_event_attributes.failure.message
                 )
+                failure = redacted[:300] if redacted else None
     return {
         "status": status,
         "failure": failure,

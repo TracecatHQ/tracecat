@@ -58,15 +58,15 @@ Each run goes in its own directory. Start the sampler, then the drive, then
 collect once the runs have finished:
 
 ```bash
-D=out/s5-on; mkdir -p $D
-python burst.py sample --out $D/samples.jsonl --duration 600 &
-python burst.py drive --out $D/requests.jsonl \
+D=scripts/benchmark/staging_burst/out/s5-on; mkdir -p $D  # git-ignored
+uv run python scripts/benchmark/staging_burst/burst.py sample --out $D/samples.jsonl --duration 600 &
+uv run python scripts/benchmark/staging_burst/burst.py drive --out $D/requests.jsonl \
   --stream '{"label":"A-scatter","url_env":"BURST_A_SCATTER","rate":0,"count":1,"payload":{"n":500,"secs":2}}' \
   --stream '{"label":"B-quick","url_env":"BURST_B_QUICK","rate":2,"count":400,"concurrency":10}' \
   --stream '{"label":"B-agent","url_env":"BURST_B_AGENT","rate":0.4,"count":60,"payload":{"calls":4}}'
 # after every run has closed:
-python burst.py collect --out $D/runs.jsonl --since 2026-11-22T00:00:00Z --until 2026-11-22T00:20:00Z
-python burst.py report $D --out $D/report.md
+uv run python scripts/benchmark/staging_burst/burst.py collect --out $D/runs.jsonl --since 2026-11-22T00:00:00Z --until 2026-11-22T00:20:00Z
+uv run python scripts/benchmark/staging_burst/burst.py report $D --out $D/report.md
 ```
 
 Stream labels start with the org (`A-…`, `B-…`); `report` groups by that
