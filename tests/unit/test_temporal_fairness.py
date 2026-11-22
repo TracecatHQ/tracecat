@@ -216,6 +216,7 @@ class _FakeScheduleService:
         self.tokens: dict[str, int] = {}
         self.writes = 0
         self.concurrent_edits = 0
+        self.reject_stale_writes = False
 
     def add(self, schedule_id: uuid.UUID, schedule: ScheduleProto) -> ScheduleProto:
         temporal_id = ScheduleUUID.new(schedule_id).to_legacy()
@@ -243,6 +244,10 @@ class _FakeScheduleService:
     ) -> None:
         token = int.from_bytes(req.conflict_token, "big")
         if token != self.tokens[req.schedule_id]:
+            if self.reject_stale_writes:
+                raise RPCError(
+                    "conflict token mismatch", RPCStatusCode.FAILED_PRECONDITION, b""
+                )
             return
         self.schedules[req.schedule_id].CopyFrom(req.schedule)
         self.tokens[req.schedule_id] += 1
@@ -338,12 +343,16 @@ async def test_backfill_replaces_a_wrong_key() -> None:
 
 
 @pytest.mark.anyio
-async def test_backfill_keeps_a_pause_made_after_its_read() -> None:
-    """The stale write is dropped; the backfill reads again and keys the paused schedule."""
+@pytest.mark.parametrize("reject_stale_writes", [False, True])
+async def test_backfill_keeps_a_pause_made_after_its_read(
+    reject_stale_writes: bool,
+) -> None:
+    """The stale write is dropped or rejected; the backfill reads again and keys the paused schedule."""
     owner = _owner()
     service = _FakeScheduleService()
     schedule = service.add(owner.schedule_id, await _schedule(owner.organization_id))
     service.concurrent_edits = 1
+    service.reject_stale_writes = reject_stale_writes
 
     counts = await backfill_schedule_fairness_keys(
         _client(service), [owner], dry_run=False

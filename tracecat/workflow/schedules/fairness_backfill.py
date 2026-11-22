@@ -141,19 +141,24 @@ async def backfill_schedule(
             return "updated"
         # Change only the fairness key; the priority key and weight stay.
         start.priority.fairness_key = key
-        # Temporal drops an update whose conflict token is stale, so a pause or
-        # edit made after the read is never overwritten. The next read decides.
-        await client.workflow_service.update_schedule(
-            UpdateScheduleRequest(
-                namespace=client.namespace,
-                schedule_id=temporal_id,
-                schedule=schedule,
-                conflict_token=described.conflict_token,
-                identity=client.identity,
-                request_id=str(uuid.uuid4()),
-            ),
-            retry=True,
-        )
+        # A pause or edit made after the read makes the conflict token stale.
+        # Temporal then drops the update, or rejects it with FAILED_PRECONDITION,
+        # so the change is never overwritten. The next read decides.
+        try:
+            await client.workflow_service.update_schedule(
+                UpdateScheduleRequest(
+                    namespace=client.namespace,
+                    schedule_id=temporal_id,
+                    schedule=schedule,
+                    conflict_token=described.conflict_token,
+                    identity=client.identity,
+                    request_id=str(uuid.uuid4()),
+                ),
+                retry=True,
+            )
+        except RPCError as e:
+            if e.status != RPCStatusCode.FAILED_PRECONDITION:
+                raise
         sent_update = True
     raise ScheduleUpdateConflictError(temporal_id)
 
