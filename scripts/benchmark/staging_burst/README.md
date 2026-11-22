@@ -109,10 +109,20 @@ Notes:
 - Payloads over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` (128 KiB)
   go to blob storage and don't load the worker; 120 KB is the worst case.
 - Scenario 4 is staging only and needs an approval first. On staging the VPC
-  CNI doesn't enforce NetworkPolicies, so the
-  executor's `REDIS_URL` was set to `rediss://192.0.2.1:6379` (the scheme
-  must stay `rediss://` with `REDIS_AUTH_MODE=aws_iam` or the pod won't start),
-  then rolled back with `kubectl rollout undo --to-revision=<previous>`. This
-  is a staging config change: get it approved first.
+  CNI doesn't enforce NetworkPolicies, so make Redis unreachable for the
+  executor by keeping its real cache host and changing only the port to one
+  the cache's security group drops, so connects time out like a network
+  outage. With `REDIS_AUTH_MODE=aws_iam` the URL must stay `rediss://` and the
+  host must end in `.cache.amazonaws.com`, or the client rejects it before
+  connecting (that tests a client error, not an outage). Swap the port in
+  place without printing the URL, then roll back with
+  `kubectl rollout undo --to-revision=<previous>`:
+
+  ```bash
+  K="kubectl --context tracecat-staging -n tracecat"
+  url=$($K get deploy tracecat-executor -o json \
+    | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="REDIS_URL") | .value')
+  $K set env deploy/tracecat-executor "REDIS_URL=${url/:6379/:6390}"
+  ```
 - While a run's lock pileup is up, count waiters with a read-only query on
   `pg_locks` (`locktype = 'advisory' AND NOT granted`).
