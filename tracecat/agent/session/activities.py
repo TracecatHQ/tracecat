@@ -70,6 +70,8 @@ class CreateSessionInput(BaseModel):
     curr_run_id: uuid.UUID | None = None
     # First user prompt for best-effort auto-title
     initial_user_prompt: str | None = None
+    # The run that first sent a retried prompt; its channel mirror keeps that id.
+    prompt_run_id: uuid.UUID | None = None
 
 
 class CreateSessionResult(BaseModel):
@@ -314,7 +316,11 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             await push_updates(
                 input.role,
                 turn_started_updates(
-                    input.role, input.session_id, input.curr_run_id, prompt
+                    input.role,
+                    input.session_id,
+                    input.curr_run_id,
+                    prompt,
+                    prompt_run_id=input.prompt_run_id,
                 ),
                 budget=TURN_STARTED_PUSH_BUDGET,
             )

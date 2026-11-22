@@ -52,6 +52,7 @@ class MessageSent(RunUpdateBase):
     """
 
     kind: Literal["message_sent"] = "message_sent"
+    # The run that first sent the message: a Retry keeps it, so the post is one.
     run_id: uuid.UUID
     user_id: uuid.UUID
     text: str = Field(min_length=1)
@@ -111,18 +112,27 @@ RunUpdate = Annotated[
 
 
 def turn_started_updates(
-    role: Role, session_id: uuid.UUID, run_id: uuid.UUID, prompt: str | None
+    role: Role,
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    prompt: str | None,
+    *,
+    prompt_run_id: uuid.UUID | None = None,
 ) -> list[RunUpdate]:
     """What a linked turn's start pushes: a Tracecat user's prompt, then the status.
 
-    Pass ``prompt`` only for a new message, never for a resumed run.
+    Pass ``prompt`` only for a new message, never for a resumed run, and
+    ``prompt_run_id`` when the prompt is a retry of the one that run sent.
     """
     started = TurnStarted(session_id=session_id, run_id=run_id)
     # Channel messages run as the bot's service role, so only Tracecat users relay.
     if role.user_id is None or prompt is None or not prompt.strip():
         return [started]
     sent = MessageSent(
-        session_id=session_id, run_id=run_id, user_id=role.user_id, text=prompt
+        session_id=session_id,
+        run_id=prompt_run_id or run_id,
+        user_id=role.user_id,
+        text=prompt,
     )
     return [sent, started]
 

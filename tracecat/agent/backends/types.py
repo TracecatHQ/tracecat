@@ -146,6 +146,8 @@ class SessionWorkflowContext:
     prompt: str
     run_id: UUID
     stream_id: UUID
+    # The run that first sent a retried prompt; None for a new message.
+    prompt_run_id: UUID | None = None
     # Limits a workflow agent action sets for its turn. None leaves the
     # backend's default; chat turns never set them.
     timeout_seconds: int | None = None
@@ -171,6 +173,8 @@ class SessionTurnContext:
     origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
     # The prompt's author when it is not the role's user: a linked channel sender.
     author_id: UUID | None = None
+    # The run that first sent a retried prompt; None for a new message.
+    prompt_run_id: UUID | None = None
 
 
 @runtime_checkable

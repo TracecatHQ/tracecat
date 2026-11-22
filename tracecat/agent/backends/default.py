@@ -96,4 +96,5 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             tools=list(context.tools) if context.tools is not None else None,
             agent_preset_id=context.agent_preset_id,
             agent_preset_version_id=context.agent_preset_version_id,
+            prompt_run_id=context.prompt_run_id,
         )

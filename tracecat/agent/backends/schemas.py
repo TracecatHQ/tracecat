@@ -50,6 +50,10 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
+    prompt_run_id: uuid.UUID | None = Field(
+        default=None,
+        description="The run that first sent a retried prompt; None for a new message.",
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):

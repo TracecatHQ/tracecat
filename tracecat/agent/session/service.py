@@ -2085,6 +2085,7 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str | None = None
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
+        prompt_run_id: uuid.UUID | None = None
         is_continuation = False
         origin = UserMessageOrigin.TRACECAT
         author_id: uuid.UUID | None = None
@@ -2106,6 +2107,9 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "VercelChatRequest contained no supported text parts"
                     )
+                prompt_run_id = await self._retried_prompt_run_id(
+                    session_id, ui_message.id
+                )
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
                 request_instructions = instructions
@@ -2129,6 +2133,7 @@ class AgentSessionService(BaseWorkspaceService):
             run_id=run_id,
             origin=origin,
             author_id=author_id,
+            prompt_run_id=prompt_run_id,
             # Per-turn stream id: use the HTTP-minted id when provided, else mint
             # one. Pinned into the workflow input so the worker producer writes to
             # the same per-turn Redis key the reader joins (immune to the
@@ -2157,8 +2162,12 @@ class AgentSessionService(BaseWorkspaceService):
         stream_id: uuid.UUID,
         origin: UserMessageOrigin,
         author_id: uuid.UUID | None = None,
+        prompt_run_id: uuid.UUID | None = None,
     ) -> None:
-        """Build the turn's config and start it as ``run_id`` on a validated session."""
+        """Build the turn's config and start it as ``run_id`` on a validated session.
+
+        ``prompt_run_id``: the run that first sent a retried prompt.
+        """
         session_id = agent_session.id
         # Titling eligibility must be decided before the workflow spawns: the
         # executor streams history rows mid-turn, so checking afterwards would
@@ -2204,6 +2213,7 @@ class AgentSessionService(BaseWorkspaceService):
                     stream_id=stream_id,
                     origin=origin,
                     author_id=author_id,
+                    prompt_run_id=prompt_run_id,
                 )
             )
 
@@ -2222,6 +2232,26 @@ class AgentSessionService(BaseWorkspaceService):
                 task.add_done_callback(
                     partial(_finalize_auto_title_task, session_id=session_id)
                 )
+
+    async def _retried_prompt_run_id(
+        self, session_id: uuid.UUID, message_id: str
+    ) -> uuid.UUID | None:
+        """The run that first sent ``message_id``, when Retry resends a stored prompt.
+
+        Reloaded transcripts name a prompt by its history row; a new message has a
+        client id that names no row.
+        """
+        try:
+            row_id = uuid.UUID(message_id)
+        except ValueError:
+            return None
+        return await self.session.scalar(
+            select(AgentSessionHistory.curr_run_id).where(
+                AgentSessionHistory.id == row_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.workspace_id == self.workspace_id,
+            )
+        )
 
     async def get_turn_lifecycle(
         self, agent_session: AgentSession

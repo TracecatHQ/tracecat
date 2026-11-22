@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import get_args
@@ -14,6 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent import channel_notifier
+from tracecat.agent.backends.default import DefaultBackend
+from tracecat.agent.backends.types import SessionWorkflowContext
 from tracecat.agent.channel_notifier import (
     MessageSent,
     RunUpdate,
@@ -34,13 +37,16 @@ from tracecat.agent.session.router import router
 from tracecat.agent.session.schemas import AgentSessionChannelSyncRead
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
+from tracecat.chat.enums import MessageKind
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
     AgentChannelBot,
     AgentPreset,
     AgentSession,
+    AgentSessionHistory,
     AgentSessionThread,
 )
 
@@ -125,6 +131,24 @@ def test_a_tracecat_users_message_is_relayed_before_the_status() -> None:
         MessageSent(
             session_id=SESSION_ID,
             run_id=RUN_ID,
+            user_id=USER_ID,
+            text="Check the alert",
+        ),
+        TurnStarted(session_id=SESSION_ID, run_id=RUN_ID),
+    ]
+
+
+def test_a_retried_message_is_relayed_under_the_run_that_first_sent_it() -> None:
+    first_run = uuid.uuid4()
+
+    updates = turn_started_updates(
+        _user_role(), SESSION_ID, RUN_ID, "Check the alert", prompt_run_id=first_run
+    )
+
+    assert updates == [
+        MessageSent(
+            session_id=SESSION_ID,
+            run_id=first_run,
             user_id=USER_ID,
             text="Check the alert",
         ),
@@ -235,6 +259,54 @@ async def _flag(session: AsyncSession, session_id: uuid.UUID) -> bool | None:
             AgentSessionThread.session_id == session_id
         )
     )
+
+
+@pytest.mark.anyio
+async def test_retry_names_the_run_that_first_sent_the_stored_prompt(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
+    first_run = uuid.uuid4()
+    prompt = AgentSessionHistory(
+        session_id=web.id,
+        workspace_id=web.workspace_id,
+        kind=MessageKind.CHAT_MESSAGE.value,
+        curr_run_id=first_run,
+        content={"type": "user", "message": {"role": "user", "content": "hi"}},
+    )
+    session.add(prompt)
+    await session.flush()
+    svc = AgentSessionService(session, svc_role)
+
+    assert await svc._retried_prompt_run_id(web.id, str(prompt.id)) == first_run
+    # A new message carries a client id; another session's row is not this prompt.
+    assert await svc._retried_prompt_run_id(web.id, "msg-client-id") is None
+    assert await svc._retried_prompt_run_id(uuid.uuid4(), str(prompt.id)) is None
+
+
+def test_the_retried_run_reaches_the_turn_workflow() -> None:
+    first_run = uuid.uuid4()
+    context = SessionWorkflowContext(
+        session_id=SESSION_ID,
+        backend_id="default",
+        harness_type=HarnessType.CLAUDE_CODE.value,
+        title="t",
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        entity_id=uuid.uuid4(),
+        tools=None,
+        agent_preset_id=None,
+        agent_preset_version_id=None,
+        role=_user_role(),
+        config=AgentConfig(model_name="m", model_provider="p"),
+        prompt="hi",
+        run_id=RUN_ID,
+        stream_id=uuid.uuid4(),
+        prompt_run_id=first_run,
+    )
+
+    args = asyncio.run(DefaultBackend().build_workflow_args(context))
+
+    assert args.prompt_run_id == first_run
 
 
 @pytest.mark.anyio

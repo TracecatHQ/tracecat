@@ -1437,6 +1437,7 @@ class DurableAgentWorkflow:
                 enforce_session_agents_binding=not resolve_agents_per_turn,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
+                prompt_run_id=args.prompt_run_id,
                 initial_user_prompt=(
                     args.agent_args.user_prompt
                     if isinstance(args.agent_args.user_prompt, str)
