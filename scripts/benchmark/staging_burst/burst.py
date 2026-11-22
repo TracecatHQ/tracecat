@@ -225,10 +225,10 @@ def sample(args: argparse.Namespace) -> None:
                 row["pods_error"] = str(e)
             try:
                 top = top_f.result()
-                row["mem_mib"] = {
-                    parts[0]: _mem_mib(parts[2])
-                    for parts in (line.split() for line in top.splitlines())
-                    if len(parts) >= 3
+                rows = [line.split() for line in top.splitlines()]
+                row["mem_mib"] = {r[0]: _mem_mib(r[2]) for r in rows if len(r) >= 3}
+                row["cpu_m"] = {
+                    r[0]: float(r[1].removesuffix("m")) for r in rows if len(r) >= 3
                 }
             except (RuntimeError, subprocess.TimeoutExpired) as e:
                 row["top_error"] = str(e)

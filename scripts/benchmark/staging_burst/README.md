@@ -75,16 +75,37 @@ workspaces in the window, so keep other work out of them during a run.
 
 ## Scenarios (as run on staging, 2026-11-22)
 
-Org B's steady load in every run: `B-quick` at 2/s (≥ 300 starts, 2 actions
-each) and, once org B has a model credential, `B-agent` at 0.4/s with 4 tool
-calls each (≥ 240 tool calls).
+Sized for staging (1 executor with 100 activity slots and a 70-connection
+pool, 1 DSL worker at 2 GiB, PgDog 2 × 70). Scale org A's counts with the
+fleet. "Off" means org A's limits are null; scenario 1's off-run also needs the
+per-org DB cap off and scenario 2's the default worker cache (chart values).
 
-| # | Org A load | Limits on (org A) |
+Org B's steady load, in every run including the baseline:
+
+```text
+{"label":"B-quick","url_env":"BURST_B_QUICK","rate":2,"count":360,"concurrency":10}
+{"label":"B-agent","url_env":"BURST_B_AGENT","rate":0.4,"count":72,"concurrency":10,"payload":{"calls":4}}
+```
+
+Org A's load per scenario (same load off and on):
+
+| # | Org A streams | Org A limits for the on-run |
 |---|---|---|
-| 1 lock pileup | `burst_lock` `{"rows": R ≤ 1000, "batches": N, "children": C}` (N concurrent upserts into one table, C subflows), plus `burst_agent` | `max_concurrent_actions` 10, DB cap 4 per executor process |
-| 2 webhook burst | `burst_hold` flood, `rate` 0, `concurrency` 40, padded payload | `api_rate_limit` 10/s, `api_burst_capacity` 20 |
-| 3 tool-call flood | `burst_agent` `{"calls": 8}` at a high rate | `max_concurrent_tool_calls` 4 |
-| 4 Redis down | scenario 1 on, then executors pointed at an unreachable Redis | as scenario 1 |
-| 5 wide fan-out | `burst_scatter` `{"n": 500, "secs": 2}` | `max_concurrent_actions` 10 |
+| 1 lock pileup | `{"label":"A-lock","url_env":"BURST_A_LOCK","rate":0.05,"count":4,"after":15,"payload":{"rows":1000,"batches":200,"children":10}}` and `{"label":"A-agent","url_env":"BURST_A_AGENT","rate":0.1,"count":15,"after":15,"payload":{"calls":4}}` | actions 10, tool calls 4, agent turns 4; DB cap 4 |
+| 2 webhook burst | `{"label":"A-hold","url_env":"BURST_A_HOLD","rate":0,"count":2000,"after":15,"concurrency":40,"payload":{"pad_bytes":120000}}` | rate 10/s, burst 20, actions 10, tool calls 4, agent turns 4 |
+| 3 tool-call flood | `{"label":"A-agent","url_env":"BURST_A_AGENT","rate":1,"count":60,"after":15,"concurrency":20,"payload":{"calls":10}}` | tool calls 4 |
+| 4 Redis down | scenario 1's streams for ~6 min; mid-run, point the executors at an unreachable Redis for 5 min (see below) | as scenario 1 |
+| 5 wide fan-out | `{"label":"A-scatter","url_env":"BURST_A_SCATTER","rate":0,"count":1,"after":20,"payload":{"n":500,"secs":2}}` | actions 10 |
 
-The exact stream specs, scales and results are in the ENG-2613 report.
+Notes:
+
+- `insert_rows` rejects batches over 1,000 rows before taking the lock.
+- Payloads over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` (128 KiB)
+  go to blob storage and don't load the worker; 120 KB is the worst case.
+- Scenario 4 on staging: the VPC CNI doesn't enforce NetworkPolicies, so the
+  executor's `REDIS_URL` was set to `rediss://192.0.2.1:6379` (the scheme
+  must stay `rediss://` with `REDIS_AUTH_MODE=aws_iam` or the pod won't start),
+  then rolled back with `kubectl rollout undo --to-revision=<previous>`. This
+  is a staging config change: get it approved first.
+- While a run's lock pileup is up, count waiters with a read-only query on
+  `pg_locks` (`locktype = 'advisory' AND NOT granted`).
