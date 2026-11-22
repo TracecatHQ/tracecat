@@ -3,7 +3,6 @@ import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { getBaseUrl } from "@/lib/api"
 import {
   CHANNEL_MESSAGE_DATA_PART_TYPE,
-  getChannelMessageData,
   isUserPrompt,
   toUIMessage,
 } from "@/lib/chat"
@@ -24,8 +23,9 @@ function promptText(message: UIMessage): string {
   return message.parts
     .map((part) => {
       if (part.type === "text") return part.text
+      // The whole message, so forward-only messages stay distinct.
       if (part.type === CHANNEL_MESSAGE_DATA_PART_TYPE && "data" in part) {
-        return getChannelMessageData(part.data)?.text ?? ""
+        return JSON.stringify(part.data)
       }
       return ""
     })
