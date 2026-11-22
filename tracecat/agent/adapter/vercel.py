@@ -987,7 +987,7 @@ class VercelStreamContext:
                     channel_message := ChannelMessage.parse(data["text"])
                 ):
                     data["text"] = channel_message.text
-                    data["channel_message"] = channel_message_data(channel_message)
+                    data["channel_message"] = channel_message.model_dump(mode="json")
                 yield DataEventPayload(type=USER_MESSAGE_DATA_PART_TYPE, data=data)
 
             case StreamEventType.ERROR:
@@ -1272,11 +1272,6 @@ def _is_internal_interrupt_message(chat_message: ChatMessage) -> bool:
     return False
 
 
-def channel_message_data(message: ChannelMessage) -> dict[str, Any]:
-    """A channel message's context for display; its text renders as a text part."""
-    return message.model_dump(mode="json", exclude={"text"})
-
-
 def convert_chat_messages_to_ui(
     messages: list[ChatMessage],
 ) -> list[UIMessage]:
@@ -1387,11 +1382,24 @@ def convert_chat_messages_to_ui(
 
         message_data = chat_message.message
 
-        # Skip internal interrupt messages from Claude Code SDK. A channel message's
-        # quoted text may contain the markers, so it is never one.
-        if chat_message.channel_message is None and _is_internal_interrupt_message(
-            chat_message
-        ):
+        if (channel_message := chat_message.channel_message) is not None:
+            mutable_messages.append(
+                MutableMessage(
+                    id=chat_message.id,
+                    role="user",
+                    parts=[
+                        DataUIPart(
+                            type=CHANNEL_MESSAGE_DATA_PART_TYPE,
+                            data=channel_message.model_dump(mode="json"),
+                        )
+                    ],
+                    created_at=chat_message.created_at,
+                )
+            )
+            continue
+
+        # Skip internal interrupt messages from Claude Code SDK
+        if _is_internal_interrupt_message(chat_message):
             continue
 
         # Extract message data from the ChatMessage schema
@@ -1414,19 +1422,6 @@ def convert_chat_messages_to_ui(
             parts=[],
             created_at=chat_message.created_at,
         )
-        if role == "user" and (channel_message := chat_message.channel_message):
-            if channel_message.text:
-                mutable_message.parts.append(
-                    TextUIPart(type="text", text=channel_message.text, state="done")
-                )
-            mutable_message.parts.append(
-                DataUIPart(
-                    type=CHANNEL_MESSAGE_DATA_PART_TYPE,
-                    data=channel_message_data(channel_message),
-                )
-            )
-            mutable_messages.append(mutable_message)
-            continue
         approval_payload = _extract_approval_payload_from_message(message_data)
 
         for part_type, part in _iter_message_parts(message_data):

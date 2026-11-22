@@ -595,20 +595,18 @@ export function getUserMessageData(data: unknown): UserMessageData | null {
   }
 }
 
-/**
- * UI data part identifier for a channel message's sender, forwards and
- * earlier thread. Its text renders as the message's text part.
- */
+/** UI data part identifier for a user message that is a channel message. */
 export const CHANNEL_MESSAGE_DATA_PART_TYPE = "data-channel-message"
 
 /** Payload of a {@link CHANNEL_MESSAGE_DATA_PART_TYPE} part. */
-export type ChannelMessageData = Omit<ChannelMessage, "text">
+export type ChannelMessageData = ChannelMessage
 
 /** A channel message payload, or null if malformed. */
 export function getChannelMessageData(
   data: unknown
 ): ChannelMessageData | null {
   if (!data || typeof data !== "object") return null
+  if (!("text" in data) || typeof data.text !== "string") return null
   if (!("quoted" in data) || !Array.isArray(data.quoted)) return null
   if (!("sender" in data) || !data.sender || typeof data.sender !== "object") {
     return null

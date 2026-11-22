@@ -100,8 +100,6 @@ type MessagePartProps = {
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
   /** How long a reloaded thought took, from history timestamps. */
   reasoningSeconds?: number
-  /** A channel message's context, drawn in its text's bubble. */
-  channelMessage?: ChannelMessageData | null
 }
 
 type DerivedToolState = {
@@ -165,7 +163,6 @@ export function MessagePart({
   interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
   reasoningSeconds,
-  channelMessage,
 }: MessagePartProps) {
   const { expandSteps } = useChatVerbosityPolicy()
   // Steps remount on a level change, since defaultOpen applies only on mount.
@@ -220,28 +217,23 @@ export function MessagePart({
     const message = getUserMessageData(part.data)
     if (!message) return null
     return (
-      <Message key={`${id}-${partIdx}`} from="user">
-        <MessageContent variant="flat">
-          {message.text && (
-            <SmoothResponse text={message.text} animate={false} />
-          )}
-          {message.channelMessage && (
-            <ChannelMessageContext message={message.channelMessage} />
-          )}
-        </MessageContent>
-      </Message>
+      <UserBubble
+        key={`${id}-${partIdx}`}
+        text={message.text}
+        channelMessage={message.channelMessage}
+      />
     )
   }
 
   if (part.type === CHANNEL_MESSAGE_DATA_PART_TYPE) {
-    const forwardsOnly = getChannelMessageData(part.data)
-    if (!forwardsOnly) return null
+    const channelMessage = getChannelMessageData(part.data)
+    if (!channelMessage) return null
     return (
-      <Message key={`${id}-${partIdx}`} from="user">
-        <MessageContent variant="flat">
-          <ChannelMessageContext message={forwardsOnly} />
-        </MessageContent>
-      </Message>
+      <UserBubble
+        key={`${id}-${partIdx}`}
+        text={channelMessage.text}
+        channelMessage={channelMessage}
+      />
     )
   }
 
@@ -253,7 +245,6 @@ export function MessagePart({
             text={part.text}
             animate={status === "streaming" && isLastMessage}
           />
-          {channelMessage && <ChannelMessageContext message={channelMessage} />}
         </MessageContent>
       </Message>
     )
@@ -373,25 +364,22 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
   )
 }
 
-/**
- * A channel message's context joins its text's bubble, as a steered one does;
- * without text it draws on its own.
- */
-function withChannelMessage(parts: UIMessage["parts"]): {
-  groups: PartGroup[]
+/** A user's message: its text, and a channel message's forwards and thread. */
+function UserBubble({
+  text,
+  channelMessage,
+}: {
+  text: string
   channelMessage: ChannelMessageData | null
-} {
-  const channelPart = parts.find(
-    (part) => part.type === CHANNEL_MESSAGE_DATA_PART_TYPE
+}) {
+  return (
+    <Message from="user">
+      <MessageContent variant="flat">
+        {text && <SmoothResponse text={text} animate={false} />}
+        {channelMessage && <ChannelMessageContext message={channelMessage} />}
+      </MessageContent>
+    </Message>
   )
-  if (!channelPart || !parts.some((part) => part.type === "text")) {
-    return { groups: groupParts(parts), channelMessage: null }
-  }
-  return {
-    groups: groupParts(parts.filter((part) => part !== channelPart)),
-    channelMessage:
-      "data" in channelPart ? getChannelMessageData(channelPart.data) : null,
-  }
 }
 
 /** Fold consecutive activity parts into runs, keeping content parts apart. */
@@ -475,10 +463,7 @@ export function MessageParts({
   reasoningSeconds,
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
-  const { groups, channelMessage } = useMemo(
-    () => withChannelMessage(message.parts),
-    [message.parts]
-  )
+  const groups = useMemo(() => groupParts(message.parts), [message.parts])
 
   function renderPart({ part, partIdx }: IndexedPart) {
     return (
@@ -494,7 +479,6 @@ export function MessageParts({
         interruptedToolCallIds={interruptedToolCallIds}
         onSubmitApprovals={onSubmitApprovals}
         reasoningSeconds={reasoningSeconds}
-        channelMessage={part.type === "text" ? channelMessage : null}
       />
     )
   }
@@ -949,8 +933,7 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.turnCancelled !== next.turnCancelled ||
     prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals ||
-    prev.reasoningSeconds !== next.reasoningSeconds ||
-    prev.channelMessage !== next.channelMessage
+    prev.reasoningSeconds !== next.reasoningSeconds
   ) {
     return false
   }

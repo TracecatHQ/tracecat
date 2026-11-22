@@ -128,12 +128,6 @@ class ChannelMessage(BaseModel):
         except ValueError:
             return None
 
-    @classmethod
-    def display_text(cls, stored: str) -> str | None:
-        """What a stored channel message shows as its text, or None for other text."""
-        message = cls.parse(stored)
-        return None if message is None else message.summary_text()
-
     def summary_text(self) -> str:
         """What the sender asked, or the first quoted message when they only quoted."""
         if self.text.strip():

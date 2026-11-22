@@ -280,3 +280,33 @@ async def test_ancestry_rejects_references_to_existing_sessions_in_another_works
     with pytest.raises(TracecatNotFoundError, match="Fork source session not found"):
         await service.list_messages(malformed_fork.id)
     assert await service.get_workspace_chat_session_ids([malformed_fork.id]) == set()
+
+
+async def test_a_fork_of_a_fork_of_a_channel_session_is_a_channel_session(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    def agent_session(entity_type: str, **ancestry: uuid.UUID) -> AgentSession:
+        return AgentSession(
+            id=uuid.uuid4(),
+            workspace_id=svc_role.workspace_id,
+            title="Session",
+            entity_type=entity_type,
+            entity_id=uuid.uuid4(),
+            **ancestry,
+        )
+
+    channel = agent_session(AgentSessionEntity.EXTERNAL_CHANNEL.value)
+    approval = agent_session(
+        AgentSessionEntity.APPROVAL.value, forked_from_session_id=channel.id
+    )
+    nested = agent_session(
+        AgentSessionEntity.APPROVAL.value, forked_from_session_id=approval.id
+    )
+    unrelated = agent_session(AgentSessionEntity.APPROVAL.value)
+    session.add_all([channel, approval, nested, unrelated])
+    await session.commit()
+    service = AgentSessionService(session, svc_role)
+
+    assert await service.is_channel_session(channel)
+    assert await service.is_channel_session(nested)
+    assert not await service.is_channel_session(unrelated)

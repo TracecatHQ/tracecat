@@ -356,17 +356,13 @@ def test_convert_chat_messages_to_ui_shows_a_channel_message_and_its_context(
     )
 
     assert len(messages) == 1
-    parts = messages[0].parts
-    data_part = cast(DataUIPart, parts[-1])
+    [part] = messages[0].parts
+    data_part = cast(DataUIPart, part)
     assert data_part["type"] == "data-channel-message"
     data = cast(dict[str, Any], data_part["data"])
+    assert data["text"] == text
     assert data["quoted"][0]["text"] == "Disk at 95% on db-1"
     assert data["sender"]["name"] == "Dana"
-    assert "text" not in data
-    if text:
-        assert parts[0] == {"type": "text", "text": text, "state": "done"}
-    else:
-        assert len(parts) == 1
 
 
 @pytest.mark.anyio

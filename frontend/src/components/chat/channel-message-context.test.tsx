@@ -8,6 +8,7 @@ import {
 
 const MESSAGE: ChannelMessageData = {
   provider: "slack",
+  text: "triage this",
   sender: { provider_user_id: "U1", name: "Dana" },
   thread: {
     messages: [

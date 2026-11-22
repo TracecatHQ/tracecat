@@ -208,7 +208,6 @@ _background_tasks: set[asyncio.Task[None]] = set()
 _MESSAGE_ADMISSION_TRIES = 5
 
 
-# Fork chains are short; the bound only stops a corrupt cycle.
 def _require_parent_session(agent_session: AgentSession) -> None:
     # Only the parent's runtime executes a spawned child; a direct turn would
     # target a harness binding it does not own.
@@ -332,8 +331,8 @@ class SessionAwaitingApprovalsError(ValueError):
 
 def _display_text(text: str, *, channel_session: bool) -> str:
     """A user message's text as people read it: a channel message's summary."""
-    if channel_session and (shown := ChannelMessage.display_text(text)) is not None:
-        return shown
+    if channel_session and (message := ChannelMessage.parse(text)):
+        return message.summary_text()
     return text
 
 
@@ -675,6 +674,14 @@ class AgentSessionService(BaseWorkspaceService):
         self, session_ids: Sequence[uuid.UUID]
     ) -> set[uuid.UUID]:
         """Find sessions whose own type or ancestry requires Workspace Chat."""
+        return await self._ids_with_entity_in_ancestry(
+            session_ids, AgentSessionEntity.WORKSPACE_CHAT
+        )
+
+    async def _ids_with_entity_in_ancestry(
+        self, session_ids: Sequence[uuid.UUID], entity_type: AgentSessionEntity
+    ) -> set[uuid.UUID]:
+        """The sessions that are, or spawned or forked from, an `entity_type` session."""
         if not session_ids:
             return set()
         ancestry = (
@@ -711,7 +718,7 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.scalars(
             select(ancestry.c.root_id)
-            .where(ancestry.c.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value)
+            .where(ancestry.c.entity_type == entity_type.value)
             .distinct()
         )
         return set(result.all())
@@ -3164,16 +3171,15 @@ class AgentSessionService(BaseWorkspaceService):
     async def is_channel_session(self, agent_session: AgentSession) -> bool:
         """Whether the session, or the session it was forked from, is an external
         channel session, whose user messages may be rendered channel messages."""
-        current: AgentSession | None = agent_session
-        visited: set[uuid.UUID] = set()
-        while current is not None and current.id not in visited:
-            if current.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
-                return True
-            if current.forked_from_session_id is None:
-                return False
-            visited.add(current.id)
-            current = await self.get_session(current.forked_from_session_id)
-        return False
+        if agent_session.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
+            return True
+        if agent_session.forked_from_session_id is None:
+            return False
+        return bool(
+            await self._ids_with_entity_in_ancestry(
+                [agent_session.id], AgentSessionEntity.EXTERNAL_CHANNEL
+            )
+        )
 
     def _render_history_entries(
         self,

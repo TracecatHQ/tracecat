@@ -743,21 +743,3 @@ async def test_list_messages_decodes_channel_messages_in_channel_sessions(
     assert len(messages) == 1
     assert isinstance(messages[0].message, UserMessage)
     assert messages[0].channel_message == (CHANNEL_MESSAGE if decoded else None)
-
-
-@pytest.mark.anyio
-async def test_a_fork_of_a_channel_session_is_a_channel_session() -> None:
-    service, source = _build_service()
-    source.entity_type = AgentSessionEntity.EXTERNAL_CHANNEL.value
-    fork = AgentSession(
-        workspace_id=source.workspace_id,
-        title="Chat (continued)",
-        entity_type=AgentSessionEntity.APPROVAL.value,
-        entity_id=source.entity_id,
-        forked_from_session_id=source.id,
-    )
-    service.get_session = AsyncMock(return_value=source)
-
-    assert await service.is_channel_session(fork)
-    service.get_session = AsyncMock(return_value=None)
-    assert not await service.is_channel_session(fork)

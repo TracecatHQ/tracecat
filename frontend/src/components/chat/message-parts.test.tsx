@@ -467,6 +467,7 @@ describe("approval submit", () => {
 describe("channel messages", () => {
   const channelMessage = {
     provider: "slack" as const,
+    text: "triage this",
     sender: { provider_user_id: "U1" },
     quoted: [
       {
@@ -477,14 +478,11 @@ describe("channel messages", () => {
     ],
   }
 
-  it("draws the forwards in the text's bubble", () => {
+  it("draws the text and forwards in one bubble", () => {
     const message: UIMessage = {
       id: "u1",
       role: "user",
-      parts: [
-        { type: "text", text: "triage this" },
-        { type: "data-channel-message", data: channelMessage },
-      ],
+      parts: [{ type: "data-channel-message", data: channelMessage }],
     }
     const { container } = render(
       <MessageParts message={message} status="ready" isLastMessage />
