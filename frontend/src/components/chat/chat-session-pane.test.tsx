@@ -31,6 +31,7 @@ import {
 } from "@/components/chat/chat-session-pane"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
+import { useSessionChannelSync } from "@/hooks/use-session-channel-sync"
 import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -183,6 +184,14 @@ jest.mock("@/hooks/use-entitlements", () => ({
 }))
 jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => "locked",
+}))
+jest.mock("@/hooks/use-session-channel-sync", () => ({
+  useSessionChannelSync: jest.fn(() => ({
+    sync: undefined,
+    isLoading: false,
+    setEnabled: jest.fn(),
+    isPending: false,
+  })),
 }))
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPreset: jest.fn(() => ({ preset: undefined })),
@@ -1394,6 +1403,27 @@ describe("ChatSessionPane author labels", () => {
       preset.mockReturnValue({ preset: undefined } as ReturnType<
         typeof useAgentPreset
       >)
+    }
+  })
+
+  it("shows authors once a web session syncs with a channel", async () => {
+    const synced = jest.mocked(useSessionChannelSync).mockReturnValue({
+      sync: { available: true, enabled: true },
+      isLoading: false,
+      setEnabled: jest.fn(),
+      isPending: false,
+    })
+    try {
+      renderChatSessionPane({ chat: webChat })
+
+      expect(await screen.findByText("Sam")).toBeInTheDocument()
+    } finally {
+      synced.mockReturnValue({
+        sync: undefined,
+        isLoading: false,
+        setEnabled: jest.fn(),
+        isPending: false,
+      })
     }
   })
 })

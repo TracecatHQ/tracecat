@@ -98,6 +98,7 @@ import {
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
+import { useSessionChannelSync } from "@/hooks/use-session-channel-sync"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { useTypeToFocus } from "@/hooks/use-type-to-focus"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
@@ -467,14 +468,20 @@ export function ChatSessionPane({
     return authorId !== null && authorId !== user?.id
   })
   // Author labels are noise in a private chat; show them where several people talk.
-  const showMessageAuthors = Boolean(
-    teammateSent ||
-      (chat &&
-        "entity_type" in chat &&
-        (chat.entity_type === "workflow" ||
-          chat.entity_type === "external_channel" ||
-          ("channel_context" in chat && chat.channel_context)))
+  const sharedByType = Boolean(
+    chat &&
+      "entity_type" in chat &&
+      (chat.entity_type === "workflow" ||
+        chat.entity_type === "external_channel" ||
+        ("channel_context" in chat && chat.channel_context))
   )
+  // A web session is shared while it syncs with a channel thread.
+  const { sync: channelSync } = useSessionChannelSync(
+    workspaceId,
+    sharedByType ? undefined : chat?.id
+  )
+  const showMessageAuthors =
+    sharedByType || teammateSent || Boolean(channelSync?.enabled)
   const { preset: agentPreset } = useAgentPreset(
     workspaceId,
     chat && "agent_preset_id" in chat ? chat.agent_preset_id : null,
