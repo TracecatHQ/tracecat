@@ -15,9 +15,16 @@ from tracecat.db.models import AgentSession
 
 
 def build_session_read(
-    session: AgentSession, role: Role, *, readonly: bool = False
+    session: AgentSession,
+    role: Role,
+    *,
+    readonly: bool = False,
+    participated: bool = False,
 ) -> AgentSessionRead:
-    """Project persisted session data and live backend state for an actor."""
+    """Project persisted session data and live backend state for an actor.
+
+    ``participated``: the actor has sent a message in the session.
+    """
     available = agent_backend_available(session.backend_id, session.harness_type)
     backend = find_agent_backend(session.backend_id) if available else None
     blocked = readonly or session.spawned_by_session_id is not None or not available
@@ -27,11 +34,15 @@ def build_session_read(
         title=session.title,
         created_by=session.created_by,
         is_readonly=blocked
-        or not can_act_on_session(role, session.entity_type, session.created_by),
+        or not can_act_on_session(
+            role, session.entity_type, session.created_by, participated=participated
+        ),
         can_decide_approvals=not blocked
         and role.scopes is not None
         and has_scope(role.scopes, "agent:execute")
-        and can_decide_on_session(role, session.entity_type, session.created_by),
+        and can_decide_on_session(
+            role, session.entity_type, session.created_by, participated=participated
+        ),
         backend_id=session.backend_id,
         capabilities=AgentSessionCapabilities(
             steering=backend is not None and backend.steering,

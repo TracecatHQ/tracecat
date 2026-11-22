@@ -134,13 +134,29 @@ def _require_session_owner(
     )
 
 
-def _require_session_act_access(
+async def _participated(
+    svc: AgentSessionService, role: WorkspaceActorRouteRole, agent_session: AgentSession
+) -> bool:
+    """Whether the actor sent a message in the session; read only when it decides access."""
+    if can_act_on_session(role, agent_session.entity_type, agent_session.created_by):
+        return False
+    return agent_session.id in await svc.participated_session_ids([agent_session.id])
+
+
+async def _require_session_act_access(
+    svc: AgentSessionService,
     role: WorkspaceActorRouteRole,
     agent_session: AgentSession,
 ) -> None:
     """Reject acting on a session the workspace does not share with the actor."""
+    participated = await _participated(svc, role, agent_session)
     _require_session_access(
-        can_act_on_session(role, agent_session.entity_type, agent_session.created_by)
+        can_act_on_session(
+            role,
+            agent_session.entity_type,
+            agent_session.created_by,
+            participated=participated,
+        )
     )
 
 
@@ -198,7 +214,10 @@ async def _build_session_read_with_entitlement(
     if not await is_workspace_chat_entitled(session, role):
         readonly_ids = await svc.get_workspace_chat_session_ids([agent_session.id])
         readonly = agent_session.id in readonly_ids
-    return build_session_read(agent_session, role, readonly=readonly)
+    participated = await _participated(svc, role, agent_session)
+    return build_session_read(
+        agent_session, role, readonly=readonly, participated=participated
+    )
 
 
 async def _can_use_backend(
@@ -638,8 +657,14 @@ async def send_message(
                 if isinstance(request, ContinueRunRequest)
                 else can_act_on_session
             )
+            participated = await _participated(svc, role, agent_session)
             _require_session_access(
-                access_check(role, agent_session.entity_type, agent_session.created_by)
+                access_check(
+                    role,
+                    agent_session.entity_type,
+                    agent_session.created_by,
+                    participated=participated,
+                )
             )
             _require_builder_edit_access(role, agent_session.entity_type)
             await _require_workspace_chat_entitlement_for_session_tree(
@@ -973,7 +998,7 @@ async def list_pending_messages(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_session_act_access(role, agent_session)
+        await _require_session_act_access(svc, role, agent_session)
         return await svc.list_pending(session_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
@@ -1010,7 +1035,7 @@ async def fork_session(
                 f"Parent session with ID {session_id} not found"
             )
         # The inbox follows up on a workflow session by forking it.
-        _require_session_act_access(role, parent_session)
+        await _require_session_act_access(svc, role, parent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -1071,7 +1096,7 @@ async def cancel_session(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_session_act_access(role, agent_session)
+        await _require_session_act_access(svc, role, agent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -1116,7 +1141,7 @@ async def control_session(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        _require_session_act_access(role, agent_session)
+        await _require_session_act_access(svc, role, agent_session)
         # Cancelling skips agent:update, so a revoked scope can still stop a run.
         if request.type != "cancel":
             _require_builder_edit_access(role, agent_session.entity_type)

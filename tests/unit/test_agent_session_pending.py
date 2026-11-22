@@ -116,6 +116,11 @@ def _get_pending(
             "get_session",
             get_session or AsyncMock(return_value=agent_session),
         ),
+        patch.object(
+            AgentSessionService,
+            "participated_session_ids",
+            AsyncMock(return_value=set()),
+        ),
         patch.object(registry, "get_agent_backends", return_value=backends),
         TestClient(app) as client,
     ):

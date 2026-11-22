@@ -82,3 +82,70 @@ async def test_list_messages_names_each_prompt_author(
         "last_name": None,
     }
     assert unattributed.metadata is None or "author" not in unattributed.metadata
+
+
+async def test_listing_marks_a_private_session_actable_once_the_user_sent_in_it(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    viewer = User(
+        id=uuid.uuid4(),
+        email=f"bo-{uuid.uuid4()}@example.com",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    owner = uuid.uuid4()
+    joined, untouched = (
+        AgentSession(
+            id=uuid.uuid4(),
+            title=title,
+            workspace_id=svc_role.workspace_id,
+            entity_type=AgentSessionEntity.AGENT_PRESET.value,
+            entity_id=uuid.uuid4(),
+            created_by=owner,
+        )
+        for title in ("Joined", "Untouched")
+    )
+    session.add_all(
+        [
+            viewer,
+            User(
+                id=owner,
+                email=f"al-{uuid.uuid4()}@example.com",
+                hashed_password="unused",
+                is_active=True,
+                is_verified=True,
+                is_superuser=False,
+                last_login_at=None,
+            ),
+        ]
+    )
+    await session.flush()
+    session.add_all([joined, untouched])
+    await session.flush()
+    session.add(
+        AgentSessionHistory(
+            session_id=joined.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=viewer.id,
+            content={"type": "user", "message": {"role": "user", "content": "hi"}},
+        )
+    )
+    await session.commit()
+    role = svc_role.model_copy(
+        update={
+            "type": "user",
+            "user_id": viewer.id,
+            "service_id": "tracecat-api",
+            "scopes": frozenset({"agent:execute", "agent:read"}),
+        }
+    )
+
+    listed = await AgentSessionService(session=session, role=role).list_sessions()
+
+    readonly = {item.title: item.is_readonly for item in listed}
+    assert readonly["Joined"] is False
+    assert readonly["Untouched"] is True

@@ -28,6 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
@@ -410,6 +411,23 @@ async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -
         )
 
 
+async def sessions_with_messages_from(
+    session: AsyncSession, user_id: UserID | None, session_ids: Sequence[uuid.UUID]
+) -> set[uuid.UUID]:
+    """The sessions among ``session_ids`` where ``user_id`` authored a message."""
+    if user_id is None or not session_ids:
+        return set()
+    result = await session.scalars(
+        select(AgentSessionHistory.session_id)
+        .where(
+            AgentSessionHistory.author_id == user_id,
+            AgentSessionHistory.session_id.in_(session_ids),
+        )
+        .distinct()
+    )
+    return set(result.all())
+
+
 class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
@@ -699,6 +717,14 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def participated_session_ids(
+        self, session_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """The sessions among ``session_ids`` the role's user has sent a message in."""
+        return await sessions_with_messages_from(
+            self.session, self.role.user_id, session_ids
+        )
 
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]
@@ -1017,8 +1043,14 @@ class AgentSessionService(BaseWorkspaceService):
             readonly_ids = await self.get_workspace_chat_session_ids(
                 [s.id for s in sessions]
             )
+        participated_ids = await self.participated_session_ids([s.id for s in sessions])
         items: list[AgentSessionRead | ChatReadMinimal] = [
-            build_session_read(s, self.role, readonly=s.id in readonly_ids)
+            build_session_read(
+                s,
+                self.role,
+                readonly=s.id in readonly_ids,
+                participated=s.id in participated_ids,
+            )
             for s in sessions
         ]
         items.extend(

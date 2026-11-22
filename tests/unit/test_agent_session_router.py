@@ -974,11 +974,13 @@ async def test_send_message_rejects_teammate_session() -> None:
         source="inbox",
     )
     fake_svc = SimpleNamespace(
+        participated_session_ids=AsyncMock(return_value=set()),
         session=Mock(),
         is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(
             return_value=SimpleNamespace(
+                id=session_id,
                 curr_run_id=None,
                 created_by=uuid.uuid4(),
                 entity_type=AgentSessionEntity.AGENT_PRESET,
@@ -1046,6 +1048,7 @@ async def test_a_teammate_may_message_or_decide_only_on_shared_sessions(
     )
     allowed = may_decide if deciding else may_message
     fake_svc = SimpleNamespace(
+        participated_session_ids=AsyncMock(return_value=set()),
         session=Mock(),
         is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
@@ -2011,7 +2014,11 @@ def _teammate_role(workspace_id: uuid.UUID, scopes: frozenset[str] | None) -> Ro
 
 
 def _session_read(
-    session_stub: SimpleNamespace, role: Role, *, enabled: bool = True
+    session_stub: SimpleNamespace,
+    role: Role,
+    *,
+    enabled: bool = True,
+    participated: bool = False,
 ) -> Any:
     provider = DefaultBackend()
     with (
@@ -2020,7 +2027,9 @@ def _session_read(
         ),
         patch.object(provider, "is_enabled", return_value=enabled),
     ):
-        return build_session_read(cast(Any, session_stub), role)
+        return build_session_read(
+            cast(Any, session_stub), role, participated=participated
+        )
 
 
 @pytest.mark.parametrize(
@@ -2067,6 +2076,27 @@ def test_a_teammate_may_act_only_on_shared_sessions(
     assert read.can_decide_approvals is can_decide
     # Acting on a session never makes the actor its creator.
     assert read.created_by == session_stub.created_by
+
+
+@pytest.mark.parametrize(
+    ("scopes", "readonly"),
+    [(frozenset({"agent:execute"}), False), (frozenset({"agent:read"}), True)],
+)
+def test_a_teammate_who_sent_a_message_may_act_on_a_private_session(
+    scopes: frozenset[str], readonly: bool
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        created_by=uuid.uuid4(),
+    )
+    role = _teammate_role(session_stub.workspace_id, scopes)
+
+    read = _session_read(session_stub, role, participated=True)
+
+    assert read.is_readonly is readonly
+    assert read.can_decide_approvals is not readonly
+    assert _session_read(session_stub, role).is_readonly is True
 
 
 @pytest.mark.parametrize(
@@ -2627,6 +2657,7 @@ def test_a_teammate_may_control_only_shared_sessions(
         curr_run_id=uuid.uuid4(),
     )
     fake_svc = SimpleNamespace(
+        participated_session_ids=AsyncMock(return_value=set()),
         get_session=AsyncMock(return_value=agent_session),
         control=AsyncMock(
             return_value=AgentControlReceipt(
@@ -2664,7 +2695,9 @@ async def test_a_teammate_may_cancel_only_shared_sessions(
     )
     role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
-        get_session=AsyncMock(return_value=agent_session), request_cancel=AsyncMock()
+        participated_session_ids=AsyncMock(return_value=set()),
+        get_session=AsyncMock(return_value=agent_session),
+        request_cancel=AsyncMock(),
     )
     with (
         patch(
@@ -2699,6 +2732,7 @@ async def test_a_teammate_may_fork_only_shared_sessions(
         forked_from_session_id=source.id,
     )
     fake_svc = SimpleNamespace(
+        participated_session_ids=AsyncMock(return_value=set()),
         get_session=AsyncMock(return_value=source),
         fork_session=AsyncMock(return_value=forked),
     )
