@@ -174,6 +174,16 @@ TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS = int(
 )
 """TTL in seconds for cached per-organization effective tier limits."""
 
+# === Admission overload detection (ENG-2619) === #
+TRACECAT__ADMISSION_OVERLOAD_LOOP_LAG_SECONDS = bound_env(
+    "TRACECAT__ADMISSION_OVERLOAD_LOOP_LAG_SECONDS",
+    0.25,
+    lower=0.01,
+    upper=10.0,
+)
+"""Event-loop lag at or above which a Redis timeout in the admission gate counts as
+executor overload, not a Redis outage: the work is deferred instead of run uncounted."""
+
 # === Agent concurrency limits (ENG-2564) === #
 TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS = bound_env(
     "TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS",

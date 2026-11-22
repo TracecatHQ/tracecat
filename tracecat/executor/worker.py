@@ -66,6 +66,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.executor.startup import executor_lifecycle
     from tracecat.logger import logger
+    from tracecat.observability.loop_lag import sampler as loop_lag
     from tracecat.observability.otel import (
         initialize_platform_metrics,
         initialize_platform_tracing,
@@ -147,6 +148,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         initialize_platform_tracing("tracecat-executor")
         initialize_platform_metrics()
         initialize_executor_sentry_from_environment()
+        # The admission gate reads loop lag to tell overload from a Redis outage.
+        loop_lag.start()
         action_gateway = ActionGateway()
 
         try:
@@ -231,6 +234,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 await shutdown_executor_backend()
                 await close_storage_client_cache()
                 await action_gateway.stop()
+                await loop_lag.stop()
             finally:
                 # Flush telemetry even when an earlier cleanup step raises.
                 shutdown_platform_metrics()

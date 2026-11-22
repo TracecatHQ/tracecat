@@ -23,6 +23,7 @@ from tracecat.admission.live import CapacityBusyError, run_with_capacity_wait
 from tracecat.admission.types import (
     ConcurrencyResource,
     NotAdmitted,
+    NotAdmittedReason,
     parse_not_admitted,
 )
 from tracecat.agent.tokens import MCPTokenClaims
@@ -174,9 +175,15 @@ async def execute_action(
                 wait_seconds=config.TRACECAT__AGENT_TOOL_CALL_CAPACITY_WAIT_SECONDS,
             )
         except CapacityBusyError as e:
+            if e.reason == NotAdmittedReason.AT_LIMIT:
+                detail = (
+                    "this organization is already running its limit of "
+                    f"{e.limit} concurrent tool calls"
+                )
+            else:
+                detail = "the platform is busy and couldn't start it in time"
             raise ActionExecutionError(
-                "Tool call not started: this organization is already running its "
-                f"limit of {e.limit} concurrent tool calls. Nothing was executed; "
+                f"Tool call not started: {detail}. Nothing was executed; "
                 "retry this tool call in a few seconds."
             ) from e
     if isinstance(stored, NotAdmitted):

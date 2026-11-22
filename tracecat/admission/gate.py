@@ -1,8 +1,20 @@
 """Admission gate: take a concurrency lease before any effect.
 
-The gate never waits for capacity. It admits, raises ``NotAdmittedError``,
-or, when Redis or the limit lookup can't answer within about 2 s, lets the work
-run uncounted (fail open) and logs it. Callers decide how to wait.
+The gate never waits for capacity. It admits or raises ``NotAdmittedError``.
+When it gets no answer it tells two cases apart:
+
+- **Redis outage**: Redis returns an error, or times out while this process's
+  event loop is responsive. The gate retries for about 2 s, then lets the work
+  run uncounted (fail open), logs it, and skips Redis in this process for a
+  while (the breaker).
+- **Local overload**: Redis times out while the event loop is lagging, or the
+  Redis connection pool is exhausted. Redis is likely fine; this process is
+  slow. The gate doesn't retry: it releases any lease the attempt may hold
+  (bounded by ``RELEASE_TIMEOUT_SECONDS``) and raises a deferred
+  ``NotAdmittedError``. The breaker is left alone.
+
+A failed limit lookup never fails open: the gate serves a recently cached
+limit or defers.
 """
 
 from __future__ import annotations
@@ -15,23 +27,31 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
 
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from tracecat import config
 from tracecat.admission.leases import MAX_LEASE_TTL_SECONDS, LeaseStore
-from tracecat.admission.limits import resolve_limit
+from tracecat.admission.limits import LimitUnavailableError, resolve_limit
 from tracecat.admission.types import (
+    UNKNOWN_COUNT,
     Admitted,
     Busy,
     ConcurrencyResource,
+    Deferred,
+    NotAdmittedReason,
     Unenforced,
 )
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.loop_lag import sampler as loop_lag
 
 FAIL_OPEN_AFTER_SECONDS: Final = 2.0
 """How long the gate retries an unavailable store before it fails open."""
 
 ATTEMPT_TIMEOUT_SECONDS: Final = 1.0
-"""Ceiling for one limit lookup plus acquire attempt."""
+"""Ceiling for one Redis acquire attempt; the limit lookup has its own."""
 
 RETRY_BACKOFF_SECONDS: Final = 0.25
 """First pause between attempts; doubles each attempt."""
@@ -46,18 +66,33 @@ _breaker_open_until: float = 0.0
 
 
 class NotAdmittedError(Exception):
-    """The organization is at its limit; the attempt executed nothing."""
+    """The attempt executed nothing and should be tried again later.
+
+    ``reason`` is ``AT_LIMIT`` when the organization is at its limit. For a
+    deferral without an answer from Redis, ``in_use`` and ``limit`` are
+    ``UNKNOWN_COUNT``.
+    """
 
     def __init__(
-        self, *, resource: ConcurrencyResource, in_use: int, limit: int
+        self,
+        *,
+        resource: ConcurrencyResource,
+        in_use: int,
+        limit: int,
+        reason: NotAdmittedReason = NotAdmittedReason.AT_LIMIT,
     ) -> None:
-        super().__init__(
-            f"Organization is at its {resource.value} concurrency limit "
-            f"({in_use}/{limit} in use)"
-        )
+        if reason is NotAdmittedReason.AT_LIMIT:
+            message = (
+                f"Organization is at its {resource.value} concurrency limit "
+                f"({in_use}/{limit} in use)"
+            )
+        else:
+            message = f"Admission for {resource.value} deferred: {reason.value}"
+        super().__init__(message)
         self.resource = resource
         self.in_use = in_use
         self.limit = limit
+        self.reason = reason
 
 
 def _ttl_seconds(deadline: datetime) -> float:
@@ -127,6 +162,24 @@ class _Unlimited:
     """No limit applies; run uncounted without touching the store."""
 
 
+def _is_local_failure(error: Exception, store: LeaseStore | None) -> bool:
+    """Whether a failed Redis step points at this process, not at Redis.
+
+    A timeout while the event loop lags, or an exhausted connection pool, means
+    the reply was late or never sent because this process is busy. Without a
+    lag reading (no sampler on this loop) a timeout counts as an outage.
+    """
+    if isinstance(error, RedisConnectionError) and store is not None:
+        return store.pool_exhausted()
+    if isinstance(error, TimeoutError | RedisTimeoutError):
+        lag = loop_lag.max_lag_seconds()
+        return (
+            lag is not None
+            and lag >= config.TRACECAT__ADMISSION_OVERLOAD_LOOP_LAG_SECONDS
+        )
+    return False
+
+
 async def _try_admit(
     *,
     org_id: OrganizationID,
@@ -134,24 +187,26 @@ async def _try_admit(
     lease_id: str,
     units: int,
     deadline: datetime,
-) -> tuple[Admitted | Busy | Unenforced | _Unlimited, Lease | None]:
-    store_step = False
+) -> tuple[Admitted | Busy | Unenforced | Deferred | _Unlimited, Lease | None]:
+    try:
+        limit = await resolve_limit(org_id, resource)
+    except LimitUnavailableError as e:
+        return Deferred(reason=NotAdmittedReason.LIMIT_UNAVAILABLE, error=e), None
+    if limit is None:
+        return _Unlimited(), None
+    if limit <= 0:
+        # Tier APIs don't validate this yet. Never wait forever on a bad value.
+        logger.error(
+            "concurrency.invalid_limit",
+            org_id=str(org_id),
+            resource=resource.value,
+            limit=limit,
+        )
+        return _Unlimited(), None
+    units = min(units, limit)
+    store: LeaseStore | None = None
     try:
         async with asyncio.timeout(ATTEMPT_TIMEOUT_SECONDS):
-            limit = await resolve_limit(org_id, resource)
-            if limit is None:
-                return _Unlimited(), None
-            if limit <= 0:
-                # Tier APIs don't validate this yet. Never wait forever on a bad value.
-                logger.error(
-                    "concurrency.invalid_limit",
-                    org_id=str(org_id),
-                    resource=resource.value,
-                    limit=limit,
-                )
-                return _Unlimited(), None
-            units = min(units, limit)
-            store_step = True
             store = await LeaseStore.create()
             admission = await store.try_acquire(
                 org_id,
@@ -162,7 +217,9 @@ async def _try_admit(
                 ttl_seconds=_ttl_seconds(deadline),
             )
     except Exception as e:
-        return Unenforced(error=e, store_unavailable=store_step), None
+        if _is_local_failure(e, store):
+            return Deferred(reason=NotAdmittedReason.EXECUTOR_OVERLOADED, error=e), None
+        return Unenforced(error=e), None
     if isinstance(admission, Busy):
         return admission, None
     return admission, Lease(
@@ -215,7 +272,8 @@ async def acquire(
     """Take a lease, or return ``None`` when the work should run uncounted.
 
     Raises:
-        NotAdmittedError: The organization is at its limit.
+        NotAdmittedError: The organization is at its limit, or the attempt was
+            deferred (executor overloaded or limit unavailable).
     """
     global _breaker_open_until
 
@@ -227,6 +285,9 @@ async def acquire(
 
     give_up_at = time.monotonic() + FAIL_OPEN_AFTER_SECONDS
     backoff = RETRY_BACKOFF_SECONDS
+    # An attempt whose Redis reply was lost may hold the lease; release it on
+    # any way out that doesn't keep it.
+    lease_uncertain = False
     while True:
         admission, lease = await _try_admit(
             org_id=org_id,
@@ -258,19 +319,35 @@ async def acquire(
                     limit=limit,
                 )
                 raise NotAdmittedError(resource=resource, in_use=in_use, limit=limit)
-            case Unenforced(error=error, store_unavailable=store_unavailable):
+            case Deferred(reason=reason, error=error):
+                if lease_uncertain or reason is NotAdmittedReason.EXECUTOR_OVERLOADED:
+                    await _release_quietly(org_id, resource, lease_id, units)
+                logger.warning(
+                    "concurrency.deferred",
+                    org_id=str(org_id),
+                    resource=resource.value,
+                    lease_id=lease_id,
+                    reason=reason.value,
+                    loop_lag_seconds=loop_lag.max_lag_seconds(),
+                    error=repr(error),
+                )
+                raise NotAdmittedError(
+                    resource=resource,
+                    in_use=UNKNOWN_COUNT,
+                    limit=UNKNOWN_COUNT,
+                    reason=reason,
+                )
+            case Unenforced(error=error):
+                lease_uncertain = True
                 if time.monotonic() + backoff >= give_up_at:
-                    if store_unavailable:
-                        # Redis is shared by every org: skip it for a while.
-                        _breaker_open_until = time.monotonic() + BREAKER_SECONDS
-                        # The acquire may have run with its reply lost.
-                        await _release_quietly(org_id, resource, lease_id, units)
+                    # Redis is shared by every org: skip it for a while.
+                    _breaker_open_until = time.monotonic() + BREAKER_SECONDS
+                    # The acquire may have run with its reply lost.
+                    await _release_quietly(org_id, resource, lease_id, units)
                     _fail_open(
                         org_id=org_id,
                         resource=resource,
-                        reason="store_unavailable"
-                        if store_unavailable
-                        else "limit_unavailable",
+                        reason="store_unavailable",
                         error=error,
                     )
                     return None

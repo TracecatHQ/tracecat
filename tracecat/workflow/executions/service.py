@@ -32,7 +32,11 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
 from tracecat.admission.pacing import UNPACED, StartPacer, StartSlot
-from tracecat.admission.types import NotAdmitted, parse_not_admitted
+from tracecat.admission.types import (
+    NotAdmitted,
+    NotAdmittedReason,
+    parse_not_admitted,
+)
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -265,10 +269,19 @@ async def _task_result_from_completed_event(event: HistoryEvent) -> TaskResult:
 
 def _not_admitted_failure(not_admitted: NotAdmitted) -> EventFailure:
     """Describe an activity whose earlier attempts failed and last was not admitted."""
+    match not_admitted.reason:
+        case NotAdmittedReason.AT_LIMIT:
+            why = (
+                "the organization was at its action limit "
+                f"({not_admitted.in_use}/{not_admitted.limit} in use)"
+            )
+        case NotAdmittedReason.LIMIT_UNAVAILABLE:
+            why = "the organization's action limit couldn't be read"
+        case _:
+            why = "the executor deferred it while busy"
     return EventFailure(
         message=(
-            f"Attempt {not_admitted.attempt} was not admitted: the organization was "
-            f"at its action limit ({not_admitted.in_use}/{not_admitted.limit} in use). "
+            f"Attempt {not_admitted.attempt} was not admitted: {why}. "
             "Earlier attempts failed."
         )
     )

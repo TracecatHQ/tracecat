@@ -11,9 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
-from tracecat.admission.limits import (
-    get_effective_limits as get_admission_effective_limits,
-)
+from tracecat.admission.limits import _read as read_admission_effective_limits
 from tracecat.agent.channels.router import (
     _resolve_service_role_for_workspace,
     handle_channel_event,
@@ -449,7 +447,7 @@ def test_registry_sync_startup_uses_bypass_session_manager() -> None:
         _resolve_service_role_for_workspace,
         index_search_collection,
         get_tier_limits_activity,
-        get_admission_effective_limits,
+        read_admission_effective_limits,
         _build_external_channel_sink,
     ],
 )

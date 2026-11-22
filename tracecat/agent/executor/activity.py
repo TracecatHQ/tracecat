@@ -1557,7 +1557,8 @@ async def run_agent_activity(
 
     This activity:
     1. Takes a lease on the organization's concurrent agent turn limit
-       (returns ``NotAdmitted``, having done nothing, when it is full)
+       (returns ``NotAdmitted``, having done nothing, when it is full or
+       admission is deferred: executor overloaded or limit unavailable)
     2. Creates a SandboxedAgentExecutor
     3. Dispatches the turn through the worker-global runtime broker
     4. Returns runtime status, approval state, usage, and terminal output
@@ -1574,7 +1575,8 @@ async def run_agent_activity(
 
     Returns:
         AgentExecutorResult with execution status and terminal output, or
-        ``NotAdmitted`` when the organization is at its turn limit.
+        ``NotAdmitted`` when the organization is at its turn limit or admission
+        was deferred (``reason`` says which).
     """
     activity_info = activity.info()
     set_current_span_attributes(
@@ -1608,6 +1610,7 @@ async def run_agent_activity(
                 in_use=e.in_use,
                 limit=e.limit,
                 attempt=activity_info.attempt,
+                reason=e.reason,
             )
     async with holding(lease):
         return await _run_agent_turn(input)
