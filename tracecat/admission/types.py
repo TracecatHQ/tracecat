@@ -44,16 +44,37 @@ class Busy:
     limit: int
 
 
+class NotAdmittedReason(StrEnum):
+    """Why an attempt was not admitted."""
+
+    AT_LIMIT = "at_limit"
+    """The organization is at its limit."""
+    EXECUTOR_OVERLOADED = "executor_overloaded"
+    """The executor was too loaded to reach Redis in time; counts are unknown."""
+    LIMIT_UNAVAILABLE = "limit_unavailable"
+    """The organization's limit couldn't be read; counts are unknown."""
+
+
+UNKNOWN_COUNT: Final = -1
+"""``in_use`` and ``limit`` of an attempt deferred without an answer from Redis."""
+
+
 @dataclass(frozen=True, slots=True)
 class Unenforced:
-    """The lease store or the limit lookup could not answer; the work runs uncounted."""
+    """Redis could not answer; the work runs uncounted."""
 
     error: BaseException
-    store_unavailable: bool
-    """True when Redis failed (process-wide); False for one org's limit lookup."""
 
 
-type Admission = Admitted | Busy | Unenforced
+@dataclass(frozen=True, slots=True)
+class Deferred:
+    """No answer, but not a Redis outage: the work waits instead of running uncounted."""
+
+    reason: NotAdmittedReason
+    error: BaseException
+
+
+type Admission = Admitted | Busy | Unenforced | Deferred
 
 
 class NotAdmitted(BaseModel):
@@ -68,6 +89,13 @@ class NotAdmitted(BaseModel):
     limit: int
     attempt: int = Field(
         description="Temporal attempt number of the activity that was not admitted."
+    )
+    reason: str = Field(
+        default=NotAdmittedReason.AT_LIMIT,
+        description=(
+            "A ``NotAdmittedReason`` value. A plain string, so a reader that "
+            "predates a new reason still parses the result as not admitted."
+        ),
     )
 
     @model_validator(mode="before")

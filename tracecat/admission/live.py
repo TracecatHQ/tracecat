@@ -19,7 +19,12 @@ from temporalio import activity
 from tracecat.admission.gate import ATTEMPT_TIMEOUT_SECONDS, Lease
 from tracecat.admission.leases import LeaseStore
 from tracecat.admission.limits import resolve_limit
-from tracecat.admission.types import Busy, ConcurrencyResource, NotAdmitted
+from tracecat.admission.types import (
+    Busy,
+    ConcurrencyResource,
+    NotAdmitted,
+    NotAdmittedReason,
+)
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
@@ -32,7 +37,12 @@ RENEW_INTERVAL_SECONDS: Final = 30.0
 
 
 class CapacityBusyError(Exception):
-    """The organization stayed at its limit for the whole wait; nothing ran."""
+    """No attempt was admitted for the whole wait; nothing ran.
+
+    ``reason`` is the last attempt's: ``AT_LIMIT`` when the organization stayed
+    at its limit, or a deferral (counts ``UNKNOWN_COUNT``) when the executor
+    couldn't admit in time.
+    """
 
     def __init__(
         self,
@@ -41,15 +51,21 @@ class CapacityBusyError(Exception):
         in_use: int,
         limit: int,
         waited_seconds: float,
+        reason: str = NotAdmittedReason.AT_LIMIT,
     ) -> None:
-        super().__init__(
-            f"Organization is at its {resource.value} concurrency limit "
-            f"({in_use}/{limit} in use)"
-        )
+        if reason == NotAdmittedReason.AT_LIMIT:
+            message = (
+                f"Organization is at its {resource.value} concurrency limit "
+                f"({in_use}/{limit} in use)"
+            )
+        else:
+            message = f"{resource.value} not admitted in time: {reason}"
+        super().__init__(message)
         self.resource = resource
         self.in_use = in_use
         self.limit = limit
         self.waited_seconds = waited_seconds
+        self.reason = reason
 
 
 async def _at_limit(
@@ -93,8 +109,10 @@ async def run_with_capacity_wait[T](
     started_at = loop.time()
     give_up_at = started_at + wait_seconds
     waited = False
+    reason: str = NotAdmittedReason.AT_LIMIT
     while True:
         busy = await _at_limit(org_id, resource)
+        reason = NotAdmittedReason.AT_LIMIT
         if busy is None:
             # Measured before the call: the wait, not the work.
             waited_seconds = loop.time() - started_at
@@ -109,6 +127,7 @@ async def run_with_capacity_wait[T](
                     )
                 return result
             busy = Busy(in_use=result.in_use, limit=result.limit)
+            reason = result.reason
         # ``not > 0`` also gives up on a NaN wait setting instead of spinning.
         if not (remaining := give_up_at - loop.time()) > 0:
             waited_seconds = loop.time() - started_at
@@ -118,6 +137,7 @@ async def run_with_capacity_wait[T](
                 resource=resource.value,
                 in_use=busy.in_use,
                 limit=busy.limit,
+                reason=reason,
                 wait_seconds=waited_seconds,
             )
             raise CapacityBusyError(
@@ -125,6 +145,7 @@ async def run_with_capacity_wait[T](
                 in_use=busy.in_use,
                 limit=busy.limit,
                 waited_seconds=waited_seconds,
+                reason=reason,
             )
         waited = True
         # The last check lands on the deadline, so the whole wait is used.

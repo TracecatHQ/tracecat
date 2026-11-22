@@ -267,6 +267,7 @@ class RunAdmission:
                     resource=self.resource.value,
                     in_use=not_admitted.in_use,
                     limit=not_admitted.limit,
+                    reason=not_admitted.reason,
                     wait_seconds=waited,
                     bounces=bounces,
                 )

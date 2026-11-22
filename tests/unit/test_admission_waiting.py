@@ -8,15 +8,18 @@ import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from tracecat.admission import waiting
 from tracecat.admission.types import (
+    UNKNOWN_COUNT,
     ConcurrencyResource,
     NotAdmitted,
+    NotAdmittedReason,
     parse_not_admitted,
 )
 from tracecat.admission.waiting import RunAdmission, remaining_attempts_after_busy
@@ -247,6 +250,78 @@ async def test_not_admitted_result_survives_the_temporal_data_converter() -> Non
 
     assert decoded["type"] == "tracecat.admission.not_admitted"
     assert parse_not_admitted(decoded) == busy
+
+
+class _NotAdmittedBeforeReason(BaseModel):
+    """``NotAdmitted`` as readers before ``reason`` (ENG-2619) parse it."""
+
+    type: Literal["tracecat.admission.not_admitted"]
+    resource: ConcurrencyResource
+    in_use: int
+    limit: int
+    attempt: int
+
+
+def _deferred(attempt: int = 1) -> NotAdmitted:
+    return NotAdmitted(
+        resource=ConcurrencyResource.ACTIONS,
+        in_use=UNKNOWN_COUNT,
+        limit=UNKNOWN_COUNT,
+        attempt=attempt,
+        reason=NotAdmittedReason.EXECUTOR_OVERLOADED,
+    )
+
+
+@pytest.mark.anyio
+async def test_deferred_result_parses_for_new_and_old_readers() -> None:
+    """Executors may emit ``reason`` before every workflow worker knows it."""
+    converter = get_data_converter(compression_enabled=False)
+    (decoded,) = await converter.decode(await converter.encode([_deferred()]))
+
+    parsed = parse_not_admitted(decoded)
+    assert parsed is not None
+    assert parsed.reason == NotAdmittedReason.EXECUTOR_OVERLOADED
+    assert (parsed.in_use, parsed.limit) == (-1, -1)
+
+    # A reader from before ``reason`` still sees a not-admitted result.
+    old = _NotAdmittedBeforeReason.model_validate(decoded)
+    assert (old.in_use, old.limit, old.attempt) == (-1, -1, 1)
+
+
+def test_not_admitted_reason_defaults_and_tolerates_unknown_values() -> None:
+    at_limit = {
+        "type": "tracecat.admission.not_admitted",
+        "resource": "actions",
+        "in_use": 3,
+        "limit": 3,
+        "attempt": 1,
+    }
+    parsed = parse_not_admitted(at_limit)
+    assert parsed is not None
+    assert parsed.reason == NotAdmittedReason.AT_LIMIT
+
+    future = parse_not_admitted({**at_limit, "reason": "some_future_reason"})
+    assert future is not None
+    assert future.reason == "some_future_reason"
+
+
+@pytest.mark.anyio
+async def test_deferred_results_back_off_without_using_attempts(
+    fake: FakeWorkflow,
+) -> None:
+    deferred = _deferred().model_dump(mode="json")
+    results: list[Any] = [deferred, deferred, {"type": "inline"}]
+    seen_attempts: list[int] = []
+
+    async def dispatch(max_attempts: int, _probe_id: str | None) -> Any:
+        seen_attempts.append(max_attempts)
+        return results.pop(0)
+
+    result = await _admission().execute(dispatch, max_attempts=2)
+
+    assert result == {"type": "inline"}
+    assert seen_attempts == [2, 2, 2]
+    assert len(fake.sleeps) == 2
 
 
 def test_malformed_not_admitted_payload_is_ignored() -> None:

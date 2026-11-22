@@ -117,6 +117,15 @@ class LeaseStore:
         redis_client = await get_redis_client()
         return cls(await redis_client._get_client())
 
+    def pool_exhausted(self) -> bool:
+        """Whether every connection in the client's pool is checked out.
+
+        redis-py 7.1's asyncio pool raises a plain ``ConnectionError`` when it
+        is full, so callers check the pool rather than the error text.
+        """
+        pool = self._client.connection_pool
+        return len(pool._in_use_connections) >= pool.max_connections
+
     async def try_acquire(
         self,
         org_id: OrganizationID,

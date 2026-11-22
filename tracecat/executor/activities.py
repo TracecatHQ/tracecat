@@ -283,6 +283,7 @@ class ExecutorActivities:
                     in_use=e.in_use,
                     limit=e.limit,
                     attempt=act_attempt,
+                    reason=e.reason,
                 )
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL

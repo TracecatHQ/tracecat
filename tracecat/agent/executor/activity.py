@@ -1608,6 +1608,7 @@ async def run_agent_activity(
                 in_use=e.in_use,
                 limit=e.limit,
                 attempt=activity_info.attempt,
+                reason=e.reason,
             )
     async with holding(lease):
         return await _run_agent_turn(input)

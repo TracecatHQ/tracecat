@@ -34,6 +34,7 @@ from tracecat.admission.limits import clear_limits_cache
 from tracecat.admission.types import (
     ADMISSION_ACK_SIGNAL,
     ConcurrencyResource,
+    NotAdmittedReason,
     parse_not_admitted,
 )
 from tracecat.auth.types import Role
@@ -789,3 +790,73 @@ async def test_rerun_keeps_the_last_real_attempt_after_a_busy_bounce(
     service.require_execution = AsyncMock()
     source = await service.get_rerun_source(handle.id)
     assert source.actions["retry_action"].fixed is not None
+
+
+@pytest.mark.anyio
+async def test_overloaded_executor_defers_without_using_a_retry(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    limits_enabled: None,
+    fake_actions: FakeActions,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Redis timeout on a lagging loop defers the action; Redis stays enforced."""
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=1)
+
+    lagging = MagicMock()
+    lagging.max_lag_seconds = MagicMock(return_value=1.0)
+    monkeypatch.setattr(gate, "loop_lag", lagging)
+    real_try_acquire = LeaseStore.try_acquire
+    timeouts_left = 2
+
+    async def slow_then_real(self: LeaseStore, *args: Any, **kwargs: Any) -> Any:
+        nonlocal timeouts_left
+        if timeouts_left > 0:
+            timeouts_left -= 1
+            raise TimeoutError
+        return await real_try_acquire(self, *args, **kwargs)
+
+    monkeypatch.setattr(LeaseStore, "try_acquire", slow_then_real)
+    dsl = DSLInput(
+        title="overloaded",
+        description="overloaded",
+        entrypoint=DSLEntrypoint(ref="solo"),
+        actions=[
+            ActionStatement(
+                ref="solo",
+                action="core.transform.reshape",
+                args={"value": "solo"},
+                retry_policy=ActionRetryPolicy(max_attempts=1),
+            )
+        ],
+    )
+
+    dsl_worker, executor_worker = _workers(env, test_worker_factory)
+    async with dsl_worker, executor_worker:
+        handle = await _start(env, test_role, dsl, "overloaded")
+        await handle.result()
+
+    # One user attempt, yet two deferrals and then a run: deferrals used none.
+    assert fake_actions.started == ["solo"]
+    history = await _history(handle)
+    converter = get_data_converter(compression_enabled=False)
+    reasons: list[str] = []
+    for event in history:
+        if event.event_type is not EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+            continue
+        (result,) = await converter.decode(
+            event.activity_task_completed_event_attributes.result.payloads
+        )
+        if (not_admitted := parse_not_admitted(result)) is not None:
+            reasons.append(not_admitted.reason)
+            assert (not_admitted.in_use, not_admitted.limit) == (-1, -1)
+    assert reasons == [NotAdmittedReason.EXECUTOR_OVERLOADED] * 2
+    # Durable backoff, not an in-activity wait.
+    assert len(_timers(history)) == 2
+    # Overload never opened the breaker: Redis was used for the admitted run.
+    assert gate._breaker_open_until == 0.0
+    store = await LeaseStore.create()
+    assert await store.in_use(org_id, ConcurrencyResource.ACTIONS) == 0

@@ -12,7 +12,12 @@ import pytest
 
 from tracecat.admission import live
 from tracecat.admission.live import CapacityBusyError, holding, run_with_capacity_wait
-from tracecat.admission.types import ConcurrencyResource, NotAdmitted
+from tracecat.admission.types import (
+    UNKNOWN_COUNT,
+    ConcurrencyResource,
+    NotAdmitted,
+    NotAdmittedReason,
+)
 
 ORG_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 RESOURCE = ConcurrencyResource.TOOL_CALLS
@@ -217,3 +222,28 @@ async def test_nan_wait_gives_up_instead_of_spinning(setup: Harness) -> None:
     with pytest.raises(CapacityBusyError):
         await _wait(run, wait_seconds=float("nan"))
     run.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_overloaded_executor_gives_up_with_a_sane_message(
+    setup: Harness,
+) -> None:
+    """Deferred attempts carry -1 counts; the error must not show them."""
+    setup(limit=1, counts=[0])
+    deferred = NotAdmitted(
+        resource=RESOURCE,
+        in_use=UNKNOWN_COUNT,
+        limit=UNKNOWN_COUNT,
+        attempt=1,
+        reason=NotAdmittedReason.EXECUTOR_OVERLOADED,
+    )
+    run = AsyncMock(return_value=deferred)
+
+    with pytest.raises(CapacityBusyError) as exc_info:
+        await _wait(run, wait_seconds=0.05)
+
+    error = exc_info.value
+    assert error.reason == NotAdmittedReason.EXECUTOR_OVERLOADED
+    assert "-1" not in str(error)
+    # The live budget is kept: it retried until the wait ran out.
+    assert run.await_count >= 2

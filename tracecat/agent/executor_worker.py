@@ -31,6 +31,7 @@ from tracecat.db.engine import verify_rls_enforceable_login
 from tracecat.dsl.client import get_temporal_client
 from tracecat.executor.startup import executor_lifecycle
 from tracecat.logger import logger
+from tracecat.observability.loop_lag import sampler as loop_lag
 from tracecat.observability.otel import (
     initialize_platform_metrics,
     initialize_platform_tracing,
@@ -114,6 +115,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         initialize_platform_tracing("tracecat-agent-executor")
         initialize_platform_metrics()
         initialize_worker_sentry_from_environment()
+        # The admission gate reads loop lag to tell overload from a Redis outage.
+        loop_lag.start()
 
         # LIFO teardown: storage cache, then runtime services, then metrics and
         # tracing. The stack still runs later callbacks when an earlier one raises.
