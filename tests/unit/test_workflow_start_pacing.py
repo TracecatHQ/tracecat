@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException, Request
 from temporalio.client import Client
+from temporalio.common import Priority
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tracecat.admission.pacing import UNPACED, StartSlot
@@ -475,3 +476,30 @@ async def test_start_timeout_raises_workflow_start_timeout(
             wf_exec_id=f"{_WF_ID.short()}/exec_test",
             trigger_type=TriggerType.WEBHOOK,
         )
+
+
+@pytest.mark.anyio
+async def test_async_and_sync_starts_carry_org_fairness_key(
+    service: WorkflowExecutionsService,
+    mock_client: MagicMock,
+    mock_storage: MagicMock,
+    reserve: AsyncMock,
+) -> None:
+    """Activities and child workflows inherit the key from these starts."""
+    with _timeout(service, None):
+        await service._start_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=f"{_WF_ID.short()}/exec_async",
+            trigger_type=TriggerType.WEBHOOK,
+        )
+        await service._dispatch_workflow(
+            dsl=DSLInput(**_DSL_CONTENT),
+            wf_id=_WF_ID,
+            wf_exec_id=f"{_WF_ID.short()}/exec_sync",
+            trigger_type=TriggerType.WEBHOOK,
+        )
+
+    expected = Priority(fairness_key=str(_ORG_ID))
+    assert mock_client.start_workflow.call_args.kwargs["priority"] == expected
+    assert mock_client.execute_workflow.call_args.kwargs["priority"] == expected

@@ -10,6 +10,7 @@ import anyio
 import pytest
 from anyio.abc import TaskStatus
 from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
+from temporalio.common import Priority
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -24,6 +25,7 @@ from tracecat.admission.live import CapacityBusyError
 from tracecat.admission.types import ConcurrencyResource
 from tracecat.agent.mcp import executor
 from tracecat.agent.tokens import MCPTokenClaims
+from tracecat.agent.workflows.tool_execution import AGENT_TOOL_PRIORITY
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import TemporalSearchAttr
@@ -109,6 +111,10 @@ async def test_execute_action_starts_registry_tool_workflow_with_alias_correlati
 
     start_call = fake_client.start_workflow.await_args
     assert start_call.kwargs["id"] == "agent-tool/tool-wf-123"
+    assert start_call.kwargs["priority"] == Priority(
+        priority_key=AGENT_TOOL_PRIORITY.priority_key,
+        fairness_key=str(claims.organization_id),
+    )
     assert start_call.kwargs.get("run_timeout") is None
     assert start_call.kwargs.get("execution_timeout") is None
     workflow_input = start_call.args[1]
