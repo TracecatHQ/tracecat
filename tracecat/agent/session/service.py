@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import orjson
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from claude_agent_sdk.types import TextBlock, UserMessage
+from pydantic import ValidationError
 from sqlalchemy import (
     and_,
     case,
@@ -146,6 +147,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
+from tracecat.chat.constants import CHANNEL_MESSAGE_DATA_PART_TYPE
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalDecision,
@@ -272,6 +274,13 @@ def _finalize_auto_title_task(
 
 
 def _extract_vercel_user_prompt(ui_message: Any) -> str | None:
+    for part in ui_message.parts:
+        # A retried channel message resends its envelope, not just its text.
+        if part.get("type") == CHANNEL_MESSAGE_DATA_PART_TYPE:
+            try:
+                return ChannelMessage.model_validate(part.get("data")).render()
+            except ValidationError:
+                return None
     text_parts = [part["text"] for part in ui_message.parts if is_text_ui_part(part)]
     return "\n".join(text_parts) or None
 
@@ -675,13 +684,18 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> set[uuid.UUID]:
         """Find sessions whose own type or ancestry requires Workspace Chat."""
         return await self._ids_with_entity_in_ancestry(
-            session_ids, AgentSessionEntity.WORKSPACE_CHAT
+            session_ids, AgentSessionEntity.WORKSPACE_CHAT, via_spawn=True
         )
 
     async def _ids_with_entity_in_ancestry(
-        self, session_ids: Sequence[uuid.UUID], entity_type: AgentSessionEntity
+        self,
+        session_ids: Sequence[uuid.UUID],
+        entity_type: AgentSessionEntity,
+        *,
+        via_spawn: bool,
     ) -> set[uuid.UUID]:
-        """The sessions that are, or spawned or forked from, an `entity_type` session."""
+        """The sessions that are, or forked (or, `via_spawn`, were spawned) from,
+        an `entity_type` session."""
         if not session_ids:
             return set()
         ancestry = (
@@ -698,6 +712,9 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .cte("session_ancestry", recursive=True)
         )
+        parents = [AgentSession.id == ancestry.c.forked_from_session_id]
+        if via_spawn:
+            parents.append(AgentSession.id == ancestry.c.spawned_by_session_id)
         # UNION deduplicates visited (root, ancestor) pairs, including cycles.
         ancestry = ancestry.union(
             select(
@@ -709,10 +726,7 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .join(
                 ancestry,
-                or_(
-                    AgentSession.id == ancestry.c.spawned_by_session_id,
-                    AgentSession.id == ancestry.c.forked_from_session_id,
-                ),
+                or_(*parents),
             )
             .where(AgentSession.workspace_id == self.workspace_id)
         )
@@ -3177,7 +3191,7 @@ class AgentSessionService(BaseWorkspaceService):
             return False
         return bool(
             await self._ids_with_entity_in_ancestry(
-                [agent_session.id], AgentSessionEntity.EXTERNAL_CHANNEL
+                [agent_session.id], AgentSessionEntity.EXTERNAL_CHANNEL, via_spawn=False
             )
         )
 

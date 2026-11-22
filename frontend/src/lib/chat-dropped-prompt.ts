@@ -1,7 +1,12 @@
 import type { UIMessage } from "ai"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { getBaseUrl } from "@/lib/api"
-import { isUserPrompt, toUIMessage } from "@/lib/chat"
+import {
+  CHANNEL_MESSAGE_DATA_PART_TYPE,
+  getChannelMessageData,
+  isUserPrompt,
+  toUIMessage,
+} from "@/lib/chat"
 import type { QueryClient } from "@/lib/query"
 
 function storageKey(chatId: string): string {
@@ -17,7 +22,13 @@ export function chatStreamUrl(chatId: string, workspaceId: string): string {
 
 function promptText(message: UIMessage): string {
   return message.parts
-    .map((part) => (part.type === "text" ? part.text : ""))
+    .map((part) => {
+      if (part.type === "text") return part.text
+      if (part.type === CHANNEL_MESSAGE_DATA_PART_TYPE && "data" in part) {
+        return getChannelMessageData(part.data)?.text ?? ""
+      }
+      return ""
+    })
     .join("")
 }
 

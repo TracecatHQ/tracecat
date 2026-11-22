@@ -97,6 +97,7 @@ import { useTypeToFocus } from "@/hooks/use-type-to-focus"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   CANCELLED_DATA_PART_TYPE,
+  CHANNEL_MESSAGE_DATA_PART_TYPE,
   collectCancelledTurns,
   ENTITY_TO_INVALIDATION,
   getPendingApprovalIds,
@@ -127,7 +128,7 @@ function messageHasVisibleParts(message: Pick<UIMessage, "parts">): boolean {
 
 /**
  * Whether a message is a request the server can run as a turn: a user prompt
- * with text, or an approval submission. Reloaded history can also hold
+ * with text, a channel message, or an approval submission. Reloaded history can also hold
  * user-role tool results, which are neither.
  */
 function isTurnRequest({ role, parts }: UIMessage): boolean {
@@ -136,7 +137,8 @@ function isTurnRequest({ role, parts }: UIMessage): boolean {
     parts.some(
       (part) =>
         (part.type === "text" && part.text.length > 0) ||
-        part.type === "data-continue"
+        part.type === "data-continue" ||
+        part.type === CHANNEL_MESSAGE_DATA_PART_TYPE
     )
   )
 }

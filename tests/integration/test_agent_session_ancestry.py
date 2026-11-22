@@ -302,11 +302,15 @@ async def test_a_fork_of_a_fork_of_a_channel_session_is_a_channel_session(
     nested = agent_session(
         AgentSessionEntity.APPROVAL.value, forked_from_session_id=approval.id
     )
+    spawned = agent_session(
+        AgentSessionEntity.APPROVAL.value, spawned_by_session_id=channel.id
+    )
     unrelated = agent_session(AgentSessionEntity.APPROVAL.value)
-    session.add_all([channel, approval, nested, unrelated])
+    session.add_all([channel, approval, nested, spawned, unrelated])
     await session.commit()
     service = AgentSessionService(session, svc_role)
 
     assert await service.is_channel_session(channel)
     assert await service.is_channel_session(nested)
+    assert not await service.is_channel_session(spawned)
     assert not await service.is_channel_session(unrelated)

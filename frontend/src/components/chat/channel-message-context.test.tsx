@@ -86,7 +86,9 @@ describe("channel message parts", () => {
     expect(
       isUserPrompt({
         role: "user",
-        parts: [{ type: "data-channel-message", data: MESSAGE }],
+        parts: [
+          { type: "data-channel-message", data: { ...MESSAGE, text: "" } },
+        ],
       })
     ).toBe(true)
   })

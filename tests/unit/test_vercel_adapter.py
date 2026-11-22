@@ -29,6 +29,7 @@ from tracecat.agent.channel_bots.messages import (
 )
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.session.service import _extract_vercel_user_prompt
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage
 
@@ -411,3 +412,19 @@ def test_quoted_interrupt_markers_do_not_hide_a_channel_message() -> None:
     )
 
     assert len(messages) == 1
+
+
+@pytest.mark.parametrize("text", ["triage this", ""])
+def test_retrying_a_channel_message_resends_its_envelope(text: str) -> None:
+    channel_message = _channel_message(text)
+    [ui_message] = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(content=channel_message.render()),
+                channel_message=channel_message,
+            )
+        ]
+    )
+
+    assert _extract_vercel_user_prompt(ui_message) == channel_message.render()
