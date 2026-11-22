@@ -264,27 +264,45 @@ def collect(args: argparse.Namespace) -> None:
         f"deploy/{args.pod_deployment}", "-c", args.container, "--",
         "env", *env, "python", "-",
     ]  # fmt: skip
-    collector = HERE / "pod_collect.py"
+    if "staging" not in args.context and not args.allow_non_staging:
+        sys.exit(
+            f"refusing to run the collector in context {args.context!r}: "
+            "this harness is for staging (pass --allow-non-staging to override)"
+        )
     # The collector runs in the worker pod with its credentials, so ship the
-    # bytes committed at HEAD (what was reviewed), not whatever is on disk.
-    # Committed code is trusted like any other script in the repo.
-    if args.allow_dirty:
-        print(f"warning: shipping the working-tree {collector}", file=sys.stderr)
-        script = collector.read_text()
-    else:
-        script = subprocess.run(
-            ["git", "-C", str(HERE), "show", f"HEAD:./{collector.name}"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        if script != collector.read_text():
-            sys.exit(
-                f"{collector} differs from git HEAD; commit it or pass --allow-dirty"
-            )
+    # bytes of a reviewed ref (default origin/main), never the working tree.
+    rel = (HERE / "pod_collect.py").relative_to(
+        Path(
+            subprocess.run(
+                ["git", "-C", str(HERE), "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        )
+    )
+    sha = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(HERE),
+            "rev-parse",
+            "--verify",
+            f"{args.collector_ref}^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    script = subprocess.run(
+        ["git", "-C", str(HERE), "show", f"{sha}:{rel.as_posix()}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     print(
-        f"collect: running pod_collect.py in {args.context}/{args.namespace} "
-        f"deploy/{args.pod_deployment}",
+        f"collect: running pod_collect.py@{sha[:12]} ({args.collector_ref}) in "
+        f"{args.context}/{args.namespace} deploy/{args.pod_deployment}",
         file=sys.stderr,
     )
     labels = {pair.split("=", 1)[0] for pair in env[0].split("=", 1)[1].split(",")}
@@ -402,10 +420,15 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             )
         failures = sorted({r["failure"] for r in dsl + tools if r.get("failure")})[:10]
         # Bounced attempts ran nothing, so they don't count toward the width.
+        # An activity still open when its run closed (terminated, timed out)
+        # has no close event: it ran until the run closed.
         intervals = [
-            (a[2], a[3])
-            for a in acts
-            if a[2] is not None and a[3] is not None and a[5] != "not_admitted"
+            (a[2], a[3] if a[3] is not None else r["closed"])
+            for r in dsl
+            for a in r["acts"]
+            if a[2] is not None
+            and (a[3] is not None or r["closed"] is not None)
+            and a[5] != "not_admitted"
         ]
         ok_lat = [q["latency"] for q in reqs]
         started_by_id = {r["workflow_id"]: r["started"] for r in dsl}
@@ -719,9 +742,14 @@ def main() -> None:
         help="fail if a workspace has more executions than this in the window",
     )
     p.add_argument(
-        "--allow-dirty",
+        "--collector-ref",
+        default="origin/main",
+        help="git ref whose pod_collect.py is shipped (a reviewed commit)",
+    )
+    p.add_argument(
+        "--allow-non-staging",
         action="store_true",
-        help="ship pod_collect.py even if it differs from git HEAD",
+        help="run the collector in a context whose name lacks 'staging'",
     )
 
     p = sub.add_parser("report", help="percentiles and peaks per run directory")

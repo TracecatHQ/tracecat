@@ -69,6 +69,12 @@ uv run python scripts/benchmark/staging_burst/burst.py collect --out $D/runs.jso
 uv run python scripts/benchmark/staging_burst/burst.py report $D --out $D/report.md
 ```
 
+Run output holds workflow and run IDs: keep it under the git-ignored
+`scripts/benchmark/staging_burst/out/` (or outside the repo) and never commit
+it. `collect` ships `pod_collect.py` from `--collector-ref` (default
+`origin/main`; pass a reviewed SHA before this lands) and refuses contexts
+without "staging" in their name.
+
 Stream labels start with the org (`A-…`, `B-…`); `report` groups by that
 prefix. `collect` lists every DSL and agent-tool run started in the two
 workspaces in the window, so keep other work out of them during a run.
@@ -102,7 +108,8 @@ Notes:
 - `insert_rows` rejects batches over 1,000 rows before taking the lock.
 - Payloads over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` (128 KiB)
   go to blob storage and don't load the worker; 120 KB is the worst case.
-- Scenario 4 on staging: the VPC CNI doesn't enforce NetworkPolicies, so the
+- Scenario 4 is staging only and needs an approval first. On staging the VPC
+  CNI doesn't enforce NetworkPolicies, so the
   executor's `REDIS_URL` was set to `rediss://192.0.2.1:6379` (the scheme
   must stay `rediss://` with `REDIS_AUTH_MODE=aws_iam` or the pod won't start),
   then rolled back with `kubectl rollout undo --to-revision=<previous>`. This

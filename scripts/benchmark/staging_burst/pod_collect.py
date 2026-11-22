@@ -2,7 +2,7 @@
 
 Runs inside a Tracecat DSL worker pod, fed on stdin, so it uses the pod's own
 Temporal client and namespace and no credential leaves the cluster. Run it
-through ``burst.py collect``, which ships the copy committed at HEAD.
+through ``burst.py collect``, which ships the copy at a reviewed git ref.
 
 Read-only: lists workflow executions by workspace and start time and fetches
 their histories. To tell a "not admitted" bounce from a real run, it decodes
@@ -154,6 +154,13 @@ async def summarize(
     }
 
 
+def _label(value: str) -> str:
+    """A workspace label: printed on protocol lines, so letters, digits, - and _ only."""
+    if not value or not all(c.isascii() and (c.isalnum() or c in "-_") for c in value):
+        sys.exit(f"invalid workspace label: {value!r}")
+    return value
+
+
 def _rfc3339(value: str) -> str:
     """Parse a timestamp and re-render it as RFC 3339 UTC."""
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -166,7 +173,7 @@ async def main() -> None:
     # Every value below is spliced into a visibility query, so parse each one
     # into its type first: a quote in any of them can't widen the query.
     workspaces = {
-        label: str(uuid.UUID(workspace_id))
+        _label(label): str(uuid.UUID(workspace_id))
         for label, workspace_id in (
             pair.split("=", 1)
             for pair in os.environ["BURST_WORKSPACES"].split(",")
@@ -195,7 +202,8 @@ async def main() -> None:
                 history = await handle.fetch_history()
                 row = await summarize(list(history.events), executor_queue)
             except Exception as e:  # report and keep going
-                row = {"error": f"{type(e).__name__}: {e}"[:300]}
+                message = EventFailure.sanitize_error_text(f"{type(e).__name__}: {e}")
+                row = {"error": (message or "")[:300]}
             row |= {
                 "org": label,
                 "type": wf_type,
