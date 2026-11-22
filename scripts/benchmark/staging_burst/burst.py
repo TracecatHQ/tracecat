@@ -486,6 +486,8 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             "api_accept_lag": _stats(accept_lag),
             "not_admitted": sum(1 for a in acts if a[5] == "not_admitted"),
             "actions_failed": sum(1 for a in acts if a[5] in ("failed", "timed_out")),
+            # Rows with an error, whatever the status (a 200 with an odd body too).
+            "api_errors": sum(1 for q in reqs if q.get("error")),
             "api_status": {
                 str(s): sum(1 for q in reqs if q.get("status") == s)
                 for s in sorted({q.get("status") for q in reqs}, key=str)
@@ -695,7 +697,8 @@ def report(args: argparse.Namespace) -> None:
         lines.append("")
         for org, m in summary["orgs"].items():
             lines.append(
-                f"- Org {_md_text(org)}: statuses {m['statuses']}; API status {m['api_status']}; "
+                f"- Org {_md_text(org)}: statuses {m['statuses']}; API status {m['api_status']} "
+                f"({m['api_errors']} with errors); "
                 f"max action width {m['max_action_width']}; not admitted {m['not_admitted']}; "
                 f"actions failed {m['actions_failed']}; max history {m['history_events_max']} "
                 f"events; signals {m['signals_total']}; "

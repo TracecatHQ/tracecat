@@ -108,8 +108,9 @@ Notes:
 - `insert_rows` rejects batches over 1,000 rows before taking the lock.
 - Payloads over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` go to blob
   storage and don't load the worker. The code default is 131,072 bytes and
-  `.env.example` sets 128,000; check the deployment's value. 120,000 bytes is
-  under both, so it's the worst case kept inline.
+  `.env.example` sets 128,000. Read the deployment's value first and keep
+  `pad_bytes` under it, or the payloads are externalized and scenario 2 stops
+  loading the worker. 120,000 bytes was under staging's value.
 - Scenario 4 is staging only and needs an approval first. On staging the VPC
   CNI doesn't enforce NetworkPolicies, so make Redis unreachable for the
   executor by keeping its real cache host and changing only the port to one
