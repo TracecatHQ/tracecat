@@ -487,7 +487,9 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             "not_admitted": sum(1 for a in acts if a[5] == "not_admitted"),
             "actions_failed": sum(1 for a in acts if a[5] in ("failed", "timed_out")),
             # Rows with an error, whatever the status (a 200 with an odd body too).
-            "api_errors": sum(1 for q in reqs if q.get("error")),
+            "api_errors": sum(
+                1 for q in reqs if "error" in q or q.get("status") != 200
+            ),
             "api_status": {
                 str(s): sum(1 for q in reqs if q.get("status") == s)
                 for s in sorted({q.get("status") for q in reqs}, key=str)

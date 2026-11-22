@@ -111,9 +111,8 @@ Notes:
   `.env.example` sets 128,000. Read the deployment's value first and keep
   `pad_bytes` under it, or the payloads are externalized and scenario 2 stops
   loading the worker. 120,000 bytes was under staging's value.
-- Scenario 4 is staging only and needs an approval first. On staging the VPC
-  CNI doesn't enforce NetworkPolicies, so make Redis unreachable for the
-  executor by keeping its real cache host and changing only the port to one
+- Scenario 4 is staging only and needs an approval first. Make Redis
+  unreachable for the executor only by keeping its real cache host and changing only the port to one
   the cache's security group drops, so connects time out like a network
   outage. With `REDIS_AUTH_MODE=aws_iam` the URL must stay `rediss://` and the
   host must end in `.cache.amazonaws.com`, or the client rejects it before
