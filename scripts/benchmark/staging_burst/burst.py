@@ -91,17 +91,33 @@ async def _run_stream(
         base["pad"] = "x" * pad
     sem = asyncio.Semaphore(stream.concurrency)
 
+    in_flight = 0
+
     async def one(seq: int) -> None:
+        nonlocal in_flight
+        try:
+            await _send(seq)
+        finally:
+            in_flight -= 1
+
+    async def _send(seq: int) -> None:
         async with sem:
             sent = time.time()
             row: dict[str, Any] = {"label": stream.label, "seq": seq, "sent": sent}
             try:
                 resp = await client.post(url, json=base | {"seq": seq})
                 row["status"] = resp.status_code
-                if resp.status_code == 200:
-                    row["wf_exec_id"] = resp.json().get("wf_exec_id")
-                else:
+                if resp.status_code != 200:
                     row["error"] = resp.text[:200]
+                else:
+                    try:
+                        body = resp.json()
+                    except ValueError:
+                        body = None
+                    if isinstance(body, dict):
+                        row["wf_exec_id"] = body.get("wf_exec_id")
+                    else:
+                        row["error"] = f"unexpected 200 body: {resp.text[:200]}"
             except httpx.HTTPError as e:
                 row["status"] = 0
                 row["error"] = f"{type(e).__name__}: {e}"[:200]
@@ -117,8 +133,9 @@ async def _run_stream(
             await asyncio.sleep(max(0.0, start + seq / stream.rate - time.time()))
         else:
             # Unpaced: only queue as many as the semaphore can take.
-            while sum(not t.done() for t in tasks) >= stream.concurrency:
+            while in_flight >= stream.concurrency:
                 await asyncio.sleep(0.005)
+        in_flight += 1
         tasks.append(asyncio.create_task(one(seq)))
     await asyncio.gather(*tasks)
 
@@ -205,7 +222,7 @@ def sample(args: argparse.Namespace) -> None:
         for line in _kubectl(args, "get", "pods", "-o", "name").splitlines()
         if "pgdog" in line
     ]
-    pool = ThreadPoolExecutor(max_workers=2 + len(pgdog_pods))
+    pool = ThreadPoolExecutor(max_workers=8)
     with open(args.out, "a") as out:
         while time.time() < deadline:
             row: dict[str, Any] = {"t": time.time()}
@@ -232,6 +249,13 @@ def sample(args: argparse.Namespace) -> None:
                     }
                     for p in pods["items"]
                 }
+                # Follow PgDog restarts and rollouts: scrape the pods running now.
+                pgdog_pods = [
+                    p["metadata"]["name"]
+                    for p in pods["items"]
+                    if "pgdog" in p["metadata"]["name"]
+                    and p["status"].get("phase") == "Running"
+                ] or pgdog_pods
             except (RuntimeError, subprocess.TimeoutExpired) as e:
                 row["pods_error"] = str(e)
             try:
@@ -582,6 +606,7 @@ def _svg_timeline(run_dir: Path) -> str:
             h[int((t - t0) // bucket)] = h.get(int((t - t0) // bucket), 0) + 1
         hist[org] = h
         peak = max(peak, *h.values())
+    org_peak = {org: max(h.values()) for org, h in hist.items()}
     for i, (org, h) in enumerate(sorted(hist.items())):
         for b, n in h.items():
             bx = x(t0 + b * bucket) + i * 3
@@ -592,7 +617,7 @@ def _svg_timeline(run_dir: Path) -> str:
             )
         parts.append(
             f'<text x="{width - 150}" y="{30 + 14 * i}" fill="{colors.get(org, "#888")}">'
-            f"org {html.escape(org)} (peak {peak}/5 s)</text>"
+            f"org {html.escape(org)} (peak {org_peak[org]}/5 s)</text>"
         )
     # None marks a sample whose PgDog scrape failed: drawn as a gap, not a zero.
     totals: list[tuple[float, float | None]] = [

@@ -61,9 +61,9 @@ collect once the runs have finished:
 D=scripts/benchmark/staging_burst/out/s5-on; mkdir -p $D  # git-ignored
 uv run python scripts/benchmark/staging_burst/burst.py sample --out $D/samples.jsonl --duration 600 &
 uv run python scripts/benchmark/staging_burst/burst.py drive --out $D/requests.jsonl \
-  --stream '{"label":"A-scatter","url_env":"BURST_A_SCATTER","rate":0,"count":1,"payload":{"n":500,"secs":2}}' \
-  --stream '{"label":"B-quick","url_env":"BURST_B_QUICK","rate":2,"count":400,"concurrency":10}' \
-  --stream '{"label":"B-agent","url_env":"BURST_B_AGENT","rate":0.4,"count":60,"payload":{"calls":4}}'
+  --stream '{"label":"A-scatter","url_env":"BURST_A_SCATTER","rate":0,"count":1,"after":20,"payload":{"n":500,"secs":2}}' \
+  --stream '{"label":"B-quick","url_env":"BURST_B_QUICK","rate":2,"count":360,"concurrency":10}' \
+  --stream '{"label":"B-agent","url_env":"BURST_B_AGENT","rate":0.4,"count":72,"concurrency":10,"payload":{"calls":4}}'
 # after every run has closed:
 uv run python scripts/benchmark/staging_burst/burst.py collect --out $D/runs.jsonl --since 2026-11-22T00:00:00Z --until 2026-11-22T00:20:00Z
 uv run python scripts/benchmark/staging_burst/burst.py report $D --out $D/report.md
@@ -106,8 +106,10 @@ Org A's load per scenario (same load off and on):
 Notes:
 
 - `insert_rows` rejects batches over 1,000 rows before taking the lock.
-- Payloads over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` (128 KiB)
-  go to blob storage and don't load the worker; 120 KB is the worst case.
+- Payloads over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` go to blob
+  storage and don't load the worker. The code default is 131,072 bytes and
+  `.env.example` sets 128,000; check the deployment's value. 120,000 bytes is
+  under both, so it's the worst case kept inline.
 - Scenario 4 is staging only and needs an approval first. On staging the VPC
   CNI doesn't enforce NetworkPolicies, so make Redis unreachable for the
   executor by keeping its real cache host and changing only the port to one
