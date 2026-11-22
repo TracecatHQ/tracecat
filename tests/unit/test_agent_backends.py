@@ -522,6 +522,8 @@ async def test_builtin_dispatch_preserves_workflow_contract(feed_events: FeedEve
     assert args.agent_args.active_stream_id == ctx.stream_id
     assert request.workflow_id == f"agent/{ctx.run_id}"
     assert request.workflow_type.name == "DurableAgentWorkflow"
+    assert request.priority.priority_key == DefaultBackend.priority.priority_key
+    assert request.priority.fairness_key == str(ctx.role.organization_id)
     assert rpc.await_args.kwargs["retry"] is False
     # Recovery waits out this deadline before tombstoning a missing turn.
     assert rpc.await_args.kwargs["timeout"] == timedelta(seconds=30)

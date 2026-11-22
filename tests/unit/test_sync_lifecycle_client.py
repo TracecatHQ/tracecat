@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import func, select
-from temporalio.common import WorkflowIDReusePolicy
+from temporalio.common import Priority, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tests.unit.test_durable_workspace_sync import push_inputs
@@ -99,6 +99,8 @@ async def test_lost_start_response_has_no_saved_request_and_reuses_identity(
     assert accepted.id == inputs.id and accepted.status == "queued"
     calls = client.start_workflow.await_args_list
     assert [c.kwargs["id"] for c in calls] == [service.workflow_id(inputs.id)] * 2
+    org_key = Priority(fairness_key=str(svc_role.organization_id))
+    assert all(c.kwargs["priority"] == org_key for c in calls)
     assert all(
         c.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
         for c in calls

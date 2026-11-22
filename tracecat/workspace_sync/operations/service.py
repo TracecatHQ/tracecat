@@ -20,6 +20,7 @@ from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullResult
+from tracecat.temporal.fairness import org_priority
 from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.operations.schemas import (
     SyncOperationCreate,
@@ -113,9 +114,8 @@ class SyncOperationService(BaseWorkspaceService):
         if operation.status not in {"queued", "running", "applying"}:
             return
         phase = "apply" if operation.status == "applying" else "preview"
-        ref = SyncOperationRef(
-            operation.id, Role.model_validate(operation.actor), phase, operation.attempt
-        )
+        role = Role.model_validate(operation.actor)
+        ref = SyncOperationRef(operation.id, role, phase, operation.attempt)
         try:
             client = await get_temporal_client()
             await client.start_workflow(
@@ -123,6 +123,7 @@ class SyncOperationService(BaseWorkspaceService):
                 ref,
                 id=f"workspace-sync/{self.workspace_id}/{operation.id}/{phase}/{operation.attempt}",
                 task_queue=config.TRACECAT__BACKGROUND_QUEUE,
+                priority=org_priority(role.organization_id),
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                 rpc_timeout=timedelta(seconds=5),
             )

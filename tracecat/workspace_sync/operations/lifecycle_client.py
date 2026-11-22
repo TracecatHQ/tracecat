@@ -17,6 +17,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullResult
+from tracecat.temporal.fairness import org_priority
 from tracecat.workspace_sync.operations.domain import fingerprint
 from tracecat.workspace_sync.operations.lifecycle import WorkspaceSyncLifecycleWorkflow
 from tracecat.workspace_sync.operations.lifecycle_types import (
@@ -161,6 +162,7 @@ class SyncLifecycleService(BaseWorkspaceService):
                 start,
                 id=self.workflow_id(inputs.id),
                 task_queue=config.TRACECAT__BACKGROUND_QUEUE,
+                priority=org_priority(self.role.organization_id),
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                 rpc_timeout=_RPC_TIMEOUT,
             )

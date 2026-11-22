@@ -65,6 +65,7 @@ from tracecat.db.models import AgentSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatConflictError
 from tracecat.logger import logger
+from tracecat.temporal.fairness import org_priority
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -500,7 +501,7 @@ class AgentBackend[InputT, OutputT](ABC):
                 # Recovery tombstones a lost start's ID. REJECT_DUPLICATE keeps a
                 # delayed start from running after that tombstone has closed.
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-                priority=self.priority,
+                priority=org_priority(context.role.organization_id, self.priority),
                 search_attributes=search_attributes,
                 rpc_timeout=_START_RPC_TIMEOUT,
             )

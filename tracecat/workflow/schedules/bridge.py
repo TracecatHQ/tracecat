@@ -14,6 +14,7 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.logger import logger
+from tracecat.temporal.fairness import org_priority
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -97,6 +98,7 @@ async def create_schedule(
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 typed_search_attributes=build_schedule_search_attributes(role),
+                priority=org_priority(role.organization_id),
                 **schedule_kwargs,
             ),
             spec=temporalio.client.ScheduleSpec(**spec_kwargs),
@@ -160,6 +162,9 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
                     scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
                 )
             action.typed_search_attributes = build_schedule_search_attributes(role)
+            # Rewriting the whole action must not drop the org's fairness key,
+            # including one the fairness backfill set after this read.
+            action.priority = org_priority(role.organization_id, action.priority)
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
             if "timeout" in set_fields:

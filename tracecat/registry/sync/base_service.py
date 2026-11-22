@@ -49,6 +49,7 @@ from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
 from tracecat.temporal.errors import extract_error_classifications
+from tracecat.temporal.fairness import org_priority
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -729,6 +730,7 @@ class BaseRegistrySyncService[
                 request,
                 id=workflow_id,
                 task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+                priority=org_priority(request.organization_id),
                 execution_timeout=REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
             )
         except WorkflowFailureError as exc:

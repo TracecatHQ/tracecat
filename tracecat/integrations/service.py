@@ -155,6 +155,7 @@ from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.secrets.masking import SecretMaskCollector
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.fairness import org_priority
 
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
 """Maximum seconds an MCP connection verification may take."""
@@ -4204,6 +4205,7 @@ class IntegrationService(BaseWorkspaceService):
                 ),
                 id=workflow_id,
                 task_queue=config.TRACECAT__AGENT_QUEUE,
+                priority=org_priority(self.role.organization_id),
                 run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
@@ -4488,6 +4490,7 @@ class IntegrationService(BaseWorkspaceService):
             ),
             id=workflow_id,
             task_queue=config.TRACECAT__AGENT_QUEUE,
+            priority=org_priority(self.role.organization_id),
             run_timeout=timedelta(seconds=MCP_STDIO_PROBE_TIMEOUT_CAP + 90),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,

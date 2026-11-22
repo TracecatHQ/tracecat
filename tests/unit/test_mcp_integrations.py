@@ -26,7 +26,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
-from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.common import Priority, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -8263,6 +8263,9 @@ class TestMCPConnectionVerification:
         assert workflow_input.mcp_integration_id == stdio_integration.id
         assert workflow_input.role == integration_service.role
         assert workflow_input.persist_result is True
+        assert call.kwargs["priority"] == Priority(
+            fairness_key=str(integration_service.role.organization_id)
+        )
         assert call.kwargs["id"] == build_stdio_mcp_probe_workflow_id(
             workspace_id=integration_service.workspace_id,
             mcp_integration_id=stdio_integration.id,
@@ -8459,6 +8462,9 @@ class TestMCPConnectionVerification:
         assert workflow_input.mcp_integration_id == stdio_integration.id
         assert workflow_input.role == integration_service.role
         assert workflow_input.persist_result is False
+        assert call.kwargs["priority"] == Priority(
+            fairness_key=str(integration_service.role.organization_id)
+        )
         assert call.kwargs["id"] == build_stdio_mcp_probe_workflow_id(
             workspace_id=integration_service.workspace_id,
             mcp_integration_id=stdio_integration.id,
