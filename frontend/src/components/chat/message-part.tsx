@@ -361,6 +361,8 @@ type MessagePartsProps = Omit<
   "part" | "partIdx" | "id" | "role" | "authorName"
 > & {
   message: Pick<UIMessage, "id" | "role" | "parts" | "metadata">
+  /** Label web prompts with their author; only shared sessions need it. */
+  showAuthor?: boolean
 }
 
 type IndexedPart = { part: UIMessage["parts"][number]; partIdx: number }
@@ -501,11 +503,14 @@ export function MessageParts({
   interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
   reasoningSeconds,
+  showAuthor = false,
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
   const authorName =
-    message.role === "user" ? getMessageAuthorName(message.metadata) : null
+    showAuthor && message.role === "user"
+      ? getMessageAuthorName(message.metadata)
+      : null
 
   function renderPart({ part, partIdx }: IndexedPart) {
     return (

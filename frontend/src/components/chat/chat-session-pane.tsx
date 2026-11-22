@@ -406,6 +406,14 @@ export function ChatSessionPane({
   )
   const cannotDecideApprovals =
     !canDecideApprovals || approvalsDisabled || cannotExecuteAgents
+  // Author labels are noise in a private chat; show them where several people talk.
+  const showMessageAuthors = Boolean(
+    chat &&
+      "entity_type" in chat &&
+      (chat.entity_type === "workflow" ||
+        chat.entity_type === "external_channel" ||
+        ("channel_context" in chat && chat.channel_context))
+  )
   // Name the missing scope when that is why a shared session is read-only.
   let readonlyDescription = cannotExecuteAgents
     ? AGENT_EXECUTE_REQUIRED_MESSAGE
@@ -1644,6 +1652,7 @@ export function ChatSessionPane({
                         isLastMessage={message.id === lastMessageId}
                         turnCancelled={cancelledTurnMessageIds.has(message.id)}
                         interruptedToolCallIds={interruptedToolCallIds}
+                        showAuthor={showMessageAuthors}
                       />
                     </div>
                   )

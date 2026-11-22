@@ -505,10 +505,26 @@ describe("message authors", () => {
       },
       parts: [{ type: "text", text: "triage this" }],
     }
-    render(<MessageParts message={message} status="ready" isLastMessage />)
+    render(
+      <MessageParts message={message} status="ready" isLastMessage showAuthor />
+    )
 
     const bubble = screen.getByText("triage this").closest(".is-user")
     expect(bubble).toContainElement(screen.getByText("Sam"))
+  })
+
+  it("hides the author label in a private chat", () => {
+    const message: UIMessage = {
+      id: "u1-private",
+      role: "user",
+      metadata: {
+        author: { id: "user-1", email: "sam@example.com", first_name: "Sam" },
+      },
+      parts: [{ type: "text", text: "triage this" }],
+    }
+    render(<MessageParts message={message} status="ready" isLastMessage />)
+
+    expect(screen.queryByText("Sam")).not.toBeInTheDocument()
   })
 
   it("labels a channel message with its sender", () => {

@@ -1291,6 +1291,58 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
   })
 })
 
+describe("ChatSessionPane author labels", () => {
+  const AUTHORED: UIMessage = {
+    id: "authored",
+    role: "user",
+    metadata: {
+      author: { id: "user-2", email: "sam@example.com", first_name: "Sam" },
+    },
+    parts: [{ type: "text", text: "triage this" }],
+  }
+  const webChat = {
+    id: "web-session",
+    workspace_id: "workspace-1",
+    title: "Chat",
+    created_by: "user-1",
+    is_readonly: false,
+    entity_type: "agent_preset",
+    entity_id: "preset-1",
+    channel_context: null,
+    tools: [],
+    mcp_integrations: [],
+    agent_preset_id: "preset-1",
+    agent_preset_version_id: null,
+    harness_type: "pi",
+    created_at: "2026-09-25T00:00:00Z",
+    updated_at: "2026-09-25T00:00:00Z",
+    messages: [],
+  } as Parameters<typeof ChatSessionPane>[0]["chat"]
+
+  beforeEach(() => {
+    mockUseVercelChatResult.messages = [AUTHORED]
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("hides authors in a private web session", async () => {
+    renderChatSessionPane({ chat: webChat })
+
+    await screen.findByText("triage this")
+    expect(screen.queryByText("Sam")).not.toBeInTheDocument()
+  })
+
+  it("shows authors in a workflow session", async () => {
+    const workflowChat = {
+      ...webChat,
+      entity_type: "workflow",
+      entity_id: "wf-1",
+    } as Parameters<typeof ChatSessionPane>[0]["chat"]
+    renderChatSessionPane({ chat: workflowChat })
+
+    expect(await screen.findByText("Sam")).toBeInTheDocument()
+  })
+})
+
 describe("ChatSessionPane running composer", () => {
   beforeEach(() => {
     mockUseRunningComposer.mockReset()
