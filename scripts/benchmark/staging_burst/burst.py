@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import html
 import json
 import math
 import os
@@ -171,7 +172,14 @@ def _pgdog_metrics(text: str) -> dict[str, dict[str, float]]:
             continue
         database = rest.split('database="', 1)[1].split('"', 1)[0]
         value = float(rest.rsplit("}", 1)[1])
-        out.setdefault(database, {})[name.removeprefix("pgdog_")] = value
+        gauges = out.setdefault(database, {})
+        gauge = name.removeprefix("pgdog_")
+        # One database can have several pools (users, shards, roles): counts
+        # add up across them, the longest wait is the max.
+        if gauge == "maxwait":
+            gauges[gauge] = max(gauges.get(gauge, 0.0), value)
+        else:
+            gauges[gauge] = gauges.get(gauge, 0.0) + value
     return out
 
 
@@ -246,13 +254,25 @@ def collect(args: argparse.Namespace) -> None:
         f"BURST_WORKSPACES={args.workspaces or os.environ['BURST_WORKSPACES']}",
         f"BURST_SINCE={args.since}",
         f"BURST_UNTIL={args.until}",
+        f"BURST_MAX_RUNS={args.max_runs}",
     ]
     cmd = [
         "kubectl", "--context", args.context, "-n", args.namespace, "exec", "-i",
         f"deploy/{args.pod_deployment}", "-c", args.container, "--",
         "env", *env, "python", "-",
     ]  # fmt: skip
-    script = (HERE / "pod_collect.py").read_text()
+    collector = HERE / "pod_collect.py"
+    # The collector runs in the worker pod with its credentials, so only ever
+    # ship the committed file, never local edits.
+    dirty = subprocess.run(
+        ["git", "-C", str(HERE), "status", "--porcelain", "--", collector.name],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if dirty and not args.allow_dirty:
+        sys.exit(f"{collector} differs from git HEAD; commit it or pass --allow-dirty")
+    script = collector.read_text()
     labels = {pair.split("=", 1)[0] for pair in env[0].split("=", 1)[1].split(",")}
     for attempt in range(1, args.attempts + 1):
         proc = subprocess.run(
@@ -265,6 +285,10 @@ def collect(args: argparse.Namespace) -> None:
         }
         # kubectl exec can exit 0 after its stream was reset, so completeness
         # is judged by the collector's DONE line per workspace.
+        if truncated := [
+            line for line in proc.stdout.splitlines() if line.startswith("TRUNCATED ")
+        ]:
+            sys.exit(f"collect truncated ({'; '.join(truncated)}); raise --max-runs")
         if proc.returncode == 0 and done >= labels:
             break
         print(
@@ -320,7 +344,9 @@ def _max_width(intervals: list[tuple[float, float]]) -> int:
 
 def summarize_run(run_dir: Path) -> dict[str, Any]:
     """Compute the per-org metrics for one run directory."""
-    runs = [r for r in _read_jsonl(run_dir / "runs.jsonl") if "error" not in r]
+    collected = _read_jsonl(run_dir / "runs.jsonl")
+    runs = [r for r in collected if "error" not in r]
+    unreadable = [r for r in collected if "error" in r]
     requests = _read_jsonl(run_dir / "requests.jsonl")
     samples = _read_jsonl(run_dir / "samples.jsonl")
     orgs = sorted(
@@ -392,6 +418,8 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
                 for s in sorted({q.get("status") for q in reqs}, key=str)
             },
             "statuses": statuses,
+            # Histories that couldn't be read: their runs are missing above.
+            "unreadable_histories": sum(1 for r in unreadable if r["org"] == org),
             "failures": failures,
             "max_action_width": _max_width(intervals),
             "history_events_max": max((r["events"] for r in dsl), default=0),
@@ -404,6 +432,19 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             ),
         }
     peaks: dict[str, Any] = {"pgdog": {}, "mem_mib": {}, "restarts": {}, "oom": []}
+    # How many samples actually observed each source: a failed scrape is
+    # unknown, not zero.
+    coverage = {
+        "samples": len(samples),
+        "pods": sum(1 for s in samples if "pods" in s),
+        "mem": sum(1 for s in samples if "mem_mib" in s),
+        "pgdog": sum(
+            1
+            for s in samples
+            if s.get("pgdog") and all("error" not in dbs for dbs in s["pgdog"].values())
+        ),
+    }
+    peaks["coverage"] = coverage
     for s in samples:
         for pod, dbs in s.get("pgdog", {}).items():
             for db, gauges in dbs.items():
@@ -425,15 +466,22 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     totals = [
         sum(
             g.get("sv_active", 0)
-            for dbs in s.get("pgdog", {}).values()
+            for dbs in s["pgdog"].values()
             for db, g in dbs.items()
             if isinstance(g, dict) and db != "_all"
         )
         for s in samples
+        if s.get("pgdog") and all("error" not in dbs for dbs in s["pgdog"].values())
     ]
-    peaks["pgdog_sv_active_total_max"] = max(totals, default=0)
+    peaks["pgdog_sv_active_total_max"] = max(totals) if totals else None
     result["peaks"] = peaks
     return result
+
+
+def _md_text(text: str) -> str:
+    """Make run-supplied text inert in Markdown: one line, no HTML, no links."""
+    flat = " ".join(text.split())
+    return html.escape(flat).replace("[", "&#91;").replace("]", "&#93;")
 
 
 def _fmt(v: float | int | None) -> str:
@@ -479,7 +527,7 @@ def _svg_timeline(run_dir: Path) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'font-family="sans-serif" font-size="11">',
         f'<rect width="{width}" height="{height}" fill="white"/>',
-        f'<text x="{pad}" y="16">{run_dir.name}: actions started per 5 s (bars) and '
+        f'<text x="{pad}" y="16">{html.escape(run_dir.name)}: actions started per 5 s (bars) and '
         "PgDog sv_active total (line)</text>",
     ]
     bucket = 5.0
@@ -545,7 +593,7 @@ def report(args: argparse.Namespace) -> None:
         if svg := _svg_timeline(run_dir):
             (run_dir / "timeline.svg").write_text(svg)
         lines = [
-            f"### {run_dir.name}",
+            f"### {_md_text(run_dir.name)}",
             "",
             "| Metric (s) | Org | n | p50 | p95 | p99 | max |",
             "|---|---|---|---|---|---|---|",
@@ -564,13 +612,21 @@ def report(args: argparse.Namespace) -> None:
                 f"- Org {org}: statuses {m['statuses']}; API status {m['api_status']}; "
                 f"max action width {m['max_action_width']}; not admitted {m['not_admitted']}; "
                 f"actions failed {m['actions_failed']}; max history {m['history_events_max']} "
-                f"events; signals {m['signals_total']}"
+                f"events; signals {m['signals_total']}; "
+                f"unreadable histories {m['unreadable_histories']}"
             )
             for f in m["failures"]:
-                lines.append(f"  - failure: {f}")
+                lines.append(f"  - failure: {_md_text(f)}")
         p = summary["peaks"]
+        cov = p["coverage"]
         lines.append(
-            f"- PgDog sv_active total peak: {p['pgdog_sv_active_total_max']:.0f}"
+            "- PgDog sv_active total peak: "
+            + (
+                f"{peak:.0f}"
+                if (peak := p["pgdog_sv_active_total_max"]) is not None
+                else "unknown"
+            )
+            + f" ({cov['pgdog']} of {cov['samples']} samples scraped)"
         )
         lines.append(
             "- Memory peaks (MiB): "
@@ -580,7 +636,10 @@ def report(args: argparse.Namespace) -> None:
                 if any(s in k for s in ("worker", "executor", "api", "pgdog"))
             )
         )
-        lines.append(f"- OOMKilled: {p['oom'] or 'none'}")
+        lines.append(
+            f"- OOMKilled: {p['oom'] or 'none seen'} "
+            f"({cov['pods']} of {cov['samples']} pod samples; memory from {cov['mem']})"
+        )
         sections.append("\n".join(lines))
     text = "\n\n".join(sections) + "\n"
     if args.out:
@@ -623,6 +682,17 @@ def main() -> None:
     p.add_argument("--pod-deployment", default="tracecat-worker")
     p.add_argument("--container", default="worker")
     p.add_argument("--attempts", type=int, default=3)
+    p.add_argument(
+        "--max-runs",
+        type=int,
+        default=20000,
+        help="fail if a workspace has more executions than this in the window",
+    )
+    p.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="ship pod_collect.py even if it differs from git HEAD",
+    )
 
     p = sub.add_parser("report", help="percentiles and peaks per run directory")
     p.add_argument("dirs", nargs="+")

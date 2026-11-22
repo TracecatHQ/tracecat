@@ -7,8 +7,12 @@ Temporal client and namespace and no credential leaves the cluster:
         BURST_SINCE=... BURST_UNTIL=... python - < pod_collect.py
 
 Read-only: lists workflow executions by workspace and start time and fetches
-their histories. Payloads are never decoded. Prints one ``RUN {json}`` line per
-execution with server timestamps (epoch seconds) from the history:
+their histories. To tell a "not admitted" bounce from a real run, it decodes
+(and so decrypts) each executor action's result in the pod with the server's
+own helper; only the outcome label leaves the pod. Failure messages are passed
+through the server's redaction (``EventFailure.sanitize_error_text``) before
+they're printed. Prints one ``RUN {json}`` line per execution with server
+timestamps (epoch seconds) from the history:
 
 - ``started``: WorkflowExecutionStarted (the API's accepted start).
 - ``pacing``: the start's first-workflow-task backoff (start pacing delay).
@@ -30,6 +34,8 @@ import asyncio
 import json
 import os
 import sys
+import uuid
+from datetime import UTC, datetime
 
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
@@ -40,6 +46,9 @@ from tracecat.workflow.executions.common import (
     get_not_admitted,
     schedules_executor_action,
 )
+from tracecat.workflow.executions.schemas import EventFailure
+
+WORKFLOW_TYPES = {"DSLWorkflow", "ExecuteRegistryToolWorkflow"}
 
 CLOSE_EVENTS = {
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED: "COMPLETED",
@@ -128,7 +137,7 @@ async def summarize(
             status = close
             closed = _ts(event)
             if etype == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
-                failure = (
+                failure = EventFailure.sanitize_error_text(
                     event.workflow_execution_failed_event_attributes.failure.message[
                         :300
                     ]
@@ -147,16 +156,35 @@ async def summarize(
     }
 
 
+def _rfc3339(value: str) -> str:
+    """Parse a timestamp and re-render it as RFC 3339 UTC."""
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
 async def main() -> None:
-    workspaces = dict(
-        pair.split("=", 1) for pair in os.environ["BURST_WORKSPACES"].split(",") if pair
+    # Every value below is spliced into a visibility query, so parse each one
+    # into its type first: a quote in any of them can't widen the query.
+    workspaces = {
+        label: str(uuid.UUID(workspace_id))
+        for label, workspace_id in (
+            pair.split("=", 1)
+            for pair in os.environ["BURST_WORKSPACES"].split(",")
+            if pair
+        )
+    }
+    since = _rfc3339(os.environ["BURST_SINCE"])
+    until = _rfc3339(os.environ["BURST_UNTIL"])
+    types = (os.environ.get("BURST_TYPES") or ",".join(sorted(WORKFLOW_TYPES))).split(
+        ","
     )
-    since = os.environ["BURST_SINCE"]
-    until = os.environ["BURST_UNTIL"]
-    types = os.environ.get("BURST_TYPES") or "DSLWorkflow,ExecuteRegistryToolWorkflow"
+    if unknown := set(types) - WORKFLOW_TYPES:
+        sys.exit(f"unknown BURST_TYPES: {sorted(unknown)}")
     concurrency = int(os.environ.get("BURST_CONCURRENCY") or 8)
     max_runs = int(os.environ.get("BURST_MAX_RUNS") or 5000)
-    type_list = ", ".join(f"'{t}'" for t in types.split(","))
+    type_list = ", ".join(f"'{t}'" for t in types)
     executor_queue = config.TRACECAT__EXECUTOR_QUEUE
 
     client = await get_temporal_client()
@@ -186,9 +214,9 @@ async def main() -> None:
         tasks: list[asyncio.Task[None]] = []
         async for execution in client.list_workflows(query):
             if len(tasks) >= max_runs:
-                print(
-                    f"WARN {label}: stopped at {max_runs} executions", file=sys.stderr
-                )
+                # The caller treats this as a failed collection: raise
+                # BURST_MAX_RUNS rather than report on a partial window.
+                print(f"TRUNCATED {label} {max_runs}", flush=True)
                 break
             tasks.append(
                 asyncio.create_task(

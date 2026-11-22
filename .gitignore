@@ -239,3 +239,6 @@ cython_debug/
 
 # Generated table-search benchmark reports
 /scripts/benchmark/table_search/results/
+
+# Staging burst replay run output
+/scripts/benchmark/staging_burst/out/
