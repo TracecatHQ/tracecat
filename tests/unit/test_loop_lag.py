@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -62,3 +63,18 @@ async def test_lag_ages_out_of_the_window() -> None:
         assert lag < 0.1
     finally:
         await sampler.stop()
+
+
+@pytest.mark.anyio
+async def test_gauge_reports_a_stall_in_progress() -> None:
+    sampler = LoopLagSampler(tick_seconds=0.01, window_seconds=0.5)
+    sampler.start()
+    try:
+        await asyncio.sleep(0.05)
+        time.sleep(0.3)
+        # The exporter reads while the sampler hasn't woken up yet.
+        (observation,) = sampler._observe(MagicMock())
+        assert observation.value >= 0.25
+    finally:
+        await sampler.stop()
+    assert list(sampler._observe(MagicMock())) == []

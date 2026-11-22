@@ -21,7 +21,11 @@ from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.tiers.service import TierService
 
 LOOKUP_TIMEOUT_SECONDS: Final = 1.0
-"""Ceiling for one limit lookup, separate from the Redis budget."""
+"""How long one caller waits for a limit lookup, separate from the Redis budget."""
+
+READ_TIMEOUT_SECONDS: Final = 10.0
+"""Ceiling for the shared database read, so a stalled read can't pin an org's
+lookups or hold a connection; the next caller then starts a fresh read."""
 
 
 class LimitUnavailableError(Exception):
@@ -40,9 +44,10 @@ _in_flight: dict[OrganizationID, asyncio.Task[EffectiveLimits]] = {}
 
 async def _read(org_id: OrganizationID) -> EffectiveLimits:
     # Activities run without a ctx_role; scope the read to the org explicitly.
-    async with get_async_session_tenant_context_manager(
-        organization_id=org_id
-    ) as session:
+    async with (
+        asyncio.timeout(READ_TIMEOUT_SECONDS),
+        get_async_session_tenant_context_manager(organization_id=org_id) as session,
+    ):
         limits = await TierService(session).get_effective_limits(org_id)
     if config.TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS > 0:
         _cache[org_id] = _CachedLimits(limits=limits, fetched_at=monotonic())
@@ -125,6 +130,8 @@ async def resolve_limit(
         async with asyncio.timeout(timeout_seconds):
             limits = await _load(org_id)
     except Exception as e:
+        # The lookup took time: judge staleness now, not when it started.
+        now = monotonic()
         stale = _cache.get(org_id)
         ttl_seconds = config.TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS
         if stale is not None and now < stale.fetched_at + 2 * ttl_seconds:

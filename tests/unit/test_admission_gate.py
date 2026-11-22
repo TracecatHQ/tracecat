@@ -16,6 +16,7 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 from tracecat import config
 from tracecat.admission import gate, limits
 from tracecat.admission.gate import NotAdmittedError, admit
+from tracecat.admission.leases import LeaseStore
 from tracecat.admission.limits import LimitUnavailableError
 from tracecat.admission.types import (
     Admitted,
@@ -538,3 +539,64 @@ async def test_lookup_failure_without_a_cached_limit_is_unavailable(
         pytest.raises(LimitUnavailableError),
     ):
         await limits.resolve_limit(ORG_ID, ACTIONS)
+
+
+@pytest.mark.anyio
+async def test_stale_grace_is_judged_when_the_lookup_fails(clock: FakeClock) -> None:
+    """A lookup that starts inside the grace but fails after it must not serve stale."""
+    limits._cache[ORG_ID] = limits._CachedLimits(
+        limits=_effective(10), fetched_at=clock.now - 59.9
+    )
+
+    async def slow_failure(org_id: uuid.UUID) -> EffectiveLimits:
+        del org_id
+        clock.now += 1.1  # Now 61 s old: past two TTLs.
+        raise RuntimeError("db down")
+
+    with (
+        patch.object(limits, "_read", new=slow_failure),
+        pytest.raises(LimitUnavailableError),
+    ):
+        await limits.resolve_limit(ORG_ID, ACTIONS)
+
+
+@pytest.mark.anyio
+async def test_a_stalled_shared_read_is_bounded(
+    clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hung database read ends on its own, so the next caller reads afresh."""
+    del clock
+    monkeypatch.setattr(limits, "READ_TIMEOUT_SECONDS", 0.05)
+    service = MagicMock()
+    hang = asyncio.Event()
+
+    async def hung_read(org_id: uuid.UUID) -> EffectiveLimits:
+        del org_id
+        await hang.wait()
+        return _effective(4)
+
+    service.get_effective_limits = hung_read
+    session_cm = MagicMock()
+    session_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+    session_cm.__aexit__ = AsyncMock(return_value=None)
+    with (
+        patch.object(
+            limits, "get_async_session_tenant_context_manager", return_value=session_cm
+        ),
+        patch.object(limits, "TierService", return_value=service),
+    ):
+        with pytest.raises(LimitUnavailableError):
+            await limits.resolve_limit(ORG_ID, ACTIONS, timeout_seconds=1.0)
+        assert ORG_ID not in limits._in_flight
+        # The session was exited, releasing its connection.
+        session_cm.__aexit__.assert_awaited_once()
+
+        service.get_effective_limits = AsyncMock(return_value=_effective(4))
+        assert await limits.resolve_limit(ORG_ID, ACTIONS) == 4
+
+
+def test_pool_check_never_raises_on_an_unexpected_pool() -> None:
+    client = MagicMock()
+    client.connection_pool = object()  # No redis-py internals.
+    store = LeaseStore(client)
+    assert store.pool_exhausted() is False

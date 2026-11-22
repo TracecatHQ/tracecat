@@ -75,22 +75,27 @@ class LoopLagSampler:
                 self._samples.popleft()
             self._window_max = max(lag for _, lag in self._samples)
 
+    def _current(self, task: asyncio.Task[None]) -> float | None:
+        """Window max, or the overdue tick if the loop is stalled right now."""
+        last_tick = self._last_tick
+        if task.done() or last_tick is None:
+            return None
+        # ``loop.time()`` is a clock read, safe from the exporter thread too.
+        overdue = task.get_loop().time() - last_tick - self._tick
+        return max(self._window_max, overdue, 0.0)
+
     def max_lag_seconds(self) -> float | None:
         """Largest lag over the window, or ``None`` when not sampling on this loop."""
         task = self._task
-        if task is None or task.done() or self._last_tick is None:
+        if task is None or task.get_loop() is not asyncio.get_running_loop():
             return None
-        loop = asyncio.get_running_loop()
-        if task.get_loop() is not loop:
-            return None
-        overdue = loop.time() - self._last_tick - self._tick
-        return max(self._window_max, overdue, 0.0)
+        return self._current(task)
 
     def _observe(self, _options: CallbackOptions) -> Iterable[Observation]:
-        # Runs on the exporter thread: read the float the loop last wrote.
-        if self._task is None:
+        # Runs on the exporter thread, where a stalled loop can't update samples.
+        if (task := self._task) is None or (lag := self._current(task)) is None:
             return []
-        return [Observation(self._window_max)]
+        return [Observation(lag)]
 
 
 sampler: Final = LoopLagSampler()
