@@ -4029,12 +4029,21 @@ export type ChannelMessage = {
   thread?: EarlierThread | null
   quoted?: Array<QuotedMessage>
   quoted_omitted?: number
+  people?: Array<ChannelPerson>
 }
 
 export type ChannelMessageSender = {
   provider_user_id: string
   provider_team_id?: string | null
   name?: string | null
+}
+
+/**
+ * A display name for a provider user the message refers to, by raw ID.
+ */
+export type ChannelPerson = {
+  provider_user_id: string
+  name: string
 }
 
 /**
@@ -9722,6 +9731,7 @@ export type PushStatus = "committed" | "no_op"
 export type QuotedMessage = {
   kind: QuotedMessageKind
   author: string
+  author_id?: string | null
   text: string
   is_preview?: boolean
   where?: string | null

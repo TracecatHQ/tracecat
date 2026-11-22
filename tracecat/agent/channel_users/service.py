@@ -6,9 +6,10 @@ A link is identity evidence only: membership and scopes are read live on every c
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, and_, delete, exists, func, select
+from sqlalchemy import ColumnElement, and_, delete, exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,6 +142,45 @@ async def resolve_channel_actor(
     if user is None:
         return ChannelActor(user_id=None, name=None, email=None)
     return _actor(user)
+
+
+async def linked_member_names(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    identities: Collection[ChannelIdentity],
+) -> dict[ChannelIdentity, str]:
+    """Display names of the current org members these identities are linked to."""
+    if not identities:
+        return {}
+    rows = await session.execute(
+        select(
+            AgentChannelUser.provider,
+            AgentChannelUser.provider_tenant_id,
+            AgentChannelUser.provider_user_id,
+            User,
+        )
+        .join(User, _USERS.c.id == AgentChannelUser.user_id)
+        .where(
+            AgentChannelUser.organization_id == organization_id,
+            tuple_(
+                AgentChannelUser.provider,
+                AgentChannelUser.provider_tenant_id,
+                AgentChannelUser.provider_user_id,
+            ).in_(
+                [
+                    (i.provider, i.provider_tenant_id, i.provider_user_id)
+                    for i in identities
+                ]
+            ),
+            _is_current_member(organization_id),
+        )
+    )
+    return {
+        ChannelIdentity(provider, tenant_id, user_id): name
+        for provider, tenant_id, user_id, user in rows.tuples()
+        if (name := _actor(user).name)
+    }
 
 
 async def check_channel_access(

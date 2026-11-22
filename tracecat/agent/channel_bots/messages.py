@@ -19,6 +19,7 @@ CHANNEL_MESSAGE_MAX_CHARACTERS = 90_000
 EARLIER_THREAD_MAX_MESSAGES = 20
 EARLIER_THREAD_MAX_CHARACTERS = 8_000
 QUOTED_MAX_MESSAGES = 5
+PEOPLE_MAX = 50
 MESSAGE_MAX_CHARACTERS = 2_000
 LABEL_MAX_CHARACTERS = 200
 
@@ -49,6 +50,13 @@ class ChannelMessageSender(BaseModel):
     name: str | None = None
 
 
+class ChannelPerson(BaseModel):
+    """A display name for a provider user the message refers to, by raw ID."""
+
+    provider_user_id: str
+    name: str
+
+
 class EarlierThreadMessage(BaseModel):
     author: str
     is_bot: bool = False
@@ -68,6 +76,7 @@ class QuotedMessage(BaseModel):
 
     kind: QuotedMessageKind
     author: str
+    author_id: str | None = None
     text: str
     is_preview: bool = False
     where: str | None = None
@@ -81,6 +90,8 @@ class ChannelMessage(BaseModel):
     thread: EarlierThread | None = None
     quoted: list[QuotedMessage] = []
     quoted_omitted: int = 0
+    people: list[ChannelPerson] = []
+    """Names for the authors and mentions the message refers to by ID."""
 
     def render(self) -> str:
         """The message as user message text, at most `CHANNEL_MESSAGE_MAX_CHARACTERS`.
@@ -97,6 +108,15 @@ class ChannelMessage(BaseModel):
                 team=_optional_attribute(self.sender.provider_team_id),
                 name=_optional_attribute(self.sender.name),
                 closed=True,
+            ),
+            *(
+                _tag(
+                    "person",
+                    id=_attribute(person.provider_user_id),
+                    name=_attribute(person.name),
+                    closed=True,
+                )
+                for person in self.people[:PEOPLE_MAX]
             ),
             *self._thread_lines(),
         ]
@@ -167,6 +187,7 @@ class ChannelMessage(BaseModel):
                 "quoted",
                 kind=message.kind.value,
                 author=_attribute(message.author),
+                author_id=_optional_attribute(message.author_id),
                 where=_optional_attribute(message.where),
                 link=_optional_attribute(message.link),
                 preview="true" if message.is_preview else None,
@@ -318,6 +339,7 @@ def _interpret(root: _Element) -> ChannelMessage:
         QuotedMessage(
             kind=QuotedMessageKind(element.attributes.get("kind", "")),
             author=element.attributes.get("author", ""),
+            author_id=element.attributes.get("author_id"),
             text=element.body,
             is_preview=element.attributes.get("preview") == "true",
             where=element.attributes.get("where"),
@@ -337,6 +359,14 @@ def _interpret(root: _Element) -> ChannelMessage:
         ),
         thread=thread,
         quoted=quoted,
+        people=[
+            ChannelPerson(
+                provider_user_id=person.attributes.get("id", ""),
+                name=person.attributes.get("name", ""),
+            )
+            for person in root.named("person")
+            if person.attributes.get("id") and person.attributes.get("name")
+        ],
         quoted_omitted=int(omitted.attributes.get("count", "0"))
         if omitted is not None
         else 0,

@@ -38,7 +38,10 @@ import {
   type ToolVerbs,
 } from "@/components/ai-elements/tool"
 import { ApprovalRequestPart } from "@/components/chat/approval-request-part"
-import { ChannelMessageContext } from "@/components/chat/channel-message-context"
+import {
+  ChannelMessageContext,
+  withChannelMentionNames,
+} from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import { getIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
@@ -375,7 +378,16 @@ function UserBubble({
   return (
     <Message from="user">
       <MessageContent variant="flat">
-        {text && <SmoothResponse text={text} animate={false} />}
+        {text && (
+          <SmoothResponse
+            text={
+              channelMessage
+                ? withChannelMentionNames(text, channelMessage)
+                : text
+            }
+            animate={false}
+          />
+        )}
         {channelMessage && <ChannelMessageContext message={channelMessage} />}
       </MessageContent>
     </Message>

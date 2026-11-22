@@ -1,5 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { ChannelMessageContext } from "@/components/chat/channel-message-context"
+import {
+  ChannelMessageContext,
+  withChannelMentionNames,
+} from "@/components/chat/channel-message-context"
 import {
   type ChannelMessageData,
   getUserMessageData,
@@ -63,6 +66,50 @@ describe("ChannelMessageContext", () => {
     expect(screen.getByText("Triggered: db-1 disk")).toBeInTheDocument()
     expect(screen.getByText("Older replies not shown")).toBeInTheDocument()
     expect(screen.getByText("Later replies not shown")).toBeInTheDocument()
+  })
+})
+
+describe("ChannelMessageContext names", () => {
+  const NAMED: ChannelMessageData = {
+    provider: "slack",
+    text: "ask @U0C9F646K8B and @U0UNKNOWN1",
+    sender: { provider_user_id: "U1", name: "Dana" },
+    thread: {
+      messages: [
+        { author: "U0C9F646K8B", is_bot: false, text: "cc @U0AAAAAAA1" },
+        { author: "U0UNKNOWN1", is_bot: false, text: "ok" },
+      ],
+    },
+    quoted: [
+      {
+        kind: "forwarded",
+        author: "sam",
+        author_id: "U0AAAAAAA1",
+        text: "fwd",
+        is_preview: false,
+      },
+    ],
+    people: [
+      { provider_user_id: "U0C9F646K8B", name: "Ada Lovelace" },
+      { provider_user_id: "U0AAAAAAA1", name: "Sam Doe" },
+    ],
+  }
+
+  it("names earlier-thread and quoted authors, never their IDs", () => {
+    const { container } = render(<ChannelMessageContext message={NAMED} />)
+    fireEvent.click(screen.getByText(/Earlier thread · 2 messages/))
+
+    expect(screen.getByText("Ada Lovelace:")).toBeInTheDocument()
+    expect(screen.getByText("Slack user:")).toBeInTheDocument()
+    expect(screen.getByText("cc @Sam Doe")).toBeInTheDocument()
+    expect(screen.getByText(/Forwarded from Sam Doe/)).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/U0C9F646K8B|U0UNKNOWN1/)
+  })
+
+  it("shows mentions by name, else as a Slack user", () => {
+    expect(withChannelMentionNames(NAMED.text, NAMED)).toBe(
+      "ask @Ada Lovelace and @Slack user"
+    )
   })
 })
 

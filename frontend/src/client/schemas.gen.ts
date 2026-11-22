@@ -14944,6 +14944,14 @@ export const $ChannelMessage = {
       title: "Quoted Omitted",
       default: 0,
     },
+    people: {
+      items: {
+        $ref: "#/components/schemas/ChannelPerson",
+      },
+      type: "array",
+      title: "People",
+      default: [],
+    },
   },
   type: "object",
   required: ["provider", "text", "sender"],
@@ -14982,6 +14990,24 @@ export const $ChannelMessageSender = {
   type: "object",
   required: ["provider_user_id"],
   title: "ChannelMessageSender",
+} as const
+
+export const $ChannelPerson = {
+  properties: {
+    provider_user_id: {
+      type: "string",
+      title: "Provider User Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["provider_user_id", "name"],
+  title: "ChannelPerson",
+  description:
+    "A display name for a provider user the message refers to, by raw ID.",
 } as const
 
 export const $ChannelType = {
@@ -31873,6 +31899,17 @@ export const $QuotedMessage = {
     author: {
       type: "string",
       title: "Author",
+    },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
     },
     text: {
       type: "string",

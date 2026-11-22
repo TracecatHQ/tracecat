@@ -4,8 +4,10 @@ import pytest
 
 from tracecat.agent.channel_bots.messages import (
     CHANNEL_MESSAGE_MAX_CHARACTERS,
+    PEOPLE_MAX,
     ChannelMessage,
     ChannelMessageSender,
+    ChannelPerson,
     EarlierThread,
     EarlierThreadMessage,
     QuotedMessage,
@@ -88,6 +90,43 @@ def test_render_and_parse_round_trip() -> None:
     )
 
     assert ChannelMessage.parse(original.render()) == original
+
+
+def test_people_round_trip_beside_the_raw_ids() -> None:
+    original = message(
+        text="ask @U2",
+        thread=EarlierThread(messages=[EarlierThreadMessage(author="U3", text="hi")]),
+        quoted=[
+            QuotedMessage(
+                kind=QuotedMessageKind.FORWARDED,
+                author="sam",
+                author_id="U4",
+                text="fwd",
+            )
+        ],
+        people=[
+            ChannelPerson(provider_user_id="U2", name='Bo "B"'),
+            ChannelPerson(provider_user_id="U3", name="Cy"),
+            ChannelPerson(provider_user_id="U4", name="Sam Doe"),
+        ],
+    )
+
+    rendered = original.render()
+
+    # The agent keeps the IDs it needs to mention or DM someone.
+    assert '<person id="U2" name="Bo &quot;B&quot;"/>' in rendered
+    assert 'author="U3"' in rendered
+    assert 'author_id="U4"' in rendered
+    assert ChannelMessage.parse(rendered) == original
+
+
+def test_people_are_capped() -> None:
+    many = [ChannelPerson(provider_user_id=f"U{i}", name=f"P{i}") for i in range(60)]
+
+    parsed = ChannelMessage.parse(message(people=many).render())
+
+    assert parsed is not None
+    assert parsed.people == many[:PEOPLE_MAX]
 
 
 def test_plain_text_and_other_versions_do_not_parse() -> None:
