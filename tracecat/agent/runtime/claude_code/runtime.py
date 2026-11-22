@@ -368,6 +368,7 @@ class ClaudeAgentRuntime:
         self._session_id: uuid.UUID | None = None
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
+        self._root_only_actions: frozenset[str] = frozenset()
         self.tool_approvals: dict[str, bool] | None = None
         self._stdio_approval_blocked_tools: set[str] = set()
         self._runtime_internet_access_enabled: bool = False
@@ -714,7 +715,14 @@ class ClaudeAgentRuntime:
         tool_name: str,
         tool_input: dict[str, Any],
     ) -> str | None:
-        """Return denial reason for invalid Agent/Task tool use, else None."""
+        """Return denial reason for invalid Agent/Task or root-only tool use, else None."""
+        action_name = normalize_mcp_tool_name(tool_name)
+        if (
+            self._is_subagent_scope(input_data)
+            and action_name in self._root_only_actions
+        ):
+            # Native children share the root's MCP token, so the hook is the gate.
+            return f"Tool '{action_name}' is not available to subagents."
         if tool_name not in AGENT_TOOL_NAMES:
             return None
         if self._is_subagent_scope(input_data):
@@ -1534,6 +1542,7 @@ class ClaudeAgentRuntime:
         self._client_connected_event = asyncio.Event()
         self._query_sent_event = asyncio.Event()
         self.registry_tools = payload.allowed_actions
+        self._root_only_actions = frozenset(payload.root_only_actions)
         self.tool_approvals = payload.config.tool_approvals
         self._stdio_approval_blocked_tools = set()
         self._explicit_subagent_aliases = {

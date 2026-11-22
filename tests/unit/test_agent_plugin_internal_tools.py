@@ -12,6 +12,7 @@ from fastmcp.exceptions import ToolError
 from tracecat_ee.agent.workflows.durable import _approved_internal_tool_name
 
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.executor.activity import AgentExecutorInput, SandboxedAgentExecutor
 from tracecat.agent.mcp import plugin_tools, trusted_server
 from tracecat.agent.mcp.internal_tools import InternalToolError
 from tracecat.agent.mcp.plugin_tools import (
@@ -20,6 +21,7 @@ from tracecat.agent.mcp.plugin_tools import (
     plugin_internal_tools,
 )
 from tracecat.agent.tokens import MCPTokenClaims
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 
 READ = "internal.demo.read"
@@ -163,3 +165,29 @@ def test_approved_internal_calls_route_to_the_trusted_router() -> None:
     )
     assert _approved_internal_tool_name("core.http_request") is None
     assert _approved_internal_tool_name("mcp.Jira.getIssue") is None
+
+
+def test_runtime_payload_marks_granted_plugin_tools_root_only(install: Any) -> None:
+    install(_Plugin([_tool(READ), _tool(WRITE)]))
+    role = _role()
+    assert role.workspace_id is not None
+    executor = SandboxedAgentExecutor(
+        input=AgentExecutorInput(
+            session_id=uuid.uuid4(),
+            workspace_id=role.workspace_id,
+            user_prompt="hi",
+            config=AgentConfig(model_name="m", model_provider="p"),
+            role=role,
+            mcp_auth_token="mcp",
+            llm_gateway_auth_token="llm",
+            allowed_actions={
+                name: _tool(name).definition for name in (READ, "core.http_request")
+            },
+        )
+    )
+
+    payload = executor._build_runtime_init_payload()
+
+    # Native children share the root's token, so the runtime must know these.
+    assert payload.root_only_actions == [READ]
+    assert payload.to_dict()["root_only_actions"] == [READ]
