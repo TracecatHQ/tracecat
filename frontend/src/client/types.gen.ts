@@ -1279,6 +1279,27 @@ export type AgentSessionCapabilities = {
 }
 
 /**
+ * Whether the session's messages sync with a channel thread.
+ */
+export type AgentSessionChannelSyncRead = {
+  /**
+   * The session has a channel thread, or can open one when synced
+   */
+  available: boolean
+  /**
+   * Messages sent in Tracecat post to the thread, and its replies
+   */
+  enabled: boolean
+}
+
+/**
+ * Turn channel sync on or off; turning it on never replays earlier turns.
+ */
+export type AgentSessionChannelSyncUpdate = {
+  enabled: boolean
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -18276,6 +18297,23 @@ export type AgentSessionsListPendingMessagesData = {
 
 export type AgentSessionsListPendingMessagesResponse = AgentSessionPendingRead
 
+export type AgentSessionsGetSessionChannelSyncData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsGetSessionChannelSyncResponse =
+  AgentSessionChannelSyncRead
+
+export type AgentSessionsUpdateSessionChannelSyncData = {
+  requestBody: AgentSessionChannelSyncUpdate
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsUpdateSessionChannelSyncResponse =
+  AgentSessionChannelSyncRead
+
 export type AgentSessionsForkSessionData = {
   requestBody?: AgentSessionForkRequest | null
   sessionId: string
@@ -26086,6 +26124,34 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionPendingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/channel-sync": {
+    get: {
+      req: AgentSessionsGetSessionChannelSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionChannelSyncRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentSessionsUpdateSessionChannelSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionChannelSyncRead
         /**
          * Validation Error
          */

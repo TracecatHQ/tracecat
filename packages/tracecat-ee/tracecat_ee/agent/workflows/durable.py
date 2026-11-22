@@ -33,7 +33,7 @@ with workflow.unsafe.imports_passed_through():
         WorkflowCancelRequest as WorkflowCancelRequest,
     )
     from tracecat.agent.channel_notifier import (
-        TURN_STARTED_PUSH_BUDGET,
+        TURN_START_PUSH_BUDGET,
         RunUpdate,
         TurnFinished,
         push_budget,
@@ -1443,7 +1443,7 @@ class DurableAgentWorkflow:
                     else None
                 ),
             ),
-            start_to_close_timeout=timedelta(seconds=30) + TURN_STARTED_PUSH_BUDGET,
+            start_to_close_timeout=timedelta(seconds=30) + TURN_START_PUSH_BUDGET,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not create_result.success:

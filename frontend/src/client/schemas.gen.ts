@@ -4849,6 +4849,41 @@ export const $AgentSessionCapabilities = {
   description: "Optional controls the session's backend supports.",
 } as const
 
+export const $AgentSessionChannelSyncRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "The session has a channel thread, or can open one when synced",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      description:
+        "Messages sent in Tracecat post to the thread, and its replies",
+    },
+  },
+  type: "object",
+  required: ["available", "enabled"],
+  title: "AgentSessionChannelSyncRead",
+  description: "Whether the session's messages sync with a channel thread.",
+} as const
+
+export const $AgentSessionChannelSyncUpdate = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+  },
+  type: "object",
+  required: ["enabled"],
+  title: "AgentSessionChannelSyncUpdate",
+  description:
+    "Turn channel sync on or off; turning it on never replays earlier turns.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {

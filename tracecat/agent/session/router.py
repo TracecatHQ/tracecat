@@ -29,11 +29,19 @@ from tracecat.agent.backends.types import (
     SessionDispatchUncertain,
 )
 from tracecat.agent.control.schemas import AgentControlReceipt, AgentControlRequest
+from tracecat.agent.session.channel_sync import (
+    ChannelThreadUnavailable,
+    get_channel_sync,
+    get_channel_sync_enabled,
+    set_channel_sync,
+)
 from tracecat.agent.session.schemas import (
     AgentBackendRead,
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
     AgentSessionCancelResponse,
+    AgentSessionChannelSyncRead,
+    AgentSessionChannelSyncUpdate,
     AgentSessionCreate,
     AgentSessionForkRequest,
     AgentSessionPendingRead,
@@ -979,6 +987,56 @@ async def list_pending_messages(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
+
+
+@router.get("/{session_id}/channel-sync")
+@require_scope("agent:read")
+async def get_session_channel_sync(
+    session_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionChannelSyncRead:
+    """Whether the session syncs with a channel thread, and whether the actor can
+    turn that on or off."""
+    svc = AgentSessionService(session, role)
+    agent_session = await svc.get_session(session_id)
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    if not (await svc.session_access(agent_session)).act:
+        enabled = await get_channel_sync_enabled(svc, session_id)
+        return AgentSessionChannelSyncRead(available=False, enabled=bool(enabled))
+    return await get_channel_sync(svc, session_id)
+
+
+@router.put("/{session_id}/channel-sync")
+@require_scope("agent:execute")
+async def update_session_channel_sync(
+    session_id: uuid.UUID,
+    params: AgentSessionChannelSyncUpdate,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionChannelSyncRead:
+    """Turn channel sync on or off. Turning it on for a session without a thread
+    opens one in the agent's channel; only later messages are synced."""
+    svc = AgentSessionService(session, role)
+    agent_session = await svc.get_session(session_id)
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    _require_session_access((await svc.session_access(agent_session)).act)
+    await _require_workspace_chat_entitlement_for_session_tree(
+        session=session,
+        role=role,
+        svc=svc,
+        agent_session=agent_session,
+    )
+    try:
+        return await set_channel_sync(svc, session_id, enabled=params.enabled)
+    except ChannelThreadUnavailable as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.post("/{session_id}/fork")

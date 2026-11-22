@@ -32,6 +32,8 @@ CHANNEL_NOTIFIER_ENTRY_POINT_GROUP = "tracecat.agent_channel_notifier"
 PUSH_BUDGET = timedelta(seconds=20)
 # A status line is not worth holding the turn's start for.
 TURN_STARTED_PUSH_BUDGET = timedelta(seconds=5)
+# A linked turn's start pushes at most a relayed message and the status line.
+TURN_START_PUSH_BUDGET = 2 * TURN_STARTED_PUSH_BUDGET
 _PUSH_ATTEMPTS = 3
 # Bounded well inside create_session_activity's 30 s budget.
 CHANNEL_LINK_CHECK_TIMEOUT_SECONDS = 5
@@ -41,6 +43,18 @@ class RunUpdateBase(Variant, discriminator="kind"):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     session_id: uuid.UUID
+
+
+class MessageSent(RunUpdateBase):
+    """A Tracecat user's message started a run; show it in the channel.
+
+    Built inside the turn's start activity, never stored in workflow history.
+    """
+
+    kind: Literal["message_sent"] = "message_sent"
+    run_id: uuid.UUID
+    user_id: uuid.UUID
+    text: str = Field(min_length=1)
 
 
 class TurnStarted(RunUpdateBase):
@@ -91,9 +105,26 @@ class ApprovalDecided(RunUpdateBase):
 
 
 RunUpdate = Annotated[
-    TurnStarted | TurnFinished | ApprovalPending | ApprovalDecided,
+    MessageSent | TurnStarted | TurnFinished | ApprovalPending | ApprovalDecided,
     Field(discriminator="kind"),
 ]
+
+
+def turn_started_updates(
+    role: Role, session_id: uuid.UUID, run_id: uuid.UUID, prompt: str | None
+) -> list[RunUpdate]:
+    """What a linked turn's start pushes: a Tracecat user's prompt, then the status.
+
+    Pass ``prompt`` only for a new message, never for a resumed run.
+    """
+    started = TurnStarted(session_id=session_id, run_id=run_id)
+    # Channel messages run as the bot's service role, so only Tracecat users relay.
+    if role.user_id is None or prompt is None or not prompt.strip():
+        return [started]
+    sent = MessageSent(
+        session_id=session_id, run_id=run_id, user_id=role.user_id, text=prompt
+    )
+    return [sent, started]
 
 
 class ChannelPushRetryAfter(Exception):
@@ -123,6 +154,21 @@ class ChannelNotifier(Protocol):
 
     async def push(self, role: Role, update: RunUpdate) -> str | None:
         """Post the update and return the posted message's ref, if any."""
+        ...
+
+    async def can_open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
+        """Return whether ``open_thread`` has a channel to open the session's thread in."""
+        ...
+
+    async def open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
+        """Open a thread for an unlinked session and link it, synced; False when none can be.
+
+        ``role.user_id`` is the Tracecat user who opted the session in.
+        """
+        ...
+
+    async def sync_stopped(self, role: Role, session_id: uuid.UUID) -> None:
+        """Tell the linked thread that ``role.user_id`` stopped syncing the session."""
         ...
 
 
@@ -170,6 +216,58 @@ async def channel_renders_mentions(role: Role, session_id: uuid.UUID) -> bool:
     if notifier is None or not getattr(notifier, "renders_mentions", False):
         return False
     return await is_channel_linked(role, session_id)
+
+
+async def can_open_channel_thread(role: Role, session_id: uuid.UUID) -> bool:
+    """Ask the notifier whether the session can open a thread, failing closed."""
+    try:
+        notifier = get_channel_notifier()
+        if notifier is None:
+            return False
+        return await asyncio.wait_for(
+            notifier.can_open_thread(role, session_id),
+            timeout=CHANNEL_LINK_CHECK_TIMEOUT_SECONDS,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to check whether the session can open a channel thread",
+            session_id=session_id,
+            error=repr(e),
+        )
+        return False
+
+
+async def open_channel_thread(role: Role, session_id: uuid.UUID) -> bool:
+    """Open and link the session's thread; False when there is none or opening failed."""
+    try:
+        notifier = get_channel_notifier()
+        if notifier is None:
+            return False
+        async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
+            return await notifier.open_thread(role, session_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to open a channel thread for the session",
+            session_id=session_id,
+            error=repr(e),
+        )
+        return False
+
+
+async def notify_sync_stopped(role: Role, session_id: uuid.UUID) -> None:
+    """Tell the session's thread it stopped syncing; never fails the caller."""
+    try:
+        notifier = get_channel_notifier()
+        if notifier is None:
+            return
+        async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
+            await notifier.sync_stopped(role, session_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to tell the channel thread that sync stopped",
+            session_id=session_id,
+            error=repr(e),
+        )
 
 
 def push_budget(updates: Sequence[RunUpdate]) -> timedelta:

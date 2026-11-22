@@ -246,6 +246,23 @@ class AgentSessionPendingRead(BaseModel):
     items: list[AgentPendingMessageRead]
 
 
+class AgentSessionChannelSyncRead(BaseModel):
+    """Whether the session's messages sync with a channel thread."""
+
+    available: bool = Field(
+        description="The session has a channel thread, or can open one when synced"
+    )
+    enabled: bool = Field(
+        description="Messages sent in Tracecat post to the thread, and its replies"
+    )
+
+
+class AgentSessionChannelSyncUpdate(BaseModel):
+    """Turn channel sync on or off; turning it on never replays earlier turns."""
+
+    enabled: bool
+
+
 class AgentSessionForkRequest(BaseModel):
     """Request schema for forking an agent session."""
 

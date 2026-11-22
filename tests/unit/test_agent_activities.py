@@ -45,9 +45,15 @@ from tracecat_ee.agent.activities import (
 )
 
 from tracecat import config
+from tracecat.agent import channel_notifier
 from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
-from tracecat.agent.channel_notifier import TURN_STARTED_PUSH_BUDGET, TurnStarted
+from tracecat.agent.channel_notifier import (
+    TURN_STARTED_PUSH_BUDGET,
+    MessageSent,
+    RunUpdate,
+    TurnStarted,
+)
 from tracecat.agent.common.config import build_agent_runtime_uv_env
 from tracecat.agent.common.exceptions import (
     AgentToolLimitExceededError,
@@ -1388,6 +1394,73 @@ class TestCreateSessionActivity:
         # Announced only once the row is committed and the old buffer is gone.
         order = [name for name, *_ in calls.mock_calls if not name.startswith("_")]
         assert order == ["commit", "clear_buffer", "publish"]
+
+    @pytest.mark.parametrize(
+        ("require_existing", "relayed"),
+        [
+            pytest.param(False, True, id="new-message"),
+            pytest.param(True, False, id="approval-continuation"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_a_linked_turn_relays_a_tracecat_users_prompt_first(
+        self,
+        session_service: AsyncMock,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        require_existing: bool,
+        relayed: bool,
+    ):
+        """A synced thread sees the web message before the agent's status."""
+        assert mock_role.user_id is not None
+        run_id = uuid.uuid4()
+        session_service.get_or_create_session.return_value = (_agent_session(), False)
+        session_service.get_session.return_value = _agent_session()
+        session_service.session = MagicMock()
+        session_service.session.commit = AsyncMock()
+        pushed: list[RunUpdate] = []
+
+        class _Notifier:
+            async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
+                return True
+
+            async def push(self, role: Role, update: RunUpdate) -> str | None:
+                pushed.append(update)
+                return None
+
+        stream = MagicMock()
+        stream.clear_buffer = AsyncMock()
+        with (
+            patch.object(channel_notifier, "get_channel_notifier", lambda: _Notifier()),
+            patch(
+                "tracecat.agent.session.activities.AgentStream.new",
+                AsyncMock(return_value=stream),
+            ),
+            patch(
+                "tracecat.agent.session.activities.publish_session_event", AsyncMock()
+            ),
+        ):
+            result = await create_session_activity(
+                CreateSessionInput(
+                    role=mock_role,
+                    session_id=mock_session_id,
+                    require_existing=require_existing,
+                    entity_type=AgentSessionEntity.AGENT_PRESET,
+                    entity_id=uuid.uuid4(),
+                    curr_run_id=run_id,
+                    initial_user_prompt="Check the alert",
+                )
+            )
+
+        assert result.channel_linked is True
+        started = TurnStarted(session_id=mock_session_id, run_id=run_id)
+        sent = MessageSent(
+            session_id=mock_session_id,
+            run_id=run_id,
+            user_id=mock_role.user_id,
+            text="Check the alert",
+        )
+        assert pushed == ([sent, started] if relayed else [started])
 
     @pytest.mark.parametrize(
         (

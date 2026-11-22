@@ -289,6 +289,8 @@ import type {
   AgentSessionsDeleteSessionResponse,
   AgentSessionsForkSessionData,
   AgentSessionsForkSessionResponse,
+  AgentSessionsGetSessionChannelSyncData,
+  AgentSessionsGetSessionChannelSyncResponse,
   AgentSessionsGetSessionData,
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
@@ -307,6 +309,8 @@ import type {
   AgentSessionsStreamSessionEventsResponse,
   AgentSessionsStreamSessionFeedData,
   AgentSessionsStreamSessionFeedResponse,
+  AgentSessionsUpdateSessionChannelSyncData,
+  AgentSessionsUpdateSessionChannelSyncResponse,
   AgentSessionsUpdateSessionData,
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
@@ -9687,6 +9691,61 @@ export const agentSessionsListPendingMessages = (
       session_id: data.sessionId,
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Session Channel Sync
+ * Whether the session syncs with a channel thread, and whether the actor can
+ * turn that on or off.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns AgentSessionChannelSyncRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsGetSessionChannelSync = (
+  data: AgentSessionsGetSessionChannelSyncData
+): CancelablePromise<AgentSessionsGetSessionChannelSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/channel-sync",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Session Channel Sync
+ * Turn channel sync on or off. Turning it on for a session without a thread
+ * opens one in the agent's channel; only later messages are synced.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionChannelSyncRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsUpdateSessionChannelSync = (
+  data: AgentSessionsUpdateSessionChannelSyncData
+): CancelablePromise<AgentSessionsUpdateSessionChannelSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/channel-sync",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
