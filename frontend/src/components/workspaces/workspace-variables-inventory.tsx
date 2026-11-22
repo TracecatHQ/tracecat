@@ -315,7 +315,7 @@ export function WorkspaceVariablesInventory() {
                                                   key={`${variable.id}-${key}`}
                                                   className="rounded-md border border-border/60 bg-muted/20 px-3 py-2"
                                                 >
-                                                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                                  <div className="text-[10px] font-medium text-muted-foreground">
                                                     {key}
                                                   </div>
                                                   {isMultiline ? (
