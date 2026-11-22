@@ -10,6 +10,7 @@ SENSITIVE_SETTINGS_KEYS = {
     "audit_webhook_custom_headers",
     "audit_webhook_custom_payload",
     "agent_otel_headers",
+    "python_package_index_password",
 }
 """Settings that are encrypted at rest."""
 
