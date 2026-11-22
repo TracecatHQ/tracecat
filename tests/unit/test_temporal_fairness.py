@@ -18,7 +18,12 @@ from temporalio.api.workflowservice.v1 import (
     DescribeScheduleResponse,
     UpdateScheduleRequest,
 )
-from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleSpec,
+)
 from temporalio.common import Priority
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -39,6 +44,7 @@ from tracecat.workflow.schedules.fairness_backfill import (
     backfill_schedule_fairness_keys,
     list_schedule_owners,
 )
+from tracecat.workflow.schedules.schemas import ScheduleUpdate as ScheduleUpdateParams
 
 
 def _role(organization_id: uuid.UUID) -> Role:
@@ -110,6 +116,41 @@ async def test_new_schedule_action_carries_org_fairness_key(
     action = captured["schedule"].action
     assert isinstance(action, ScheduleActionStartWorkflow)
     assert action.priority == Priority(fairness_key=str(org_id))
+
+
+@pytest.mark.anyio
+async def test_schedule_edit_keeps_org_fairness_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An edit rewrites the whole action, so it sets the key from the run's role."""
+    org_id = uuid.uuid4()
+    run_args = DSLRunArgs(role=_role(org_id), wf_id=WorkflowUUID.new_uuid4())
+    action = ScheduleActionStartWorkflow(
+        "DSLWorkflow", id="wf/sch", task_queue="tracecat-task-queue"
+    )
+    action.args = await get_data_converter().encode([run_args])
+    action.priority = Priority(priority_key=2)
+    schedule = Schedule(action=action, spec=ScheduleSpec())
+    updates: list[Any] = []
+
+    class _FakeHandle:
+        async def update(self, updater: Any) -> None:
+            update_input = SimpleNamespace(
+                description=SimpleNamespace(schedule=schedule)
+            )
+            updates.append(await updater(update_input))
+
+    async def _get_handle(_: Any) -> _FakeHandle:
+        return _FakeHandle()
+
+    monkeypatch.setattr(bridge, "_get_handle", _get_handle)
+
+    await bridge.update_schedule(ScheduleUUID.new_uuid4(), ScheduleUpdateParams())
+
+    (update,) = updates
+    assert update.schedule.action.priority == Priority(
+        priority_key=2, fairness_key=str(org_id)
+    )
 
 
 @pytest.mark.anyio
@@ -343,6 +384,24 @@ async def test_backfill_skips_a_schedule_owned_by_another_org() -> None:
         )
         assert counts == {"owner_mismatch": 1}
     assert service.writes == 0
+
+
+@pytest.mark.anyio
+async def test_backfill_reports_a_keyed_schedule_owned_by_another_org() -> None:
+    owner = _owner()
+    service = _FakeScheduleService()
+    service.add(
+        owner.schedule_id,
+        await _schedule(
+            uuid.uuid4(), PriorityProto(fairness_key=str(owner.organization_id))
+        ),
+    )
+
+    counts = await backfill_schedule_fairness_keys(
+        _client(service), [owner], dry_run=False
+    )
+
+    assert counts == {"owner_mismatch": 1}
 
 
 @pytest.mark.anyio

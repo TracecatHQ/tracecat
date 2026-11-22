@@ -129,12 +129,14 @@ async def backfill_schedule(
         if not schedule.action.HasField("start_workflow"):
             return "unsupported"
         start = schedule.action.start_workflow
+        # Check the owner first, so a schedule that already carries the
+        # row's key but runs as another org is reported, not counted as keyed.
+        if await _action_organization_id(start) != owner.organization_id:
+            return "owner_mismatch"
         if start.priority.fairness_key == key:
             return "updated" if sent_update else "already_keyed"
         if attempt == _UPDATE_ATTEMPTS:
             break
-        if await _action_organization_id(start) != owner.organization_id:
-            return "owner_mismatch"
         if dry_run:
             return "updated"
         # Change only the fairness key; the priority key and weight stay.

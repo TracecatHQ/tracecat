@@ -162,6 +162,9 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
                     scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
                 )
             action.typed_search_attributes = build_schedule_search_attributes(role)
+            # Rewriting the whole action must not drop the org's fairness key,
+            # including one the fairness backfill set after this read.
+            action.priority = org_priority(role.organization_id, action.priority)
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
             if "timeout" in set_fields:

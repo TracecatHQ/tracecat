@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import temporalio.client
+import temporalio.common
 
 from tracecat.identifiers import ScheduleUUID
 from tracecat.workflow.schedules import bridge
@@ -70,6 +71,7 @@ async def test_update_schedule_spec(
         mock_schedule.action.args = [MagicMock()]
         mock_schedule.action.args[0].dsl = MagicMock()
         mock_schedule.action.typed_search_attributes = {}
+        mock_schedule.action.priority = temporalio.common.Priority.default
         mock_schedule.state = MagicMock()
 
         mock_input.description.schedule = mock_schedule
