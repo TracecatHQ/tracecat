@@ -125,6 +125,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             cleanup.callback(shutdown_platform_metrics)
             cleanup.push_async_callback(_stop_runtime_services)
             cleanup.push_async_callback(close_storage_client_cache)
+            cleanup.push_async_callback(loop_lag.stop)
 
             client = await _start_runtime_services()
             with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:

@@ -58,10 +58,8 @@ class LoopLagSampler:
         self._task = None
         self._last_tick = None
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        # Wait without catching CancelledError, so a cancelled caller stays cancelled.
+        await asyncio.wait({task})
 
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()

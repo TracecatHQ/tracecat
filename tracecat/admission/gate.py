@@ -9,8 +9,9 @@ When it gets no answer it tells two cases apart:
   while (the breaker).
 - **Local overload**: Redis times out while the event loop is lagging, or the
   Redis connection pool is exhausted. Redis is likely fine; this process is
-  slow. The gate releases any lease the attempt may hold and raises a deferred
-  ``NotAdmittedError`` at once. The breaker is left alone.
+  slow. The gate doesn't retry: it releases any lease the attempt may hold
+  (bounded by ``RELEASE_TIMEOUT_SECONDS``) and raises a deferred
+  ``NotAdmittedError``. The breaker is left alone.
 
 A failed limit lookup never fails open: the gate serves a recently cached
 limit or defers.

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import redis.asyncio
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -513,7 +514,11 @@ async def test_stale_limit_is_served_for_one_more_ttl_then_deferred(
 
         service.get_effective_limits.side_effect = RuntimeError("db down")
         clock.now += 45  # Expired, inside the one-TTL grace.
-        assert await limits.resolve_limit(ORG_ID, ACTIONS) == 4
+        with patch.object(limits, "logger") as log:
+            assert await limits.resolve_limit(ORG_ID, ACTIONS) == 4
+            assert await limits.resolve_limit(ORG_ID, ACTIONS) == 4
+        # Warned once per outage, not once per admission.
+        assert log.warning.call_count == 1
 
         clock.now += 20  # 65 s old: past two TTLs.
         with pytest.raises(LimitUnavailableError):
@@ -632,3 +637,37 @@ async def test_first_attempt_lookup_deferral_never_touches_redis() -> None:
     ):
         await _admit()
     create.assert_not_awaited()
+
+
+def test_pool_exhausted_reads_a_real_redis_pool() -> None:
+    """Checked out without connecting, so no server is needed."""
+    client = redis.asyncio.Redis(max_connections=1)
+    store = LeaseStore(client)
+    assert store.pool_exhausted() is False
+    connection = client.connection_pool.get_available_connection()
+    assert store.pool_exhausted() is True
+    client.connection_pool._in_use_connections.discard(connection)
+    assert store.pool_exhausted() is False
+
+
+@pytest.mark.anyio
+async def test_clearing_the_cache_cancels_pending_reads(clock: FakeClock) -> None:
+    del clock
+    started = asyncio.Event()
+
+    async def hung_read(org_id: uuid.UUID) -> EffectiveLimits:
+        del org_id
+        started.set()
+        await asyncio.Event().wait()
+        return _effective(4)
+
+    with patch.object(limits, "_read", new=hung_read):
+        waiter = asyncio.create_task(limits.resolve_limit(ORG_ID, ACTIONS))
+        await started.wait()
+        (read,) = limits._in_flight.values()
+        limits.clear_limits_cache()
+        # The shielded waiter sees its shared read cancelled.
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+    assert read.cancelled()
+    assert ORG_ID not in limits._cache

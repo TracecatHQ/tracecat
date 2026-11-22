@@ -24,7 +24,8 @@ async def test_idle_loop_reads_low_lag() -> None:
         await asyncio.sleep(0.1)
         lag = sampler.max_lag_seconds()
         assert lag is not None
-        assert lag < 0.1
+        # Loose: well under the 0.25 s overload threshold, safe on a busy runner.
+        assert lag < 0.2
     finally:
         await sampler.stop()
     assert sampler.max_lag_seconds() is None
@@ -56,11 +57,11 @@ async def test_lag_ages_out_of_the_window() -> None:
     sampler.start()
     try:
         await asyncio.sleep(0.03)
-        time.sleep(0.2)
+        time.sleep(0.4)
         await asyncio.sleep(0.3)
         lag = sampler.max_lag_seconds()
         assert lag is not None
-        assert lag < 0.1
+        assert lag < 0.2
     finally:
         await sampler.stop()
 

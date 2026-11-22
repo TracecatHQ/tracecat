@@ -1,8 +1,9 @@
 """Resolve per-organization concurrency limits with a short in-process cache.
 
 Concurrent cache misses for one organization share a single database read. When
-a refresh fails or times out, the last limit read is served for at most one more
-TTL; after that the caller gets ``LimitUnavailableError`` and defers the work.
+a refresh fails or times out, ``resolve_limit`` serves the last limit read for at
+most one more TTL; after that the caller gets ``LimitUnavailableError`` and
+defers the work. ``get_effective_limits`` never serves a stale value.
 """
 
 from __future__ import annotations
@@ -40,6 +41,8 @@ class _CachedLimits:
 
 _cache: dict[OrganizationID, _CachedLimits] = {}
 _in_flight: dict[OrganizationID, asyncio.Task[EffectiveLimits]] = {}
+_stale_logged: set[OrganizationID] = set()
+"""Orgs already warned about serving a stale limit since their last good read."""
 
 
 async def _read(org_id: OrganizationID) -> EffectiveLimits:
@@ -51,6 +54,7 @@ async def _read(org_id: OrganizationID) -> EffectiveLimits:
         limits = await TierService(session).get_effective_limits(org_id)
     if config.TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS > 0:
         _cache[org_id] = _CachedLimits(limits=limits, fetched_at=monotonic())
+    _stale_logged.discard(org_id)
     return limits
 
 
@@ -135,13 +139,16 @@ async def resolve_limit(
         stale = _cache.get(org_id)
         ttl_seconds = config.TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS
         if stale is not None and now < stale.fetched_at + 2 * ttl_seconds:
-            logger.warning(
-                "concurrency.stale_limit",
-                org_id=str(org_id),
-                resource=resource.value,
-                age_seconds=now - stale.fetched_at,
-                error=repr(e),
-            )
+            # Once per outage per org, not once per admission.
+            if org_id not in _stale_logged:
+                _stale_logged.add(org_id)
+                logger.warning(
+                    "concurrency.stale_limit",
+                    org_id=str(org_id),
+                    resource=resource.value,
+                    age_seconds=now - stale.fetched_at,
+                    error=repr(e),
+                )
             return limit_for(stale.limits, resource)
         raise LimitUnavailableError(
             f"Could not read the {resource.value} limit: {e!r}"
@@ -150,6 +157,9 @@ async def resolve_limit(
 
 
 def clear_limits_cache() -> None:
-    """Drop every cached entry (tests)."""
+    """Drop every cached entry and pending read (tests)."""
+    for task in _in_flight.values():
+        task.cancel()
     _cache.clear()
     _in_flight.clear()
+    _stale_logged.clear()

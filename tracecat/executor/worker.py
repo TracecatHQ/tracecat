@@ -234,6 +234,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                 await shutdown_executor_backend()
                 await close_storage_client_cache()
                 await action_gateway.stop()
+                await loop_lag.stop()
             finally:
                 # Flush telemetry even when an earlier cleanup step raises.
                 shutdown_platform_metrics()

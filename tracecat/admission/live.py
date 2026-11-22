@@ -79,10 +79,11 @@ async def _at_limit(
     if not is_feature_enabled(FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS):
         return None
     try:
+        # The lookup has its own budget, so a stale limit can still answer.
+        limit = await resolve_limit(org_id, resource)
+        if limit is None or limit <= 0:
+            return None
         async with asyncio.timeout(ATTEMPT_TIMEOUT_SECONDS):
-            limit = await resolve_limit(org_id, resource)
-            if limit is None or limit <= 0:
-                return None
             store = await LeaseStore.create()
             in_use = await store.in_use(org_id, resource)
     except Exception:
@@ -132,7 +133,10 @@ async def run_with_capacity_wait[T](
         if not (remaining := give_up_at - loop.time()) > 0:
             waited_seconds = loop.time() - started_at
             logger.warning(
-                "concurrency.overload",
+                # Org saturation and deferrals without an answer stay apart.
+                "concurrency.overload"
+                if reason == NotAdmittedReason.AT_LIMIT
+                else "concurrency.live_deferred",
                 org_id=str(org_id),
                 resource=resource.value,
                 in_use=busy.in_use,

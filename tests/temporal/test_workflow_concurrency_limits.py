@@ -801,7 +801,11 @@ async def test_overloaded_executor_defers_without_using_a_retry(
     fake_actions: FakeActions,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A Redis timeout on a lagging loop defers the action; Redis stays enforced."""
+    """A lost Redis reply on a lagging loop defers the action and frees its lease.
+
+    With limit 1, a lease leaked by a deferred attempt would make the next
+    attempt busy, so the reasons below would not be two deferrals.
+    """
     org_id = test_role.organization_id
     assert org_id is not None
     await _configure_org_limits(org_id, max_concurrent_actions=1)
@@ -812,14 +816,16 @@ async def test_overloaded_executor_defers_without_using_a_retry(
     real_try_acquire = LeaseStore.try_acquire
     timeouts_left = 2
 
-    async def slow_then_real(self: LeaseStore, *args: Any, **kwargs: Any) -> Any:
+    async def lost_reply_then_real(self: LeaseStore, *args: Any, **kwargs: Any) -> Any:
         nonlocal timeouts_left
+        result = await real_try_acquire(self, *args, **kwargs)
         if timeouts_left > 0:
+            # Redis took the lease; the reply never arrived.
             timeouts_left -= 1
             raise TimeoutError
-        return await real_try_acquire(self, *args, **kwargs)
+        return result
 
-    monkeypatch.setattr(LeaseStore, "try_acquire", slow_then_real)
+    monkeypatch.setattr(LeaseStore, "try_acquire", lost_reply_then_real)
     dsl = DSLInput(
         title="overloaded",
         description="overloaded",
