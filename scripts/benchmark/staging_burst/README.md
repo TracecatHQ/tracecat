@@ -124,7 +124,9 @@ Notes:
   K="kubectl --context tracecat-staging -n tracecat"
   url=$($K get deploy tracecat-executor -o json \
     | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="REDIS_URL") | .value')
-  $K set env deploy/tracecat-executor "REDIS_URL=${url/:6379/:6390}"
+  new=${url/:6379/:6390}
+  [ "$new" != "$url" ] || { echo "REDIS_URL has no :6379; nothing changed"; exit 1; }
+  $K set env deploy/tracecat-executor "REDIS_URL=$new"
   ```
 - While a run's lock pileup is up, count waiters with a read-only query on
   `pg_locks` (`locktype = 'advisory' AND NOT granted`).

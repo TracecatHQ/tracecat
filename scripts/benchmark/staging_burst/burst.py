@@ -331,9 +331,13 @@ def collect(args: argparse.Namespace) -> None:
     )
     labels = {pair.split("=", 1)[0] for pair in env[0].split("=", 1)[1].split(",")}
     for attempt in range(1, args.attempts + 1):
-        proc = subprocess.run(
-            cmd, input=script, capture_output=True, text=True, timeout=1800
-        )
+        try:
+            proc = subprocess.run(
+                cmd, input=script, capture_output=True, text=True, timeout=1800
+            )
+        except subprocess.TimeoutExpired:
+            print(f"collect attempt {attempt} timed out after 1800 s", file=sys.stderr)
+            continue
         done = {
             line.split()[1]
             for line in proc.stdout.splitlines()
@@ -396,6 +400,14 @@ def _max_width(intervals: list[tuple[float, float]]) -> int:
         width += step
         best = max(best, width)
     return best
+
+
+def _pgdog_ok(sample: dict[str, Any]) -> bool:
+    """Whether every PgDog pod in a sample was scraped and reported pool gauges."""
+    pgdog = sample.get("pgdog") or {}
+    return bool(pgdog) and all(
+        "error" not in dbs and any(db != "_all" for db in dbs) for dbs in pgdog.values()
+    )
 
 
 def summarize_run(run_dir: Path) -> dict[str, Any]:
@@ -499,11 +511,7 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
         "samples": len(samples),
         "pods": sum(1 for s in samples if "pods" in s),
         "mem": sum(1 for s in samples if "mem_mib" in s),
-        "pgdog": sum(
-            1
-            for s in samples
-            if s.get("pgdog") and all("error" not in dbs for dbs in s["pgdog"].values())
-        ),
+        "pgdog": sum(1 for s in samples if _pgdog_ok(s)),
     }
     peaks["coverage"] = coverage
     window_start = min((s["t"] for s in samples), default=0.0)
@@ -538,7 +546,7 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             if isinstance(g, dict) and db != "_all"
         )
         for s in samples
-        if s.get("pgdog") and all("error" not in dbs for dbs in s["pgdog"].values())
+        if _pgdog_ok(s)
     ]
     peaks["pgdog_sv_active_total_max"] = max(totals) if totals else None
     result["peaks"] = peaks
@@ -629,7 +637,7 @@ def _svg_timeline(run_dir: Path) -> str:
                 for db, g in dbs.items()
                 if isinstance(g, dict) and db != "_all"
             )
-            if s.get("pgdog") and all("error" not in dbs for dbs in s["pgdog"].values())
+            if _pgdog_ok(s)
             else None,
         )
         for s in samples

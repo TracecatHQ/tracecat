@@ -172,14 +172,12 @@ def _rfc3339(value: str) -> str:
 async def main() -> None:
     # Every value below is spliced into a visibility query, so parse each one
     # into its type first: a quote in any of them can't widen the query.
-    workspaces = {
-        _label(label): str(uuid.UUID(workspace_id))
-        for label, workspace_id in (
-            pair.split("=", 1)
-            for pair in os.environ["BURST_WORKSPACES"].split(",")
-            if pair
-        )
-    }
+    workspaces: dict[str, str] = {}
+    for pair in filter(None, os.environ["BURST_WORKSPACES"].split(",")):
+        label, workspace_id = pair.split("=", 1)
+        if _label(label) in workspaces:
+            sys.exit(f"duplicate workspace label: {label!r}")
+        workspaces[label] = str(uuid.UUID(workspace_id))
     since = _rfc3339(os.environ["BURST_SINCE"])
     until = _rfc3339(os.environ["BURST_UNTIL"])
     types = (os.environ.get("BURST_TYPES") or ",".join(sorted(WORKFLOW_TYPES))).split(
@@ -188,6 +186,8 @@ async def main() -> None:
     if unknown := set(types) - WORKFLOW_TYPES:
         sys.exit(f"unknown BURST_TYPES: {sorted(unknown)}")
     concurrency = int(os.environ.get("BURST_CONCURRENCY") or 8)
+    if concurrency < 1:
+        sys.exit("BURST_CONCURRENCY must be at least 1")
     max_runs = int(os.environ.get("BURST_MAX_RUNS") or 5000)
     type_list = ", ".join(f"'{t}'" for t in types)
     executor_queue = config.TRACECAT__EXECUTOR_QUEUE

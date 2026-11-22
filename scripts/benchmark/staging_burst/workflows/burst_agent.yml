@@ -1,6 +1,6 @@
 # Agent tool calls (both orgs): one agent turn that makes TRIGGER.calls
-# parallel core.transform.reshape tool calls. Use the cheapest model the
-# environment offers; import re-maps the model to the local catalog entry.
+# parallel core.transform.reshape tool calls. Set `model` to the cheapest model
+# the org has enabled (add its `catalog_id` from the org's agent catalog).
 definition:
   title: burst agent
   description: Burst replay agent turn with parallel reshape tool calls
