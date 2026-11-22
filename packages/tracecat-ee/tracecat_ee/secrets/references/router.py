@@ -31,6 +31,7 @@ from tracecat.secrets.schemas import (
     WorkspaceSecretStoreRead,
 )
 from tracecat.secrets.service import is_external_reference
+from tracecat.temporal.fairness import org_priority
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.secrets.references.service import (
@@ -261,6 +262,7 @@ async def _check(
             SecretReferenceCheckRequest(role=role, secret_id=secret_id),
             id=f"secret-reference-check-{uuid4()}",
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            priority=org_priority(role.organization_id),
             execution_timeout=_CHECK_TIMEOUT,
         )
     except WorkflowFailureError as exc:

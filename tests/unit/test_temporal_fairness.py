@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
@@ -12,15 +11,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from temporalio.client import (
-    Client,
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleIntervalSpec,
-    ScheduleSpec,
-    ScheduleUpdate,
-    ScheduleUpdateInput,
+from temporalio.api.common.v1 import Priority as PriorityProto
+from temporalio.api.schedule.v1 import Schedule as ScheduleProto
+from temporalio.api.workflowservice.v1 import (
+    DescribeScheduleRequest,
+    DescribeScheduleResponse,
+    UpdateScheduleRequest,
 )
+from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow
 from temporalio.common import Priority
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -30,10 +28,12 @@ from tracecat.cases.agent_invocations import queue
 from tracecat.db.models import Schedule as ScheduleRow
 from tracecat.db.models import Workflow, Workspace
 from tracecat.db.session_events import AfterCommitQueue
+from tracecat.dsl._converter import get_data_converter
+from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleUUID
 from tracecat.identifiers.workflow import WorkflowUUID, WorkspaceUUID
 from tracecat.temporal.fairness import org_priority
-from tracecat.workflow.schedules import bridge
+from tracecat.workflow.schedules import bridge, fairness_backfill
 from tracecat.workflow.schedules.fairness_backfill import (
     ScheduleOwner,
     backfill_schedule_fairness_keys,
@@ -163,124 +163,202 @@ async def test_list_schedule_owners_maps_schedule_to_its_org(
     )
 
 
-def _unkeyed_action() -> ScheduleActionStartWorkflow:
-    return ScheduleActionStartWorkflow(
-        "DSLWorkflow",
-        id="wf/sch",
-        task_queue="tracecat-task-queue",
-    )
+class _FakeScheduleService:
+    """Describe and update schedules the way Temporal does, conflict tokens included.
 
+    Temporal drops an update whose conflict token is stale. ``concurrent_edits``
+    simulates a user pausing the schedule right after each of the next N reads.
+    """
 
-class _FakeScheduleHandle:
-    """Applies ``handle.update`` callbacks the way the Temporal SDK does."""
-
-    def __init__(self, action: Any, *, missing: bool = False) -> None:
-        self.action = action
-        self.missing = missing
+    def __init__(self) -> None:
+        self.schedules: dict[str, ScheduleProto] = {}
+        self.tokens: dict[str, int] = {}
         self.writes = 0
+        self.concurrent_edits = 0
 
-    @property
-    def priority(self) -> Priority:
-        assert isinstance(self.action, ScheduleActionStartWorkflow)
-        return self.action.priority
+    def add(self, schedule_id: uuid.UUID, schedule: ScheduleProto) -> ScheduleProto:
+        temporal_id = ScheduleUUID.new(schedule_id).to_legacy()
+        self.schedules[temporal_id] = schedule
+        self.tokens[temporal_id] = 1
+        return schedule
 
-    async def update(self, updater: Any) -> None:
-        if self.missing:
+    async def describe_schedule(
+        self, req: DescribeScheduleRequest, *, retry: bool = False
+    ) -> DescribeScheduleResponse:
+        if req.schedule_id not in self.schedules:
             raise RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
-        schedule = Schedule(
-            action=copy.deepcopy(self.action),
-            spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(1))]),
+        response = DescribeScheduleResponse(
+            conflict_token=self.tokens[req.schedule_id].to_bytes(8, "big")
         )
-        update_input = SimpleNamespace(description=SimpleNamespace(schedule=schedule))
-        update = updater(cast(ScheduleUpdateInput, update_input))
-        if update is None:
+        response.schedule.CopyFrom(self.schedules[req.schedule_id])
+        if self.concurrent_edits > 0:
+            self.concurrent_edits -= 1
+            self.schedules[req.schedule_id].state.paused = True
+            self.tokens[req.schedule_id] += 1
+        return response
+
+    async def update_schedule(
+        self, req: UpdateScheduleRequest, *, retry: bool = False
+    ) -> None:
+        token = int.from_bytes(req.conflict_token, "big")
+        if token != self.tokens[req.schedule_id]:
             return
-        assert isinstance(update, ScheduleUpdate)
-        self.action = update.schedule.action
+        self.schedules[req.schedule_id].CopyFrom(req.schedule)
+        self.tokens[req.schedule_id] += 1
         self.writes += 1
 
 
-class _FailingScheduleHandle(_FakeScheduleHandle):
-    async def update(self, updater: Any) -> None:
-        raise RuntimeError("boom")
+async def _schedule(
+    organization_id: uuid.UUID, priority: PriorityProto | None = None
+) -> ScheduleProto:
+    run_args = DSLRunArgs(role=_role(organization_id), wf_id=WorkflowUUID.new_uuid4())
+    schedule = ScheduleProto()
+    start = schedule.action.start_workflow
+    start.workflow_id = "wf/sch"
+    start.workflow_type.name = "DSLWorkflow"
+    start.task_queue.name = "tracecat-task-queue"
+    start.input.payloads.extend(await get_data_converter().encode([run_args]))
+    if priority is not None:
+        start.priority.CopyFrom(priority)
+    return schedule
 
 
-def _client(handles: dict[uuid.UUID, _FakeScheduleHandle]) -> Client:
-    by_temporal_id = {
-        ScheduleUUID.new(schedule_id).to_legacy(): handle
-        for schedule_id, handle in handles.items()
-    }
-    return cast(Client, SimpleNamespace(get_schedule_handle=by_temporal_id.__getitem__))
+def _owner() -> ScheduleOwner:
+    return ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
+
+
+def _client(service: _FakeScheduleService) -> Client:
+    return cast(
+        Client,
+        SimpleNamespace(namespace="default", identity="test", workflow_service=service),
+    )
+
+
+@pytest.fixture(autouse=True)
+def no_retry_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fairness_backfill, "_RETRY_DELAY_SECONDS", 0)
 
 
 @pytest.mark.anyio
 async def test_backfill_dry_run_writes_nothing() -> None:
-    owner = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    handle = _FakeScheduleHandle(_unkeyed_action())
+    owner = _owner()
+    service = _FakeScheduleService()
+    schedule = service.add(owner.schedule_id, await _schedule(owner.organization_id))
 
     counts = await backfill_schedule_fairness_keys(
-        _client({owner.schedule_id: handle}), [owner], dry_run=True
+        _client(service), [owner], dry_run=True
     )
 
-    assert counts["updated"] == 1
-    assert handle.writes == 0
-    assert handle.priority == Priority.default
+    assert counts == {"updated": 1}
+    assert service.writes == 0
+    assert schedule.action.start_workflow.priority.fairness_key == ""
 
 
 @pytest.mark.anyio
-async def test_backfill_sets_key_once_and_keeps_priority_key() -> None:
-    owner = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    action = _unkeyed_action()
-    action.priority = Priority(priority_key=2)
-    handle = _FakeScheduleHandle(action)
-    client = _client({owner.schedule_id: handle})
+async def test_backfill_sets_only_the_key_once() -> None:
+    owner = _owner()
+    service = _FakeScheduleService()
+    schedule = service.add(
+        owner.schedule_id,
+        await _schedule(
+            owner.organization_id,
+            PriorityProto(priority_key=2, fairness_weight=2.0),
+        ),
+    )
+    client = _client(service)
 
     first = await backfill_schedule_fairness_keys(client, [owner], dry_run=False)
     second = await backfill_schedule_fairness_keys(client, [owner], dry_run=False)
 
-    assert first["updated"] == 1
-    assert second["already_keyed"] == 1
-    assert second["updated"] == 0
-    assert handle.writes == 1
-    assert handle.priority == Priority(
-        priority_key=2, fairness_key=str(owner.organization_id)
+    assert first == {"updated": 1}
+    assert second == {"already_keyed": 1}
+    assert service.writes == 1
+    assert schedule.action.start_workflow.priority == PriorityProto(
+        priority_key=2, fairness_key=str(owner.organization_id), fairness_weight=2.0
     )
 
 
 @pytest.mark.anyio
 async def test_backfill_replaces_a_wrong_key() -> None:
-    owner = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    action = _unkeyed_action()
-    action.priority = Priority(fairness_key="other-org")
-    handle = _FakeScheduleHandle(action)
-
-    counts = await backfill_schedule_fairness_keys(
-        _client({owner.schedule_id: handle}), [owner], dry_run=False
+    owner = _owner()
+    service = _FakeScheduleService()
+    schedule = service.add(
+        owner.schedule_id,
+        await _schedule(owner.organization_id, PriorityProto(fairness_key="other")),
     )
 
-    assert counts["updated"] == 1
-    assert handle.priority.fairness_key == str(owner.organization_id)
+    counts = await backfill_schedule_fairness_keys(
+        _client(service), [owner], dry_run=False
+    )
+
+    assert counts == {"updated": 1}
+    key = schedule.action.start_workflow.priority.fairness_key
+    assert key == str(owner.organization_id)
+
+
+@pytest.mark.anyio
+async def test_backfill_keeps_a_pause_made_after_its_read() -> None:
+    """The stale write is dropped; the backfill reads again and keys the paused schedule."""
+    owner = _owner()
+    service = _FakeScheduleService()
+    schedule = service.add(owner.schedule_id, await _schedule(owner.organization_id))
+    service.concurrent_edits = 1
+
+    counts = await backfill_schedule_fairness_keys(
+        _client(service), [owner], dry_run=False
+    )
+
+    assert counts == {"updated": 1}
+    assert service.writes == 1
+    assert schedule.state.paused is True
+    key = schedule.action.start_workflow.priority.fairness_key
+    assert key == str(owner.organization_id)
+
+
+@pytest.mark.anyio
+async def test_backfill_fails_a_schedule_that_keeps_changing() -> None:
+    owner = _owner()
+    service = _FakeScheduleService()
+    schedule = service.add(owner.schedule_id, await _schedule(owner.organization_id))
+    service.concurrent_edits = 100
+
+    counts = await backfill_schedule_fairness_keys(
+        _client(service), [owner], dry_run=False
+    )
+
+    assert counts == {"failed": 1}
+    assert service.writes == 0
+    assert schedule.action.start_workflow.priority.fairness_key == ""
+
+
+@pytest.mark.anyio
+async def test_backfill_skips_a_schedule_owned_by_another_org() -> None:
+    owner = _owner()
+    service = _FakeScheduleService()
+    service.add(owner.schedule_id, await _schedule(uuid.uuid4()))
+
+    for dry_run in (True, False):
+        counts = await backfill_schedule_fairness_keys(
+            _client(service), [owner], dry_run=dry_run
+        )
+        assert counts == {"owner_mismatch": 1}
+    assert service.writes == 0
 
 
 @pytest.mark.anyio
 async def test_backfill_counts_missing_unsupported_and_failed_and_continues() -> None:
-    missing = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    unsupported = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    failing = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    ok = ScheduleOwner(schedule_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    ok_handle = _FakeScheduleHandle(_unkeyed_action())
-    client = _client(
-        {
-            missing.schedule_id: _FakeScheduleHandle(None, missing=True),
-            unsupported.schedule_id: _FakeScheduleHandle(object()),
-            failing.schedule_id: _FailingScheduleHandle(_unkeyed_action()),
-            ok.schedule_id: ok_handle,
-        }
-    )
+    missing, unsupported, undecodable, ok = _owner(), _owner(), _owner(), _owner()
+    service = _FakeScheduleService()
+    service.add(unsupported.schedule_id, ScheduleProto())
+    broken = await _schedule(undecodable.organization_id)
+    del broken.action.start_workflow.input.payloads[:]
+    service.add(undecodable.schedule_id, broken)
+    ok_schedule = service.add(ok.schedule_id, await _schedule(ok.organization_id))
 
     counts = await backfill_schedule_fairness_keys(
-        client, [missing, unsupported, failing, ok], dry_run=False
+        _client(service), [missing, unsupported, undecodable, ok], dry_run=False
     )
 
     assert counts == {"missing": 1, "unsupported": 1, "failed": 1, "updated": 1}
-    assert ok_handle.priority.fairness_key == str(ok.organization_id)
+    key = ok_schedule.action.start_workflow.priority.fairness_key
+    assert key == str(ok.organization_id)

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from temporalio import workflow
-from temporalio.common import WorkflowIDReusePolicy
+from temporalio.common import Priority, WorkflowIDReusePolicy
 from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from tests.unit.test_durable_workspace_sync import push_inputs
@@ -40,6 +40,8 @@ async def test_unknown_start_result_reuses_workflow_identity(
     await service.start_workflow(operation)
     calls = client.start_workflow.await_args_list
     assert [call.kwargs["id"] for call in calls] == [workflow_id, workflow_id]
+    org_key = Priority(fairness_key=str(svc_role.organization_id))
+    assert all(call.kwargs["priority"] == org_key for call in calls)
     assert all(
         call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
         for call in calls
