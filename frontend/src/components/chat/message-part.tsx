@@ -67,6 +67,7 @@ import {
   collectInterruptedToolCallIds,
   getChannelMessageData,
   getCompactionData,
+  getMessageAuthorName,
   getToolDenial,
   getUserMessageData,
   isApprovalCardArray,
@@ -104,6 +105,8 @@ type MessagePartProps = {
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
   /** How long a reloaded thought took, from history timestamps. */
   reasoningSeconds?: number
+  /** Who sent a user message, when recorded. */
+  authorName?: string | null
 }
 
 type DerivedToolState = {
@@ -167,6 +170,7 @@ export function MessagePart({
   interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
   reasoningSeconds,
+  authorName = null,
 }: MessagePartProps) {
   const { expandSteps } = useChatVerbosityPolicy()
   // Steps remount on a level change, since defaultOpen applies only on mount.
@@ -225,6 +229,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={message.text}
         channelMessage={message.channelMessage}
+        authorName={message.channelMessage?.sender.name ?? authorName}
       />
     )
   }
@@ -237,6 +242,18 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={channelMessage.text}
         channelMessage={channelMessage}
+        authorName={channelMessage.sender.name ?? authorName}
+      />
+    )
+  }
+
+  if (part.type === "text" && role === "user") {
+    return (
+      <UserBubble
+        key={`${id}-${partIdx}`}
+        text={part.text}
+        channelMessage={null}
+        authorName={authorName}
       />
     )
   }
@@ -341,9 +358,9 @@ export function MessagePart({
 
 type MessagePartsProps = Omit<
   MessagePartProps,
-  "part" | "partIdx" | "id" | "role"
+  "part" | "partIdx" | "id" | "role" | "authorName"
 > & {
-  message: Pick<UIMessage, "id" | "role" | "parts">
+  message: Pick<UIMessage, "id" | "role" | "parts" | "metadata">
 }
 
 type IndexedPart = { part: UIMessage["parts"][number]; partIdx: number }
@@ -370,16 +387,24 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
   )
 }
 
-/** A user's message: its text, and a channel message's forwards and thread. */
+/** A user's message: its author, text, and a channel message's forwards and thread. */
 function UserBubble({
   text,
   channelMessage,
+  authorName,
 }: {
   text: string
   channelMessage: ChannelMessageData | null
+  authorName: string | null
 }) {
   return (
-    <Message from="user">
+    <Message
+      from="user"
+      className={authorName ? "flex-col items-end gap-1" : undefined}
+    >
+      {authorName && (
+        <span className="text-xs text-muted-foreground">{authorName}</span>
+      )}
       <MessageContent variant="flat">
         {text && (
           <SmoothResponse
@@ -479,6 +504,8 @@ export function MessageParts({
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
+  const authorName =
+    message.role === "user" ? getMessageAuthorName(message.metadata) : null
 
   function renderPart({ part, partIdx }: IndexedPart) {
     return (
@@ -494,6 +521,7 @@ export function MessageParts({
         interruptedToolCallIds={interruptedToolCallIds}
         onSubmitApprovals={onSubmitApprovals}
         reasoningSeconds={reasoningSeconds}
+        authorName={authorName}
       />
     )
   }
@@ -948,7 +976,8 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.turnCancelled !== next.turnCancelled ||
     prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals ||
-    prev.reasoningSeconds !== next.reasoningSeconds
+    prev.reasoningSeconds !== next.reasoningSeconds ||
+    prev.authorName !== next.authorName
   ) {
     return false
   }

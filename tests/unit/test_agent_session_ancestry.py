@@ -167,6 +167,7 @@ async def test_first_fork_turn_uses_captured_sdk_identity_and_history_boundary()
     entry = SimpleNamespace(
         id=uuid.uuid4(),
         kind="chat-message",
+        author_id=None,
         raw_session_line=None,
         content={"type": "user", "uuid": "prompt", "message": {"content": "Hi"}},
     )
@@ -383,6 +384,7 @@ async def test_child_session_messages_remain_readable(entitled: bool) -> None:
     entry = SimpleNamespace(
         id=uuid.uuid4(),
         kind=MessageKind.CHAT_MESSAGE.value,
+        author_id=None,
         content={
             "type": "user",
             "uuid": "task",

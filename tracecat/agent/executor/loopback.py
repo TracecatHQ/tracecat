@@ -105,6 +105,8 @@ class LoopbackInput:
     workspace_id: uuid.UUID
     active_stream_id: uuid.UUID | None = None
     curr_run_id: uuid.UUID | None = None
+    # The Tracecat user who started the turn, recorded as its prompt's author.
+    author_id: uuid.UUID | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -129,6 +131,22 @@ class LoopbackResult:
     interrupted_tool_call_ids: list[str] = field(default_factory=list)
     # When the first model output was forwarded to the stream, for metrics.
     first_token_at: datetime | None = None
+
+
+def _is_user_prompt_line(line_data: Mapping[str, Any]) -> bool:
+    """A user line a person typed: not a tool result or a runtime-injected line."""
+    if line_data.get("type") != "user" or line_data.get("isMeta"):
+        return False
+    if line_data.get("isSidechain") or line_data.get("isCompactSummary"):
+        return False
+    message = line_data.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, str):
+        return True
+    return isinstance(content, list) and not any(
+        isinstance(block, dict) and block.get("type") == "tool_result"
+        for block in content
+    )
 
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
@@ -1019,6 +1037,9 @@ class LoopbackHandler:
                 raw_session_line=history_payload.raw_session_line,
                 kind=kind,
                 curr_run_id=self.input.curr_run_id,
+                author_id=self.input.author_id
+                if kind == "chat-message" and _is_user_prompt_line(line_data)
+                else None,
             )
             session.add(history_entry)
             await session.commit()

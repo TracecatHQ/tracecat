@@ -74,6 +74,7 @@ import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
 import { extensions } from "@/extensions"
+import { useAuth } from "@/hooks/use-auth"
 import {
   makeContinueMessage,
   parseChatError,
@@ -387,12 +388,31 @@ export function ChatSessionPane({
   // Sending, retrying and approving all run the agent. `undefined` means the
   // scopes are still loading, which must not disable anything.
   const cannotExecuteAgents = useScopeCheck("agent:execute") === false
+  const { user } = useAuth()
+  // Labels the sender's own message until history reloads with its author.
+  const authorMetadata = useMemo(
+    () =>
+      user
+        ? {
+            author: {
+              id: user.id,
+              email: user.email,
+              first_name: user.firstName,
+              last_name: user.lastName,
+            },
+          }
+        : undefined,
+    [user]
+  )
   const cannotDecideApprovals =
     !canDecideApprovals || approvalsDisabled || cannotExecuteAgents
-  let readonlyDescription =
-    chat && "user_id" in chat
-      ? "This legacy conversation is read-only."
-      : "This conversation is read-only."
+  // Name the missing scope when that is why a shared session is read-only.
+  let readonlyDescription = cannotExecuteAgents
+    ? AGENT_EXECUTE_REQUIRED_MESSAGE
+    : "This conversation is read-only."
+  if (chat && "user_id" in chat) {
+    readonlyDescription = "This legacy conversation is read-only."
+  }
   if (chat && "spawned_by_session_id" in chat && chat.spawned_by_session_id) {
     readonlyDescription =
       "This subagent conversation is read-only. Message the parent conversation instead."
@@ -523,9 +543,10 @@ export function ChatSessionPane({
 
     pendingMessageSentRef.current = messageKey
     clearError()
-    sendMessage({ text: pendingMessage })
+    sendMessage({ text: pendingMessage, metadata: authorMetadata })
     onPendingMessageSent?.()
   }, [
+    authorMetadata,
     pendingMessage,
     isReadonly,
     cannotExecuteAgents,
@@ -1421,6 +1442,7 @@ export function ChatSessionPane({
       clearError()
       sendMessage({
         text: messageText,
+        metadata: authorMetadata,
         ...(message.files?.length ? { files: message.files } : {}),
       })
     } catch (error) {

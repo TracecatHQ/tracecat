@@ -62,6 +62,7 @@ async def test_list_messages_maps_cancelled_marker() -> None:
     cancelled_entry = SimpleNamespace(
         id=uuid.uuid4(),
         kind=MessageKind.CANCELLED.value,
+        author_id=None,
         content={
             "type": "cancelled",
             "reason": "user_cancel",
@@ -101,6 +102,7 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "user",
@@ -111,6 +113,7 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CANCELLED.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "cancelled",
@@ -121,6 +124,7 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "assistant",
@@ -153,6 +157,7 @@ async def test_display_only_context_splits_ui_from_model_history() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "user",
@@ -164,6 +169,7 @@ async def test_display_only_context_splits_ui_from_model_history() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "user",
@@ -174,6 +180,7 @@ async def test_display_only_context_splits_ui_from_model_history() -> None:
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "assistant",
@@ -234,6 +241,7 @@ async def test_load_session_history_prefers_exact_raw_nul_content() -> None:
     entry = SimpleNamespace(
         id=uuid.uuid4(),
         kind=MessageKind.CHAT_MESSAGE.value,
+        author_id=None,
         content=payload.content,
         raw_session_line=payload.raw_session_line,
     )
@@ -283,6 +291,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "user",
@@ -296,6 +305,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "user",
@@ -316,6 +326,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "assistant",
@@ -327,6 +338,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "user",
@@ -341,6 +353,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             raw_session_line=None,
             content={
                 "type": "assistant",
@@ -359,6 +372,7 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             content=answer_payload.content,
             raw_session_line=answer_payload.raw_session_line,
         ),
@@ -573,6 +587,7 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             content={
                 "type": "assistant",
                 "uuid": "synthetic-uuid",
@@ -582,6 +597,7 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             content={
                 "type": "user",
                 "uuid": prompt_uuid,
@@ -595,6 +611,7 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             content={
                 "type": "assistant",
                 "uuid": thinking_uuid,
@@ -613,6 +630,7 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             content={
                 "type": "assistant",
                 "uuid": "answer-uuid",
@@ -648,6 +666,7 @@ async def test_list_messages_keeps_thinking_after_internal_context_rows() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             content={
                 "type": "user",
                 "uuid": "skill-uuid",
@@ -658,6 +677,7 @@ async def test_list_messages_keeps_thinking_after_internal_context_rows() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            author_id=None,
             content={
                 "type": "attachment",
                 "uuid": "attachment-uuid",
@@ -667,6 +687,7 @@ async def test_list_messages_keeps_thinking_after_internal_context_rows() -> Non
         SimpleNamespace(
             id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=None,
             content={
                 "type": "assistant",
                 "uuid": "thinking-uuid",
@@ -728,6 +749,7 @@ async def test_list_messages_decodes_channel_messages_in_channel_sessions(
     entry = SimpleNamespace(
         id=uuid.uuid4(),
         kind=MessageKind.CHAT_MESSAGE.value,
+        author_id=None,
         content={
             "type": "user",
             "message": {"role": "user", "content": CHANNEL_MESSAGE.render()},

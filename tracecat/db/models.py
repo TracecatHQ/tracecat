@@ -4294,6 +4294,14 @@ class AgentSessionHistory(WorkspaceModel):
     """
 
     __tablename__ = "agent_session_history"
+    __table_args__ = (
+        # Serves the ON DELETE SET NULL lookup when a user is deleted.
+        Index(
+            "ix_agent_session_history_author_id",
+            "author_id",
+            postgresql_where=text("author_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -4330,6 +4338,12 @@ class AgentSessionHistory(WorkspaceModel):
         nullable=True,
         index=True,
         doc="Workflow run that produced this row; used to hide active-turn rows mid-stream",
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Tracecat user who sent this user prompt; null for every other row",
     )
 
     session: Mapped[AgentSession] = relationship(

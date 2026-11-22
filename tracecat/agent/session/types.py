@@ -30,15 +30,16 @@ def is_session_owner(role: Role, created_by: UserID | None) -> bool:
 def can_act_on_session(role: Role, entity_type: str, created_by: UserID | None) -> bool:
     """Return whether an actor may act on a session: message, steer, stop it.
 
-    WORKFLOW-typed sessions belong to the workspace, so any member with
-    ``agent:execute`` may act on them. Every other session is its owner's.
+    Workflow and channel-started sessions belong to the workspace, so any member
+    with ``agent:execute`` may act on them. Every other session is its owner's.
     """
     if is_session_owner(role, created_by):
         return True
+    shared = entity_type == AgentSessionEntity.WORKFLOW or (
+        is_ownerless_channel_session(entity_type, created_by)
+    )
     return (
-        entity_type == AgentSessionEntity.WORKFLOW
-        and role.scopes is not None
-        and has_scope(role.scopes, "agent:execute")
+        shared and role.scopes is not None and has_scope(role.scopes, "agent:execute")
     )
 
 

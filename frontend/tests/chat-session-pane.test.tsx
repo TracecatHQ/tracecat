@@ -635,7 +635,9 @@ describe("ChatSessionPane", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ text: "Hello" })
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "Hello" })
+      )
     })
 
     expect(console.error).toHaveBeenCalledWith(
@@ -1247,7 +1249,9 @@ describe("ChatSessionPane", () => {
       screen.queryByText(AGENT_EXECUTE_REQUIRED_MESSAGE)
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
-    expect(sendMessage).toHaveBeenCalledWith({ text: "Queued message" })
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Queued message" })
+    )
   })
 
   describe("failed turns", () => {
@@ -1890,7 +1894,9 @@ describe("ChatSessionPane", () => {
 
     toolWrite.resolve()
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "hello" })
+      )
     })
   })
 
@@ -1961,7 +1967,9 @@ describe("ChatSessionPane", () => {
 
     mcpWrite.resolve()
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "hello" })
+      )
     })
   })
 
@@ -2765,7 +2773,9 @@ describe("ChatSessionPane", () => {
       })
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "hello" })
+        )
       )
       expect(onSelect).not.toHaveBeenCalled()
     })
@@ -2866,7 +2876,9 @@ describe("ChatSessionPane", () => {
       onSelect.mockClear()
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({ text: "next question" })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "next question" })
+        )
       )
       expect(onSelect).not.toHaveBeenCalled()
     })
@@ -3034,9 +3046,9 @@ describe("ChatSessionPane", () => {
 
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({
-          text: "@Triage agent hello",
-        })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "@Triage agent hello" })
+        )
       )
     })
 
@@ -3102,9 +3114,9 @@ describe("ChatSessionPane", () => {
       onSelect.mockResolvedValue(true)
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({
-          text: "@Triage agent hello",
-        })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "@Triage agent hello" })
+        )
       )
     })
 

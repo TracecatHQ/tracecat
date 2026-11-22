@@ -31,7 +31,7 @@ from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.session.service import _extract_vercel_user_prompt
 from tracecat.chat.enums import MessageKind
-from tracecat.chat.schemas import ApprovalRead, ChatMessage
+from tracecat.chat.schemas import ApprovalRead, ChatMessage, MessageAuthor
 
 
 def _approval_message(
@@ -66,6 +66,19 @@ def test_convert_chat_messages_to_ui_carries_message_time() -> None:
     [ui_message] = convert_chat_messages_to_ui([message])
 
     assert ui_message.metadata == {"created_at": recorded.isoformat()}
+
+
+def test_convert_chat_messages_to_ui_carries_the_author() -> None:
+    author = MessageAuthor(id=uuid4(), email="sam@example.com", first_name="Sam")
+    message = ChatMessage(
+        id=str(uuid4()),
+        message=UserMessage(content="triage this"),
+        author=author,
+    )
+
+    [ui_message] = convert_chat_messages_to_ui([message])
+
+    assert ui_message.metadata == {"author": author.model_dump(mode="json")}
 
 
 def _decided_call(

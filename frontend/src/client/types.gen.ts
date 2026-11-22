@@ -4148,6 +4148,10 @@ export type ChatMessage = {
    * The channel message a user message's text renders, decoded
    */
   channel_message?: ChannelMessage | null
+  /**
+   * The Tracecat user who sent a user message, when recorded
+   */
+  author?: MessageAuthor | null
 }
 
 /**
@@ -8711,6 +8715,16 @@ export type MemberRoleSourceType = "direct" | "group" | "idp_group"
  * type-checked domain of valid target kinds.
  */
 export type MentionTargetType = "agent"
+
+/**
+ * The Tracecat user who sent a message.
+ */
+export type MessageAuthor = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
 
 /**
  * The type/kind of message stored in the chat.

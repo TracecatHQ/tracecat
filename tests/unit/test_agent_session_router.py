@@ -1016,8 +1016,8 @@ async def test_send_message_rejects_teammate_session() -> None:
 @pytest.mark.parametrize(
     ("entity_type", "ownerless", "may_message", "may_decide"),
     [
-        # Anyone in a channel may decide on its session, but only decide.
-        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True),
+        # A channel-started session belongs to the workspace.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, True, True),
         (AgentSessionEntity.EXTERNAL_CHANNEL, False, False, False),
         # A workflow-started session belongs to the workspace.
         (AgentSessionEntity.WORKFLOW, True, True, True),
@@ -2026,9 +2026,11 @@ def _session_read(
 @pytest.mark.parametrize(
     ("entity_type", "ownerless", "subagent", "enabled", "readonly", "can_decide"),
     [
-        # Anyone in a channel may decide on its session, but only decide.
-        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True, True, True),
+        # A channel-started session belongs to the workspace.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True, False, True),
         (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, False, True, False),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, True, True, True, False),
+        # A fork of one has a creator and stays theirs.
         (AgentSessionEntity.EXTERNAL_CHANNEL, False, False, True, True, False),
         # A workflow-started session belongs to the workspace.
         (AgentSessionEntity.WORKFLOW, True, False, True, False, True),
@@ -2063,9 +2065,18 @@ def test_a_teammate_may_act_only_on_shared_sessions(
     )
     assert read.is_readonly is readonly
     assert read.can_decide_approvals is can_decide
+    # Acting on a session never makes the actor its creator.
+    assert read.created_by == session_stub.created_by
 
 
-@pytest.mark.parametrize("teammate", [False, True])
+@pytest.mark.parametrize(
+    ("entity_type", "teammate"),
+    [
+        (AgentSessionEntity.AGENT_PRESET, False),
+        (AgentSessionEntity.WORKFLOW, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True),
+    ],
+)
 @pytest.mark.parametrize(
     ("scopes", "can_decide"),
     [
@@ -2075,21 +2086,21 @@ def test_a_teammate_may_act_only_on_shared_sessions(
     ],
 )
 def test_deciding_approvals_needs_the_execute_scope(
-    scopes: frozenset[str] | None, can_decide: bool, teammate: bool
+    scopes: frozenset[str] | None,
+    can_decide: bool,
+    entity_type: AgentSessionEntity,
+    teammate: bool,
 ) -> None:
-    """Holds for the owner of any session and for a teammate on a workflow one."""
-    session_stub = _agent_session_stub(
-        backend_id="external",
-        entity_type=(
-            AgentSessionEntity.WORKFLOW if teammate else AgentSessionEntity.AGENT_PRESET
-        ),
-    )
+    """Holds for the owner of any session and for a teammate on a shared one."""
+    session_stub = _agent_session_stub(backend_id="external", entity_type=entity_type)
     role = _teammate_role(session_stub.workspace_id, scopes)
-    if not teammate:
+    if entity_type == AgentSessionEntity.EXTERNAL_CHANNEL:
+        session_stub.created_by = None
+    elif not teammate:
         session_stub.created_by = role.user_id
     read = _session_read(session_stub, role)
     assert read.can_decide_approvals is can_decide
-    # A workflow session is shared only with members who may run the agent.
+    # A shared session is shared only with members who may run the agent.
     assert read.is_readonly is (teammate and not can_decide)
 
 
@@ -2571,9 +2582,20 @@ async def test_forking_into_a_builder_session_requires_agent_update() -> None:
 
 
 SHARING = pytest.mark.parametrize(
-    ("entity_type", "shared"),
-    [(AgentSessionEntity.WORKFLOW, True), (AgentSessionEntity.CASE, False)],
+    ("entity_type", "ownerless", "shared"),
+    [
+        (AgentSessionEntity.WORKFLOW, False, True),
+        # A channel-started session has no creator and belongs to the workspace.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, False, False),
+        (AgentSessionEntity.CASE, False, False),
+    ],
 )
+
+
+def _creator(ownerless: bool) -> uuid.UUID | None:
+    """No creator for an ownerless session, else someone other than the actor."""
+    return None if ownerless else uuid.uuid4()
 
 
 def _refused_unless(shared: bool) -> Any:
@@ -2594,10 +2616,15 @@ def _refused_unless(shared: bool) -> Any:
     ids=["steer", "withdraw", "cancel"],
 )
 def test_a_teammate_may_control_only_shared_sessions(
-    entity_type: AgentSessionEntity, shared: bool, body: dict[str, str]
+    entity_type: AgentSessionEntity,
+    ownerless: bool,
+    shared: bool,
+    body: dict[str, str],
 ) -> None:
     agent_session = _agent_session_stub(
-        entity_type=entity_type, curr_run_id=uuid.uuid4()
+        entity_type=entity_type,
+        created_by=_creator(ownerless),
+        curr_run_id=uuid.uuid4(),
     )
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=agent_session),
@@ -2630,9 +2657,11 @@ def test_a_teammate_may_control_only_shared_sessions(
 @SHARING
 @pytest.mark.anyio
 async def test_a_teammate_may_cancel_only_shared_sessions(
-    entity_type: AgentSessionEntity, shared: bool
+    entity_type: AgentSessionEntity, ownerless: bool, shared: bool
 ) -> None:
-    agent_session = _agent_session_stub(entity_type=entity_type)
+    agent_session = _agent_session_stub(
+        entity_type=entity_type, created_by=_creator(ownerless)
+    )
     role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=agent_session), request_cancel=AsyncMock()
@@ -2656,10 +2685,12 @@ async def test_a_teammate_may_cancel_only_shared_sessions(
 @SHARING
 @pytest.mark.anyio
 async def test_a_teammate_may_fork_only_shared_sessions(
-    entity_type: AgentSessionEntity, shared: bool
+    entity_type: AgentSessionEntity, ownerless: bool, shared: bool
 ) -> None:
     """The inbox sends a follow-up on a workflow session by forking it."""
-    source = _agent_session_stub(entity_type=entity_type)
+    source = _agent_session_stub(
+        entity_type=entity_type, created_by=_creator(ownerless)
+    )
     role = _teammate_role(source.workspace_id, EXECUTE_ONLY)
     forked = _agent_session_stub(
         workspace_id=source.workspace_id,

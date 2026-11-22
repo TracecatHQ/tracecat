@@ -8,8 +8,10 @@ import type {
   ChannelMessage,
   ChatReadMinimal,
   ChatReadVercel,
+  MessageAuthor,
   UIMessage,
 } from "@/client"
+import { getDisplayName } from "@/lib/auth"
 import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { QueryClient } from "@/lib/query"
@@ -612,6 +614,15 @@ export function getChannelMessageData(
     return null
   }
   return data as ChannelMessageData
+}
+
+/** The display name of a user message's author, or null if none was recorded. */
+export function getMessageAuthorName(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null
+  const author = "author" in metadata ? metadata.author : undefined
+  if (!author || typeof author !== "object") return null
+  if (!("email" in author) || typeof author.email !== "string") return null
+  return getDisplayName(author as MessageAuthor)
 }
 
 /**

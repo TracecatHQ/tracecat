@@ -494,3 +494,55 @@ describe("channel messages", () => {
     expect(container.querySelectorAll(".is-user")).toHaveLength(1)
   })
 })
+
+describe("message authors", () => {
+  it("labels a web prompt with its recorded author", () => {
+    const message: UIMessage = {
+      id: "u1",
+      role: "user",
+      metadata: {
+        author: { id: "user-1", email: "sam@example.com", first_name: "Sam" },
+      },
+      parts: [{ type: "text", text: "triage this" }],
+    }
+    render(<MessageParts message={message} status="ready" isLastMessage />)
+
+    const bubble = screen.getByText("triage this").closest(".is-user")
+    expect(bubble).toContainElement(screen.getByText("Sam"))
+  })
+
+  it("labels a channel message with its sender", () => {
+    const message: UIMessage = {
+      id: "u2",
+      role: "user",
+      parts: [
+        {
+          type: "data-channel-message",
+          data: {
+            provider: "slack",
+            text: "triage this",
+            sender: { provider_user_id: "U1", name: "Dana" },
+            quoted: [],
+          },
+        },
+      ],
+    }
+    render(<MessageParts message={message} status="ready" isLastMessage />)
+
+    expect(screen.getByText("Dana")).toBeInTheDocument()
+    expect(screen.queryByText("U1")).not.toBeInTheDocument()
+  })
+
+  it("draws no label when no author was recorded", () => {
+    const message: UIMessage = {
+      id: "u3",
+      role: "user",
+      parts: [{ type: "text", text: "from a workflow" }],
+    }
+    const { container } = render(
+      <MessageParts message={message} status="ready" isLastMessage />
+    )
+
+    expect(container.querySelector(".is-user span")).toBeNull()
+  })
+})

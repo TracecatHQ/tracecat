@@ -24,7 +24,11 @@ import {
   agentSessionsListPendingMessages,
 } from "@/client"
 
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -1094,6 +1098,42 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     expect(first.getByRole("button", { name: "Approve" })).toBeDisabled()
     for (const submit of screen.getAllByRole("button", { name: "Submit" })) {
       expect(submit).toBeDisabled()
+    }
+  })
+
+  it("names the missing scope when a shared session is read-only", async () => {
+    jest.mocked(useScopeCheck).mockReturnValue(false)
+    try {
+      renderChatSessionPane({
+        chat: {
+          id: "channel-session",
+          workspace_id: "workspace-1",
+          title: "Slack thread",
+          created_by: null,
+          is_readonly: true,
+          entity_type: "external_channel",
+          entity_id: "preset-1",
+          channel_context: null,
+          tools: [],
+          mcp_integrations: [],
+          agent_preset_id: "preset-1",
+          agent_preset_version_id: null,
+          harness_type: "pi",
+          created_at: "2026-09-25T00:00:00Z",
+          updated_at: "2026-09-25T00:00:00Z",
+          messages: [],
+        },
+      })
+
+      const badge = await screen.findByText("Read only")
+      expect(badge.parentElement).toHaveTextContent(
+        AGENT_EXECUTE_REQUIRED_MESSAGE
+      )
+      expect(
+        screen.getByPlaceholderText(AGENT_EXECUTE_REQUIRED_MESSAGE)
+      ).toBeDisabled()
+    } finally {
+      jest.mocked(useScopeCheck).mockReturnValue(true)
     }
   })
 

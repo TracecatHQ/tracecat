@@ -1160,6 +1160,7 @@ class MutableMessage:
     role: Literal["system", "user", "assistant"]
     parts: list[MutableToolPart | UIMessagePart]
     created_at: datetime | None = None
+    author: dict[str, Any] | None = None
 
 
 UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
@@ -1421,6 +1422,9 @@ def convert_chat_messages_to_ui(
             role=role,
             parts=[],
             created_at=chat_message.created_at,
+            author=chat_message.author.model_dump(mode="json")
+            if chat_message.author
+            else None,
         )
         approval_payload = _extract_approval_payload_from_message(message_data)
 
@@ -1525,9 +1529,14 @@ def convert_chat_messages_to_ui(
             "role": message.role,
             "parts": parts,
         }
+        metadata: dict[str, Any] = {}
         # Lets the UI tell how long a turn took once it reloads from history.
         if message.created_at is not None:
-            raw_message["metadata"] = {"created_at": message.created_at.isoformat()}
+            metadata["created_at"] = message.created_at.isoformat()
+        if message.author is not None:
+            metadata["author"] = message.author
+        if metadata:
+            raw_message["metadata"] = metadata
         raw_messages.append(raw_message)
 
     return UIMessagesTA.validate_python(raw_messages)

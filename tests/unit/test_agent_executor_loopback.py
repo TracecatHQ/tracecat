@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -333,6 +333,63 @@ async def test_persist_session_line_preserves_raw_nul_content(
     )
     assert handler._persisted_line_uuids == {"line-uuid"}
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("line", "internal", "authored"),
+    [
+        pytest.param({"content": "triage this"}, False, True, id="text-prompt"),
+        pytest.param(
+            {"content": [{"type": "text", "text": "triage this"}]},
+            False,
+            True,
+            id="block-prompt",
+        ),
+        pytest.param(
+            {"content": [{"type": "tool_result", "tool_use_id": "t1"}]},
+            False,
+            False,
+            id="tool-result",
+        ),
+        pytest.param(
+            {"content": "skill text", "isMeta": True}, False, False, id="meta"
+        ),
+        pytest.param({"content": "triage this"}, True, False, id="internal"),
+    ],
+)
+async def test_persist_session_line_records_the_prompt_author(
+    monkeypatch: pytest.MonkeyPatch,
+    line: dict[str, Any],
+    internal: bool,
+    authored: bool,
+) -> None:
+    author_id = uuid.uuid4()
+    handler = LoopbackHandler(
+        input=LoopbackInput(
+            session_id=uuid.uuid4(), workspace_id=uuid.uuid4(), author_id=author_id
+        )
+    )
+    handler._sdk_session_id = "sdk-session"
+    session = _FakeHistoryPersistenceSession()
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        _tenant_session_for(handler.input.workspace_id, session),
+    )
+    content = line.pop("content")
+    raw_line = orjson.dumps(
+        {
+            "type": "user",
+            "uuid": "line-uuid",
+            "message": {"role": "user", "content": content},
+            **line,
+        }
+    ).decode()
+
+    await handler._persist_session_line("sdk-session", raw_line, internal=internal)
+
+    [entry] = session.entries
+    assert entry.author_id == (author_id if authored else None)
 
 
 @pytest.mark.parametrize(

@@ -161,6 +161,7 @@ from tracecat.chat.schemas import (
     ChatRequest,
     ChatResponse,
     ContinueRunRequest,
+    MessageAuthor,
     VercelChatRequest,
 )
 from tracecat.chat.service import ChatService
@@ -3224,6 +3225,7 @@ class AgentSessionService(BaseWorkspaceService):
             entries,
             history=history,
             approvals_by_tool_id=approval_by_tool_id,
+            authors_by_id=await self._message_authors(entries),
             kinds=kinds,
             channel_session=await self.is_channel_session(agent_session),
         )
@@ -3234,6 +3236,18 @@ class AgentSessionService(BaseWorkspaceService):
         """Whether the session's history holds ``message`` as a user prompt."""
         history = await self.list_messages(agent_session.id)
         return any(entry.channel_message == message for entry in history)
+
+    async def _message_authors(
+        self, entries: Sequence[AgentSessionHistory]
+    ) -> dict[uuid.UUID, MessageAuthor]:
+        """The users who sent the entries' user prompts, by ID."""
+        author_ids = {entry.author_id for entry in entries if entry.author_id}
+        if not author_ids:
+            return {}
+        users = await self.session.scalars(
+            select(User).where(User.id.in_(author_ids))  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        return {user.id: MessageAuthor.model_validate(user) for user in users}
 
     async def is_channel_session(self, agent_session: AgentSession) -> bool:
         """Whether the session, or the session it was forked from, is an external
@@ -3255,6 +3269,7 @@ class AgentSessionService(BaseWorkspaceService):
         approvals_by_tool_id: dict[str, Approval],
         kinds: Sequence[MessageKind] | None,
         history: SessionHistoryAdapter | None = None,
+        authors_by_id: Mapping[uuid.UUID, MessageAuthor] | None = None,
         channel_session: bool = False,
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
@@ -3339,6 +3354,9 @@ class AgentSessionService(BaseWorkspaceService):
                     created_at=_session_line_time(content),
                     channel_message=_channel_message_of(message)
                     if channel_session
+                    else None,
+                    author=(authors_by_id or {}).get(entry.author_id)
+                    if entry.author_id
                     else None,
                 )
             )
