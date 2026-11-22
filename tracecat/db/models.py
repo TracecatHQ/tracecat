@@ -3874,6 +3874,12 @@ class Approval(WorkspaceModel):
     approved_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Preset the paused run was configured from; its approvers decide",
+    )
 
 
 class AgentCustomProvider(OrganizationModel):
@@ -5960,6 +5966,56 @@ class AgentPresetSkill(WorkspaceModel):
     skill_version: Mapped[SkillVersion] = relationship(
         back_populates="preset_bindings",
         foreign_keys=[skill_version_id],
+    )
+
+
+class AgentPresetApprover(WorkspaceModel):
+    """A user, group, or role allowed to decide a preset's tool approvals.
+
+    Live workspace policy: never snapshotted into versions or workspace sync.
+    """
+
+    __tablename__ = "agent_preset_approver"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(user_id, group_id, role_id) = 1", name="one_principal"
+        ),
+        # NULL tool is the preset-wide set; NULLS NOT DISTINCT keeps it unique too.
+        Index(
+            "uq_agent_preset_approver_preset_tool_principal",
+            "preset_id",
+            "tool",
+            "user_id",
+            "group_id",
+            "role_id",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+        # An approver never targets another workspace's preset.
+        ForeignKeyConstraint(
+            ["preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    tool: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Tool this approver is scoped to; NULL applies to every tool",
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("group.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    role_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
 

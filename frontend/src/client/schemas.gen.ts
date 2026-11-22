@@ -2796,6 +2796,79 @@ export const $AgentPreset = {
   title: "AgentPreset",
 } as const
 
+export const $AgentPresetApproverKind = {
+  type: "string",
+  enum: ["user", "group", "role"],
+} as const
+
+export const $AgentPresetApproverRead = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/AgentPresetApproverKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+      description: "Set for users only.",
+    },
+  },
+  type: "object",
+  required: ["kind", "id", "name"],
+  title: "AgentPresetApproverRead",
+  description: "An approver or approver option with its display name.",
+} as const
+
+export const $AgentPresetApproverRef = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/AgentPresetApproverKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+  },
+  type: "object",
+  required: ["kind", "id"],
+  title: "AgentPresetApproverRef",
+  description: "A user, group, or role named as an approver.",
+} as const
+
+export const $AgentPresetApproversUpdate = {
+  properties: {
+    approvers: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetApproverRef",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Approvers",
+    },
+  },
+  type: "object",
+  required: ["approvers"],
+  title: "AgentPresetApproversUpdate",
+  description:
+    "The full approver set for a preset; an empty list clears the policy.",
+} as const
+
 export const $AgentPresetCapability = {
   type: "string",
   enum: ["approvals", "subagents", "internet_access"],

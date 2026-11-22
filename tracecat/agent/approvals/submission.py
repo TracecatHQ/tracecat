@@ -20,6 +20,10 @@ from tracecat.agent.approvals.decisions import (
     record_decision,
 )
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.policy import (
+    ApproverNotAllowedError,
+    ensure_decider_allowed,
+)
 from tracecat.agent.approvals.types import (
     ApprovalAlreadyApplied,
     ApprovalDelivered,
@@ -177,8 +181,13 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
+        approved_by: uuid.UUID | None,
     ) -> _LockedBatch:
-        """Lock the session and the batch, then check the decisions against them."""
+        """Lock the session and the batch, then check the decisions against them.
+
+        Raises:
+            ApproverNotAllowedError: If the preset's policy refuses the decider.
+        """
         agent_session = await self.session.scalar(
             select(AgentSession)
             .where(
@@ -201,8 +210,15 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         backend = get_agent_backend(
             agent_session.backend_id, harness_type=agent_session.harness_type
         )
-
         rows = await self._lock_approval_batch(session_id, list(decisions))
+        await ensure_decider_allowed(
+            self.session,
+            organization_id=self.organization_id,
+            workspace_id=self.workspace_id,
+            agent_session=agent_session,
+            approvals=rows,
+            approved_by=approved_by,
+        )
         if expected_batch_id is not None and expected_batch_id != approval_batch_id(
             run_id, (row.tool_call_id for row in rows)
         ):
@@ -229,6 +245,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         expected_batch_id: uuid.UUID | None,
         decisions: Mapping[str, SubmittedDecision],
+        approved_by: uuid.UUID | None,
     ) -> _SubmissionAttempt | ApprovalAlreadyApplied:
         """Install the continuation for the undecided decisions, in one commit."""
         try:
@@ -236,6 +253,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 session_id=session_id,
                 expected_batch_id=expected_batch_id,
                 decisions=decisions,
+                approved_by=approved_by,
             )
             by_id = {row.tool_call_id: row for row in batch.rows}
             undecided = {
@@ -266,6 +284,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
             TracecatValidationError,
             ApprovalNoLongerActiveError,
             ApprovalDecisionInvalidError,
+            ApproverNotAllowedError,
         ):
             # Raised before any write: commit releases the locks without
             # expiring the caller's loaded rows.
@@ -312,6 +331,8 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 current run's batch, or a decision contradicts a recorded one.
             ApprovalDecisionInvalidError: If an ID is not an approval of the
                 session.
+            ApproverNotAllowedError: If the preset's approver policy refuses
+                ``approved_by``; nothing is submitted or recorded.
             ApprovalNoLongerActiveError: Also if the run refused the decisions,
                 for one because another decision for a tool call reached it first.
             AgentControlUncertain: If the outcome is unknown; retry the same
@@ -322,6 +343,7 @@ class ApprovalSubmissionService(BaseWorkspaceService):
                 session_id=session_id,
                 expected_batch_id=expected_batch_id,
                 decisions=decisions,
+                approved_by=approved_by,
             )
             if isinstance(attempt, ApprovalAlreadyApplied):
                 return attempt

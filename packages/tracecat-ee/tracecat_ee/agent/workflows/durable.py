@@ -576,6 +576,7 @@ class DurableAgentWorkflow:
         self.session_id = args.agent_args.session_id
         self.active_stream_id = args.agent_args.active_stream_id
         self.harness_type = args.harness_type or "claude_code"
+        self.agent_preset_id = args.agent_preset_id
         self.approvals = ApprovalManager(role=self.role)
         # Set when the session is linked to a channel: the run pushes updates to it.
         self.channel_run_id: uuid.UUID | None = None
@@ -1246,6 +1247,7 @@ class DurableAgentWorkflow:
                 result.approval_items,
                 request_metadata=request_metadata,
                 push_to=self.channel_run_id,
+                agent_preset_id=self.agent_preset_id,
             )
         await self._emit_approval_pause_done()
 

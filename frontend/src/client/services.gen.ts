@@ -251,6 +251,10 @@ import type {
   AgentPresetsGetAgentPresetResponse,
   AgentPresetsGetAgentPresetVersionData,
   AgentPresetsGetAgentPresetVersionResponse,
+  AgentPresetsListAgentPresetApproverOptionsData,
+  AgentPresetsListAgentPresetApproverOptionsResponse,
+  AgentPresetsListAgentPresetApproversData,
+  AgentPresetsListAgentPresetApproversResponse,
   AgentPresetsListAgentPresetsData,
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
@@ -265,6 +269,8 @@ import type {
   AgentPresetsPreviewToolPolicyResponse,
   AgentPresetsRemovePresetTagData,
   AgentPresetsRemovePresetTagResponse,
+  AgentPresetsReplaceAgentPresetApproversData,
+  AgentPresetsReplaceAgentPresetApproversResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
@@ -7499,6 +7505,83 @@ export const agentPresetsPreviewToolPolicy = (
 }
 
 /**
+ * List Agent Preset Approver Options
+ * List the workspace members, groups, and roles that can approve tool calls.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentPresetApproverRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetApproverOptions = (
+  data: AgentPresetsListAgentPresetApproverOptionsData
+): CancelablePromise<AgentPresetsListAgentPresetApproverOptionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/approver-options",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Approvers
+ * List who may approve the preset's tool calls; empty means the default rule.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @returns AgentPresetApproverRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetApprovers = (
+  data: AgentPresetsListAgentPresetApproversData
+): CancelablePromise<AgentPresetsListAgentPresetApproversResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace Agent Preset Approvers
+ * Replace who may approve the preset's tool calls; applies at once, unversioned.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetApproverRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsReplaceAgentPresetApprovers = (
+  data: AgentPresetsReplaceAgentPresetApproversData
+): CancelablePromise<AgentPresetsReplaceAgentPresetApproversResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Unknown approvers",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Agent Preset
  * Retrieve an agent preset by ID.
  * @param data The data for the request.
@@ -9665,6 +9748,7 @@ export const agentSessionsControlSession = (
  *
  * Raises:
  * HTTPException 400: If the approval submission fails validation.
+ * HTTPException 403: If the agent's approver policy refuses the caller.
  * HTTPException 404: If the agent session/workflow is not found.
  * HTTPException 500: For unexpected errors.
  * @param data The data for the request.

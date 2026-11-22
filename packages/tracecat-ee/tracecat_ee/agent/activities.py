@@ -152,6 +152,8 @@ class PersistApprovalsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
     approvals: list[ToolApprovalPayload]
+    # From the run's args, never the session row: a preset switch must not move it.
+    agent_preset_id: uuid.UUID | None = None
     # Pushed once the requests are durable; the notifier reads them.
     channel_updates: list[RunUpdate] = Field(default_factory=list)
 

@@ -59,6 +59,7 @@ import {
   findEnabledModelOption,
 } from "@/components/agents/agent-model-combobox"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
+import { AgentPresetApproversPanel } from "@/components/agents/agent-preset-rail-approvers"
 import {
   LogoTile,
   RAIL_LIST_ROW,
@@ -2255,6 +2256,7 @@ const RAIL_TABS = [
   { value: "skills", label: "Skills" },
   { value: "subagents", label: "Subagents" },
   { value: "output", label: "Output" },
+  { value: "approvals", label: "Approvals" },
 ] as const
 
 type AgentPresetRailTab = (typeof RAIL_TABS)[number]["value"]
@@ -2327,7 +2329,7 @@ function AgentPresetRail({
   subagentFields: Array<{ id: string }>
   onAddSubagent: (subagent: SubagentFormValue) => void
   onRemoveSubagent: (index: number) => void
-  /** Lock every tab except Skills on a managed preset. */
+  /** Lock every tab except Skills and Approvals on a managed preset. */
   readOnly?: boolean
 }) {
   const subagents = useWatch({ control: form.control, name: "subagents" })
@@ -2512,6 +2514,13 @@ function AgentPresetRail({
                       isSaving={isSaving}
                     />
                   </ReadOnlyFieldset>
+                </TabsContent>
+                {/* Workspace policy, not package config: editable on managed presets. */}
+                <TabsContent value="approvals" className="mt-0">
+                  <AgentPresetApproversPanel
+                    workspaceId={workspaceId}
+                    presetId={preset?.id ?? null}
+                  />
                 </TabsContent>
               </>
             )}

@@ -51,6 +51,7 @@ from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.admin.slack_app.router import router as admin_slack_app_router
 from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.approvals.policy import ApproverNotAllowedError
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
@@ -572,6 +573,24 @@ def authorization_exception_handler(request: Request, exc: Exception) -> Respons
     )
 
 
+def approver_not_allowed_exception_handler(
+    request: Request, exc: Exception
+) -> Response:
+    """Answer 403 with why the decider may not decide this agent's tool calls.
+
+    The messages are fixed text naming no ids, matching the fixed-body rule.
+    """
+    message = str(exc) if isinstance(exc, ApproverNotAllowedError) else "Forbidden"
+    logger.info("Refused approval decision", path=request.url.path, role=ctx_role.get())
+    return ORJSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "detail": message,
+            "error": {"code": "approver_not_allowed", "message": message},
+        },
+    )
+
+
 def managed_resource_locked_exception_handler(
     request: Request, exc: Exception
 ) -> Response:
@@ -990,6 +1009,9 @@ def create_app(**kwargs) -> FastAPI:
         TracecatAuthorizationError, authorization_exception_handler
     )
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    app.add_exception_handler(
+        ApproverNotAllowedError, approver_not_allowed_exception_handler
+    )
     app.add_exception_handler(HTTPException, http_exception_handler)
     # SCIM paths answer with the spec's error envelope, so their handlers wrap
     # the app-wide ones rather than replacing them.

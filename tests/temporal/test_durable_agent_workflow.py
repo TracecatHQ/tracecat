@@ -779,6 +779,8 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
     approval_request_recorded = asyncio.Event()
     approval_done_emitted = asyncio.Event()
     executor_inputs: list[AgentExecutorInput] = []
+    run_preset_id = uuid.uuid4()
+    stamped_preset_ids: list[uuid.UUID | None] = []
 
     def timed_executor(
         call_count: int, input: AgentExecutorInput
@@ -809,8 +811,10 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
         del input
 
     @activity.defn(name="record_approval_requests")
-    async def mock_record_approval_requests(input: Any) -> None:
-        del input
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        stamped_preset_ids.append(input.agent_preset_id)
         approval_request_recorded.set()
 
     @activity.defn(name="apply_approval_decisions")
@@ -842,6 +846,7 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
         ),
         entity_type=AgentSessionEntity.WORKFLOW,
         entity_id=uuid.uuid4(),
+        agent_preset_id=run_preset_id,
     )
 
     async with agent_worker_factory(
@@ -868,6 +873,8 @@ async def test_agent_workflow_approval_continuation_gets_fresh_timeout_window(
         result = await handle.result()
 
     assert result.output == {"status": "completed-after-approval"}
+    # The run's own preset, which decides who may approve.
+    assert stamped_preset_ids == [run_preset_id]
     assert [item.timeout_seconds for item in executor_inputs] == [
         expected_timeout_seconds,
         expected_timeout_seconds,

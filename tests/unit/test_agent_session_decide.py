@@ -28,6 +28,7 @@ from tracecat_ee.agent.activities import (
 from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalService
 from tracecat_ee.agent.context import AgentContext
 
+from tests.support.membership import grant_workspace_membership
 from tests.unit.test_agent_session_approval_sink import (
     _ApprovalContinuationRedis,
     _mock_approval_continuation_dependencies,
@@ -56,6 +57,7 @@ from tracecat.agent.session.results import (
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
+from tracecat.authz.seeding import seed_system_scopes
 from tracecat.chat import tokens
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
@@ -182,7 +184,8 @@ def _approval_service_on(session: AsyncSession, default_role: Role) -> Any:
 
 
 @pytest.fixture
-async def approver(session: AsyncSession) -> User:
+async def approver(session: AsyncSession, svc_role: Role) -> User:
+    assert svc_role.organization_id is not None and svc_role.workspace_id is not None
     user = User(
         id=uuid.uuid4(),
         email=f"approver-{uuid.uuid4()}@example.com",
@@ -193,6 +196,15 @@ async def approver(session: AsyncSession) -> User:
         last_login_at=None,
     )
     session.add(user)
+    await session.flush()
+    # A decider needs agent:execute in the workspace.
+    await seed_system_scopes(session)
+    await grant_workspace_membership(
+        session,
+        user_id=user.id,
+        organization_id=svc_role.organization_id,
+        workspace_id=svc_role.workspace_id,
+    )
     await session.commit()
     return user
 

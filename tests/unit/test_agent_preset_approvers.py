@@ -1,0 +1,609 @@
+"""Who may decide an agent preset's tool approvals, and how the set is stored."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any, cast
+from unittest.mock import AsyncMock
+
+import pytest
+from pydantic import ValidationError
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.agent.activities import (
+    PersistApprovalsActivityInputs,
+    ToolApprovalPayload,
+)
+from tracecat_ee.agent.approvals.service import ApprovalManager
+
+from tests.support.membership import grant_workspace_membership
+from tests.unit.test_agent_channel_users import _add_domain, _evidence
+from tests.unit.test_agent_session_approval_sink import (
+    _ApprovalContinuationRedis,
+    _mock_approval_continuation_dependencies,
+)
+from tests.unit.test_agent_session_decide import (
+    TOOL_CALLS,
+    _approval_service_on,
+    _click,
+    _row,
+    _seed_batch,
+)
+from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.policy import (
+    ApproverNotAllowedError,
+    ensure_approver_allowed,
+)
+from tracecat.agent.channel_users.service import resolve_channel_actor
+from tracecat.agent.preset.approvers import AgentPresetApproverService
+from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRef,
+    AgentPresetApproversUpdate,
+)
+from tracecat.agent.session.results import DecisionRecorded, DecisionRejected
+from tracecat.agent.session.schemas import AgentSessionUpdate
+from tracecat.agent.session.service import AgentSessionService
+from tracecat.auth.types import Role
+from tracecat.authz.membership import ensure_member
+from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
+from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
+from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
+from tracecat.db.models import (
+    AgentPreset,
+    AgentPresetApprover,
+    AgentSession,
+    Group,
+    GroupMember,
+    Organization,
+    User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+
+pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
+
+
+async def _make_user(
+    session: AsyncSession, role: Role, *, workspace_role: str | None
+) -> User:
+    """A user in the role's org, holding ``workspace_role`` in its workspace."""
+    assert role.organization_id is not None and role.workspace_id is not None
+    user = User(
+        id=uuid.uuid4(),
+        email=f"approver-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    session.add(user)
+    await session.flush()
+    await seed_system_scopes(session)
+    await seed_system_roles_for_org(session, role.organization_id)
+    await ensure_member(session, role.organization_id, user.id)
+    if workspace_role is not None:
+        await grant_workspace_membership(
+            session,
+            user_id=user.id,
+            organization_id=role.organization_id,
+            workspace_id=role.workspace_id,
+            slug=workspace_role,
+        )
+    await session.commit()
+    return user
+
+
+async def _system_role_id(session: AsyncSession, role: Role, slug: str) -> uuid.UUID:
+    role_id = await session.scalar(
+        select(DBRole.id).where(
+            DBRole.organization_id == role.organization_id, DBRole.slug == slug
+        )
+    )
+    assert role_id is not None
+    return role_id
+
+
+async def _preset(session: AsyncSession, role: Role) -> AgentPreset:
+    assert role.workspace_id is not None
+    preset = AgentPreset(
+        workspace_id=role.workspace_id,
+        name="Responder",
+        slug=f"responder-{uuid.uuid4().hex[:8]}",
+        model_name="gpt-5",
+        model_provider="openai",
+    )
+    session.add(preset)
+    await session.commit()
+    return preset
+
+
+async def _list(
+    session: AsyncSession,
+    role: Role,
+    preset_id: uuid.UUID,
+    **principal: uuid.UUID,
+) -> None:
+    assert role.workspace_id is not None
+    session.add(
+        AgentPresetApprover(
+            workspace_id=role.workspace_id, preset_id=preset_id, **principal
+        )
+    )
+    await session.commit()
+
+
+async def _allowed(
+    session: AsyncSession, role: Role, preset: AgentPreset, user: User | None
+) -> bool:
+    assert role.organization_id is not None and role.workspace_id is not None
+    try:
+        await ensure_approver_allowed(
+            session,
+            organization_id=role.organization_id,
+            workspace_id=role.workspace_id,
+            preset_id=preset.id,
+            approved_by=user.id if user else None,
+        )
+    except ApproverNotAllowedError:
+        return False
+    return True
+
+
+async def test_empty_policy_keeps_the_legacy_rule(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    editor = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    viewer = await _make_user(session, svc_role, workspace_role="workspace-viewer")
+
+    assert await _allowed(session, svc_role, preset, None)
+    assert await _allowed(session, svc_role, preset, editor)
+    assert not await _allowed(session, svc_role, preset, viewer)
+
+
+async def test_listed_user_group_and_role_may_decide(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    preset = await _preset(session, svc_role)
+    listed = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    in_group = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    by_role = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    outsider = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    group = Group(
+        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=in_group.id))
+    custom = DBRole(
+        name=f"approver-{uuid.uuid4().hex[:8]}",
+        organization_id=svc_role.organization_id,
+    )
+    session.add(custom)
+    await session.flush()
+    session.add(
+        UserRoleAssignment(
+            organization_id=svc_role.organization_id,
+            user_id=by_role.id,
+            workspace_id=None,
+            role_id=custom.id,
+        )
+    )
+    await session.commit()
+
+    await _list(session, svc_role, preset.id, user_id=listed.id)
+    await _list(session, svc_role, preset.id, group_id=group.id)
+    await _list(session, svc_role, preset.id, role_id=custom.id)
+
+    assert await _allowed(session, svc_role, preset, listed)
+    assert await _allowed(session, svc_role, preset, in_group)
+    assert await _allowed(session, svc_role, preset, by_role)
+    assert not await _allowed(session, svc_role, preset, outsider)
+    assert not await _allowed(session, svc_role, preset, None)
+
+
+async def test_listed_approver_still_needs_agent_execute(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    viewer = await _make_user(session, svc_role, workspace_role="workspace-viewer")
+    await _list(session, svc_role, preset.id, user_id=viewer.id)
+
+    assert not await _allowed(session, svc_role, preset, viewer)
+
+
+async def test_workspace_admin_is_always_allowed(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    admin = await _make_user(session, svc_role, workspace_role="workspace-admin")
+    listed = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=listed.id)
+
+    assert await _allowed(session, svc_role, preset, admin)
+    # The last listed approver leaving never strands a pending approval.
+    await session.execute(delete(User).where(cast(Any, User.id) == listed.id))
+    await session.commit()
+    assert await _allowed(session, svc_role, preset, admin)
+
+
+async def test_decide_refuses_outside_the_policy_and_leaves_rows_pending(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    listed = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    outsider = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=listed.id)
+    agent_session = await _seed_batch(session, svc_role)
+    agent_session.agent_preset_id = preset.id
+    await session.commit()
+    service = AgentSessionService(session=session, role=svc_role)
+    execute_update = AsyncMock(return_value=False)
+
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), execute_update
+    ):
+        refused = [
+            await service.decide(**_click(agent_session, user_id=user_id))
+            for user_id in (outsider.id, None)
+        ]
+        execute_update.assert_not_awaited()
+        for tool_call_id in TOOL_CALLS:
+            row = await _row(session, agent_session, tool_call_id)
+            assert row.status is ApprovalStatus.PENDING
+        accepted = await service.decide(**_click(agent_session, user_id=listed.id))
+
+    not_allowed = DecisionRejected(reason="not_allowed", tool_call_id="tool_call_123")
+    assert refused == [not_allowed, not_allowed]
+    assert accepted == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.approved_by == listed.id
+
+
+async def test_slack_clicker_decides_as_their_linked_tracecat_user(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    preset = await _preset(session, svc_role)
+    linked = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    unverified = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    verified_domain = await _add_domain(session, svc_role.organization_id)
+    pending_domain = await _add_domain(
+        session, svc_role.organization_id, verification_method="dns"
+    )
+    linked.email = f"linked@{verified_domain}"
+    unverified.email = f"unverified@{pending_domain}"
+    await session.commit()
+    for user in (linked, unverified):
+        await _list(session, svc_role, preset.id, user_id=user.id)
+    agent_session = await _seed_batch(session, svc_role)
+    agent_session.agent_preset_id = preset.id
+    await session.commit()
+    linked_actor, unverified_actor = [
+        await resolve_channel_actor(
+            session,
+            organization_id=svc_role.organization_id,
+            evidence=_evidence(slack_user, user.email),
+        )
+        for slack_user, user in (("U_LINKED", linked), ("U_UNVERIFIED", unverified))
+    ]
+    service = AgentSessionService(session=session, role=svc_role)
+
+    with _mock_approval_continuation_dependencies(
+        _ApprovalContinuationRedis(), AsyncMock(return_value=False)
+    ):
+        refused = await service.decide(
+            **_click(agent_session, user_id=unverified_actor.user_id, source="slack")
+        )
+        accepted = await service.decide(
+            **_click(agent_session, user_id=linked_actor.user_id, source="slack")
+        )
+
+    assert unverified_actor.user_id is None
+    assert refused == DecisionRejected(
+        reason="not_allowed", tool_call_id="tool_call_123"
+    )
+    assert accepted == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.approved_by == linked.id
+
+
+async def test_switching_presets_after_the_pause_keeps_the_runs_policy(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    listed = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    outsider = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=listed.id)
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        agent_preset_id=preset.id,
+        curr_run_id=uuid.uuid4(),
+        active_stream_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.commit()
+    service = AgentSessionService(session=session, role=svc_role)
+    execute_update = AsyncMock(return_value=False)
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), execute_update
+        ),
+        _approval_service_on(session, svc_role),
+    ):
+        # The run pauses on the preset it was configured from.
+        await ApprovalManager.record_approval_requests(
+            PersistApprovalsActivityInputs(
+                role=svc_role,
+                session_id=agent_session.id,
+                approvals=[
+                    ToolApprovalPayload(
+                        tool_call_id=tool_call_id, tool_name="core.http_request"
+                    )
+                    for tool_call_id in TOOL_CALLS
+                ],
+                agent_preset_id=preset.id,
+            )
+        )
+        await service.update_session(
+            agent_session, params=AgentSessionUpdate(agent_preset_id=None)
+        )
+        assert agent_session.agent_preset_id is None
+        refused = await service.decide(**_click(agent_session, user_id=outsider.id))
+        accepted = await service.decide(**_click(agent_session, user_id=listed.id))
+
+    assert refused == DecisionRejected(
+        reason="not_allowed", tool_call_id="tool_call_123"
+    )
+    assert accepted == DecisionRecorded(
+        pending_tool_call_ids=["tool_call_456"], resumed=None
+    )
+    row = await _row(session, agent_session, "tool_call_123")
+    assert row.agent_preset_id == preset.id
+    assert row.approved_by == listed.id
+
+
+async def test_web_continuation_outside_the_policy_is_refused(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    listed = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=listed.id)
+    agent_session = await _seed_batch(session, svc_role)
+    agent_session.agent_preset_id = preset.id
+    await session.commit()
+    # svc_role's user has no account row, so it decides as no one.
+    service = AgentSessionService(session=session, role=svc_role)
+    execute_update = AsyncMock(return_value=False)
+
+    with (
+        _mock_approval_continuation_dependencies(
+            _ApprovalContinuationRedis(), execute_update
+        ),
+        pytest.raises(ApproverNotAllowedError),
+    ):
+        await service.run_turn(
+            agent_session.id,
+            ContinueRunRequest(
+                decisions=[
+                    ApprovalDecision(tool_call_id=tool_call_id, action="approve")
+                    for tool_call_id in TOOL_CALLS
+                ]
+            ),
+        )
+
+    execute_update.assert_not_awaited()
+    for tool_call_id in TOOL_CALLS:
+        row = await _row(session, agent_session, tool_call_id)
+        assert row.status is ApprovalStatus.PENDING
+
+
+async def test_replace_lists_and_clears_approvers(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    preset = await _preset(session, svc_role)
+    member = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    group = Group(
+        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+    )
+    session.add(group)
+    await session.commit()
+    editor_role_id = await _system_role_id(session, svc_role, "workspace-editor")
+    service = AgentPresetApproverService(session, role=svc_role)
+
+    replaced = await service.replace_approvers(
+        preset.id,
+        [
+            AgentPresetApproverRef(kind="role", id=editor_role_id),
+            AgentPresetApproverRef(kind="user", id=member.id),
+            AgentPresetApproverRef(kind="group", id=group.id),
+        ],
+    )
+
+    assert [(r.kind, r.id) for r in replaced] == [
+        ("user", member.id),
+        ("group", group.id),
+        ("role", editor_role_id),
+    ]
+    assert replaced[0].email == member.email
+    assert await service.list_approvers(preset.id) == replaced
+    options = {(o.kind, o.id) for o in await service.list_options()}
+    assert {(r.kind, r.id) for r in replaced} <= options
+
+    assert await service.replace_approvers(preset.id, []) == []
+    assert await service.list_approvers(preset.id) == []
+
+
+async def test_replace_refuses_principals_outside_the_workspace(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    other_org = Organization(
+        id=uuid.uuid4(), name="Other", slug=f"other-{uuid.uuid4().hex[:8]}"
+    )
+    session.add(other_org)
+    await session.flush()
+    foreign_group = Group(name="foreign", organization_id=other_org.id)
+    session.add(foreign_group)
+    # In the org, but holds no role path into this workspace.
+    stranger = await _make_user(session, svc_role, workspace_role=None)
+    service = AgentPresetApproverService(session, role=svc_role)
+    preset_id = preset.id
+    member_group = Group(
+        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+    )
+    session.add(member_group)
+    await session.commit()
+    refs = [
+        AgentPresetApproverRef(kind="group", id=foreign_group.id),
+        AgentPresetApproverRef(kind="user", id=stranger.id),
+        AgentPresetApproverRef(kind="role", id=uuid.uuid4()),
+        # A real group named as a user must not slip through.
+        AgentPresetApproverRef(kind="user", id=member_group.id),
+    ]
+
+    for ref in refs:
+        with pytest.raises(TracecatValidationError):
+            await service.replace_approvers(preset_id, [ref])
+        await session.rollback()
+
+    assert await service.list_approvers(preset_id) == []
+
+
+async def test_only_agent_editors_may_change_approvers(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    viewer = svc_role.model_copy(update={"scopes": VIEWER_SCOPES})
+    editor = svc_role.model_copy(update={"scopes": EDITOR_SCOPES})
+
+    with pytest.raises(ScopeDeniedError):
+        await AgentPresetApproverService(session, role=viewer).replace_approvers(
+            preset.id, []
+        )
+    assert (
+        await AgentPresetApproverService(session, role=editor).replace_approvers(
+            preset.id, []
+        )
+        == []
+    )
+
+
+async def test_replace_keeps_a_listed_user_who_left_the_workspace(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.workspace_id is not None
+    preset = await _preset(session, svc_role)
+    leaver = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    joiner = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=leaver.id)
+    await session.execute(
+        delete(UserRoleAssignment).where(UserRoleAssignment.user_id == leaver.id)
+    )
+    await session.commit()
+    service = AgentPresetApproverService(session, role=svc_role)
+
+    replaced = await service.replace_approvers(
+        preset.id,
+        [
+            AgentPresetApproverRef(kind="user", id=leaver.id),
+            AgentPresetApproverRef(kind="user", id=joiner.id),
+        ],
+    )
+
+    assert {r.id for r in replaced} == {leaver.id, joiner.id}
+
+
+async def test_deleting_the_last_listed_principal_empties_the_policy(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    preset = await _preset(session, svc_role)
+    editor = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    group = Group(
+        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+    )
+    session.add(group)
+    await session.commit()
+    group_id = group.id
+    await _list(session, svc_role, preset.id, group_id=group_id)
+    assert not await _allowed(session, svc_role, preset, editor)
+
+    await session.execute(delete(Group).where(Group.id == group_id))
+    await session.commit()
+
+    # The cascade leaves no approvers, so the legacy rule applies again.
+    assert await _allowed(session, svc_role, preset, editor)
+    assert await _allowed(session, svc_role, preset, None)
+
+
+def test_update_rejects_duplicate_approvers() -> None:
+    ref = {"kind": "user", "id": str(uuid.uuid4())}
+    with pytest.raises(ValidationError):
+        AgentPresetApproversUpdate.model_validate({"approvers": [ref, ref]})
+
+
+async def test_db_keeps_one_principal_per_row_and_no_duplicates(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset_id = (await _preset(session, svc_role)).id
+    user_id = (
+        await _make_user(session, svc_role, workspace_role="workspace-editor")
+    ).id
+    editor_role_id = await _system_role_id(session, svc_role, "workspace-editor")
+
+    for principal in ({}, {"user_id": user_id, "role_id": editor_role_id}):
+        with pytest.raises(IntegrityError):
+            await _list(session, svc_role, preset_id, **principal)
+        await session.rollback()
+
+    await _list(session, svc_role, preset_id, user_id=user_id)
+    with pytest.raises(IntegrityError):
+        await _list(session, svc_role, preset_id, user_id=user_id)
+    await session.rollback()
+
+
+async def test_deleting_a_principal_or_preset_removes_its_rows(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    preset = await _preset(session, svc_role)
+    user = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    editor_role_id = await _system_role_id(session, svc_role, "workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=user.id)
+    await _list(session, svc_role, preset.id, role_id=editor_role_id)
+
+    await session.execute(delete(User).where(cast(Any, User.id) == user.id))
+    await session.commit()
+    remaining = (
+        await session.scalars(
+            select(AgentPresetApprover.role_id).where(
+                AgentPresetApprover.preset_id == preset.id
+            )
+        )
+    ).all()
+    assert remaining == [editor_role_id]
+
+    await session.execute(delete(AgentPreset).where(AgentPreset.id == preset.id))
+    await session.commit()
+    assert (
+        await session.scalar(
+            select(AgentPresetApprover.id).where(
+                AgentPresetApprover.preset_id == preset.id
+            )
+        )
+        is None
+    )

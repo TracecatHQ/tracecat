@@ -29,7 +29,7 @@ from tracecat.agent.preset.schemas import (
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import PaginationError, PaginationErrorCode
 
 
@@ -246,3 +246,61 @@ async def test_workflow_references_invalid_cursor_is_400() -> None:
         "code": "invalid_cursor",
         "message": "Invalid cursor",
     }
+
+
+def _approver_client(scopes: frozenset[str]) -> TestClient:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+    app = FastAPI()
+    app.include_router(router)
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: role
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock(spec=AsyncSession)
+    return TestClient(app)
+
+
+def test_approver_options_route_is_not_read_as_a_preset_id() -> None:
+    with (
+        patch(
+            "tracecat.agent.preset.router.AgentPresetApproverService.list_options",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as list_options,
+        _approver_client(frozenset({"agent:read", "workspace:member:read"})) as client,
+    ):
+        response = client.get("/agent/presets/approver-options")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    list_options.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (TracecatValidationError("Approvers must be workspace members"), 400),
+        (TracecatNotFoundError("Agent preset not found"), 404),
+    ],
+)
+def test_replace_approvers_maps_service_errors(
+    error: Exception, status_code: int
+) -> None:
+    with (
+        patch(
+            "tracecat.agent.preset.router.AgentPresetApproverService.replace_approvers",
+            new_callable=AsyncMock,
+            side_effect=error,
+        ),
+        _approver_client(frozenset({"agent:update"})) as client,
+    ):
+        response = client.put(
+            f"/agent/presets/{uuid.uuid4()}/approvers",
+            json={"approvers": [{"kind": "user", "id": str(uuid.uuid4())}]},
+        )
+
+    assert response.status_code == status_code

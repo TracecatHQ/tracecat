@@ -853,6 +853,36 @@ export type AgentPreset = {
   component_id?: "agent-preset"
 }
 
+export type AgentPresetApproverKind = "user" | "group" | "role"
+
+/**
+ * An approver or approver option with its display name.
+ */
+export type AgentPresetApproverRead = {
+  kind: AgentPresetApproverKind
+  id: string
+  name: string
+  /**
+   * Set for users only.
+   */
+  email?: string | null
+}
+
+/**
+ * A user, group, or role named as an approver.
+ */
+export type AgentPresetApproverRef = {
+  kind: AgentPresetApproverKind
+  id: string
+}
+
+/**
+ * The full approver set for a preset; an empty list clears the policy.
+ */
+export type AgentPresetApproversUpdate = {
+  approvers: Array<AgentPresetApproverRef>
+}
+
 export type AgentPresetCapability =
   | "approvals"
   | "subagents"
@@ -17494,6 +17524,30 @@ export type AgentPresetsPreviewToolPolicyData = {
 
 export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
+export type AgentPresetsListAgentPresetApproverOptionsData = {
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetApproverOptionsResponse =
+  Array<AgentPresetApproverRead>
+
+export type AgentPresetsListAgentPresetApproversData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetApproversResponse =
+  Array<AgentPresetApproverRead>
+
+export type AgentPresetsReplaceAgentPresetApproversData = {
+  presetId: string
+  requestBody: AgentPresetApproversUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsReplaceAgentPresetApproversResponse =
+  Array<AgentPresetApproverRead>
+
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
   workspaceId: string
@@ -24743,6 +24797,53 @@ export type $OpenApiTs = {
         200: AgentPresetToolPolicyRead
         /**
          * Invalid tool policy selections
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/approver-options": {
+    get: {
+      req: AgentPresetsListAgentPresetApproverOptionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetApproverRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers": {
+    get: {
+      req: AgentPresetsListAgentPresetApproversData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetApproverRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentPresetsReplaceAgentPresetApproversData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetApproverRead>
+        /**
+         * Unknown approvers
          */
         400: AgentPresetValidationErrorResponse
         /**

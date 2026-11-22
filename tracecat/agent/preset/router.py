@@ -4,7 +4,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.agent.folders.service import AgentFolderService
+from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
+    AgentPresetApproversUpdate,
     AgentPresetCreate,
     AgentPresetMoveToFolder,
     AgentPresetRead,
@@ -138,6 +141,66 @@ async def create_agent_preset(
         return await service.build_preset_read(preset)
     except TracecatValidationError as exc:
         raise _validation_error(exc) from exc
+
+
+@router.get("/approver-options", response_model=list[AgentPresetApproverRead])
+@require_scope("agent:read", "workspace:member:read")
+async def list_agent_preset_approver_options(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> list[AgentPresetApproverRead]:
+    """List the workspace members, groups, and roles that can approve tool calls."""
+    return await AgentPresetApproverService(session, role=role).list_options()
+
+
+@router.get("/{preset_id}/approvers", response_model=list[AgentPresetApproverRead])
+@require_scope("agent:read")
+async def list_agent_preset_approvers(
+    *,
+    preset_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> list[AgentPresetApproverRead]:
+    """List who may approve the preset's tool calls; empty means the default rule."""
+    if not await AgentPresetService(session, role=role).get_preset(preset_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset {preset_id} not found",
+        )
+    return await AgentPresetApproverService(session, role=role).list_approvers(
+        preset_id
+    )
+
+
+@router.put(
+    "/{preset_id}/approvers",
+    response_model=list[AgentPresetApproverRead],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Unknown approvers",
+        },
+    },
+)
+@require_scope("agent:update")
+async def replace_agent_preset_approvers(
+    *,
+    preset_id: uuid.UUID,
+    params: AgentPresetApproversUpdate,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> list[AgentPresetApproverRead]:
+    """Replace who may approve the preset's tool calls; applies at once, unversioned."""
+    service = AgentPresetApproverService(session, role=role)
+    try:
+        return await service.replace_approvers(preset_id, params.approvers)
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)
