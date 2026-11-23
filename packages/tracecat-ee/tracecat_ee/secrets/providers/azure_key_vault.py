@@ -60,7 +60,7 @@ _STORE_WIDE_CODES: Final = frozenset(
 
 def _vendor_code(error: HttpResponseError) -> str | None:
     """Key Vault's error code (``SecretNotFound``) or the HTTP status, never text."""
-    code = getattr(error.error, "code", None)
+    code = error.error.code if error.error else None
     if isinstance(code, str) and VENDOR_CODE.fullmatch(code):
         return code
     return f"http_{error.status_code}" if error.status_code else None
