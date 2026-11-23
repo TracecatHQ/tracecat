@@ -1855,6 +1855,101 @@ export const $AgentChannelTokenUpdate = {
   description: "Request schema for updating an external channel token.",
 } as const
 
+export const $AgentChannelWorkspaceRouteRead = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+    },
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    app_owner: {
+      $ref: "#/components/schemas/ChannelBotAppOwner",
+    },
+    provider_channel_id: {
+      type: "string",
+      title: "Provider Channel Id",
+    },
+    routed: {
+      type: "boolean",
+      title: "Routed",
+      description:
+        "A platform install's route; False for a channel a workspace app is in, answered by its one agent.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    agent_name: {
+      type: "string",
+      title: "Agent Name",
+    },
+    channel_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Name",
+      description:
+        "The channel's name in the provider now; None when the lookup did not find it.",
+    },
+    is_private: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Private",
+    },
+    is_member: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Member",
+      description:
+        "Whether the bot is in the channel; None when the lookup could not tell.",
+    },
+    name_unavailable: {
+      type: "boolean",
+      title: "Name Unavailable",
+      description:
+        "The bot's channels were not looked up: it is not running, or the provider call failed.",
+    },
+  },
+  type: "object",
+  required: [
+    "bot_id",
+    "provider",
+    "app_owner",
+    "provider_channel_id",
+    "routed",
+    "agent_preset_id",
+    "agent_name",
+    "channel_name",
+    "is_private",
+    "is_member",
+    "name_unavailable",
+  ],
+  title: "AgentChannelWorkspaceRouteRead",
+  description:
+    "A channel a workspace bot answers in, and the agent that answers there.",
+} as const
+
 export const $AgentControlReceipt = {
   properties: {
     id: {
@@ -16110,6 +16205,69 @@ export const $CursorPaginatedResponse_AgentChannelRouteRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentChannelRouteRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelWorkspaceRouteRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {

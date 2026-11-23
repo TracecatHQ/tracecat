@@ -265,6 +265,30 @@ class AgentChannelRouteRead(BaseModel):
     updated_at: datetime
 
 
+class AgentChannelWorkspaceRouteRead(BaseModel):
+    """A channel a workspace bot answers in, and the agent that answers there."""
+
+    bot_id: uuid.UUID
+    provider: ChannelBotProvider
+    app_owner: ChannelBotAppOwner
+    provider_channel_id: str
+    routed: bool = Field(
+        description="A platform install's route; False for a channel a workspace app is in, answered by its one agent."
+    )
+    agent_preset_id: uuid.UUID
+    agent_name: str
+    channel_name: str | None = Field(
+        description="The channel's name in the provider now; None when the lookup did not find it."
+    )
+    is_private: bool | None
+    is_member: bool | None = Field(
+        description="Whether the bot is in the channel; None when the lookup could not tell."
+    )
+    name_unavailable: bool = Field(
+        description="The bot's channels were not looked up: it is not running, or the provider call failed."
+    )
+
+
 class ChannelBotInstallResult(BaseModel):
     bot: AgentChannelBotRead
     authorization_url: str | None = Field(
