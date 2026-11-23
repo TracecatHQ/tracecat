@@ -263,3 +263,12 @@ def test_summary_text_falls_back_to_the_first_forward() -> None:
     assert message(text="look", quoted=[forward]).summary_text() == "look"
     assert message(text="  ", quoted=[forward]).summary_text() == "Disk at 95%"
     assert message(text="").summary_text() == ""
+
+
+def test_summary_text_names_mentions_instead_of_ids() -> None:
+    named = message(
+        text="ask @U0AAAAAAA1 and @U0BBBBBBB2",
+        people=[ChannelPerson(provider_user_id="U0AAAAAAA1", name="Ada")],
+    )
+
+    assert named.summary_text() == "ask @Ada and @Slack user"
