@@ -228,7 +228,7 @@ async def _build_external_channel_sink(
                 **legacy.details,
             )
             return None
-        slack_ctx, config = legacy
+        slack_ctx = legacy.slack_context
         logger.info(
             "Using Slack stream sink for external channel session",
             session_id=session_id,
@@ -238,7 +238,7 @@ async def _build_external_channel_sink(
             reaction_ts=slack_ctx.reaction_ts,
         )
         return SlackStreamSink(
-            slack_bot_token=config.slack_bot_token,
+            slack_bot_token=legacy.config.slack_bot_token,
             channel_id=slack_ctx.channel_id,
             thread_ts=slack_ctx.thread_ts,
             recipient_user_id=slack_ctx.recipient_user_id,
@@ -253,7 +253,16 @@ async def streams_to_legacy_channel(
     db: AsyncSession, agent_session: AgentSession
 ) -> bool:
     """Whether the legacy channel fan-out streams this session's raw replies."""
-    return isinstance(await _legacy_sink_target(db, agent_session), tuple)
+    target = await _legacy_sink_target(db, agent_session)
+    return isinstance(target, _LegacySinkTarget)
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacySinkTarget:
+    """The legacy Slack thread a session streams to, and the token config to post with."""
+
+    slack_context: ResolvedSlackContext
+    config: SlackChannelTokenConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +275,7 @@ class _NoLegacySink:
 
 async def _legacy_sink_target(
     db: AsyncSession, agent_session: AgentSession
-) -> tuple[ResolvedSlackContext, SlackChannelTokenConfig] | _NoLegacySink | None:
+) -> _LegacySinkTarget | _NoLegacySink | None:
     """The legacy thread and token config this session streams to; None for other entities."""
     if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL.value:
         return None
@@ -329,4 +338,4 @@ async def _legacy_sink_target(
         return _NoLegacySink(
             "Slack bot token is pending OAuth install", {"token_id": channel_token.id}
         )
-    return slack_ctx, config
+    return _LegacySinkTarget(slack_ctx, config)
