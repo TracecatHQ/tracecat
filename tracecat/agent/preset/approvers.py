@@ -33,7 +33,7 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
+from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetApprover,
@@ -57,6 +57,10 @@ WORKSPACE_SYSTEM_ROLE_SLUGS = (
     "workspace-admin",
     "workspace-editor",
     "workspace-viewer",
+)
+# Organization roles are never workspace approvers, even if assigned here.
+ORGANIZATION_SYSTEM_ROLE_SLUGS = tuple(
+    slug for slug in PRESET_ROLE_SCOPES if slug.startswith("organization-")
 )
 
 
@@ -299,20 +303,14 @@ class AgentPresetApproverService(BaseWorkspaceService):
         )
 
     def _options(self) -> _Principals:
-        """Principals that already apply in this workspace, never org-only ones."""
+        """Principals granted in this workspace; org-wide grants never count."""
         group_grants = select(GroupRoleAssignment).where(
             GroupRoleAssignment.organization_id == self.organization_id,
-            or_(
-                GroupRoleAssignment.workspace_id == self.workspace_id,
-                GroupRoleAssignment.workspace_id.is_(None),
-            ),
+            GroupRoleAssignment.workspace_id == self.workspace_id,
         )
         user_grants = select(UserRoleAssignment.role_id).where(
             UserRoleAssignment.organization_id == self.organization_id,
-            or_(
-                UserRoleAssignment.workspace_id == self.workspace_id,
-                UserRoleAssignment.workspace_id.is_(None),
-            ),
+            UserRoleAssignment.workspace_id == self.workspace_id,
         )
         return _Principals(
             users=select(Membership.user_id).where(
@@ -321,7 +319,11 @@ class AgentPresetApproverService(BaseWorkspaceService):
             groups=group_grants.with_only_columns(GroupRoleAssignment.group_id),
             roles=select(DBRole.id).where(
                 DBRole.organization_id == self.organization_id,
-                DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
+                # Custom roles have no slug; NOT IN alone would drop them.
+                or_(
+                    DBRole.slug.is_(None),
+                    DBRole.slug.not_in(ORGANIZATION_SYSTEM_ROLE_SLUGS),
+                ),
                 or_(
                     DBRole.slug.in_(WORKSPACE_SYSTEM_ROLE_SLUGS),
                     DBRole.id.in_(user_grants),

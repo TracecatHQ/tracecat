@@ -579,7 +579,9 @@ async def test_approver_options_page_in_order_and_search(
     assert svc_role.workspace_id is not None
     member = await _make_user(session, svc_role, workspace_role="workspace-editor")
     viewer_role_id = await _system_role_id(session, svc_role, "workspace-viewer")
-    group = await _assigned_group(session, svc_role, viewer_role_id, workspace_id=None)
+    group = await _assigned_group(
+        session, svc_role, viewer_role_id, workspace_id=svc_role.workspace_id
+    )
     service = AgentPresetApproverService(session, role=svc_role)
 
     seen: list[AgentPresetApproverRead] = []
@@ -627,6 +629,19 @@ async def test_options_hold_only_principals_that_apply_in_this_workspace(
     )
     session.add(org_only)
     await session.commit()
+    viewer_role_id = await _system_role_id(session, svc_role, "workspace-viewer")
+    org_admin_id = await _system_role_id(session, svc_role, "organization-admin")
+    # Org-wide grants apply here, but only workspace grants make an option.
+    org_wide = await _assigned_group(
+        session, svc_role, viewer_role_id, workspace_id=None
+    )
+    await _assigned_group(session, svc_role, org_admin_id, workspace_id=None)
+    org_wide_custom = await _custom_role(session, svc_role)
+    await _assigned_group(session, svc_role, org_wide_custom.id, workspace_id=None)
+    # Organization roles are never offered, even when assigned in this workspace.
+    await _assigned_group(
+        session, svc_role, org_admin_id, workspace_id=svc_role.workspace_id
+    )
     service = AgentPresetApproverService(session, role=svc_role)
     preset_id = preset.id
 
@@ -644,6 +659,9 @@ async def test_options_hold_only_principals_that_apply_in_this_workspace(
         AgentPresetApproverRef(kind="group", id=org_only.id),
         AgentPresetApproverRef(kind="role", id=assigned_elsewhere.id),
         AgentPresetApproverRef(kind="role", id=unassigned.id),
+        AgentPresetApproverRef(kind="group", id=org_wide.id),
+        AgentPresetApproverRef(kind="role", id=org_admin_id),
+        AgentPresetApproverRef(kind="role", id=org_wide_custom.id),
     ]
     assert not {(ref.kind, ref.id) for ref in outside} & options
 
