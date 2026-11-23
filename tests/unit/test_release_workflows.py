@@ -78,9 +78,14 @@ def test_rejects_aliases_and_malformed_tags(tmp_path: Path, tag: str) -> None:
     assert output == {}
 
 
-def test_image_publishing_only_runs_on_push_and_schedule() -> None:
+def test_image_publishing_triggers() -> None:
     workflow = yaml.load(IMAGE_WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-    assert set(workflow["on"]) == {"push", "schedule"}
+    triggers = workflow["on"]
+    assert set(triggers) == {"push", "schedule"}
+    assert triggers["push"] == {
+        "branches": ["staging", "preview"],
+        "tags": ["*.*.*", "nightly-*"],
+    }
 
 
 @pytest.mark.parametrize(
