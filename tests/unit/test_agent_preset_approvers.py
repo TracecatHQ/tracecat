@@ -18,7 +18,7 @@ from tracecat_ee.agent.activities import (
 from tracecat_ee.agent.approvals.service import ApprovalManager
 
 from tests.support.membership import grant_workspace_membership
-from tests.unit.test_agent_channel_users import _add_domain, _evidence
+from tests.unit.test_agent_channel_users import _identity, _link, _Org
 from tests.unit.test_agent_session_approval_sink import (
     _ApprovalContinuationRedis,
     _mock_approval_continuation_dependencies,
@@ -272,27 +272,23 @@ async def test_slack_clicker_decides_as_their_linked_tracecat_user(
 ) -> None:
     assert svc_role.organization_id is not None
     preset = await _preset(session, svc_role)
+    assert svc_role.workspace_id is not None
     linked = await _make_user(session, svc_role, workspace_role="workspace-editor")
-    unverified = await _make_user(session, svc_role, workspace_role="workspace-editor")
-    verified_domain = await _add_domain(session, svc_role.organization_id)
-    pending_domain = await _add_domain(
-        session, svc_role.organization_id, verification_method="dns"
-    )
-    linked.email = f"linked@{verified_domain}"
-    unverified.email = f"unverified@{pending_domain}"
-    await session.commit()
-    for user in (linked, unverified):
+    unlinked = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    org = _Org(svc_role.organization_id, svc_role.workspace_id)
+    await _link(session, org, "U_LINKED", linked)
+    for user in (linked, unlinked):
         await _list(session, svc_role, preset.id, user_id=user.id)
     agent_session = await _seed_batch(session, svc_role)
     agent_session.agent_preset_id = preset.id
     await session.commit()
-    linked_actor, unverified_actor = [
+    linked_actor, unlinked_actor = [
         await resolve_channel_actor(
             session,
             organization_id=svc_role.organization_id,
-            evidence=_evidence(slack_user, user.email),
+            identity=_identity(slack_user),
         )
-        for slack_user, user in (("U_LINKED", linked), ("U_UNVERIFIED", unverified))
+        for slack_user in ("U_LINKED", "U_UNLINKED")
     ]
     service = AgentSessionService(session=session, role=svc_role)
 
@@ -300,13 +296,13 @@ async def test_slack_clicker_decides_as_their_linked_tracecat_user(
         _ApprovalContinuationRedis(), AsyncMock(return_value=False)
     ):
         refused = await service.decide(
-            **_click(agent_session, user_id=unverified_actor.user_id, source="slack")
+            **_click(agent_session, user_id=unlinked_actor.user_id, source="slack")
         )
         accepted = await service.decide(
             **_click(agent_session, user_id=linked_actor.user_id, source="slack")
         )
 
-    assert unverified_actor.user_id is None
+    assert unlinked_actor.user_id is None
     assert refused == DecisionRejected(
         reason="not_allowed", tool_call_id="tool_call_123"
     )
