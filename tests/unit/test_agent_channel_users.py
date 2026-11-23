@@ -509,6 +509,33 @@ async def test_a_wrong_account_sign_in_leaves_the_link_usable(
     assert actor.user_id == user.id
 
 
+async def test_a_failed_link_write_leaves_the_link_usable(
+    session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _entitle(session, org.organization_id, monkeypatch)
+    user = await _user(session, org)
+    admin = _SignedInAs(ChannelIdentity(PROVIDER, TENANT, "U12"))
+    monkeypatch.setattr(
+        channel_users_service, "require_channel_bot_admin", lambda: admin
+    )
+    sign_in = read_sign_in_state(_sign_in(org, "U12", user))
+    upsert_link = channel_users_service._upsert_link
+
+    async def failing_upsert(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(channel_users_service, "_upsert_link", failing_upsert)
+    with pytest.raises(RuntimeError):
+        await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
+    monkeypatch.setattr(channel_users_service, "_upsert_link", upsert_link)
+    await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
+
+    actor = await resolve_channel_actor(
+        session, organization_id=org.organization_id, evidence=_evidence("U12")
+    )
+    assert actor.user_id == user.id
+
+
 async def test_challenge_needs_the_channels_preview(
     session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
 ) -> None:

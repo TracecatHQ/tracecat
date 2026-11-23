@@ -3885,7 +3885,7 @@ export type CatalogMappingSelection = {
 }
 
 /**
- * Who may act on an agent through a channel; set per preset, never versioned.
+ * Who may act on an agent through a channel; set per bot, never versioned.
  */
 export type ChannelAccessPolicy = "linked_only" | "linked_approvals" | "open"
 

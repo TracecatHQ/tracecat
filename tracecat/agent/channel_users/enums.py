@@ -2,7 +2,7 @@ from enum import StrEnum
 
 
 class ChannelAccessPolicy(StrEnum):
-    """Who may act on an agent through a channel; set per preset, never versioned."""
+    """Who may act on an agent through a channel; set per bot, never versioned."""
 
     LINKED_ONLY = "linked_only"
     """Only linked org members may message, stop, or approve."""

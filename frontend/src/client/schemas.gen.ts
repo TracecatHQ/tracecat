@@ -14519,7 +14519,7 @@ export const $ChannelAccessPolicy = {
   enum: ["linked_only", "linked_approvals", "open"],
   title: "ChannelAccessPolicy",
   description:
-    "Who may act on an agent through a channel; set per preset, never versioned.",
+    "Who may act on an agent through a channel; set per bot, never versioned.",
 } as const
 
 export const $ChannelBotAppManifest = {

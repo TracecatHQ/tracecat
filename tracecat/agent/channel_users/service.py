@@ -368,13 +368,7 @@ async def complete_channel_link(
             "This link was confirmed by another Tracecat user",
             error=ChannelLinkError.OTHER_USER,
         )
-    await _ensure_member(
-        session, organization_id=claims.organization_id, user_id=user_id
-    )
-    await require_org_entitlement(
-        session, claims.organization_id, Entitlement.AGENT_CHANNELS_PREVIEW
-    )
-    await _ensure_unused(claims)
+    await _ensure_linkable(session, claims=claims, user_id=user_id)
     signed_in = await require_channel_bot_admin().verify_provider_sign_in(
         session,
         _bot_service_role(claims),
@@ -392,15 +386,20 @@ async def complete_channel_link(
     redis = await get_redis_client()
     if not await redis.set_if_not_exists(_used_key(claims), "1", expire_seconds=ttl):
         raise ChannelLinkInvalid("This link was already used")
-    await _upsert_link(
-        session,
-        organization_id=claims.organization_id,
-        identity=signed_in.identity,
-        user_id=user_id,
-        link_method=ChannelLinkMethod.CHALLENGE,
-        provider_email=signed_in.email,
-    )
-    await session.commit()
+    try:
+        await _upsert_link(
+            session,
+            organization_id=claims.organization_id,
+            identity=signed_in.identity,
+            user_id=user_id,
+            link_method=ChannelLinkMethod.CHALLENGE,
+            provider_email=signed_in.email,
+        )
+        await session.commit()
+    except Exception:
+        # The link was not stored, so the page's retry must still find it unused.
+        await redis.delete(_used_key(claims))
+        raise
 
 
 async def unlink_channel_user(
