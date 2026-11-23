@@ -1,0 +1,24 @@
+.agents/skills/gh-release/SKILL.md
+  h_5f9670feebc95f 150-153
+.github/AGENTS.md
+  h_5f9670feebc95f 18-19
+.github/workflows/build-push-images.yml
+  h_5f9670feebc95f 43
+.github/workflows/frontend-smoke.yml
+  h_5f9670feebc95f 14
+.github/workflows/run-integration-tests.yml
+  h_5f9670feebc95f 18
+CONTRIBUTING.md
+  h_5f9670feebc95f 254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4b8da3451a6539a8606dbd7f49776d4c2d0fc77e",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
