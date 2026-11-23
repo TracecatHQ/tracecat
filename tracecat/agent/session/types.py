@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import NamedTuple
+from typing import NamedTuple, Protocol
 
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -25,6 +25,19 @@ def is_session_owner(role: Role, created_by: UserID | None) -> bool:
     if role.user_id is not None:
         return created_by == role.user_id
     return True
+
+
+class SessionAccessCheck(Protocol):
+    """An access rule over a session's type, creator, and the actor's participation."""
+
+    def __call__(
+        self,
+        role: Role,
+        entity_type: str,
+        created_by: UserID | None,
+        *,
+        participated: bool,
+    ) -> bool: ...
 
 
 def can_act_on_session(

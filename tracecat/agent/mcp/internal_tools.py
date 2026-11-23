@@ -471,7 +471,7 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
 
             messages = await service.list_messages(session.id)
             return AgentSessionReadWithMessages(
-                **build_session_read(session, role).model_dump(),
+                **build_session_read(session, role, participated=False).model_dump(),
                 messages=messages,
             ).model_dump(mode="json")
     except InternalToolError:

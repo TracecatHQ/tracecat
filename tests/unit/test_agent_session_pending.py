@@ -258,7 +258,9 @@ def test_session_read_reports_the_listing_pending_capability(
     with patch.object(
         registry, "get_agent_backends", return_value={"external": backend}
     ):
-        read = build_session_read(agent_session, _role(agent_session.workspace_id))
+        read = build_session_read(
+            agent_session, _role(agent_session.workspace_id), participated=False
+        )
 
     assert read.capabilities.listing_pending is listing_pending
 
@@ -266,7 +268,9 @@ def test_session_read_reports_the_listing_pending_capability(
 def test_session_read_reports_no_listing_pending_for_a_missing_backend() -> None:
     agent_session = _session()
     with patch.object(registry, "get_agent_backends", return_value={}):
-        read = build_session_read(agent_session, _role(agent_session.workspace_id))
+        read = build_session_read(
+            agent_session, _role(agent_session.workspace_id), participated=False
+        )
 
     assert read.capabilities.listing_pending is False
 

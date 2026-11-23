@@ -126,8 +126,10 @@ from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     PreparedAgentTurn,
+    SessionAccessCheck,
     TurnLifecycle,
     TurnLifecycleResult,
+    can_act_on_session,
 )
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
@@ -426,6 +428,25 @@ async def sessions_with_messages_from(
         .distinct()
     )
     return set(result.all())
+
+
+async def may_act_on_session(
+    role: Role,
+    agent_session: AgentSession,
+    *,
+    sent_in: Callable[[Sequence[uuid.UUID]], Awaitable[set[uuid.UUID]]],
+    check: SessionAccessCheck = can_act_on_session,
+) -> bool:
+    """Whether ``role`` passes ``check`` as owner, on a shared session, or as a participant.
+
+    ``sent_in`` returns the sessions the role's user sent a message in; it runs only
+    when the cheaper rule refuses.
+    """
+    entity_type, created_by = agent_session.entity_type, agent_session.created_by
+    if check(role, entity_type, created_by, participated=False):
+        return True
+    participated = agent_session.id in await sent_in([agent_session.id])
+    return participated and check(role, entity_type, created_by, participated=True)
 
 
 class AgentSessionService(BaseWorkspaceService):

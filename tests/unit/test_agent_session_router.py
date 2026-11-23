@@ -1994,7 +1994,9 @@ def test_session_read_reports_backend_controls(
         patch.object(provider, "withdrawing", withdrawing),
     ):
         read = build_session_read(
-            cast(Any, session_stub), _control_role(session_stub.workspace_id)
+            cast(Any, session_stub),
+            _control_role(session_stub.workspace_id),
+            participated=False,
         )
     # A disabled backend controls nothing.
     assert read.capabilities.steering is (enabled and steering)

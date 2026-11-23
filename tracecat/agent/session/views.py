@@ -19,7 +19,7 @@ def build_session_read(
     role: Role,
     *,
     readonly: bool = False,
-    participated: bool = False,
+    participated: bool,
 ) -> AgentSessionRead:
     """Project persisted session data and live backend state for an actor.
 

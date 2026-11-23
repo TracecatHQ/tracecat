@@ -42,7 +42,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadWithMessages,
     AgentSessionUpdate,
 )
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import AgentSessionService, may_act_on_session
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     TurnLifecycle,
@@ -149,13 +149,9 @@ async def _require_session_act_access(
     agent_session: AgentSession,
 ) -> None:
     """Reject acting on a session the workspace does not share with the actor."""
-    participated = await _participated(svc, role, agent_session)
     _require_session_access(
-        can_act_on_session(
-            role,
-            agent_session.entity_type,
-            agent_session.created_by,
-            participated=participated,
+        await may_act_on_session(
+            role, agent_session, sent_in=lambda ids: svc.participated_session_ids(ids)
         )
     )
 
@@ -287,7 +283,8 @@ async def create_session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    return build_session_read(agent_session, role)
+    # The creator owns a new session.
+    return build_session_read(agent_session, role, participated=False)
 
 
 async def _resolve_fork_source(
@@ -520,7 +517,8 @@ async def update_session(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    return build_session_read(updated, role)
+    # Only the owner updates a session.
+    return build_session_read(updated, role, participated=False)
 
 
 @router.delete("/{session_id}/artifacts/{artifact_type}/{artifact_id}")
@@ -657,13 +655,12 @@ async def send_message(
                 if isinstance(request, ContinueRunRequest)
                 else can_act_on_session
             )
-            participated = await _participated(svc, role, agent_session)
             _require_session_access(
-                access_check(
+                await may_act_on_session(
                     role,
-                    agent_session.entity_type,
-                    agent_session.created_by,
-                    participated=participated,
+                    agent_session,
+                    sent_in=lambda ids: svc.participated_session_ids(ids),
+                    check=access_check,
                 )
             )
             _require_builder_edit_access(role, agent_session.entity_type)
@@ -1065,7 +1062,8 @@ async def fork_session(
             entity_type=entity_type,
             spawned_by_session_id=spawning_parent_id,
         )
-        return build_session_read(forked, role)
+        # The forker owns the fork.
+        return build_session_read(forked, role, participated=False)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

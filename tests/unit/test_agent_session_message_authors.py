@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.adapter.vercel import convert_chat_messages_to_ui
-from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.service import AgentSessionService, may_act_on_session
+from tracecat.agent.session.types import AgentSessionEntity, can_decide_on_session
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.db.models import AgentSession, AgentSessionHistory, User
@@ -149,3 +150,67 @@ async def test_listing_marks_a_private_session_actable_once_the_user_sent_in_it(
     readonly = {item.title: item.is_readonly for item in listed}
     assert readonly["Joined"] is False
     assert readonly["Untouched"] is True
+
+
+def _user(name: str) -> User:
+    return User(
+        id=uuid.uuid4(),
+        email=f"{name}-{uuid.uuid4()}@example.com",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+
+
+async def test_only_a_participant_may_act_on_a_teammates_private_session(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    owner, participant, bystander = _user("al"), _user("bo"), _user("cy")
+    session.add_all([owner, participant, bystander])
+    await session.flush()
+    private = AgentSession(
+        id=uuid.uuid4(),
+        title="Private",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        created_by=owner.id,
+    )
+    session.add(private)
+    await session.flush()
+    session.add(
+        AgentSessionHistory(
+            session_id=private.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=participant.id,
+            content={"type": "user", "message": {"role": "user", "content": "hi"}},
+        )
+    )
+    await session.commit()
+
+    def as_member(user: User, scopes: frozenset[str]) -> Role:
+        return svc_role.model_copy(
+            update={
+                "type": "user",
+                "user_id": user.id,
+                "service_id": "tracecat-api",
+                "scopes": scopes,
+            }
+        )
+
+    async def may_act(user: User, scopes: frozenset[str], **kwargs: Any) -> bool:
+        role = as_member(user, scopes)
+        sent_in = AgentSessionService(
+            session=session, role=role
+        ).participated_session_ids
+        return await may_act_on_session(role, private, sent_in=sent_in, **kwargs)
+
+    execute = frozenset({"agent:execute", "agent:read"})
+    assert await may_act(participant, execute)
+    assert await may_act(participant, execute, check=can_decide_on_session)
+    assert not await may_act(bystander, execute)
+    # Participation shares the session only with members who may run agents.
+    assert not await may_act(participant, frozenset({"agent:read"}))
