@@ -7,6 +7,7 @@ allow it, and the handler takes its context only from the token's claims.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ from tracecat.logger import logger
 
 INTERNAL_TOOL_PLUGIN_ENTRY_POINT_GROUP = "tracecat.agent_internal_tools"
 INTERNAL_TOOL_PREFIX = "internal."
+# A grant reads the database; a stuck read must not hold the turn's tool compile.
+PLUGIN_GRANT_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,34 +60,69 @@ class InternalToolPlugin(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class _LoadedPlugins:
+    plugins: tuple[InternalToolPlugin, ...]
+    tools: Mapping[str, PluginInternalTool]
+
+
 @lru_cache(maxsize=1)
-def _plugins() -> tuple[InternalToolPlugin, ...]:
-    """Build each installed plugin from its zero-argument entry point."""
+def _loaded_plugins() -> _LoadedPlugins:
+    """Build each installed plugin from its zero-argument entry point.
+
+    A plugin that fails to load or names a tool badly is skipped, so one broken
+    plugin never fails every turn; its tools are simply absent.
+    """
     installed = sorted(
         entry_points(group=INTERNAL_TOOL_PLUGIN_ENTRY_POINT_GROUP),
         key=lambda ep: ep.name,
     )
-    return tuple(entry_point.load()() for entry_point in installed)
+    plugins: list[InternalToolPlugin] = []
+    tools: dict[str, PluginInternalTool] = {}
+    for entry_point in installed:
+        try:
+            plugin: InternalToolPlugin = entry_point.load()()
+            own = _validated_tools(plugin, taken=tools.keys())
+        except Exception as e:
+            logger.error(
+                "Internal tool plugin failed to load; skipping it",
+                entry_point=entry_point.name,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            continue
+        plugins.append(plugin)
+        tools.update(own)
+    return _LoadedPlugins(plugins=tuple(plugins), tools=MappingProxyType(tools))
 
 
-@lru_cache(maxsize=1)
-def plugin_internal_tools() -> Mapping[str, PluginInternalTool]:
-    """Every plugin tool by name.
+def _validated_tools(
+    plugin: InternalToolPlugin, *, taken: Collection[str]
+) -> dict[str, PluginInternalTool]:
+    """The plugin's tools by name.
 
     Raises:
         ValueError: If a name lacks the internal prefix or is taken twice.
     """
-    tools: dict[str, PluginInternalTool] = {}
-    for plugin in _plugins():
-        for tool in plugin.tools():
-            if not tool.name.startswith(INTERNAL_TOOL_PREFIX):
-                raise ValueError(
-                    f"Plugin tool {tool.name!r} must start with {INTERNAL_TOOL_PREFIX!r}"
-                )
-            if tool.name in tools or tool.name in INTERNAL_TOOL_HANDLERS:
-                raise ValueError(f"Internal tool {tool.name!r} is registered twice")
-            tools[tool.name] = tool
-    return MappingProxyType(tools)
+    own: dict[str, PluginInternalTool] = {}
+    for tool in plugin.tools():
+        if not tool.name.startswith(INTERNAL_TOOL_PREFIX):
+            raise ValueError(
+                f"Plugin tool {tool.name!r} must start with {INTERNAL_TOOL_PREFIX!r}"
+            )
+        if (
+            tool.name in own
+            or tool.name in taken
+            or tool.name in INTERNAL_TOOL_HANDLERS
+        ):
+            raise ValueError(f"Internal tool {tool.name!r} is registered twice")
+        own[tool.name] = tool
+    return own
+
+
+def plugin_internal_tools() -> Mapping[str, PluginInternalTool]:
+    """Every loaded plugin's tool by name."""
+    return _loaded_plugins().tools
 
 
 def plugin_internal_tool_handler(name: str) -> InternalToolHandler | None:
@@ -105,11 +143,14 @@ async def granted_plugin_internal_tools(
     A plugin that fails to answer grants nothing: its tools are omitted
     rather than failing the turn.
     """
-    tools = plugin_internal_tools()
+    loaded = _loaded_plugins()
     granted: list[PluginInternalTool] = []
-    for plugin in _plugins():
+    for plugin in loaded.plugins:
         try:
-            names = await plugin.granted_tools(role, session_id)
+            names = await asyncio.wait_for(
+                plugin.granted_tools(role, session_id),
+                timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
+            )
         except Exception as e:
             logger.warning(
                 "Internal tool plugin failed to grant tools; omitting them",
@@ -119,5 +160,5 @@ async def granted_plugin_internal_tools(
             )
             continue
         own = {tool.name for tool in plugin.tools()}
-        granted.extend(tools[name] for name in names if name in own)
+        granted.extend(loaded.tools[name] for name in names if name in own)
     return sorted(granted, key=lambda tool: tool.name)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Collection, Iterator, Sequence
@@ -67,14 +68,26 @@ class _Plugin:
         return self._granted
 
 
+class _EntryPoint:
+    def __init__(self, name: str, plugin: _Plugin | None) -> None:
+        self.name = name
+        self._plugin = plugin
+
+    def load(self) -> Any:
+        if self._plugin is None:
+            raise ImportError("plugin does not import")
+        return lambda: self._plugin
+
+
 @pytest.fixture
 def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    def install(*plugins: _Plugin) -> None:
-        plugin_internal_tools.cache_clear()
-        monkeypatch.setattr(plugin_tools, "_plugins", lambda: plugins)
+    def install(*plugins: _Plugin | None) -> None:
+        installed = [_EntryPoint(f"p{i}", plugin) for i, plugin in enumerate(plugins)]
+        plugin_tools._loaded_plugins.cache_clear()
+        monkeypatch.setattr(plugin_tools, "entry_points", lambda group: installed)
 
     yield install
-    plugin_internal_tools.cache_clear()
+    plugin_tools._loaded_plugins.cache_clear()
 
 
 def _role() -> Role:
@@ -97,16 +110,20 @@ def _claims(allowed: list[str], deferred: list[str] | None = None) -> MCPTokenCl
     )
 
 
-def test_plugin_tool_names_must_be_internal_and_unique(install: Any) -> None:
-    install(_Plugin([_tool("core.demo")]))
-    with pytest.raises(ValueError, match="must start with"):
-        plugin_internal_tools()
-    install(_Plugin([_tool(READ)]), _Plugin([_tool(READ)]))
-    with pytest.raises(ValueError, match="registered twice"):
-        plugin_internal_tools()
-    install(_Plugin([_tool("internal.builder.update_preset")]))
-    with pytest.raises(ValueError, match="registered twice"):
-        plugin_internal_tools()
+def test_a_plugin_that_fails_to_load_or_misnames_a_tool_is_skipped(
+    install: Any,
+) -> None:
+    # One broken plugin must not fail every turn: its tools are simply absent.
+    install(
+        _Plugin([_tool("core.demo")]),
+        _Plugin([_tool(READ)]),
+        _Plugin([_tool(READ), _tool("internal.dup.other")]),
+        _Plugin([_tool("internal.builder.update_preset")]),
+        None,
+        _Plugin([_tool(WRITE)]),
+    )
+
+    assert sorted(plugin_internal_tools()) == [READ, WRITE]
 
 
 @pytest.mark.anyio
@@ -122,6 +139,26 @@ async def test_a_session_gets_only_granted_tools_and_a_failing_plugin_grants_non
         ),
     )
     granted = await granted_plugin_internal_tools(_role(), uuid.uuid4())
+    assert [tool.name for tool in granted] == [WRITE]
+
+
+class _StuckPlugin(_Plugin):
+    async def granted_tools(self, role: Role, session_id: uuid.UUID) -> Collection[str]:
+        await asyncio.sleep(60)
+        return self._granted
+
+
+@pytest.mark.anyio
+async def test_a_stuck_grant_gives_up_and_grants_nothing(
+    install: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plugin_tools, "PLUGIN_GRANT_TIMEOUT_SECONDS", 0.01)
+    install(
+        _StuckPlugin([_tool(READ)], granted=[READ]), _Plugin([_tool(WRITE)], [WRITE])
+    )
+
+    granted = await granted_plugin_internal_tools(_role(), uuid.uuid4())
+
     assert [tool.name for tool in granted] == [WRITE]
 
 
