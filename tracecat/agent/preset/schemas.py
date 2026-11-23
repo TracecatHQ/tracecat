@@ -553,7 +553,8 @@ class AgentPresetVersionDiff(BaseModel):
 
 type AgentPresetApproverKind = Literal["user", "group", "role"]
 
-MAX_AGENT_PRESET_APPROVERS = 100
+# Abuse guard on the replace-all body, far above any real org's headcount.
+MAX_AGENT_PRESET_APPROVERS = 10_000
 
 
 class AgentPresetApproverRef(BaseModel):

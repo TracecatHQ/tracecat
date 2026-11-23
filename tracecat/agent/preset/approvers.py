@@ -14,6 +14,7 @@ from sqlalchemy import (
     Uuid,
     and_,
     delete,
+    insert,
     literal,
     or_,
     select,
@@ -217,16 +218,20 @@ class AgentPresetApproverService(BaseWorkspaceService):
                 _preset_approvers(self.workspace_id, preset_id)
             )
         )
-        self.session.add_all(
-            AgentPresetApprover(
-                workspace_id=self.workspace_id,
-                preset_id=preset_id,
-                user_id=ref.id if ref.kind == "user" else None,
-                group_id=ref.id if ref.kind == "group" else None,
-                role_id=ref.id if ref.kind == "role" else None,
+        if approvers:
+            await self.session.execute(
+                insert(AgentPresetApprover),
+                [
+                    {
+                        "workspace_id": self.workspace_id,
+                        "preset_id": preset_id,
+                        "user_id": ref.id if ref.kind == "user" else None,
+                        "group_id": ref.id if ref.kind == "group" else None,
+                        "role_id": ref.id if ref.kind == "role" else None,
+                    }
+                    for ref in approvers
+                ],
             )
-            for ref in approvers
-        )
         await self.session.commit()
         return valid
 

@@ -40,6 +40,7 @@ from tracecat.agent.approvals.policy import (
 from tracecat.agent.channel_users.service import resolve_channel_actor
 from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
+    MAX_AGENT_PRESET_APPROVERS,
     AgentPresetApproverRead,
     AgentPresetApproverRef,
     AgentPresetApproversUpdate,
@@ -639,6 +640,21 @@ async def test_deleting_the_last_listed_principal_empties_the_policy(
     # The cascade leaves no approvers, so the legacy rule applies again.
     assert await _allowed(session, svc_role, preset, editor)
     assert await _allowed(session, svc_role, preset, None)
+
+
+def test_update_caps_approvers_far_above_any_org_size() -> None:
+    def refs(count: int) -> list[dict[str, str]]:
+        return [{"kind": "user", "id": str(uuid.uuid4())} for _ in range(count)]
+
+    assert MAX_AGENT_PRESET_APPROVERS == 10_000
+    update = AgentPresetApproversUpdate.model_validate(
+        {"approvers": refs(MAX_AGENT_PRESET_APPROVERS)}
+    )
+    assert len(update.approvers) == MAX_AGENT_PRESET_APPROVERS
+    with pytest.raises(ValidationError):
+        AgentPresetApproversUpdate.model_validate(
+            {"approvers": refs(MAX_AGENT_PRESET_APPROVERS + 1)}
+        )
 
 
 def test_update_rejects_duplicate_approvers() -> None:

@@ -2858,7 +2858,7 @@ export const $AgentPresetApproversUpdate = {
         $ref: "#/components/schemas/AgentPresetApproverRef",
       },
       type: "array",
-      maxItems: 100,
+      maxItems: 10000,
       title: "Approvers",
     },
   },
