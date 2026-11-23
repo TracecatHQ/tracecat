@@ -154,13 +154,16 @@ class ChannelMessage(BaseModel):
                 for m in self.thread.messages
             ]
             older_omitted = self.thread.older_omitted
+            # Count whole dumped messages, authors and keys included.
+            sizes = [
+                len(_dump(m.model_dump(mode="json", exclude_defaults=True)))
+                for m in messages
+            ]
             # Keep the parent and the latest replies.
             while len(messages) > EARLIER_THREAD_MAX_MESSAGES or (
-                len(messages) > 1
-                and sum(_dumped_length(m.text) for m in messages)
-                > EARLIER_THREAD_MAX_CHARACTERS
+                len(messages) > 1 and sum(sizes) > EARLIER_THREAD_MAX_CHARACTERS
             ):
-                del messages[1]
+                del messages[1], sizes[1]
                 older_omitted = True
             thread = self.thread.model_copy(
                 update={"messages": messages, "older_omitted": older_omitted}

@@ -1,5 +1,6 @@
 import random
 
+import orjson
 import pytest
 
 from tracecat.agent.channel_bots.messages import (
@@ -272,6 +273,31 @@ def test_caps_clip_forwards_and_the_earlier_thread() -> None:
     assert len(parsed.quoted) == 5
     assert parsed.quoted_omitted == 2
     assert all(len(quoted.text) == 2_000 for quoted in parsed.quoted)
+
+
+def test_long_authors_count_toward_the_earlier_thread_cap() -> None:
+    # Texts alone fit in 8,000 characters; with 200-character authors they do not.
+    replies = [
+        EarlierThreadMessage(author=f"{index:03d}" + "a" * 197, text="x" * 200)
+        for index in range(1, 20)
+    ]
+    original = message(
+        thread=EarlierThread(
+            messages=[EarlierThreadMessage(author="parent", text="root"), *replies]
+        )
+    )
+
+    rendered = original.render()
+    parsed = ChannelMessage.parse(rendered)
+
+    assert parsed is not None and parsed.thread is not None
+    kept = parsed.thread.messages
+    assert kept[0].author == "parent"
+    assert kept[-1] == replies[-1]
+    assert len(kept) < 20
+    assert parsed.thread.older_omitted
+    thread = orjson.loads(rendered.split("\n", 1)[1].rsplit("\n", 1)[0])["thread"]
+    assert sum(len(orjson.dumps(m)) for m in thread["messages"]) <= 8_000
 
 
 def test_an_oversized_message_is_clipped_instead_of_rejected() -> None:
