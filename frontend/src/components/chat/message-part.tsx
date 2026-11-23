@@ -481,13 +481,7 @@ export function MessageParts({
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
 
   function renderPart({ part, partIdx }: IndexedPart) {
-    // A message that joined the turn names its own sender, as a prompt does.
-    const sender =
-      part.type === USER_MESSAGE_DATA_PART_TYPE
-        ? part.data
-        : message.role === "user"
-          ? message.metadata
-          : null
+    const sender = partSender(part, message)
     const author = showAuthor ? webActor(sender) : null
     const own =
       showAuthor &&
@@ -1001,6 +995,16 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
   return prevPart === nextPart
 })
 MemoizedMessagePart.displayName = "MessagePart"
+
+/** A message that joined the turn names its own sender, as a prompt does. */
+function partSender(
+  part: UIMessage["parts"][number],
+  message: Pick<UIMessage, "role" | "metadata">
+): unknown {
+  if (part.type === USER_MESSAGE_DATA_PART_TYPE) return part.data
+  if (message.role === "user") return message.metadata
+  return null
+}
 
 /** A message's recorded author, labelled as a Tracecat member. */
 function webActor(metadata: unknown): MessageActor | null {
