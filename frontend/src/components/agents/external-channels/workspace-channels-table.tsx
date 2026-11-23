@@ -52,8 +52,11 @@ function channelCount(n: number): string {
 /** One row per channel each bot answers in, grouped by bot, searchable by name. */
 export function WorkspaceChannelsTable({
   workspaceId,
+  empty,
 }: {
   workspaceId: string
+  /** Shown in place of the table once the workspace is known to have no bots. */
+  empty: ReactNode
 }) {
   const [search, setSearch] = useState("")
   const enabled = useChannelBotReadsAllowed()
@@ -71,8 +74,11 @@ export function WorkspaceChannelsTable({
 
   // A disconnected bot answers nowhere; a failed bot list shows in the card below.
   const shown = (bots ?? []).filter((bot) => bot.status !== "disconnected")
-  if (!enabled || shown.length === 0) {
+  if (!enabled || !bots) {
     return null
+  }
+  if (shown.length === 0) {
+    return <>{empty}</>
   }
 
   const agentName = (id: string) =>
@@ -196,7 +202,7 @@ function BotGroup({
   const summary = platform
     ? `${channelCount(rows.length)} · ${agents.size === 1 ? "1 agent" : `${agents.size} agents`}`
     : `${channelCount(rows.length)} · ${defaultAgent}`
-  let empty: string | null = null
+  let empty: ReactNode = null
   if (loading) {
     empty = "Loading channels…"
   } else if (unavailable) {
@@ -205,6 +211,14 @@ function BotGroup({
     empty = running
       ? "Not in any channel yet. Invite it to one in Slack."
       : "Channels load while the bot is active."
+  } else if (platform && running && showDefault && rows.length === 0) {
+    const invite = channelConventions(bot.provider).inviteCommand
+    empty = invite ? (
+      <>
+        Next: run <code className="font-mono text-foreground">{invite}</code> in
+        a channel, then give it its own agent below.
+      </>
+    ) : null
   }
   return (
     <>

@@ -150,6 +150,21 @@ describe("Workspace channels table", () => {
     expect(row).not.toHaveTextContent("Active")
   })
 
+  it("lands a new Tracecat install with its default agent and the invite hint", async () => {
+    serveBots([platformSlackBot()])
+    serveWorkspaceRoutes([])
+    renderChannelsPage()
+    const grid = await table()
+
+    expect(
+      await within(grid).findByText(
+        /in a channel, then give it its own agent below/
+      )
+    ).toBeInTheDocument()
+    expect(within(grid).getByText("/invite @Tracecat")).toBeInTheDocument()
+    expect(rowOf(grid, "Everywhere else")).toHaveTextContent("Triage")
+  })
+
   it("pages in more channels", async () => {
     api.listWorkspaceRoutes
       .mockResolvedValueOnce(routePage([workspaceRoute()], "next"))

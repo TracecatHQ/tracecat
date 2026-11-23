@@ -12,6 +12,7 @@ import { goToChannelBotAuthorization } from "@/components/agents/external-channe
 import { toast } from "@/components/ui/use-toast"
 
 const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
+const mockPush = jest.fn()
 
 jest.mock("@/client")
 jest.mock("@/components/ui/use-toast", () => ({
@@ -23,6 +24,9 @@ jest.mock("@/components/agents/external-channels/channel-bot-utils", () => ({
     "@/components/agents/external-channels/channel-bot-utils"
   ),
   goToChannelBotAuthorization: jest.fn(),
+}))
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
 }))
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
@@ -41,13 +45,12 @@ async function platformRow(): Promise<HTMLElement> {
   return await screen.findByRole("group", { name: "Tracecat for Slack" })
 }
 
-async function chooseDefaultAgent(
-  row: HTMLElement,
+async function chooseAgent(
+  dialog: HTMLElement,
+  label: string,
   agent: string
 ): Promise<void> {
-  await userEvent.click(
-    within(row).getByRole("combobox", { name: "Default agent" })
-  )
+  await userEvent.click(within(dialog).getByRole("combobox", { name: label }))
   await userEvent.click(await screen.findByRole("option", { name: agent }))
 }
 
@@ -95,7 +98,7 @@ describe("Channels page", () => {
     expect(api.listBots).not.toHaveBeenCalled()
   })
 
-  it("adds Tracecat to Slack with the chosen default agent and returns here", async () => {
+  it("adds Tracecat from the empty table with an agent that has Use in chat on", async () => {
     servePlatform([])
     api.installPlatformBot.mockResolvedValue({
       bot: platformSlackBot({
@@ -105,12 +108,17 @@ describe("Channels page", () => {
       authorization_url: AUTHORIZE_URL,
     })
     renderChannelsPage()
-    const row = await platformRow()
-    const add = within(row).getByRole("button", { name: "Add to Slack" })
-    expect(add).toBeDisabled()
+    expect(await screen.findByText("No bots yet")).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Add Tracecat" }))
+    const dialog = await screen.findByRole("dialog", { name: "Add Tracecat" })
+    const go = within(dialog).getByRole("button", { name: "Continue in Slack" })
+    expect(go).toBeDisabled()
+    expect(api.listPresets).toHaveBeenCalledWith(
+      expect.objectContaining({ useInChat: true })
+    )
 
-    await chooseDefaultAgent(row, "Phishing")
-    await userEvent.click(add)
+    await chooseAgent(dialog, "Agent for DMs and unlisted channels", "Phishing")
+    await userEvent.click(go)
 
     expect(api.installPlatformBot).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
@@ -122,6 +130,41 @@ describe("Channels page", () => {
       },
     })
     await waitFor(() => expect(goTo).toHaveBeenCalledWith(AUTHORIZE_URL))
+  })
+
+  it("offers Tracecat, a custom Slack app and a disabled Teams from Add bot", async () => {
+    servePlatform([])
+    renderChannelsPage()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add bot" })
+    )
+    expect(
+      screen.getByRole("menuitem", { name: /Microsoft Teams/ })
+    ).toHaveAttribute("aria-disabled", "true")
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: /Custom Slack app/ })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "Use a custom Slack app",
+    })
+    await chooseAgent(dialog, "Agent", "Phishing")
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Continue" })
+    )
+    expect(mockPush).toHaveBeenCalledWith(
+      "/workspaces/workspace-1/agents/preset-2?tab=channels"
+    )
+  })
+
+  it("disables Tracecat in Add bot once it is in this workspace's Slack", async () => {
+    servePlatform()
+    renderChannelsPage()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add bot" })
+    )
+    expect(
+      screen.getByRole("menuitem", { name: /Already added/ })
+    ).toHaveAttribute("aria-disabled", "true")
   })
 
   it("adds a disconnected install again with its last default agent", async () => {
@@ -137,14 +180,19 @@ describe("Channels page", () => {
       authorization_url: AUTHORIZE_URL,
     })
     renderChannelsPage()
-    const row = await platformRow()
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add Tracecat" })
+    )
+    const dialog = await screen.findByRole("dialog", { name: "Add Tracecat" })
     await waitFor(() =>
       expect(
-        within(row).getByRole("combobox", { name: "Default agent" })
+        within(dialog).getByRole("combobox", {
+          name: "Agent for DMs and unlisted channels",
+        })
       ).toHaveTextContent("Phishing")
     )
     await userEvent.click(
-      within(row).getByRole("button", { name: "Add to Slack" })
+      within(dialog).getByRole("button", { name: "Continue in Slack" })
     )
     expect(api.installPlatformBot).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
@@ -239,18 +287,13 @@ describe("Channels page", () => {
     mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
     servePlatform([])
     renderChannelsPage()
-    const row = await platformRow()
     expect(
-      within(row).getByText(
+      await screen.findByText(
         "Ask someone who can edit agents to add Tracecat to Slack."
       )
     ).toBeInTheDocument()
-    expect(
-      within(row).queryByRole("button", { name: "Add to Slack" })
-    ).toBeNull()
-    expect(
-      within(row).queryByRole("combobox", { name: "Default agent" })
-    ).toBeNull()
+    expect(screen.queryByRole("button", { name: "Add Tracecat" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Add bot" })).toBeNull()
   })
 
   it("says a paused install ignores Slack and resumes it beside its status", async () => {
@@ -411,9 +454,8 @@ describe("Channels page", () => {
     )
     servePlatform([])
     renderChannelsPage()
-    const row = await platformRow()
     expect(
-      within(row).getByText(
+      await screen.findByText(
         "Another Tracecat workspace has that Slack workspace"
       )
     ).toBeInTheDocument()
