@@ -6,6 +6,7 @@ import { useState } from "react"
 
 import type { AgentSessionsListSessionsResponse } from "@/client"
 import { ChatLastErrorIndicator } from "@/components/chat/chat-last-error-indicator"
+import { SlackIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -166,6 +167,13 @@ export function ChatHistoryDropdown({
                         <span className="truncate font-medium">
                           {chat.title}
                         </span>
+                        {"channel_linked" in chat && chat.channel_linked ? (
+                          <SlackIcon
+                            role="img"
+                            aria-label="Linked to a Slack thread"
+                            className="size-3 shrink-0"
+                          />
+                        ) : null}
                         <ChatLastErrorIndicator session={chat} />
                         {isCommentAgentSession(chat) ? (
                           <Badge

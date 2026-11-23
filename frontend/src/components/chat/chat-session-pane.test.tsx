@@ -29,6 +29,7 @@ import {
   AGENT_EXECUTE_REQUIRED_MESSAGE,
   ChatSessionPane,
 } from "@/components/chat/chat-session-pane"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { useSessionChannelSync } from "@/hooks/use-session-channel-sync"
@@ -81,6 +82,7 @@ jest.mock("@/components/chat/chat-empty-hero", () => ({
 jest.mock("@/components/icons", () => ({
   getIcon: () => null,
   ProviderIcon: () => <span data-testid="provider-icon" />,
+  SlackIcon: () => <span data-testid="slack-icon" />,
 }))
 
 jest.mock("@/components/ai-elements/tool", () => ({
@@ -189,7 +191,7 @@ jest.mock("@/hooks/use-session-channel-sync", () => ({
   useSessionChannelSync: jest.fn(() => ({
     sync: undefined,
     isLoading: false,
-    setEnabled: jest.fn(),
+    changeSync: jest.fn(),
     isPending: false,
   })),
 }))
@@ -215,15 +217,17 @@ function renderChatSessionPane(
   function renderPane(nextProps = props) {
     return (
       <QueryClientProvider client={queryClient}>
-        <ChatSessionPane
-          workspaceId="workspace-1"
-          modelInfo={{ name: "gpt-test", provider: "openai" }}
-          placeholder="Ask Tracecat..."
-          inputDisabledPlaceholder="Creating chat..."
-          surface="workspace-chat"
-          toolsEnabled={false}
-          {...nextProps}
-        />
+        <TooltipProvider>
+          <ChatSessionPane
+            workspaceId="workspace-1"
+            modelInfo={{ name: "gpt-test", provider: "openai" }}
+            placeholder="Ask Tracecat..."
+            inputDisabledPlaceholder="Creating chat..."
+            surface="workspace-chat"
+            toolsEnabled={false}
+            {...nextProps}
+          />
+        </TooltipProvider>
       </QueryClientProvider>
     )
   }
@@ -1410,7 +1414,7 @@ describe("ChatSessionPane author labels", () => {
     const synced = jest.mocked(useSessionChannelSync).mockReturnValue({
       sync: { available: true, enabled: true },
       isLoading: false,
-      setEnabled: jest.fn(),
+      changeSync: jest.fn(),
       isPending: false,
     })
     try {
@@ -1421,7 +1425,7 @@ describe("ChatSessionPane author labels", () => {
       synced.mockReturnValue({
         sync: undefined,
         isLoading: false,
-        setEnabled: jest.fn(),
+        changeSync: jest.fn(),
         isPending: false,
       })
     }

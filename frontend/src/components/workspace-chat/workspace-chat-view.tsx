@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ArtifactPanelContext } from "@/components/chat/artifact-mention"
-import { ChannelSyncToggle } from "@/components/chat/channel-sync-toggle"
 import { ChatInterface } from "@/components/chat/chat-interface"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -253,12 +252,6 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
               onChatChange={setChat}
               headerActions={
                 <>
-                  {chat ? (
-                    <ChannelSyncToggle
-                      workspaceId={workspaceId}
-                      sessionId={chat.id}
-                    />
-                  ) : null}
                   {showExpandButton ? (
                     <Tooltip>
                       <TooltipTrigger asChild>

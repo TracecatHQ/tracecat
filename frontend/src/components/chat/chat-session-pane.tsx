@@ -71,6 +71,7 @@ import {
   MessageParts,
   RunningLine,
 } from "@/components/chat/message-part"
+import { SlackSyncButton } from "@/components/chat/slack-sync-button"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
@@ -1575,6 +1576,13 @@ export function ChatSessionPane({
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
                 />
               )}
+              {isWorkspaceChat && chat && !isReadonly ? (
+                <SlackSyncButton
+                  workspaceId={workspaceId}
+                  sessionId={chat.id}
+                  disabled={inputDisabled || cannotExecuteAgents}
+                />
+              ) : null}
               {!isReadonly && modelInfo ? (
                 <PromptModelIndicator modelInfo={modelInfo} />
               ) : null}
