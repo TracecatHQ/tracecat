@@ -201,6 +201,9 @@ async def test_reads_map_onto_declared_keys_with_one_credential(
     assert len(vault.clients) == 1
     assert vault.clients[0]["vault_url"] == VAULT_URL
     assert vault.clients[0]["verify_challenge_resource"] is True
+    assert vault.clients[0]["retry_total"] == 2
+    assert vault.clients[0]["connection_timeout"] == 5
+    assert vault.clients[0]["read_timeout"] == 10
     assert sorted(vault.reads) == ["api-token", "db-creds"]
     assert sorted(vault.closed) == ["client", "credential"]
 

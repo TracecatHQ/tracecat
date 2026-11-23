@@ -750,7 +750,7 @@ function AccessTokenSetupFields({
       )}
       {canEdit === false && (
         <p className="text-xs text-muted-foreground">
-          You need permission to update secret stores to set the{" "}
+          You need the <code>org:secret:update</code> permission to set the{" "}
           {credential.name}. Share these steps with an organization admin to
           finish setup.
         </p>
