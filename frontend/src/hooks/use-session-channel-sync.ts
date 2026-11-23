@@ -46,7 +46,7 @@ function syncChangedToast(change: ChannelSyncChange) {
     }
   }
   return {
-    title: "Slack sync disabled",
+    title: "Slack sync off",
     description: "Messages won't be synced to Slack.",
   }
 }

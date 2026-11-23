@@ -89,7 +89,7 @@ test("turning sync off sends it and says messages stop syncing", async () => {
     })
   )
   expect(mockToast).toHaveBeenCalledWith({
-    title: "Slack sync disabled",
+    title: "Slack sync off",
     description: "Messages won't be synced to Slack.",
   })
   expect(
@@ -151,6 +151,24 @@ test("an unlinked session picks a channel and links to it", async () => {
   expect(
     await screen.findByRole("button", { name: "Slack sync on" })
   ).toBeInTheDocument()
+})
+
+test("clicking the button again closes the picker", async () => {
+  getSync.mockResolvedValue({ available: true, enabled: false, linked: false })
+  listDestinations.mockResolvedValue({ items: [] })
+  renderButton()
+  const button = await screen.findByRole("button", { name: "Sync with Slack" })
+
+  await userEvent.click(button)
+  expect(await screen.findByPlaceholderText("Search in Slack…")).toBeVisible()
+  await userEvent.click(button)
+
+  await waitFor(() =>
+    expect(
+      screen.queryByPlaceholderText("Search in Slack…")
+    ).not.toBeInTheDocument()
+  )
+  expect(updateSync).not.toHaveBeenCalled()
 })
 
 test("the picker selects with the keyboard", async () => {

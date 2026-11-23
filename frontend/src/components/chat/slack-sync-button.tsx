@@ -14,7 +14,12 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Kbd } from "@/components/ui/kbd"
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Tooltip,
   TooltipContent,
@@ -68,12 +73,13 @@ export function SlackSyncButton({
     state = sync.enabled ? "on" : "off"
   }
 
+  // Unlinked, the button is the picker's trigger, so a second click closes it.
+  const PickerAnchor = state === "unlinked" ? PopoverTrigger : PopoverAnchor
+
   function handleClick() {
-    if (state === "unlinked") {
-      setPickerOpen((open) => !open)
-      return
+    if (state !== "unlinked") {
+      changeSync({ enabled: state === "off" })
     }
-    changeSync({ enabled: state === "off" })
   }
 
   function handleSelect(destination: ChannelDestination) {
@@ -83,7 +89,7 @@ export function SlackSyncButton({
 
   return (
     <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-      <PopoverAnchor asChild>
+      <PickerAnchor asChild>
         <span className="inline-flex">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -102,7 +108,7 @@ export function SlackSyncButton({
             <TooltipContent side="top">{TOOLTIPS[state]}</TooltipContent>
           </Tooltip>
         </span>
-      </PopoverAnchor>
+      </PickerAnchor>
       <PopoverContent side="top" align="start" className="w-80 p-0">
         {pickerOpen ? (
           <SlackChannelPicker
