@@ -15,7 +15,6 @@ import orjson
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from claude_agent_sdk.types import TextBlock, UserMessage
 from pydantic import ValidationError
-from redis.exceptions import RedisError
 from sqlalchemy import (
     Select,
     and_,
@@ -104,6 +103,7 @@ from tracecat.agent.session.history import (
     decode_raw_session_line,
     prepare_session_history,
 )
+from tracecat.agent.session.prompt_origin import resolve_prompt_origin
 from tracecat.agent.session.results import (
     DecisionRecorded,
     DecisionRejected,
@@ -197,7 +197,6 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
@@ -221,8 +220,6 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
 _background_tasks: set[asyncio.Task[None]] = set()
 # Caps both the attempts a message's run lookup walks and a start's retries.
 _MESSAGE_ADMISSION_TRIES = 5
-# How long a Retry can still find the run that first sent its web message.
-_PROMPT_ORIGIN_TTL_SECONDS = 24 * 60 * 60
 
 
 def _require_parent_session(agent_session: AgentSession) -> None:
@@ -2263,8 +2260,6 @@ class AgentSessionService(BaseWorkspaceService):
         """The run that first sent web message ``message_id``; None when ``run_id`` is it.
 
         Retry resends a client id before a reload and a history row id after one.
-        Redis maps both, and each retried run, to the first run, so the channel
-        mirror posts once. Best effort: on a Redis failure the row's own run applies.
         """
         try:
             row_id = uuid.UUID(message_id)
@@ -2279,28 +2274,9 @@ class AgentSessionService(BaseWorkspaceService):
                     AgentSessionHistory.workspace_id == self.workspace_id,
                 )
             )
-        try:
-            redis = await get_redis_client()
-            if row_run_id is None:
-                key = f"agent:web-prompt-run:{session_id}:{message_id}"
-                if await redis.set_if_not_exists(
-                    key, str(run_id), expire_seconds=_PROMPT_ORIGIN_TTL_SECONDS
-                ):
-                    return None
-                first = await redis.get(key)
-            else:
-                first = await redis.get(f"agent:prompt-origin-run:{row_run_id}")
-            origin = uuid.UUID(first) if first else row_run_id
-            if origin is not None and origin != run_id:
-                await redis.set(
-                    f"agent:prompt-origin-run:{run_id}",
-                    str(origin),
-                    expire_seconds=_PROMPT_ORIGIN_TTL_SECONDS,
-                )
-            return origin
-        except (RedisError, RuntimeError) as e:
-            logger.warning("Prompt origin lookup failed", error=str(e))
-            return row_run_id
+        return await resolve_prompt_origin(
+            session_id, message_id, run_id, row_run_id=row_run_id
+        )
 
     async def get_turn_lifecycle(
         self, agent_session: AgentSession
