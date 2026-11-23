@@ -48,6 +48,7 @@ from tracecat.agent.common.tool_inputs import (
 )
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.stream.events import (
     StreamDelta,
     StreamEnd,
@@ -641,8 +642,6 @@ class VercelStreamContext:
     """
 
     message_id: str | None
-    # Decode steered channel messages; only channel sessions carry them.
-    channel_session: bool = False
     # Active parts keyed by event index -> maintains per-part lifecycle state.
     part_states: dict[int, _PartState] = dataclasses.field(default_factory=dict)
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
@@ -983,7 +982,8 @@ class VercelStreamContext:
                     "id": message_id if isinstance(message_id, str) else None,
                     "text": event.text or "",
                 }
-                if self.channel_session and (
+                origin = (event.metadata or {}).get("origin")
+                if origin == UserMessageOrigin.CHANNEL and (
                     channel_message := ChannelMessage.parse(data["text"])
                 ):
                     data["text"] = channel_message.text
@@ -1592,7 +1592,6 @@ async def sse_vercel(
     *,
     message_id: str | None,
     resume_from: str | None = None,
-    channel_session: bool = False,
 ) -> AsyncIterable[str]:
     """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
@@ -1606,9 +1605,7 @@ async def sse_vercel(
     the client already saw (``resume_from``).
     """
 
-    context = VercelStreamContext(
-        message_id=message_id, channel_session=channel_session
-    )
+    context = VercelStreamContext(message_id=message_id)
     # One context per child session: part ids and part states are per-session,
     # so sharing the root context would let children collide with each other.
     child_contexts: dict[uuid.UUID, VercelStreamContext] = {}

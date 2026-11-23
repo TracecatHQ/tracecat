@@ -13639,6 +13639,11 @@ export type UserMessage = {
   origin?: MessageOrigin | null
 }
 
+/**
+ * Where a user message entered the session.
+ */
+export type UserMessageOrigin = "tracecat" | "channel"
+
 export type UserRead = {
   id: string
   email: string

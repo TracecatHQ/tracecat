@@ -29,6 +29,7 @@ from tracecat.agent.channel_bots.messages import (
 )
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import _extract_vercel_user_prompt
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage, MessageAuthor
@@ -397,21 +398,23 @@ def test_a_channel_message_carries_its_author() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("channel_session", [True, False])
-async def test_a_steered_channel_message_decodes_only_in_a_channel_session(
-    channel_session: bool,
+@pytest.mark.parametrize(
+    "origin", [UserMessageOrigin.CHANNEL, UserMessageOrigin.TRACECAT, None]
+)
+async def test_a_steered_message_decodes_only_when_sent_from_a_channel(
+    origin: UserMessageOrigin | None,
 ) -> None:
     rendered = _channel_message("and db-2").render()
-    context = VercelStreamContext(
-        message_id="msg_test", channel_session=channel_session
+    context = VercelStreamContext(message_id="msg_test")
+    event = UnifiedStreamEvent.user_message_event(
+        rendered, message_id="steer-1", origin=origin
     )
-    event = UnifiedStreamEvent.user_message_event(rendered, message_id="steer-1")
 
     payloads = [payload async for payload in context.handle_event(event)]
 
     payload = payloads[0]
     assert isinstance(payload, DataEventPayload)
-    if channel_session:
+    if origin is UserMessageOrigin.CHANNEL:
         assert payload.data["text"] == "and db-2"
         assert payload.data["channel_message"]["quoted"][0]["author"] == "alice"
     else:

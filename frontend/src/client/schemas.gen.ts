@@ -44822,6 +44822,13 @@ export const $UserMessage = {
   title: "UserMessage",
 } as const
 
+export const $UserMessageOrigin = {
+  type: "string",
+  enum: ["tracecat", "channel"],
+  title: "UserMessageOrigin",
+  description: "Where a user message entered the session.",
+} as const
+
 export const $UserRead = {
   properties: {
     id: {

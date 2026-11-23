@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Iterator
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +15,7 @@ from tracecat.agent.control.payloads import (
     WithdrawPayload,
 )
 from tracecat.agent.control.store import payload_hash
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.dsl._converter import PydanticPayloadConverter
 
 
@@ -28,6 +30,11 @@ def workflow_bucket() -> Iterator[None]:
     [
         SubmitPayload(input="hi"),
         SteerPayload(text="hi"),
+        SteerPayload(
+            text="hi",
+            author_id=UUID(int=1),
+            origin=UserMessageOrigin.CHANNEL,
+        ),
         DecidePayload(action="deny", reason="no"),
         AbortPayload(),
         WithdrawPayload(),

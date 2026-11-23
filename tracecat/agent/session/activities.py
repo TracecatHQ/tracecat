@@ -25,6 +25,7 @@ from tracecat.agent.channel_notifier import (
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import (
     AgentSessionService,
@@ -266,6 +267,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 await service.auto_title_session_on_first_prompt(
                     agent_session,
                     input.initial_user_prompt,
+                    origin=UserMessageOrigin.TRACECAT,
                     expected_title=agent_session.title,
                 )
 

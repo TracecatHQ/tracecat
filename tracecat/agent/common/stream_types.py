@@ -20,6 +20,7 @@ from tracecat.agent.common.wire import (
     required_object,
     required_string,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 
 type ArtifactEventOp = Literal["upsert", "remove"]
 type ApprovalStreamStatus = Literal["pending", "approved", "rejected"]
@@ -388,14 +389,25 @@ class UnifiedStreamEvent:
 
     @classmethod
     def user_message_event(
-        cls, content: str, *, message_id: str | None = None
+        cls,
+        content: str,
+        *,
+        message_id: str | None = None,
+        origin: UserMessageOrigin | None = None,
     ) -> UnifiedStreamEvent:
         """A user message that joined the running turn, such as a steering message.
 
-        ``message_id`` is the ID the client submitted it under, if any.
+        ``message_id`` is the ID the client submitted it under, if any, and
+        ``origin`` where it entered the session, if known.
         """
-        metadata = {"id": message_id} if message_id is not None else None
-        return cls(type=StreamEventType.USER_MESSAGE, text=content, metadata=metadata)
+        metadata: dict[str, Any] = {}
+        if message_id is not None:
+            metadata["id"] = message_id
+        if origin is not None:
+            metadata["origin"] = origin.value
+        return cls(
+            type=StreamEventType.USER_MESSAGE, text=content, metadata=metadata or None
+        )
 
     @classmethod
     def compaction_event(

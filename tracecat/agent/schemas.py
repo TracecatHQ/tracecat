@@ -13,6 +13,7 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat.agent.bedrock import BedrockSubscriptionStatus
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.types import AgentConfig, DeferredToolResults
 from tracecat.chat.schemas import ChatMessage
 
@@ -58,6 +59,9 @@ class RunAgentArgs(BaseModel):
     """Workflow run id for this turn. Pinned here so the producer tags persisted
     history rows with it, letting mid-turn loads hide the active run's partial
     rows. None for legacy executions."""
+    origin: UserMessageOrigin | None = None
+    """Where the prompt entered the session, recorded on its history row. None
+    for legacy executions."""
     config: AgentConfig | None = None
     """Configuration for the agent. Required if preset_slug is not provided."""
     preset_slug: str | None = None

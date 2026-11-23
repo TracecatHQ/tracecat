@@ -47,6 +47,7 @@ from tracecat.agent.backends.types import (
     SessionTurnActiveError,
     SessionTurnContext,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.results import (
     MessageResult,
     RunAlreadyFinished,
@@ -562,6 +563,8 @@ async def test_instructions_reach_every_start_of_the_turn(
         )
         assert args.agent_args.config.instructions == sent["instructions"]
         assert args.agent_args.user_prompt == "Investigate this alert"
+        # Only channel ingress starts turns here; the prompt row records it.
+        assert args.agent_args.origin is UserMessageOrigin.CHANNEL
 
 
 async def test_message_while_another_run_is_going_is_busy_on_claude(
@@ -675,6 +678,8 @@ async def test_a_message_to_a_running_turn_steers_or_is_busy(
             first.run_id,
             message_run_id(session_id, "slack:Ev2", 0),
             "Investigate this alert",
+            author_id=None,
+            origin=UserMessageOrigin.CHANNEL,
         )
 
 
@@ -827,6 +832,8 @@ async def test_a_steer_after_a_lost_start_uses_the_replacement_run_as_steer_id(
         first.run_id,
         message_run_id(session_id, "slack:Ev2", 1),
         "Investigate this alert",
+        author_id=None,
+        origin=UserMessageOrigin.CHANNEL,
     )
 
 
@@ -890,6 +897,8 @@ async def test_steer_never_reaches_a_run_that_released_the_session(
         newer.run_id,
         message_run_id(session_id, "slack:Ev3", 0),
         "Investigate this alert",
+        author_id=None,
+        origin=UserMessageOrigin.CHANNEL,
     )
 
 

@@ -80,6 +80,7 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             session_id=context.session_id,
             active_stream_id=context.stream_id,
             curr_run_id=context.run_id,
+            origin=context.origin,
             config=context.config,
             # Chat turns always get the agent default, never the ceiling.
             timeout_seconds=clamp_agent_timeout_seconds(None),

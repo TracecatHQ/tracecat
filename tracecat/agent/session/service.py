@@ -94,6 +94,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     session_line_uuid,
 )
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.history import (
     SessionHistoryContent,
     decode_raw_session_line,
@@ -236,6 +237,7 @@ async def _auto_title_session(
     *,
     session_id: uuid.UUID,
     user_prompt: str,
+    origin: UserMessageOrigin,
     expected_title: str,
     role: Role,
 ) -> None:
@@ -258,6 +260,7 @@ async def _auto_title_session(
         await service.auto_title_session_on_first_prompt(
             agent_session,
             user_prompt,
+            origin=origin,
             expected_title=expected_title,
         )
 
@@ -360,9 +363,9 @@ class SessionAwaitingApprovalsError(ValueError):
     """A new message arrived while the session waits for approval decisions."""
 
 
-def _display_text(text: str, *, channel_session: bool) -> str:
+def _display_text(text: str, *, origin: UserMessageOrigin | None) -> str:
     """A user message's text as people read it: a channel message's summary."""
-    if channel_session and (message := ChannelMessage.parse(text)):
+    if origin is UserMessageOrigin.CHANNEL and (message := ChannelMessage.parse(text)):
         return message.summary_text()
     return text
 
@@ -713,19 +716,6 @@ class AgentSessionService(BaseWorkspaceService):
         self, session_ids: Sequence[uuid.UUID]
     ) -> set[uuid.UUID]:
         """Find sessions whose own type or ancestry requires Workspace Chat."""
-        return await self._ids_with_entity_in_ancestry(
-            session_ids, AgentSessionEntity.WORKSPACE_CHAT, via_spawn=True
-        )
-
-    async def _ids_with_entity_in_ancestry(
-        self,
-        session_ids: Sequence[uuid.UUID],
-        entity_type: AgentSessionEntity,
-        *,
-        via_spawn: bool,
-    ) -> set[uuid.UUID]:
-        """The sessions that are, or forked (or, `via_spawn`, were spawned) from,
-        an `entity_type` session."""
         if not session_ids:
             return set()
         ancestry = (
@@ -742,9 +732,6 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .cte("session_ancestry", recursive=True)
         )
-        parents = [AgentSession.id == ancestry.c.forked_from_session_id]
-        if via_spawn:
-            parents.append(AgentSession.id == ancestry.c.spawned_by_session_id)
         # UNION deduplicates visited (root, ancestor) pairs, including cycles.
         ancestry = ancestry.union(
             select(
@@ -756,13 +743,16 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .join(
                 ancestry,
-                or_(*parents),
+                or_(
+                    AgentSession.id == ancestry.c.spawned_by_session_id,
+                    AgentSession.id == ancestry.c.forked_from_session_id,
+                ),
             )
             .where(AgentSession.workspace_id == self.workspace_id)
         )
         result = await self.session.scalars(
             select(ancestry.c.root_id)
-            .where(ancestry.c.entity_type == entity_type.value)
+            .where(ancestry.c.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value)
             .distinct()
         )
         return set(result.all())
@@ -1633,6 +1623,10 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
 
+    def _author_id(self) -> uuid.UUID | None:
+        """The user a message sent as this role is credited to, as the executor does."""
+        return self.role.user_id if self.role.type == "user" else None
+
     async def _existing_user_id(self, user_id: uuid.UUID | None) -> uuid.UUID | None:
         """Return ``user_id`` only when it can satisfy Approval.approved_by."""
         if user_id is None:
@@ -1647,12 +1641,12 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session: AgentSession,
         user_prompt: str,
         *,
+        origin: UserMessageOrigin,
         expected_title: str,
     ) -> None:
         """Best-effort auto-title on the first prompt."""
         entity_type = agent_session.entity_type
-        channel_session = await self.is_channel_session(agent_session)
-        prompt = _display_text(user_prompt, channel_session=channel_session).strip()
+        prompt = _display_text(user_prompt, origin=origin).strip()
         old_title = expected_title
 
         if agent_session.title != expected_title:
@@ -2018,12 +2012,17 @@ class AgentSessionService(BaseWorkspaceService):
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
         is_continuation = False
+        origin = UserMessageOrigin.TRACECAT
 
         match request:
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
                 page_context = request.page_context
+                # validate_turn_request let a Retry through only for a message
+                # the session received from its channel.
+                if _retried_channel_message(ui_message) is not None:
+                    origin = UserMessageOrigin.CHANNEL
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
                     raise ValueError(
@@ -2050,6 +2049,7 @@ class AgentSessionService(BaseWorkspaceService):
             page_context=page_context,
             is_first_prompt=is_first_prompt,
             run_id=run_id,
+            origin=origin,
             # Per-turn stream id: use the HTTP-minted id when provided, else mint
             # one. Pinned into the workflow input so the worker producer writes to
             # the same per-turn Redis key the reader joins (immune to the
@@ -2076,6 +2076,7 @@ class AgentSessionService(BaseWorkspaceService):
         is_first_prompt: bool | None,
         run_id: uuid.UUID,
         stream_id: uuid.UUID,
+        origin: UserMessageOrigin,
     ) -> None:
         """Build the turn's config and start it as ``run_id`` on a validated session."""
         session_id = agent_session.id
@@ -2121,6 +2122,7 @@ class AgentSessionService(BaseWorkspaceService):
                     prompt=user_prompt or "",
                     run_id=run_id,
                     stream_id=stream_id,
+                    origin=origin,
                 )
             )
 
@@ -2131,6 +2133,7 @@ class AgentSessionService(BaseWorkspaceService):
                     _auto_title_session(
                         session_id=session_id,
                         user_prompt=user_prompt,
+                        origin=origin,
                         expected_title=expected_title,
                         role=self.role,
                     )
@@ -2486,6 +2489,7 @@ class AgentSessionService(BaseWorkspaceService):
                     page_context=None,
                     is_first_prompt=None,
                     run_id=run_id,
+                    origin=UserMessageOrigin.CHANNEL,
                     stream_id=uuid.uuid4(),
                 )
                 return RunStarted(run_id=run_id)
@@ -2560,7 +2564,13 @@ class AgentSessionService(BaseWorkspaceService):
             return RunBusy(run_id=curr_run_id)
         try:
             # The message's run id doubles as its steer id, deduplicated per session.
-            steered = await backend.steer(curr_run_id, message_run, text)
+            steered = await backend.steer(
+                curr_run_id,
+                message_run,
+                text,
+                author_id=self._author_id(),
+                origin=UserMessageOrigin.CHANNEL,
+            )
         except AgentControlRejected:
             steered = False
         return (
@@ -2651,14 +2661,13 @@ class AgentSessionService(BaseWorkspaceService):
                 "This agent backend does not support listing pending messages"
             )
         pending = await backend.list_pending(session_id)
-        channel_session = await self.is_channel_session(agent_session)
         return AgentSessionPendingRead(
             session_id=session_id,
             items=[
                 AgentPendingMessageRead(
                     id=message.id,
                     type=message.type,
-                    text=_display_text(message.text, channel_session=channel_session),
+                    text=_display_text(message.text, origin=message.origin),
                     created_at=message.created_at,
                 )
                 for message in pending
@@ -2766,7 +2775,13 @@ class AgentSessionService(BaseWorkspaceService):
         """
         refuse_channel_envelope(request.text)
         backend, run_id = await self._get_control_turn(session_id, "steer")
-        accepted = await backend.steer(run_id, request.id, request.text)
+        accepted = await backend.steer(
+            run_id,
+            request.id,
+            request.text,
+            author_id=self._author_id(),
+            origin=UserMessageOrigin.TRACECAT,
+        )
         return AgentControlReceipt(
             id=request.id,
             type=request.type,
@@ -3245,7 +3260,6 @@ class AgentSessionService(BaseWorkspaceService):
             approvals_by_tool_id=approval_by_tool_id,
             authors_by_id=await self._message_authors(entries) if with_authors else {},
             kinds=kinds,
-            channel_session=await self.is_channel_session(agent_session),
         )
 
     async def _holds_channel_message(
@@ -3267,19 +3281,6 @@ class AgentSessionService(BaseWorkspaceService):
         )
         return {user.id: MessageAuthor.model_validate(user) for user in users}
 
-    async def is_channel_session(self, agent_session: AgentSession) -> bool:
-        """Whether the session, or the session it was forked from, is an external
-        channel session, whose user messages may be rendered channel messages."""
-        if agent_session.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
-            return True
-        if agent_session.forked_from_session_id is None:
-            return False
-        return bool(
-            await self._ids_with_entity_in_ancestry(
-                [agent_session.id], AgentSessionEntity.EXTERNAL_CHANNEL, via_spawn=False
-            )
-        )
-
     def _render_history_entries(
         self,
         entries: Sequence[AgentSessionHistory],
@@ -3288,7 +3289,6 @@ class AgentSessionService(BaseWorkspaceService):
         kinds: Sequence[MessageKind] | None,
         history: SessionHistoryAdapter | None = None,
         authors_by_id: Mapping[uuid.UUID, MessageAuthor],
-        channel_session: bool = False,
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
@@ -3371,7 +3371,7 @@ class AgentSessionService(BaseWorkspaceService):
                     message=message,
                     created_at=_session_line_time(content),
                     channel_message=_channel_message_of(message)
-                    if channel_session
+                    if entry.origin == UserMessageOrigin.CHANNEL
                     else None,
                     author=authors_by_id.get(entry.author_id)
                     if entry.author_id

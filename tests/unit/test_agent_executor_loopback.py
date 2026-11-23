@@ -33,6 +33,7 @@ from tracecat.agent.executor.loopback import (
     RuntimeEnvelopeProtocolError,
     _runtime_envelope_from_json,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
@@ -358,7 +359,7 @@ async def test_persist_session_line_preserves_raw_nul_content(
         pytest.param({"content": "triage this"}, True, False, id="internal"),
     ],
 )
-async def test_persist_session_line_records_the_prompt_author(
+async def test_persist_session_line_records_the_prompt_author_and_origin(
     monkeypatch: pytest.MonkeyPatch,
     line: dict[str, Any],
     internal: bool,
@@ -367,7 +368,10 @@ async def test_persist_session_line_records_the_prompt_author(
     author_id = uuid.uuid4()
     handler = LoopbackHandler(
         input=LoopbackInput(
-            session_id=uuid.uuid4(), workspace_id=uuid.uuid4(), author_id=author_id
+            session_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            author_id=author_id,
+            origin=UserMessageOrigin.CHANNEL,
         )
     )
     handler._sdk_session_id = "sdk-session"
@@ -390,6 +394,7 @@ async def test_persist_session_line_records_the_prompt_author(
 
     [entry] = session.entries
     assert entry.author_id == (author_id if authored else None)
+    assert entry.origin == (UserMessageOrigin.CHANNEL if authored else None)
 
 
 @pytest.mark.parametrize(

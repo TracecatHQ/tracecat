@@ -113,6 +113,7 @@ from tracecat.agent.sandbox.otel_relay import (
     OtelSocketReceiver,
     PlatformTraceParent,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.builtin import (
@@ -234,6 +235,8 @@ class AgentExecutorInput(BaseModel):
     # history rows, letting mid-turn loads hide the active run's partial rows.
     curr_run_id: uuid.UUID | None = None
     user_prompt: str
+    # Where the prompt entered the session, recorded on its history row.
+    origin: UserMessageOrigin | None = None
     config: AgentConfig
     # Role for context
     role: Role
@@ -723,6 +726,7 @@ class SandboxedAgentExecutor:
                 author_id=self.input.role.user_id
                 if self.input.role.type == "user"
                 else None,
+                origin=self.input.origin,
             )
             handler = LoopbackHandler(input=loopback_input)
 

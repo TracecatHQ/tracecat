@@ -639,7 +639,6 @@ async def send_message(
         )
 
         message_id: str | None = None
-        channel_session = False
         async with AgentSessionService.with_session(role=role) as svc:
             # Check if this is a legacy chat (read-only)
             if await svc.is_legacy_session(session_id):
@@ -652,7 +651,6 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
-            channel_session = await svc.is_channel_session(agent_session)
             access_check = (
                 can_decide_on_session
                 if isinstance(request, ContinueRunRequest)
@@ -785,7 +783,6 @@ async def send_message(
                 last_id="0-0",
                 format="vercel",
                 message_id=message_id,
-                channel_session=channel_session,
             ),
             media_type="text/event-stream",
             headers=_sse_headers("vercel"),
@@ -884,7 +881,6 @@ async def stream_session_events(
             )
 
         stream_state = await svc.get_stream_resume_state(agent_session)
-        channel_session = await svc.is_channel_session(agent_session)
 
     message_id = _bubble_id(session_id, stream_state.curr_run_id)
 
@@ -930,7 +926,6 @@ async def stream_session_events(
             format=format,
             message_id=message_id,
             resume_from=resume_from,
-            channel_session=channel_session,
         ),
         media_type="text/event-stream",
         headers=headers,

@@ -67,6 +67,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.agent.control.enums import CommandState, CommandType
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -4287,6 +4288,9 @@ class CaseAgentSessionInteraction(WorkspaceModel):
     )
 
 
+_MESSAGE_ORIGINS_SQL = ", ".join(f"'{value}'" for value in UserMessageOrigin)
+
+
 class AgentSessionHistory(WorkspaceModel):
     """Harness-agnostic history storage for agent sessions.
 
@@ -4301,6 +4305,7 @@ class AgentSessionHistory(WorkspaceModel):
             "author_id",
             postgresql_where=text("author_id IS NOT NULL"),
         ),
+        CheckConstraint(f"origin IN ({_MESSAGE_ORIGINS_SQL})", name="origin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -4344,6 +4349,11 @@ class AgentSessionHistory(WorkspaceModel):
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
         doc="Tracecat user who sent this user prompt; null for every other row",
+    )
+    origin: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        doc="UserMessageOrigin of this user prompt; null for every other row",
     )
 
     session: Mapped[AgentSession] = relationship(

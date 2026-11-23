@@ -13,6 +13,7 @@ from tracecat.agent.backends.schemas import (
     WorkflowApprovalSubmission,
     WorkflowCancelRequest,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -70,6 +71,8 @@ class PendingMessage:
     type: PendingMessageType
     text: str
     created_at: datetime
+    # None when the backend did not record it; only CHANNEL text is decoded.
+    origin: UserMessageOrigin | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +151,8 @@ class SessionWorkflowContext:
     timeout_seconds: int | None = None
     max_requests: int | None = None
     max_tool_calls: int | None = None
+    # Where the turn's prompt entered the session, recorded on its history row.
+    origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +166,7 @@ class SessionTurnContext:
     prompt: str
     run_id: UUID
     stream_id: UUID
+    origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
 
 
 @runtime_checkable

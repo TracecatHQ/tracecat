@@ -1,12 +1,13 @@
-"""Add the author of a user prompt to agent session history
+"""Add the author and origin of a user prompt to agent session history
 
 Revision ID: 8a0c582eaaba
 Revises: 997fd6b8f9f4
 Create Date: 2026-11-22 12:00:00.000000
 
 Adds nullable ``agent_session_history.author_id``, the Tracecat user who sent a
-user prompt. Additive: the previous app ignores the column and existing rows
-stay null. The partial index for the ON DELETE SET NULL lookup is built
+user prompt, and nullable ``origin``, where it entered the session (Tracecat
+or channel ingress). Additive: the previous app ignores the columns and existing
+rows stay null. The partial index for the ON DELETE SET NULL lookup is built
 concurrently in the next revision.
 
 """
@@ -38,9 +39,25 @@ def upgrade() -> None:
         'FOREIGN KEY (author_id) REFERENCES "user" (id) '
         "ON DELETE SET NULL NOT VALID"
     )
+    op.add_column(
+        "agent_session_history",
+        sa.Column("origin", sa.String(length=32), nullable=True),
+    )
+    # NOT VALID for the same reason; the new column is NULL on every row.
+    op.execute(
+        "ALTER TABLE agent_session_history "
+        "ADD CONSTRAINT ck_agent_session_history_origin "
+        "CHECK (origin IN ('tracecat', 'channel')) NOT VALID"
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(
+        op.f("ck_agent_session_history_origin"),
+        "agent_session_history",
+        type_="check",
+    )
+    op.drop_column("agent_session_history", "origin")
     op.drop_constraint(
         op.f("fk_agent_session_history_author_id_user"),
         "agent_session_history",

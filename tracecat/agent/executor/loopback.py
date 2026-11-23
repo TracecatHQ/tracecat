@@ -43,6 +43,7 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
 )
 from tracecat.agent.metrics import FIRST_TOKEN_EVENT_TYPES
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -107,6 +108,8 @@ class LoopbackInput:
     curr_run_id: uuid.UUID | None = None
     # The Tracecat user who started the turn, recorded as its prompt's author.
     author_id: uuid.UUID | None = None
+    # Where the turn's prompt entered the session, recorded on its row.
+    origin: UserMessageOrigin | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -1030,6 +1033,7 @@ class LoopbackHandler:
             ):
                 kind = "compaction"
 
+            user_prompt = kind == "chat-message" and _is_user_prompt_line(line_data)
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
@@ -1037,9 +1041,8 @@ class LoopbackHandler:
                 raw_session_line=history_payload.raw_session_line,
                 kind=kind,
                 curr_run_id=self.input.curr_run_id,
-                author_id=self.input.author_id
-                if kind == "chat-message" and _is_user_prompt_line(line_data)
-                else None,
+                author_id=self.input.author_id if user_prompt else None,
+                origin=self.input.origin if user_prompt else None,
             )
             session.add(history_entry)
             await session.commit()
