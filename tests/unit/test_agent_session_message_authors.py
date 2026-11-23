@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.adapter.vercel import convert_chat_messages_to_ui
+from tracecat.agent.session.activities import (
+    LoadSessionMessagesInput,
+    load_session_messages_activity,
+)
 from tracecat.agent.session.service import AgentSessionService, may_act_on_session
 from tracecat.agent.session.types import AgentSessionEntity, can_decide_on_session
 from tracecat.auth.types import Role
@@ -83,6 +89,57 @@ async def test_list_messages_names_each_prompt_author(
         "last_name": None,
     }
     assert unattributed.metadata is None or "author" not in unattributed.metadata
+
+
+async def test_workflow_message_history_leaves_out_authors(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @asynccontextmanager
+    async def with_session(
+        role: Role | None = None, **_: object
+    ) -> AsyncIterator[AgentSessionService]:
+        yield AgentSessionService(session=session, role=role)
+
+    monkeypatch.setattr(AgentSessionService, "with_session", with_session)
+    author = User(
+        id=uuid.uuid4(),
+        email=f"sam-{uuid.uuid4()}@example.com",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Shared",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.WORKFLOW.value,
+        entity_id=uuid.uuid4(),
+    )
+    session.add_all([author, agent_session])
+    await session.flush()
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=author.id,
+            content={
+                "type": "user",
+                "uuid": "prompt",
+                "message": {"role": "user", "content": "triage this"},
+            },
+        )
+    )
+    await session.commit()
+
+    result = await load_session_messages_activity(
+        LoadSessionMessagesInput(role=svc_role, session_id=agent_session.id)
+    )
+
+    assert result.messages is not None
+    assert [message.author for message in result.messages] == [None]
 
 
 async def test_listing_marks_a_private_session_actable_once_the_user_sent_in_it(
