@@ -1,0 +1,16 @@
+.agents/skills/gh-release/SKILL.md
+  h_5f9670feebc95f 150-173
+CONTRIBUTING.md
+  h_5f9670feebc95f 254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e4648a510bd0386c32f4df135f5cee4a97c717a3",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
