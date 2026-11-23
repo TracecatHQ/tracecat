@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Collection, Iterable
-from typing import Any, Literal
 
-from pydantic import BaseModel
-from sqlalchemy import Boolean, ColumnElement, and_, false, func, or_, select
+from sqlalchemy import Boolean, ColumnElement, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.controls import has_scope
@@ -33,36 +31,6 @@ UNLINKED_APPROVER_MESSAGE = (
 
 class ApproverNotAllowedError(TracecatAuthorizationError):
     """The decider is outside the preset's approver policy."""
-
-
-class ApproverNotAllowedErrorBody(BaseModel):
-    code: Literal["approver_not_allowed"] = "approver_not_allowed"
-    message: str
-
-
-class ApproverNotAllowedResponse(BaseModel):
-    """HTTP 403 body when the agent's approver policy refuses the decider."""
-
-    detail: str
-    error: ApproverNotAllowedErrorBody
-
-
-APPROVER_NOT_ALLOWED_RESPONSES: dict[int | str, dict[str, Any]] = {
-    403: {
-        "model": ApproverNotAllowedResponse,
-        "description": "The agent's approver policy refuses the decider",
-    }
-}
-
-
-def preset_approvers(
-    workspace_id: WorkspaceID, preset_id: uuid.UUID
-) -> ColumnElement[bool]:
-    """Match the preset's listed approvers."""
-    return and_(
-        AgentPresetApprover.workspace_id == workspace_id,
-        AgentPresetApprover.preset_id == preset_id,
-    )
 
 
 async def _listed_approver_matches(

@@ -26109,6 +26109,10 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * The agent's approver policy refuses the decider
+         */
+        403: ApproverNotAllowedResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError

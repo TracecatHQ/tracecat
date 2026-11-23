@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from sqlalchemy import (
+    ColumnElement,
     CompoundSelect,
     Select,
     Uuid,
+    and_,
     delete,
     literal,
     or_,
@@ -21,7 +23,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import raiseload
 
-from tracecat.agent.approvals.policy import preset_approvers
 from tracecat.agent.preset.schemas import (
     AgentPresetApproverKind,
     AgentPresetApproverRead,
@@ -39,6 +40,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.identifiers import WorkspaceID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseWorkspaceService
 
@@ -59,6 +61,16 @@ class _Principals:
             groups=union(self.groups, other.groups),
             roles=union(self.roles, other.roles),
         )
+
+
+def _preset_approvers(
+    workspace_id: WorkspaceID, preset_id: uuid.UUID
+) -> ColumnElement[bool]:
+    """Match the preset's listed approvers."""
+    return and_(
+        AgentPresetApprover.workspace_id == workspace_id,
+        AgentPresetApprover.preset_id == preset_id,
+    )
 
 
 def _user_read(user: User) -> AgentPresetApproverRead:
@@ -187,13 +199,15 @@ class AgentPresetApproverService(BaseWorkspaceService):
             if approvers
             else []
         )
-        if len(valid) != len(approvers):
+        if {(read.kind, read.id) for read in valid} != {
+            (ref.kind, ref.id) for ref in approvers
+        }:
             raise TracecatValidationError(
                 "Approvers must be workspace members, groups, or roles"
             )
         await self.session.execute(
             delete(AgentPresetApprover).where(
-                preset_approvers(self.workspace_id, preset_id)
+                _preset_approvers(self.workspace_id, preset_id)
             )
         )
         self.session.add_all(
@@ -210,7 +224,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         return valid
 
     def _listed(self, preset_id: uuid.UUID) -> _Principals:
-        listed = preset_approvers(self.workspace_id, preset_id)
+        listed = _preset_approvers(self.workspace_id, preset_id)
         return _Principals(
             users=select(AgentPresetApprover.user_id).where(listed),
             groups=select(AgentPresetApprover.group_id).where(listed),

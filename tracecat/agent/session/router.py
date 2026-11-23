@@ -17,10 +17,8 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
-from tracecat.agent.approvals.policy import (
-    APPROVER_NOT_ALLOWED_RESPONSES,
-    ApproverNotAllowedError,
-)
+from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.schemas import APPROVER_NOT_ALLOWED_RESPONSES
 from tracecat.agent.backends.access import can_use_backend
 from tracecat.agent.backends.registry import (
     get_agent_backends,

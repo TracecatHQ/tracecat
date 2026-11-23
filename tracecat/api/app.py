@@ -51,8 +51,8 @@ from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.admin.slack_app.router import router as admin_slack_app_router
 from tracecat.agent.access.router import router as agent_model_access_router
-from tracecat.agent.approvals.policy import (
-    ApproverNotAllowedError,
+from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.schemas import (
     ApproverNotAllowedErrorBody,
     ApproverNotAllowedResponse,
 )

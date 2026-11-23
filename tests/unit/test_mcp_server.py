@@ -7698,19 +7698,30 @@ async def test_update_agent_preset_requires_existing_slug(
         )
 
 
+_APPROVER_SCOPES = frozenset({"agent:read", "agent:update", "workspace:member:read"})
+
+
 def _patch_approver_services(
-    monkeypatch: pytest.MonkeyPatch, workspace_id: uuid.UUID, approver_service: Any
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_id: uuid.UUID,
+    approver_service: Any,
+    *,
+    scopes: frozenset[str] = _APPROVER_SCOPES,
 ) -> uuid.UUID:
     preset_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=scopes)
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
     class _PresetService:
+        session = object()
+
         async def get_preset_by_slug(self, preset_slug: str) -> Any:
             return SimpleNamespace(id=preset_id) if preset_slug == "triage" else None
 
+    approver_service_class = MagicMock(return_value=approver_service)
+    approver_service_class.with_session.return_value = _AsyncContext(approver_service)
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -7718,9 +7729,7 @@ def _patch_approver_services(
         lambda role: _AsyncContext(_PresetService()),
     )
     monkeypatch.setattr(
-        mcp_server.AgentPresetApproverService,
-        "with_session",
-        lambda role: _AsyncContext(approver_service),
+        mcp_server, "AgentPresetApproverService", approver_service_class
     )
     return preset_id
 
@@ -7755,6 +7764,36 @@ async def test_agent_preset_approver_tools_call_the_approver_service(
     assert listed == [user] and cleared == []
     service.list_approvers.assert_awaited_once_with(preset_id)
     service.replace_approvers.assert_awaited_once_with(preset_id, [])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "kwargs", "scope"),
+    [
+        ("list_agent_preset_approver_options", {}, "agent:read"),
+        ("list_agent_preset_approvers", {"preset_slug": "triage"}, "agent:read"),
+        (
+            "set_agent_preset_approvers",
+            {"preset_slug": "triage", "approvers": []},
+            "agent:update",
+        ),
+    ],
+)
+async def test_agent_preset_approver_tools_require_the_route_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    kwargs: dict[str, Any],
+    scope: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    service = MagicMock()
+    _patch_approver_services(monkeypatch, workspace_id, service, scopes=frozenset())
+
+    with pytest.raises(ToolError, match=f"Missing required scope: .*{scope}"):
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id), **kwargs
+        )
+    assert not service.mock_calls
 
 
 @pytest.mark.anyio

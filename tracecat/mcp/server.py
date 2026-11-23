@@ -12395,6 +12395,7 @@ async def list_agent_preset_approver_options(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read", "workspace:member:read")
         page = PageParams(
             limit=_normalize_limit(
                 limit,
@@ -12414,6 +12415,9 @@ async def list_agent_preset_approver_options(
         )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except TracecatValidationError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -12431,14 +12435,18 @@ async def list_agent_preset_approvers(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read")
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
-        async with AgentPresetApproverService.with_session(role=role) as svc:
-            return await svc.list_approvers(preset.id)
+            approvers = AgentPresetApproverService(svc.session, role=role)
+            return await approvers.list_approvers(preset.id)
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except Exception as e:
         logger.error(
             "Failed to list agent preset approvers",
@@ -12464,14 +12472,20 @@ async def set_agent_preset_approvers(
     try:
         params = AgentPresetApproversUpdate(approvers=approvers)
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:update")
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
-        async with AgentPresetApproverService.with_session(role=role) as svc:
-            return await svc.replace_approvers(preset.id, params.approvers)
+            approvers_service = AgentPresetApproverService(svc.session, role=role)
+            return await approvers_service.replace_approvers(
+                preset.id, params.approvers
+            )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except (ValidationError, TracecatValidationError, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:

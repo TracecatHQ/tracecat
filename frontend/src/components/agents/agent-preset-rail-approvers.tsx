@@ -38,6 +38,8 @@ import {
 } from "@/hooks/use-agent-preset-approvers"
 import { useDebounce } from "@/hooks/use-debounce"
 
+const APPROVER_KIND_ORDER = ["user", "group", "role"] as const
+
 const APPROVER_KINDS: Record<
   AgentPresetApproverKind,
   { heading: string; label: string; Icon: LucideIcon }
@@ -98,6 +100,8 @@ export function AgentPresetApproversPanel({
     addDisabledReason = "Choosing approvers needs permission to view members."
   } else if (!approversQuery.isSuccess) {
     addDisabledReason = "Approvers have not loaded yet."
+  } else if (isPending) {
+    addDisabledReason = "Saving approvers..."
   }
 
   let body = <RailEmpty>{DEFAULT_RULE}</RailEmpty>
@@ -127,7 +131,11 @@ export function AgentPresetApproversPanel({
                   size="icon"
                   className={RAIL_REMOVE_BUTTON}
                   onClick={() =>
-                    save(approvers.filter((other) => other !== approver))
+                    save(
+                      approvers.filter(
+                        (other) => approverKey(other) !== approverKey(approver)
+                      )
+                    )
                   }
                   disabled={!editable}
                   aria-label={`Remove ${approver.name}`}
@@ -153,7 +161,7 @@ export function AgentPresetApproversPanel({
         count={approvers.length}
         addLabel="Add approver"
         onAdd={() => setIsPickerOpen(true)}
-        addDisabled={!editable || !canPick}
+        addDisabled={addDisabledReason !== null}
         addDisabledReason={addDisabledReason}
       />
       {body}
@@ -195,7 +203,6 @@ function ApproverPicker({
   // Until the debounced query catches up, the loaded page answers older text.
   const isCatchingUp = search.trim() !== debouncedSearch.trim()
   const visible = isCatchingUp ? [] : options
-  const kinds = Object.keys(APPROVER_KINDS) as AgentPresetApproverKind[]
   let emptyMessage = "No matches."
   if (isError) {
     emptyMessage = "People, groups, and roles could not be loaded."
@@ -215,7 +222,7 @@ function ApproverPicker({
       />
       <CommandList>
         <CommandEmpty>{emptyMessage}</CommandEmpty>
-        {kinds.map((kind) => {
+        {APPROVER_KIND_ORDER.map((kind) => {
           const { heading, Icon } = APPROVER_KINDS[kind]
           const group = visible.filter((option) => option.kind === kind)
           if (group.length === 0) return null

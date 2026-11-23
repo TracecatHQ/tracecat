@@ -7,10 +7,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.approvals.policy import (
-    APPROVER_NOT_ALLOWED_RESPONSES,
-    ApproverNotAllowedError,
-)
+from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.schemas import APPROVER_NOT_ALLOWED_RESPONSES
 from tracecat.agent.backends.types import AgentControlUncertain
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import TurnLifecycle
@@ -175,7 +173,11 @@ async def submit_approvals(
         ) from exc
 
 
-@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=APPROVER_NOT_ALLOWED_RESPONSES,
+)
 @require_scope("agent:delete")
 async def delete_approval(
     *,

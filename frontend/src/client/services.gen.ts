@@ -9813,6 +9813,7 @@ export const approvalsDeleteApproval = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      403: "The agent's approver policy refuses the decider",
       422: "Validation Error",
     },
   })
