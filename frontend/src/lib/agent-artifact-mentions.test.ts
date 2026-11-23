@@ -60,6 +60,45 @@ describe("remarkArtifactMentions", () => {
     expect(docs).toEqual(link("https://example.com", "docs"))
   })
 
+  it("handles reference-style links to reserved URIs like inline ones", () => {
+    const ref = (identifier: string, text: string) => ({
+      type: "linkReference",
+      identifier,
+      referenceType: "full",
+      children: [{ type: "text", value: text }],
+    })
+    const tree = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [
+            ref("1", "CASE-0142"),
+            ref("2", "Intake"),
+            ref("3", "docs"),
+          ],
+        },
+        { type: "definition", identifier: "1", url: CASE_URI },
+        { type: "definition", identifier: "2", url: FORM_URI },
+        { type: "definition", identifier: "3", url: "https://example.com" },
+      ],
+    }
+
+    remarkArtifactMentions()(tree)
+
+    const [paragraph, ...definitions] = tree.children
+    const [mention, form, docs] = (paragraph.children ?? []) as unknown[]
+    expect(mentionFromHref((mention as { url?: string }).url)).toEqual({
+      type: "case",
+      id: CASE_ID,
+    })
+    expect(form).toEqual({ type: "text", value: "Intake" })
+    expect(docs).toEqual(ref("3", "docs"))
+    expect(definitions).toEqual([
+      { type: "definition", identifier: "3", url: "https://example.com" },
+    ])
+  })
+
   it("never shows an autolink's URI as its text", () => {
     const formURI = FORM_URI
     const tree = {

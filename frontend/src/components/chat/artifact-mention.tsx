@@ -77,9 +77,9 @@ function CaseMentionChip({
   children: ReactNode
 }) {
   const openArtifact = useContext(ArtifactPanelContext)
-  const { data: mentioned } = useMentionedCase(workspaceId, mention.id)
-  // Loading, unknown, or hidden from the viewer.
-  if (!mentioned) return <span>{children}</span>
+  const { data: mentioned, status } = useMentionedCase(workspaceId, mention.id)
+  // Loading, unknown, or hidden; a failed refetch keeps stale data it must not show.
+  if (status !== "success" || !mentioned) return <span>{children}</span>
   const body = (
     <>
       <LayersIcon className="size-3.5 shrink-0 text-muted-foreground" />

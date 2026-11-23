@@ -53,10 +53,40 @@ function isBareURI(link: MarkdownNode): boolean {
   return rest.length === 0 && only?.type === "text" && only.value === link.url
 }
 
-function rewriteLinks(parent: MarkdownNode): void {
+/** Reserved-scheme definitions by identifier; the first one wins, as in Markdown. */
+function reservedDefinitions(
+  node: MarkdownNode,
+  found: Map<string, string> = new Map()
+): Map<string, string> {
+  if (
+    node.type === "definition" &&
+    typeof node.url === "string" &&
+    isReferenceURI(node.url) &&
+    !found.has(String(node.identifier))
+  ) {
+    found.set(String(node.identifier), node.url)
+  }
+  for (const child of node.children ?? []) reservedDefinitions(child, found)
+  return found
+}
+
+function rewriteLinks(
+  parent: MarkdownNode,
+  definitions: Map<string, string>
+): void {
   if (!parent.children) return
-  parent.children = parent.children.flatMap((node) => {
-    rewriteLinks(node)
+  parent.children = parent.children.flatMap((original) => {
+    rewriteLinks(original, definitions)
+    const identifier = String(original.identifier)
+    if (original.type === "definition" && definitions.has(identifier)) return []
+    const referenced =
+      original.type === "linkReference"
+        ? definitions.get(identifier)
+        : undefined
+    // A reference-style link to a reserved URI is handled as the inline link it means.
+    const node: MarkdownNode = referenced
+      ? { type: "link", url: referenced, children: original.children }
+      : original
     if (node.type !== "link" || !node.url || !isReferenceURI(node.url)) {
       return [node]
     }
@@ -80,5 +110,6 @@ function rewriteLinks(parent: MarkdownNode): void {
  * its own text, never a broken or blocked link.
  */
 export function remarkArtifactMentions() {
-  return (tree: MarkdownNode): void => rewriteLinks(tree)
+  return (tree: MarkdownNode): void =>
+    rewriteLinks(tree, reservedDefinitions(tree))
 }

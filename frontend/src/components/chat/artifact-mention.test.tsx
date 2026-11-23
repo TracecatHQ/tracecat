@@ -42,8 +42,10 @@ function renderIn(ui: ReactNode, openArtifact?: jest.Mock) {
       <WorkspaceIdProvider workspaceId="ws-1">{content}</WorkspaceIdProvider>
     </QueryClientProvider>
   )
-  return { user: userEvent.setup(), container }
+  return { user: userEvent.setup(), container, queryClient }
 }
+
+const MENTION_KEY = ["cases", "ws-1", "mention", CASE_ID]
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -114,13 +116,42 @@ it.each([
   ],
 ])("shows the label only %s", async (_name, arrange) => {
   arrange()
-  const { container } = renderIn(
+  const { container, queryClient } = renderIn(
     <ArtifactMentionLink href={CASE_HREF}>CASE-0142</ArtifactMentionLink>,
     jest.fn()
   )
 
-  await waitFor(() => expect(queryCases).toHaveBeenCalled())
+  await waitFor(() =>
+    expect(queryClient.getQueryState(MENTION_KEY)?.fetchStatus).toBe("idle")
+  )
+  expect(queryClient.getQueryState(MENTION_KEY)?.status).not.toBe("pending")
   expect(screen.queryByRole("button")).not.toBeInTheDocument()
+  expect(screen.queryByRole("link")).not.toBeInTheDocument()
+  expect(container.textContent).toBe("CASE-0142")
+})
+
+it("hides a case the viewer lost access to since it was cached", async () => {
+  queryCases.mockRejectedValue(forbidden())
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  queryClient.setQueryData(MENTION_KEY, {
+    id: CASE_ID,
+    short_id: "CASE-0142",
+    status: "in_progress",
+    severity: "high",
+  })
+  const { container } = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceIdProvider workspaceId="ws-1">
+        <ArtifactMentionLink href={CASE_HREF}>CASE-0142</ArtifactMentionLink>
+      </WorkspaceIdProvider>
+    </QueryClientProvider>
+  )
+
+  await waitFor(() =>
+    expect(queryClient.getQueryState(MENTION_KEY)?.status).toBe("error")
+  )
   expect(screen.queryByRole("link")).not.toBeInTheDocument()
   expect(container.textContent).toBe("CASE-0142")
 })
