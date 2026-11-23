@@ -67,10 +67,11 @@ def _validate_identity(
     tool_name: str | None,
     artifact_type: ArtifactMentionType | None,
 ) -> None:
-    # Artifact references, and only they, name a known artifact type.
-    if (kind == ReferenceKind.ARTIFACT) != isinstance(
+    if kind == ReferenceKind.ARTIFACT and not isinstance(
         artifact_type, ArtifactMentionType
     ):
+        raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
+    if kind != ReferenceKind.ARTIFACT and artifact_type is not None:
         raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
     if kind == ReferenceKind.TOOL:
         if (

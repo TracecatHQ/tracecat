@@ -1,6 +1,13 @@
-"""Prompt text that teaches agents the mention format."""
+"""Prompt text that teaches agents the mention format, and which sessions get it."""
 
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tracecat.agent.channel_notifier import channel_renders_mentions
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.auth.types import Role
+from tracecat.db.models import AgentSession
+from tracecat.logger import logger
 
 ARTIFACT_MENTION_PROMPT = (
     "<ArtifactMentions>\n"
@@ -26,8 +33,29 @@ _MENTION_RENDERING_ENTITIES = frozenset(
 )
 
 
-def artifact_mention_prompt(entity_type: str) -> str | None:
-    """The mention prompt for a session, if its replies render mentions."""
-    if entity_type in _MENTION_RENDERING_ENTITIES:
-        return ARTIFACT_MENTION_PROMPT
-    return None
+async def artifact_mention_prompt(
+    role: Role, db: AsyncSession, agent_session: AgentSession
+) -> str | None:
+    """The mention prompt, if every place that shows this session's replies renders mentions."""
+    if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL:
+        if agent_session.entity_type in _MENTION_RENDERING_ENTITIES:
+            return ARTIFACT_MENTION_PROMPT
+        return None
+    if not await channel_renders_mentions(role, agent_session.id):
+        return None
+    # Deferred: the legacy sink imports the Slack handlers, which import the session service.
+    from tracecat.agent.channels.sinks.session import streams_to_legacy_channel
+
+    try:
+        # A savepoint, so a failed lookup leaves the turn's transaction usable.
+        async with db.begin_nested():
+            legacy_streams = await streams_to_legacy_channel(db, agent_session)
+    except SQLAlchemyError as e:
+        logger.warning(
+            "Failed to check the legacy channel sink",
+            session_id=agent_session.id,
+            error=repr(e),
+        )
+        return None
+    # The legacy fan-out streams the raw reply, mentions included.
+    return None if legacy_streams else ARTIFACT_MENTION_PROMPT

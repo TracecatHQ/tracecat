@@ -17,6 +17,7 @@ from tracecat.agent.channel_notifier import (
     TurnFinished,
     TurnStarted,
     approval_batch_id,
+    channel_renders_mentions,
     get_channel_notifier,
     is_channel_linked,
     push_updates,
@@ -161,8 +162,7 @@ async def test_only_a_linked_channel_that_draws_mentions_renders_them(
     installed, entries: tuple[_EntryPoint, ...], renders: bool
 ) -> None:
     installed(*entries)
-    linked = await is_channel_linked(ROLE, SESSION_ID, require_mention_rendering=True)
-    assert linked is renders
+    assert await channel_renders_mentions(ROLE, SESSION_ID) is renders
 
 
 @pytest.mark.anyio
