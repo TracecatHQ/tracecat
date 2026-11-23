@@ -19,13 +19,13 @@ from typing import Protocol
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
+    INTERNAL_TOOL_PREFIX,
     InternalToolHandler,
 )
 from tracecat.auth.types import Role
 from tracecat.logger import logger
 
 INTERNAL_TOOL_PLUGIN_ENTRY_POINT_GROUP = "tracecat.agent_internal_tools"
-INTERNAL_TOOL_PREFIX = "internal."
 # A grant reads the database; a stuck read must not hold the turn's tool compile.
 PLUGIN_GRANT_TIMEOUT_SECONDS = 5
 

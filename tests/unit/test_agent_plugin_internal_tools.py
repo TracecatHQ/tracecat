@@ -208,10 +208,7 @@ def test_approved_internal_calls_route_to_the_trusted_router() -> None:
     assert _approved_internal_tool_name("mcp.Jira.getIssue") is None
 
 
-def test_runtime_payload_marks_granted_plugin_tools_root_only(
-    install: InstallPlugins,
-) -> None:
-    install(_Plugin([_tool(READ), _tool(WRITE)]))
+def test_runtime_payload_marks_plugin_tools_root_only_without_loading_plugins() -> None:
     role = _role()
     assert role.workspace_id is not None
     executor = SandboxedAgentExecutor(
@@ -224,13 +221,14 @@ def test_runtime_payload_marks_granted_plugin_tools_root_only(
             mcp_auth_token="mcp",
             llm_gateway_auth_token="llm",
             allowed_actions={
-                name: _tool(name).definition for name in (READ, "core.http_request")
+                name: _tool(name).definition
+                for name in (READ, "internal.builder.get_session", "core.http_request")
             },
         )
     )
 
     payload = executor._build_runtime_init_payload()
 
-    # Native children share the root's token, so the runtime must know these.
+    # No plugin is installed here: an unloadable plugin's tools still stay root-only.
     assert payload.root_only_actions == [READ]
     assert payload.to_dict()["root_only_actions"] == [READ]

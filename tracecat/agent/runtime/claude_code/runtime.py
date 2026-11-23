@@ -709,20 +709,25 @@ class ClaudeAgentRuntime:
                 return value
         return None
 
+    def _subagent_tool_denial(
+        self, input_data: HookInput, action_name: str
+    ) -> str | None:
+        """Return denial reason for a subagent calling a root-only tool, else None."""
+        # Native children share the root's MCP token, so the hook is the gate.
+        if (
+            self._is_subagent_scope(input_data)
+            and action_name in self._root_only_actions
+        ):
+            return f"Tool '{action_name}' is not available to subagents."
+        return None
+
     def _validate_agent_tool_call(
         self,
         input_data: HookInput,
         tool_name: str,
         tool_input: dict[str, Any],
     ) -> str | None:
-        """Return denial reason for invalid Agent/Task or root-only tool use, else None."""
-        action_name = normalize_mcp_tool_name(tool_name)
-        if (
-            self._is_subagent_scope(input_data)
-            and action_name in self._root_only_actions
-        ):
-            # Native children share the root's MCP token, so the hook is the gate.
-            return f"Tool '{action_name}' is not available to subagents."
+        """Return denial reason for invalid Agent/Task tool use, else None."""
         if tool_name not in AGENT_TOOL_NAMES:
             return None
         if self._is_subagent_scope(input_data):
@@ -1293,11 +1298,9 @@ class ClaudeAgentRuntime:
         tool_input: dict[str, Any] = input_data.get("tool_input", {})
 
         action_name = normalize_mcp_tool_name(tool_name)
-        if denial_reason := self._validate_agent_tool_call(
-            input_data,
-            tool_name,
-            tool_input,
-        ):
+        if denial_reason := self._subagent_tool_denial(
+            input_data, action_name
+        ) or self._validate_agent_tool_call(input_data, tool_name, tool_input):
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
