@@ -86,7 +86,11 @@ from tracecat.agent.authoring_context import (
 )
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.folders.service import AgentFolderService
+from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
+    AgentPresetApproverRef,
+    AgentPresetApproversUpdate,
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetSkillBindingBase,
@@ -12370,6 +12374,87 @@ async def get_agent_preset(
             "Failed to get agent preset", error=str(e), preset_slug=preset_slug
         )
         raise ToolError(f"Failed to get agent preset: {e}") from None
+
+
+@mcp.tool()
+async def list_agent_preset_approver_options(
+    workspace_id: uuid.UUID,
+) -> list[AgentPresetApproverRead]:
+    """List the workspace members, groups, and roles that can approve tool calls.
+
+    Pass picked entries' `kind` and `id` to `set_agent_preset_approvers`.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with AgentPresetApproverService.with_session(role=role) as svc:
+            return await svc.list_options()
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error("Failed to list agent preset approver options", error=str(e))
+        raise ToolError(f"Failed to list agent preset approver options: {e}") from None
+
+
+@mcp.tool()
+async def list_agent_preset_approvers(
+    workspace_id: uuid.UUID, preset_slug: str
+) -> list[AgentPresetApproverRead]:
+    """List who may approve an agent preset's tool calls.
+
+    An empty list means the default rule: anyone who may run the agent decides.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+        async with AgentPresetApproverService.with_session(role=role) as svc:
+            return await svc.list_approvers(preset.id)
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to list agent preset approvers",
+            error=str(e),
+            preset_slug=preset_slug,
+        )
+        raise ToolError(f"Failed to list agent preset approvers: {e}") from None
+
+
+@mcp.tool()
+async def set_agent_preset_approvers(
+    workspace_id: uuid.UUID,
+    preset_slug: str,
+    approvers: list[AgentPresetApproverRef],
+) -> list[AgentPresetApproverRead]:
+    """Replace who may approve an agent preset's tool calls; applies at once.
+
+    Each approver is `{kind, id}` from `list_agent_preset_approver_options`,
+    with `kind` one of `user`, `group`, or `role`. The list replaces the
+    current set. An empty list removes all approvers and restores the default
+    rule: anyone who may run the agent decides.
+    """
+    try:
+        params = AgentPresetApproversUpdate(approvers=approvers)
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+        async with AgentPresetApproverService.with_session(role=role) as svc:
+            return await svc.replace_approvers(preset.id, params.approvers)
+    except ToolError:
+        raise
+    except (ValidationError, TracecatValidationError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(
+            "Failed to set agent preset approvers",
+            error=str(e),
+            preset_slug=preset_slug,
+        )
+        raise ToolError(f"Failed to set agent preset approvers: {e}") from None
 
 
 @mcp.tool()

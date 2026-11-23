@@ -295,6 +295,9 @@ Notes:
 - `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, clear_output_type=False, actions=None, namespaces=None, tool_approvals=None, tool_tunnels=None, mcp_integration_ids=None, retries=None, enable_thinking=None, enable_internet_access=None, skills=None, subagents=None)`
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
+- `list_agent_preset_approver_options(workspace_id)`
+- `list_agent_preset_approvers(workspace_id, preset_slug)`
+- `set_agent_preset_approvers(workspace_id, preset_slug, approvers)`
 - `list_agent_tree(workspace_id, path="/", depth=1, include_presets=True, limit=20, cursor=None)`
 - `create_agent_folder(workspace_id, path, parents=False)`
 - `rename_agent_folder(workspace_id, path, new_name)`
