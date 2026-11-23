@@ -26,7 +26,10 @@ from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.service import (
+    AgentSessionService,
+    refuse_channel_envelope,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
@@ -37,6 +40,7 @@ from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
 from tracecat.storage.object import StoredObject, retrieve_stored_object
 from tracecat.temporal.errors import raise_application_error_from_classification
@@ -161,6 +165,13 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 if agent_session is None:
                     raise_application_error_from_classification(
                         invalid_agent_configuration()
+                    )
+                # A workflow continuing a session must not write a channel card into it.
+                try:
+                    refuse_channel_envelope(input.initial_user_prompt or "")
+                except TracecatValidationError as e:
+                    raise_application_error_from_classification(
+                        invalid_agent_configuration(e)
                     )
                 created = False
             else:

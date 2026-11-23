@@ -284,13 +284,11 @@ def _retried_channel_message(ui_message: Any) -> ChannelMessage | None:
     return None
 
 
-def _refuse_channel_envelope(role: Role, prompt: str) -> None:
-    """Refuse a prompt that reads as a channel message unless a service sent it.
+def refuse_channel_envelope(prompt: str) -> None:
+    """Refuse a prompt that reads as a channel message.
 
-    Channel ingress runs as a service; people and API keys never send envelopes.
+    Channel ingress writes envelopes through ``send_message``, never these paths.
     """
-    if role.type == "service":
-        return
     if ChannelMessage.parse(prompt.lstrip()) is not None:
         raise TracecatValidationError(
             "A message from Tracecat can't be a channel message"
@@ -2233,12 +2231,12 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> None:
         """Refuse a written envelope, or a Retry of one the session never received."""
         if isinstance(request, BasicChatRequest):
-            _refuse_channel_envelope(self.role, request.message)
+            refuse_channel_envelope(request.message)
             return
         retried = _retried_channel_message(request.message)
         if retried is None:
             prompt = _extract_vercel_user_prompt(request.message)
-            _refuse_channel_envelope(self.role, prompt or "")
+            refuse_channel_envelope(prompt or "")
         elif not await self._holds_channel_message(agent_session, retried):
             raise TracecatValidationError(
                 "Only a channel message this session received can be retried"
@@ -2742,7 +2740,7 @@ class AgentSessionService(BaseWorkspaceService):
         The backend deduplicates ``request.id`` across the session, so a retry
         never reaches a later turn.
         """
-        _refuse_channel_envelope(self.role, request.text)
+        refuse_channel_envelope(request.text)
         backend, run_id = await self._get_control_turn(session_id, "steer")
         accepted = await backend.steer(run_id, request.id, request.text)
         return AgentControlReceipt(

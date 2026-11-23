@@ -95,7 +95,7 @@ def _as(svc_role: Role, role_type: str) -> Role:
         ("user", lambda: _vercel({"type": "text", "text": " " + HELD.render()}), False),
         ("user", lambda: BasicChatRequest(message=HELD.render()), False),
         ("user", lambda: _vercel({"type": "text", "text": "triage this"}), True),
-        ("service", lambda: BasicChatRequest(message=FORGED.render()), True),
+        ("service", lambda: BasicChatRequest(message=FORGED.render()), False),
     ],
     ids=[
         "held-retry",
@@ -104,10 +104,10 @@ def _as(svc_role: Role, role_type: str) -> Role:
         "indented-envelope",
         "basic-envelope",
         "plain-text",
-        "channel-ingress",
+        "service-envelope",
     ],
 )
-async def test_only_channel_ingress_writes_an_envelope(
+async def test_no_turn_request_writes_an_envelope(
     session: AsyncSession,
     svc_role: Role,
     channel_session: AgentSession,
