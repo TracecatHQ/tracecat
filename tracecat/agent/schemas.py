@@ -62,6 +62,9 @@ class RunAgentArgs(BaseModel):
     origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
     """Where the prompt entered the session, recorded on its history row. Only
     channel ingress sets ``channel``."""
+    author_id: uuid.UUID | None = None
+    """The prompt's author when it is not the role's user. Only channel
+    ingress sets it, for a linked sender."""
     config: AgentConfig | None = None
     """Configuration for the agent. Required if preset_slug is not provided."""
     preset_slug: str | None = None

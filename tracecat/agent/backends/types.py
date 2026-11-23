@@ -153,6 +153,8 @@ class SessionWorkflowContext:
     max_tool_calls: int | None = None
     # Where the turn's prompt entered the session, recorded on its history row.
     origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
+    # The prompt's author when it is not the role's user: a linked channel sender.
+    author_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +169,8 @@ class SessionTurnContext:
     run_id: UUID
     stream_id: UUID
     origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
+    # The prompt's author when it is not the role's user: a linked channel sender.
+    author_id: UUID | None = None
 
 
 @runtime_checkable

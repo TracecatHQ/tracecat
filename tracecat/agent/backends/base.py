@@ -475,6 +475,7 @@ class AgentBackend[InputT, OutputT](ABC):
                     run_id=context.run_id,
                     stream_id=context.stream_id,
                     origin=context.origin,
+                    author_id=context.author_id,
                 )
             )
             search_attributes = self._search_attributes(context)

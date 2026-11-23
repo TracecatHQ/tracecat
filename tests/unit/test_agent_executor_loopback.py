@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
-from typing import Any, cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -27,6 +27,7 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
     user_agent_execution_failed,
 )
+from tracecat.agent.executor.activity import AgentExecutorInput, prompt_author_id
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -35,6 +36,7 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.types import AgentConfig
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
@@ -334,6 +336,32 @@ async def test_persist_session_line_preserves_raw_nul_content(
     )
     assert handler._persisted_line_uuids == {"line-uuid"}
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize("role_type", ["user", "service"])
+@pytest.mark.parametrize("linked", [True, False], ids=["linked", "unlinked"])
+def test_prompt_author_is_the_linked_sender_else_the_role_user(
+    role_type: Literal["user", "service"], linked: bool
+) -> None:
+    user_id, sender_id = uuid.uuid4(), uuid.uuid4()
+    role = (
+        Role(type="user", user_id=user_id, service_id="tracecat-api")
+        if role_type == "user"
+        else Role(type="service", service_id="tracecat-api")
+    )
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="triage this",
+        author_id=sender_id if linked else None,
+        config=AgentConfig(model_name="test", model_provider="anthropic"),
+        role=role,
+        mcp_auth_token="mcp",
+        llm_gateway_auth_token="llm",
+    )
+
+    expected = sender_id if linked else (user_id if role_type == "user" else None)
+    assert prompt_author_id(executor_input) == expected
 
 
 @pytest.mark.anyio

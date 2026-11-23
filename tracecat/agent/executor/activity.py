@@ -237,6 +237,8 @@ class AgentExecutorInput(BaseModel):
     user_prompt: str
     # Where the prompt entered the session, recorded on its history row.
     origin: UserMessageOrigin | None = None
+    # The prompt's author when it is not the role's user: a linked channel sender.
+    author_id: uuid.UUID | None = None
     config: AgentConfig
     # Role for context
     role: Role
@@ -326,6 +328,13 @@ def _record_failure(
     result.error = message
     result.classification = classification
     result.diagnostic = diagnostic
+
+
+def prompt_author_id(input: AgentExecutorInput) -> uuid.UUID | None:
+    """The prompt's author: a linked channel sender, else the role's user."""
+    if input.author_id is not None:
+        return input.author_id
+    return input.role.user_id if input.role.type == "user" else None
 
 
 def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
@@ -723,9 +732,7 @@ class SandboxedAgentExecutor:
                 workspace_id=self.input.workspace_id,
                 active_stream_id=self.input.active_stream_id,
                 curr_run_id=self.input.curr_run_id,
-                author_id=self.input.role.user_id
-                if self.input.role.type == "user"
-                else None,
+                author_id=prompt_author_id(self.input),
                 origin=self.input.origin,
             )
             handler = LoopbackHandler(input=loopback_input)

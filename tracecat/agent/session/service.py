@@ -2070,6 +2070,7 @@ class AgentSessionService(BaseWorkspaceService):
         run_id: uuid.UUID,
         stream_id: uuid.UUID,
         origin: UserMessageOrigin,
+        author_id: uuid.UUID | None = None,
     ) -> None:
         """Build the turn's config and start it as ``run_id`` on a validated session."""
         session_id = agent_session.id
@@ -2116,6 +2117,7 @@ class AgentSessionService(BaseWorkspaceService):
                     run_id=run_id,
                     stream_id=stream_id,
                     origin=origin,
+                    author_id=author_id,
                 )
             )
 
@@ -2401,11 +2403,13 @@ class AgentSessionService(BaseWorkspaceService):
         text: str,
         request_id: str,
         instructions: str | None = None,
+        author_id: uuid.UUID | None = None,
     ) -> MessageResult:
         """Start a run for the message, or steer or refuse it while one is going.
 
         ``instructions`` is model-only context for a new turn; a steer into a
-        running turn carries only ``text``. When the run that refused the start
+        running turn carries only ``text``. ``author_id`` is the linked Tracecat
+        user who sent it, recorded as the message's author either way. When the run that refused the start
         finishes before the steer, the message is reported busy for that run.
         A steered message retried once the session is free starts a new turn:
         its own run never started, so the retry reads as a new message.
@@ -2419,11 +2423,12 @@ class AgentSessionService(BaseWorkspaceService):
                 text=text,
                 request_id=request_id,
                 instructions=instructions,
+                author_id=author_id,
             )
         except SessionTurnActiveError as e:
             holder = e.run_id
         steered = await self._steer_running_turn(
-            session_id, text=text, request_id=request_id
+            session_id, text=text, request_id=request_id, author_id=author_id
         )
         if isinstance(steered, TurnLifecycle):
             return RunBusy(run_id=holder)
@@ -2436,8 +2441,9 @@ class AgentSessionService(BaseWorkspaceService):
         text: str,
         request_id: str,
         instructions: str | None = None,
+        author_id: uuid.UUID | None = None,
     ) -> RunStarted:
-        """Start a turn for the message.
+        """Start a turn for the message, recording ``author_id`` as its author.
 
         A retry of the same ``request_id`` returns the run the first attempt
         started and re-issues a start whose outcome was lost. Recovery may
@@ -2482,6 +2488,7 @@ class AgentSessionService(BaseWorkspaceService):
                     is_first_prompt=None,
                     run_id=run_id,
                     origin=UserMessageOrigin.CHANNEL,
+                    author_id=author_id,
                     stream_id=uuid.uuid4(),
                 )
                 return RunStarted(run_id=run_id)
@@ -2498,6 +2505,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         text: str,
         request_id: str,
+        author_id: uuid.UUID | None = None,
     ) -> MessageResult:
         """Steer the session's running turn with the message, or report it busy.
 
@@ -2519,7 +2527,7 @@ class AgentSessionService(BaseWorkspaceService):
                 attempt's start of the message was lost.
         """
         steered = await self._steer_running_turn(
-            session_id, text=text, request_id=request_id
+            session_id, text=text, request_id=request_id, author_id=author_id
         )
         if isinstance(steered, TurnLifecycle):
             raise TracecatConflictError(
@@ -2529,7 +2537,12 @@ class AgentSessionService(BaseWorkspaceService):
         return steered
 
     async def _steer_running_turn(
-        self, session_id: uuid.UUID, *, text: str, request_id: str
+        self,
+        session_id: uuid.UUID,
+        *,
+        text: str,
+        request_id: str,
+        author_id: uuid.UUID | None,
     ) -> MessageResult | TurnLifecycle:
         """Steer the session's running turn, or return the lifecycle seen if none."""
         agent_session, backend = await self._message_session(session_id, request_id)
@@ -2560,7 +2573,8 @@ class AgentSessionService(BaseWorkspaceService):
                 curr_run_id,
                 message_run,
                 text,
-                author_id=self.role.user_id if self.role.type == "user" else None,
+                author_id=author_id
+                or (self.role.user_id if self.role.type == "user" else None),
                 origin=UserMessageOrigin.CHANNEL,
             )
         except AgentControlRejected:
