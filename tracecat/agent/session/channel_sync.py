@@ -33,6 +33,8 @@ async def get_channel_sync(
     enabled = await get_channel_sync_enabled(svc, session_id)
     if enabled is not None:
         return AgentSessionChannelSyncRead(available=True, enabled=enabled, linked=True)
+    # End the read transaction: no connection sits idle across the notifier's calls.
+    await svc.session.commit()
     available = await can_open_channel_thread(svc.role, session_id)
     return AgentSessionChannelSyncRead(available=available, enabled=False)
 
@@ -52,6 +54,8 @@ async def set_channel_sync(
         ChannelThreadUnavailable: Turning on a session no thread can be opened for.
     """
     if enabled and await get_channel_sync_enabled(svc, session_id) is None:
+        # End the read transaction: no connection sits idle across the Slack calls.
+        await svc.session.commit()
         if not await open_channel_thread(svc.role, session_id, destination):
             raise ChannelThreadUnavailable(
                 "No channel thread can be opened for this session"

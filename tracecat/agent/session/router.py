@@ -1032,6 +1032,8 @@ async def list_session_channel_destinations(
     _require_session_access((await svc.session_access(agent_session)).act)
     if await get_channel_sync_enabled(svc, session_id) is not None:
         return AgentSessionChannelDestinationsRead(items=[])
+    # End the read transaction: no connection sits idle across the Slack calls.
+    await session.commit()
     return AgentSessionChannelDestinationsRead(
         items=await list_channel_destinations(role, session_id)
     )
