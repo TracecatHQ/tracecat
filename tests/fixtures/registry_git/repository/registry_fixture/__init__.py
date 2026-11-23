@@ -1,0 +1,1 @@
+"""Registry sync fixture package."""

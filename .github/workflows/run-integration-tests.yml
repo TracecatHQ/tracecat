@@ -78,57 +78,9 @@ jobs:
 
           echo "should_run=true" >> "$GITHUB_OUTPUT"
 
-  # ──────────────────────────────────────────────────────────────────
-  # 1.  LIGHTWEIGHT SSH / INSTALL SMOKE-TEST
-  # ──────────────────────────────────────────────────────────────────
-  ssh-sanity:
+  test-integration:
     needs: plan-run
     if: needs.plan-run.outputs.should_run == 'true'
-    environment: internal-registry-ci
-    runs-on: ubuntu-latest
-    timeout-minutes: 5 # short fail-fast window
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-
-      # Load the private deploy key into an ssh-agent.
-      # The secret value MUST be the *raw* PEM text, not base64.
-      - uses: webfactory/ssh-agent@d4b9b8ff72958532804b70bbe600ad43b36d5f2e # v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: "0.13.4"
-
-      - name: Set up Python 3.12
-        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
-        with:
-          python-version: "3.12"
-
-      # Lightweight connectivity check — choose ONE:
-      #
-      # A) Strict git connectivity (fastest, no deps):
-      - name: Verify git over SSH
-        run: git ls-remote git@github.com:TracecatHQ/internal-registry.git HEAD
-      #
-      # B) End-to-end install smoke-test (still <10 s):
-      #- name: Smoke-test pip install via SSH
-      #  run: |
-      #    uv pip install --no-deps --quiet \
-      #      "git+ssh://git@github.com/TracecatHQ/internal-registry.git@main"
-      #    python -c "import importlib, sys; print('import ok:', bool(importlib.import_module('internal_registry', package=None))); sys.exit(0)"
-
-  # ──────────────────────────────────────────────────────────────────
-  # 2.  FULL INTEGRATION TESTS (with pytest-xdist for parallelization)
-  #     Uses worker-specific task queues from conftest.py for isolation
-  # ──────────────────────────────────────────────────────────────────
-  test-integration:
-    needs: [plan-run, ssh-sanity] # only start if key check passed
-    if: needs.plan-run.outputs.should_run == 'true' && needs.ssh-sanity.result == 'success'
-    environment: internal-registry-ci
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 30
     steps:
@@ -212,6 +164,8 @@ jobs:
           set -euo pipefail
 
           compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          fixture_key="$RUNNER_TEMP/registry-fixture-key"
+          ssh-keygen -q -t ed25519 -N '' -C registry-fixture -f "$fixture_key"
 
           # Overlap host dependency setup with service startup.
           uv sync --locked --group dev &
@@ -223,7 +177,8 @@ jobs:
           }
           trap cleanup_uv_sync EXIT
 
-          docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis
+          docker compose "${compose_files[@]}" build registry-git
+          docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis registry-git
 
           # Wait for services with health checks to become healthy
           echo "Waiting for services to become healthy..."
@@ -261,14 +216,19 @@ jobs:
           timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready"
 
+          fixture_commit=$(
+            docker compose "${compose_files[@]}" exec -T --user git registry-git \
+              git --git-dir=/fixtures/registry_fixture.git rev-parse HEAD
+          )
+          printf 'TRACECAT_TEST_REGISTRY_COMMIT_SHA=%s\n' "$fixture_commit" >> "$GITHUB_ENV"
+
           echo "Waiting for Python environment sync..."
           wait "$uv_sync_pid"
           trap - EXIT
 
       - name: Run integration tests
         env:
-          # Expect a base64 encoded key
-          CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
+          TRACECAT_TEST_REGISTRY_KEY_FILE: ${{ runner.temp }}/registry-fixture-key
           # Keep executor-hosted registry sync enabled (run via Temporal)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
           # Tests run on the host, so Temporal must be reachable via localhost
@@ -328,6 +288,7 @@ jobs:
         env:
           TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
+          trap 'rm -f "$RUNNER_TEMP/registry-fixture-key" "$RUNNER_TEMP/registry-fixture-key.pub"' EXIT
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v
 
       - name: Create integration success marker

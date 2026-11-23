@@ -1,0 +1,8 @@
+AllowUsers git
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+DisableForwarding yes
+PermitTTY no
+ForceCommand git-upload-pack '/fixtures/registry_fixture.git'
