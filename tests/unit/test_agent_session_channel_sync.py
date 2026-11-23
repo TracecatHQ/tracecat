@@ -53,6 +53,7 @@ from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
     AgentSessionThread,
+    User,
 )
 
 SESSION_ID = uuid.UUID("00000000-0000-4000-8000-00000000005e")
@@ -298,7 +299,12 @@ async def test_every_retry_of_a_web_message_names_the_run_that_first_sent_it(
     session: AsyncSession, svc_role: Role
 ) -> None:
     web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
-    svc = AgentSessionService(session, svc_role)
+    sender, teammate = _person("sender"), _person("teammate")
+    session.add_all([sender, teammate])
+    await session.flush()
+    svc = AgentSessionService(
+        session, svc_role.model_copy(update={"type": "user", "user_id": sender.id})
+    )
     client_id = f"msg-{uuid.uuid4().hex[:12]}"
     first_run, same_tab_retry, reload_retry, second_reload_retry = (
         uuid.uuid4() for _ in range(4)
@@ -316,6 +322,7 @@ async def test_every_retry_of_a_web_message_names_the_run_that_first_sent_it(
         workspace_id=web.workspace_id,
         kind=MessageKind.CHAT_MESSAGE.value,
         curr_run_id=same_tab_retry,
+        author_id=sender.id,
         content={"type": "user", "message": {"role": "user", "content": "hi"}},
     )
     session.add(retried_row)
@@ -332,6 +339,7 @@ async def test_every_retry_of_a_web_message_names_the_run_that_first_sent_it(
         workspace_id=web.workspace_id,
         kind=MessageKind.CHAT_MESSAGE.value,
         curr_run_id=unrecorded_run,
+        author_id=sender.id,
         content={"type": "user", "message": {"role": "user", "content": "hi"}},
     )
     session.add(unrecorded_row)
@@ -341,6 +349,34 @@ async def test_every_retry_of_a_web_message_names_the_run_that_first_sent_it(
             web.id, str(unrecorded_row.id), second_reload_retry
         )
         == unrecorded_run
+    )
+
+    # A teammate's prompt row is not the sender's message: it names no earlier run.
+    teammate_row = AgentSessionHistory(
+        session_id=web.id,
+        workspace_id=web.workspace_id,
+        kind=MessageKind.CHAT_MESSAGE.value,
+        curr_run_id=first_run,
+        author_id=teammate.id,
+        content={"type": "user", "message": {"role": "user", "content": "hi"}},
+    )
+    session.add(teammate_row)
+    await session.flush()
+    assert (
+        await svc._prompt_origin_run_id(web.id, str(teammate_row.id), uuid.uuid4())
+        is None
+    )
+
+
+def _person(name: str) -> User:
+    return User(
+        id=uuid.uuid4(),
+        email=f"{name}-{uuid.uuid4()}@example.com",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
     )
 
 

@@ -2272,6 +2272,8 @@ class AgentSessionService(BaseWorkspaceService):
                     AgentSessionHistory.id == row_id,
                     AgentSessionHistory.session_id == session_id,
                     AgentSessionHistory.workspace_id == self.workspace_id,
+                    # Only the sender's own prompt: another row's id must not hide a post.
+                    AgentSessionHistory.author_id == self.role.user_id,
                 )
             )
         return await resolve_prompt_origin(
