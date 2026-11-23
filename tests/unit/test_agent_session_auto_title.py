@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from tracecat.agent.llm import LLMCompletionError
-from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -60,7 +59,6 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Users cannot sign in",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=agent_session.title,
         )
 
@@ -91,7 +89,6 @@ async def test_auto_title_uses_service_role_for_generation(user_role: Role) -> N
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Users cannot sign in",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=agent_session.title,
         )
 
@@ -130,7 +127,6 @@ async def test_auto_title_does_not_skip_when_history_exists(role: Role) -> None:
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Do something",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=agent_session.title,
         )
 
@@ -168,7 +164,6 @@ async def test_auto_title_does_not_raise_on_expected_generation_error(
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Find issue",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=agent_session.title,
         )
 
@@ -198,7 +193,6 @@ async def test_auto_title_raises_on_unexpected_generation_error(role: Role) -> N
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Find issue",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=agent_session.title,
         )
 
@@ -218,7 +212,6 @@ async def test_auto_title_skips_empty_prompt(role: Role) -> None:
     await service.auto_title_session_on_first_prompt(
         agent_session,
         "   ",
-        origin=UserMessageOrigin.TRACECAT,
         expected_title=agent_session.title,
     )
 
@@ -246,7 +239,6 @@ async def test_auto_title_skips_when_compare_and_set_guard_fails(role: Role) -> 
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Investigate this approval request",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=agent_session.title,
         )
 
@@ -279,7 +271,6 @@ async def test_auto_title_preserves_manual_rename_after_scheduling(
         await service.auto_title_session_on_first_prompt(
             agent_session,
             "Investigate this approval request",
-            origin=UserMessageOrigin.TRACECAT,
             expected_title=expected_title,
         )
 

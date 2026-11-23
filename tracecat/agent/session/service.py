@@ -237,7 +237,6 @@ async def _auto_title_session(
     *,
     session_id: uuid.UUID,
     user_prompt: str,
-    origin: UserMessageOrigin,
     expected_title: str,
     role: Role,
 ) -> None:
@@ -260,7 +259,6 @@ async def _auto_title_session(
         await service.auto_title_session_on_first_prompt(
             agent_session,
             user_prompt,
-            origin=origin,
             expected_title=expected_title,
         )
 
@@ -365,7 +363,7 @@ class SessionAwaitingApprovalsError(ValueError):
 
 def _display_text(text: str, *, origin: UserMessageOrigin | None) -> str:
     """A user message's text as people read it: a channel message's summary."""
-    if origin is UserMessageOrigin.CHANNEL and (message := ChannelMessage.parse(text)):
+    if origin == UserMessageOrigin.CHANNEL and (message := ChannelMessage.parse(text)):
         return message.summary_text()
     return text
 
@@ -1623,10 +1621,6 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
 
-    def _author_id(self) -> uuid.UUID | None:
-        """The user a message sent as this role is credited to, as the executor does."""
-        return self.role.user_id if self.role.type == "user" else None
-
     async def _existing_user_id(self, user_id: uuid.UUID | None) -> uuid.UUID | None:
         """Return ``user_id`` only when it can satisfy Approval.approved_by."""
         if user_id is None:
@@ -1641,12 +1635,11 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session: AgentSession,
         user_prompt: str,
         *,
-        origin: UserMessageOrigin,
         expected_title: str,
     ) -> None:
-        """Best-effort auto-title on the first prompt."""
+        """Best-effort auto-title on the first prompt, as people read it."""
         entity_type = agent_session.entity_type
-        prompt = _display_text(user_prompt, origin=origin).strip()
+        prompt = user_prompt.strip()
         old_title = expected_title
 
         if agent_session.title != expected_title:
@@ -2132,8 +2125,7 @@ class AgentSessionService(BaseWorkspaceService):
                 task = asyncio.create_task(
                     _auto_title_session(
                         session_id=session_id,
-                        user_prompt=user_prompt,
-                        origin=origin,
+                        user_prompt=_display_text(user_prompt, origin=origin),
                         expected_title=expected_title,
                         role=self.role,
                     )
@@ -2568,7 +2560,7 @@ class AgentSessionService(BaseWorkspaceService):
                 curr_run_id,
                 message_run,
                 text,
-                author_id=self._author_id(),
+                author_id=self.role.user_id if self.role.type == "user" else None,
                 origin=UserMessageOrigin.CHANNEL,
             )
         except AgentControlRejected:
@@ -2779,7 +2771,7 @@ class AgentSessionService(BaseWorkspaceService):
             run_id,
             request.id,
             request.text,
-            author_id=self._author_id(),
+            author_id=self.role.user_id if self.role.type == "user" else None,
             origin=UserMessageOrigin.TRACECAT,
         )
         return AgentControlReceipt(

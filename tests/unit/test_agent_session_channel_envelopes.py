@@ -165,7 +165,7 @@ async def test_a_steer_cannot_carry_an_envelope(
     ],
     ids=["held-retry", "plain-text"],
 )
-async def test_a_retried_channel_message_starts_a_channel_turn(
+async def test_a_turn_records_where_its_prompt_came_from(
     session: AsyncSession,
     svc_role: Role,
     channel_session: AgentSession,

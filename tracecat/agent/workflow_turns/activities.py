@@ -35,7 +35,6 @@ from tracecat.agent.preset.activities import (
     resolve_custom_model_provider_config_activity,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -296,7 +295,6 @@ async def prepare_workflow_agent_turn_activity(
                     await service.auto_title_session_on_first_prompt(
                         agent_session,
                         agent_args.user_prompt,
-                        origin=UserMessageOrigin.TRACECAT,
                         expected_title=agent_session.title,
                     )
             admitting = SessionTurnContext(
