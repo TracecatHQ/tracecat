@@ -106,6 +106,12 @@ jest.mock("@/hooks/use-agent-presets", () => ({
     presetsError: null,
     refetchPresets: jest.fn(),
   })),
+  useAgentPreset: jest.fn(() => ({
+    preset: undefined,
+    presetIsLoading: false,
+    presetError: null,
+    refetchPreset: jest.fn(),
+  })),
 }))
 
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool"
