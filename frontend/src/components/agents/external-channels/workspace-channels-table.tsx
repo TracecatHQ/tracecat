@@ -321,16 +321,12 @@ function ChannelRow({
       <TableCell className="py-2 pl-8">
         <div className="flex min-w-0 items-center gap-1.5">
           <ChannelIcon
-            channel={
-              row.channel_name
-                ? {
-                    id: row.provider_channel_id,
-                    name: row.channel_name,
-                    is_private: row.is_private === true,
-                    is_member: row.is_member === true,
-                  }
-                : undefined
-            }
+            channel={{
+              id: row.provider_channel_id,
+              name: row.channel_name ?? row.provider_channel_id,
+              is_private: row.is_private === true,
+              is_member: row.is_member === true,
+            }}
             conventions={conventions}
           />
           {row.channel_name ? (

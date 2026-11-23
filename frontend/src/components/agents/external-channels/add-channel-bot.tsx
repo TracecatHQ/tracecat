@@ -13,6 +13,7 @@ import { ProviderIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -209,22 +210,24 @@ function PickAgentDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium">{label}</p>
-          <AgentSelect
-            label={label}
-            value={agentId}
-            agents={agents}
-            disabled={busy}
-            onChange={setChosen}
-          />
-          <p className="text-xs text-muted-foreground">{hint}</p>
-        </div>
+        <DialogBody>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium">{label}</p>
+            <AgentSelect
+              label={label}
+              value={agentId}
+              agents={agents}
+              disabled={busy}
+              onChange={setChosen}
+            />
+            <p className="text-xs text-muted-foreground">{hint}</p>
+          </div>
+        </DialogBody>
         <DialogFooter>
           <Button
             type="button"

@@ -213,7 +213,7 @@ describe("Workspace channels table", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull()
   })
 
-  it("is not shown without bots or the preview entitlement", async () => {
+  it("is not shown without the preview entitlement", async () => {
     serveEntitlements({ agent_channels: true })
     renderChannelsPage()
     expect(
