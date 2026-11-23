@@ -65,7 +65,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
-from tracecat.agent.channel_users.enums import ChannelAccessPolicy, ChannelLinkMethod
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
@@ -4945,7 +4945,6 @@ class AgentChannelUser(TimestampMixin, Base):
             "provider_user_id",
             name="uq_agent_channel_user_org_provider_identity",
         ),
-        CheckConstraint("link_method IN ('email', 'challenge')", name="link_method"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
@@ -4955,15 +4954,11 @@ class AgentChannelUser(TimestampMixin, Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True, index=True
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    link_method: Mapped[ChannelLinkMethod] = mapped_column(String(16), nullable=False)
     # Display only; authority never reads it.
     provider_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    linked_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
-    )
 
 
 class AgentSessionThread(TimestampMixin, Base):

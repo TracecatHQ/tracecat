@@ -1,4 +1,4 @@
-"""Channel sender identity and evidence, as the channel ingress reports them."""
+"""Channel sender identity, as the channel ingress reports it."""
 
 from __future__ import annotations
 
@@ -23,16 +23,6 @@ class ProviderSignIn:
 
     identity: ChannelIdentity
     email: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ChannelSenderEvidence(ChannelIdentity):
-    """What the provider says about a sender; email counts only when it qualifies."""
-
-    email: str | None
-    email_confirmed: bool
-    is_guest: bool
-    is_external: bool
 
 
 @dataclass(frozen=True, slots=True)

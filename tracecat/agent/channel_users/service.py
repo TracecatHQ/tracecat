@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, and_, exists, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, delete, exists, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,6 @@ from tracecat.agent.channel_users.enums import (
     ChannelAccessPolicy,
     ChannelAction,
     ChannelLinkError,
-    ChannelLinkMethod,
 )
 from tracecat.agent.channel_users.schemas import (
     AgentChannelUserRead,
@@ -32,25 +31,19 @@ from tracecat.agent.channel_users.tokens import (
     mint_sign_in_state,
     read_link_token,
 )
-from tracecat.agent.channel_users.types import (
-    ChannelActor,
-    ChannelIdentity,
-    ChannelSenderEvidence,
-)
+from tracecat.agent.channel_users.types import ChannelActor, ChannelIdentity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import query_effective_scopes
 from tracecat.db.models import (
     AgentChannelUser,
-    OrganizationDomain,
     OrganizationMembership,
     User,
     Workspace,
 )
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import OrganizationID, WorkspaceID
-from tracecat.organization.domains import normalize_domain
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.redis.client import get_redis_client
 from tracecat.tiers.access import require_org_entitlement
@@ -93,32 +86,26 @@ async def _upsert_link(
     organization_id: OrganizationID,
     identity: ChannelIdentity,
     user_id: uuid.UUID,
-    link_method: ChannelLinkMethod,
     provider_email: str | None,
-    where: ColumnElement[bool] | None = None,
-) -> uuid.UUID | None:
-    """Link `identity` to `user_id`; None when `where` keeps the existing row."""
+) -> None:
+    """Link `identity` to `user_id`, replacing any earlier link of it."""
     statement = pg_insert(AgentChannelUser).values(
         organization_id=organization_id,
         provider=identity.provider,
         provider_tenant_id=identity.provider_tenant_id,
         provider_user_id=identity.provider_user_id,
         user_id=user_id,
-        link_method=link_method,
         provider_email=provider_email,
     )
-    return await session.scalar(
+    await session.execute(
         statement.on_conflict_do_update(
             constraint="uq_agent_channel_user_org_provider_identity",
             set_={
                 "user_id": user_id,
-                "link_method": link_method,
                 "provider_email": provider_email,
-                "linked_at": func.now(),
                 "updated_at": func.now(),
             },
-            where=where,
-        ).returning(AgentChannelUser.id)
+        )
     )
 
 
@@ -135,96 +122,25 @@ def _identity_matches(identity: ChannelIdentity) -> ColumnElement[bool]:
     )
 
 
-async def _email_member(
-    session: AsyncSession,
-    *,
-    organization_id: OrganizationID,
-    evidence: ChannelSenderEvidence,
-) -> User | None:
-    """The current member owning a qualifying sender email on a verified org domain."""
-    if (
-        evidence.email is None
-        or not evidence.email_confirmed
-        or evidence.is_guest
-        or evidence.is_external
-    ):
-        return None
-    _, at, domain = evidence.email.rpartition("@")
-    if not at:
-        return None
-    try:
-        normalized_domain = normalize_domain(domain).normalized_domain
-    except ValueError:
-        return None
-    verified_domain = exists().where(
-        OrganizationDomain.organization_id == organization_id,
-        OrganizationDomain.normalized_domain == normalized_domain,
-        OrganizationDomain.is_active.is_(True),
-        # Platform-admin assignment is the verification; other methods need proof.
-        or_(
-            OrganizationDomain.verified_at.is_not(None),
-            OrganizationDomain.verification_method == "platform_admin",
-        ),
-    )
-    return await session.scalar(
-        select(User).where(
-            func.lower(_USERS.c.email) == evidence.email.lower(),
-            _is_current_member(organization_id),
-            verified_domain,
-        )
-    )
-
-
 async def resolve_channel_actor(
     session: AsyncSession,
     *,
     organization_id: OrganizationID,
-    evidence: ChannelSenderEvidence,
+    identity: ChannelIdentity,
 ) -> ChannelActor:
-    """Resolve a sender to a current org member: stored challenge link first, else email.
-
-    An email match is stored as an email link; an email link whose evidence no longer
-    qualifies resolves to no user and keeps its row.
-    Storing an email link commits `session`; pass one with no pending writes.
-    """
-    unlinked = ChannelActor(user_id=None, name=None, email=None)
-    link = await session.scalar(
-        select(AgentChannelUser).where(
+    """Resolve a sender to the current org member it is linked to, else unlinked."""
+    user = await session.scalar(
+        select(User)
+        .join(AgentChannelUser, AgentChannelUser.user_id == _USERS.c.id)
+        .where(
             AgentChannelUser.organization_id == organization_id,
-            _identity_matches(evidence),
+            _identity_matches(identity),
+            _is_current_member(organization_id),
         )
     )
-    if link is not None:
-        if link.user_id is None:
-            # Unlinked or its user deleted: only a new challenge links it again.
-            return unlinked
-        if link.link_method == ChannelLinkMethod.CHALLENGE:
-            user = await _current_member(session, organization_id, link.user_id)
-            return unlinked if user is None else _actor(user)
-
-    user = await _email_member(
-        session, organization_id=organization_id, evidence=evidence
-    )
     if user is None:
-        return unlinked
-    if link is not None and link.user_id == user.id:
-        return _actor(user)
-    stored = await _upsert_link(
-        session,
-        organization_id=organization_id,
-        identity=evidence,
-        user_id=user.id,
-        link_method=ChannelLinkMethod.EMAIL,
-        provider_email=evidence.email,
-        # Never replaces a challenge link, nor revives an unlinked row.
-        where=and_(
-            AgentChannelUser.link_method == ChannelLinkMethod.EMAIL,
-            AgentChannelUser.user_id.is_not(None),
-        ),
-    )
-    await session.commit()
-    # A concurrent challenge or unlink won the row; resolve again next event.
-    return unlinked if stored is None else _actor(user)
+        return ChannelActor(user_id=None, name=None, email=None)
+    return _actor(user)
 
 
 async def check_channel_access(
@@ -356,7 +272,7 @@ async def complete_channel_link(
     code: str,
     user_id: uuid.UUID,
 ) -> None:
-    """Link the provider user who signed in to `user_id`, replacing any email link.
+    """Link the provider user who signed in to `user_id`, replacing any earlier link.
 
     Raises:
         ChannelLinkInvalid: If another user confirmed, the user left the org, the
@@ -392,7 +308,6 @@ async def complete_channel_link(
             organization_id=claims.organization_id,
             identity=signed_in.identity,
             user_id=user_id,
-            link_method=ChannelLinkMethod.CHALLENGE,
             provider_email=signed_in.email,
         )
         await session.commit()
@@ -409,18 +324,10 @@ async def unlink_channel_user(
     link_id: uuid.UUID,
     user_id: uuid.UUID | None,
 ) -> bool:
-    """Unlink, only `user_id`'s own link when given; past actions keep their actor.
-
-    The row stays with no user so an email match cannot relink it; a challenge can.
-    """
-    statement = (
-        update(AgentChannelUser)
-        .where(
-            AgentChannelUser.id == link_id,
-            AgentChannelUser.organization_id == organization_id,
-            AgentChannelUser.user_id.is_not(None),
-        )
-        .values(user_id=None, provider_email=None, updated_at=func.now())
+    """Delete a link, only `user_id`'s own when given; past actions keep their actor."""
+    statement = delete(AgentChannelUser).where(
+        AgentChannelUser.id == link_id,
+        AgentChannelUser.organization_id == organization_id,
     )
     if user_id is not None:
         statement = statement.where(AgentChannelUser.user_id == user_id)
@@ -438,8 +345,7 @@ async def list_channel_users(
 ) -> CursorPaginatedResponse[AgentChannelUserRead]:
     """A page of the org's links, only `user_id`'s when given; newest first."""
     statement = select(AgentChannelUser).where(
-        AgentChannelUser.organization_id == organization_id,
-        AgentChannelUser.user_id.is_not(None),
+        AgentChannelUser.organization_id == organization_id
     )
     if user_id is not None:
         statement = statement.where(AgentChannelUser.user_id == user_id)

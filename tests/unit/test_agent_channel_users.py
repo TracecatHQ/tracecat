@@ -21,11 +21,7 @@ from tracecat import config
 from tracecat.agent.channel_users import router as channel_users_router
 from tracecat.agent.channel_users import service as channel_users_service
 from tracecat.agent.channel_users import tokens
-from tracecat.agent.channel_users.enums import (
-    ChannelAccessPolicy,
-    ChannelAction,
-    ChannelLinkMethod,
-)
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy, ChannelAction
 from tracecat.agent.channel_users.service import (
     ChannelApproverNotAllowed,
     ChannelLinkRequired,
@@ -42,11 +38,7 @@ from tracecat.agent.channel_users.tokens import (
     read_link_token,
     read_sign_in_state,
 )
-from tracecat.agent.channel_users.types import (
-    ChannelIdentity,
-    ChannelSenderEvidence,
-    ProviderSignIn,
-)
+from tracecat.agent.channel_users.types import ChannelIdentity, ProviderSignIn
 from tracecat.api.app import (
     entitlement_exception_handler,
     scope_denied_exception_handler,
@@ -61,7 +53,6 @@ from tracecat.db.models import (
     AgentChannelUser,
     AgentPreset,
     Organization,
-    OrganizationDomain,
     OrganizationTier,
     Tier,
     User,
@@ -80,47 +71,10 @@ TENANT = "T0000TEST"
 class _Org:
     organization_id: uuid.UUID
     workspace_id: uuid.UUID
-    domain: str
 
 
-def _evidence(
-    provider_user_id: str,
-    email: str | None = None,
-    *,
-    email_confirmed: bool = True,
-    is_guest: bool = False,
-    is_external: bool = False,
-) -> ChannelSenderEvidence:
-    return ChannelSenderEvidence(
-        provider=PROVIDER,
-        provider_tenant_id=TENANT,
-        provider_user_id=provider_user_id,
-        email=email,
-        email_confirmed=email_confirmed,
-        is_guest=is_guest,
-        is_external=is_external,
-    )
-
-
-async def _add_domain(
-    session: AsyncSession,
-    organization_id: uuid.UUID,
-    *,
-    is_active: bool = True,
-    verification_method: str = "platform_admin",
-) -> str:
-    domain = f"{uuid.uuid4().hex[:12]}.example.com"
-    session.add(
-        OrganizationDomain(
-            organization_id=organization_id,
-            domain=domain,
-            normalized_domain=domain,
-            is_active=is_active,
-            verification_method=verification_method,
-        )
-    )
-    await session.commit()
-    return domain
+def _identity(provider_user_id: str) -> ChannelIdentity:
+    return ChannelIdentity(PROVIDER, TENANT, provider_user_id)
 
 
 async def _user(
@@ -129,11 +83,10 @@ async def _user(
     *,
     member: bool = True,
     workspace_role: str | None = "workspace-editor",
-    domain: str | None = None,
 ) -> User:
     user = User(
         id=uuid.uuid4(),
-        email=f"user-{uuid.uuid4().hex[:8]}@{domain or org.domain}",
+        email=f"user-{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="unused",
         is_active=True,
         is_verified=True,
@@ -160,8 +113,7 @@ async def _link(
     session: AsyncSession,
     org: _Org,
     provider_user_id: str,
-    user: User | None,
-    method: ChannelLinkMethod = ChannelLinkMethod.CHALLENGE,
+    user: User,
 ) -> None:
     session.add(
         AgentChannelUser(
@@ -169,8 +121,7 @@ async def _link(
             provider=PROVIDER,
             provider_tenant_id=TENANT,
             provider_user_id=provider_user_id,
-            user_id=None if user is None else user.id,
-            link_method=method,
+            user_id=user.id,
         )
     )
     await session.commit()
@@ -210,24 +161,13 @@ async def org(session: AsyncSession, svc_role: Role) -> _Org:
     assert svc_role.organization_id is not None and svc_role.workspace_id is not None
     await seed_system_scopes(session)
     await seed_system_roles_for_org(session, svc_role.organization_id)
-    domain = await _add_domain(session, svc_role.organization_id)
-    return _Org(svc_role.organization_id, svc_role.workspace_id, domain)
+    return _Org(svc_role.organization_id, svc_role.workspace_id)
 
 
-SENDER_STATES = (
-    "linked_editor",
-    "linked_viewer",
-    "email_editor",
-    "unlinked",
-    "guest",
-    "external",
-    "non_member",
-)
+SENDER_STATES = ("linked_editor", "linked_viewer", "unlinked", "non_member")
 
 
-async def _sender(
-    session: AsyncSession, org: _Org, state: str
-) -> ChannelSenderEvidence:
+async def _sender(session: AsyncSession, org: _Org, state: str) -> ChannelIdentity:
     provider_user_id = f"U{uuid.uuid4().hex[:8]}"
     match state:
         case "linked_editor" | "linked_viewer":
@@ -236,24 +176,10 @@ async def _sender(
             )
             user = await _user(session, org, workspace_role=role)
             await _link(session, org, provider_user_id, user)
-            return _evidence(provider_user_id)
-        case "email_editor":
-            user = await _user(session, org)
-            return _evidence(provider_user_id, user.email)
-        case "guest" | "external":
-            user = await _user(session, org)
-            return _evidence(
-                provider_user_id,
-                user.email,
-                is_guest=state == "guest",
-                is_external=state == "external",
-            )
         case "non_member":
             user = await _user(session, org, member=False)
             await _link(session, org, provider_user_id, user)
-            return _evidence(provider_user_id, user.email)
-        case _:
-            return _evidence(provider_user_id)
+    return _identity(provider_user_id)
 
 
 OK, LINK, DENY = None, ChannelLinkRequired, ChannelApproverNotAllowed
@@ -262,15 +188,15 @@ _P, _A = ChannelAccessPolicy, ChannelAction
 EXPECTED_ROWS: dict[
     tuple[ChannelAccessPolicy, ChannelAction], tuple[type[Exception] | None, ...]
 ] = {
-    (_P.OPEN, _A.MESSAGE): (OK, OK, OK, OK, OK, OK, OK),
-    (_P.OPEN, _A.STOP): (OK, OK, OK, OK, OK, OK, OK),
-    (_P.OPEN, _A.APPROVE): (OK, OK, OK, OK, OK, OK, OK),
-    (_P.LINKED_APPROVALS, _A.MESSAGE): (OK, OK, OK, OK, OK, OK, OK),
-    (_P.LINKED_APPROVALS, _A.STOP): (OK, OK, OK, OK, OK, OK, OK),
-    (_P.LINKED_APPROVALS, _A.APPROVE): (OK, DENY, OK, LINK, LINK, LINK, LINK),
-    (_P.LINKED_ONLY, _A.MESSAGE): (OK, OK, OK, LINK, LINK, LINK, LINK),
-    (_P.LINKED_ONLY, _A.STOP): (OK, OK, OK, LINK, LINK, LINK, LINK),
-    (_P.LINKED_ONLY, _A.APPROVE): (OK, DENY, OK, LINK, LINK, LINK, LINK),
+    (_P.OPEN, _A.MESSAGE): (OK, OK, OK, OK),
+    (_P.OPEN, _A.STOP): (OK, OK, OK, OK),
+    (_P.OPEN, _A.APPROVE): (OK, OK, OK, OK),
+    (_P.LINKED_APPROVALS, _A.MESSAGE): (OK, OK, OK, OK),
+    (_P.LINKED_APPROVALS, _A.STOP): (OK, OK, OK, OK),
+    (_P.LINKED_APPROVALS, _A.APPROVE): (OK, DENY, LINK, LINK),
+    (_P.LINKED_ONLY, _A.MESSAGE): (OK, OK, LINK, LINK),
+    (_P.LINKED_ONLY, _A.STOP): (OK, OK, LINK, LINK),
+    (_P.LINKED_ONLY, _A.APPROVE): (OK, DENY, LINK, LINK),
 }
 EXPECTED = {
     (policy, action, state): outcome
@@ -289,9 +215,9 @@ async def test_channel_access_matrix(
     action: ChannelAction,
     state: str,
 ) -> None:
-    evidence = await _sender(session, org, state)
+    identity = await _sender(session, org, state)
     actor = await resolve_channel_actor(
-        session, organization_id=org.organization_id, evidence=evidence
+        session, organization_id=org.organization_id, identity=identity
     )
     expected = EXPECTED[policy, action, state]
     check = check_channel_access(
@@ -308,76 +234,15 @@ async def test_channel_access_matrix(
             await check
 
 
-async def test_email_match_stores_an_email_link(
+async def test_a_matching_email_does_not_link_a_sender(
     session: AsyncSession, org: _Org
 ) -> None:
-    user = await _user(session, org)
+    await _user(session, org)
     actor = await resolve_channel_actor(
-        session,
-        organization_id=org.organization_id,
-        evidence=_evidence("U1", user.email.upper()),
-    )
-    assert actor.user_id == user.id and actor.email == user.email
-    link = await session.scalar(
-        select(AgentChannelUser).where(AgentChannelUser.provider_user_id == "U1")
-    )
-    assert link is not None and link.link_method == ChannelLinkMethod.EMAIL
-    assert link.provider_email == user.email.upper()
-
-
-@pytest.mark.parametrize(
-    "case",
-    ["unconfirmed", "unverified_domain", "inactive_domain", "foreign_domain", "left"],
-)
-async def test_email_match_refuses_unqualified_evidence(
-    session: AsyncSession, org: _Org, case: str
-) -> None:
-    domain = org.domain
-    if case == "unverified_domain":
-        domain = await _add_domain(
-            session, org.organization_id, verification_method="dns"
-        )
-    elif case == "inactive_domain":
-        domain = await _add_domain(session, org.organization_id, is_active=False)
-    elif case == "foreign_domain":
-        domain = f"{uuid.uuid4().hex[:12]}.example.org"
-    user = await _user(session, org, member=case != "left", domain=domain)
-    evidence = _evidence("U2", user.email, email_confirmed=case != "unconfirmed")
-    actor = await resolve_channel_actor(
-        session, organization_id=org.organization_id, evidence=evidence
+        session, organization_id=org.organization_id, identity=_identity("U1")
     )
     assert actor.user_id is None
-
-
-async def test_email_link_stops_resolving_when_evidence_no_longer_qualifies(
-    session: AsyncSession, org: _Org
-) -> None:
-    user = await _user(session, org)
-    await _link(session, org, "U3", user, ChannelLinkMethod.EMAIL)
-    actor = await resolve_channel_actor(
-        session,
-        organization_id=org.organization_id,
-        evidence=_evidence("U3", user.email, is_guest=True),
-    )
-    assert actor.user_id is None
-    link = await session.scalar(
-        select(AgentChannelUser).where(AgentChannelUser.provider_user_id == "U3")
-    )
-    assert link is not None and link.user_id == user.id
-
-
-async def test_email_never_replaces_a_challenge_link(
-    session: AsyncSession, org: _Org
-) -> None:
-    linked = await _user(session, org)
-    other = await _user(session, org)
-    await _link(session, org, "U4", linked)
-    actor = await resolve_channel_actor(
-        session,
-        organization_id=org.organization_id,
-        evidence=_evidence("U4", other.email),
-    )
-    assert actor.user_id == linked.id
+    assert await session.scalar(select(AgentChannelUser.id)) is None
 
 
 async def test_same_provider_user_is_isolated_per_organization(
@@ -388,25 +253,21 @@ async def test_same_provider_user_is_isolated_per_organization(
     )
     session.add(other_org_row)
     await session.commit()
-    other = _Org(
-        other_org_row.id,
-        org.workspace_id,
-        await _add_domain(session, other_org_row.id),
-    )
+    other = _Org(other_org_row.id, org.workspace_id)
     user_a = await _user(session, org)
     user_b = await _user(session, other, workspace_role=None)
     await _link(session, org, "U5", user_a)
 
     in_b = await resolve_channel_actor(
-        session, organization_id=other.organization_id, evidence=_evidence("U5")
+        session, organization_id=other.organization_id, identity=_identity("U5")
     )
     assert in_b.user_id is None
     await _link(session, other, "U5", user_b)
     in_a = await resolve_channel_actor(
-        session, organization_id=org.organization_id, evidence=_evidence("U5")
+        session, organization_id=org.organization_id, identity=_identity("U5")
     )
     in_b = await resolve_channel_actor(
-        session, organization_id=other.organization_id, evidence=_evidence("U5")
+        session, organization_id=other.organization_id, identity=_identity("U5")
     )
     assert (in_a.user_id, in_b.user_id) == (user_a.id, user_b.id)
 
@@ -432,13 +293,13 @@ def _sign_in(org: _Org, provider_user_id: str, user: User) -> str:
     return mint_sign_in_state(link_token=token, user_id=user.id)
 
 
-async def test_challenge_links_once_and_replaces_an_email_link(
+async def test_challenge_links_once_and_replaces_an_earlier_link(
     session: AsyncSession, org: _Org, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await _entitle(session, org.organization_id, monkeypatch)
-    email_user = await _user(session, org)
+    earlier = await _user(session, org)
     user = await _user(session, org)
-    await _link(session, org, "U6", email_user, ChannelLinkMethod.EMAIL)
+    await _link(session, org, "U6", earlier)
     admin = _SignedInAs(ChannelIdentity(PROVIDER, TENANT, "U6"))
     monkeypatch.setattr(
         channel_users_service, "require_channel_bot_admin", lambda: admin
@@ -447,7 +308,7 @@ async def test_challenge_links_once_and_replaces_an_email_link(
 
     await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
     actor = await resolve_channel_actor(
-        session, organization_id=org.organization_id, evidence=_evidence("U6")
+        session, organization_id=org.organization_id, identity=_identity("U6")
     )
     assert actor.user_id == user.id
     link = await session.scalar(
@@ -504,7 +365,7 @@ async def test_a_wrong_account_sign_in_leaves_the_link_usable(
     await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
 
     actor = await resolve_channel_actor(
-        session, organization_id=org.organization_id, evidence=_evidence("U11")
+        session, organization_id=org.organization_id, identity=_identity("U11")
     )
     assert actor.user_id == user.id
 
@@ -531,7 +392,7 @@ async def test_a_failed_link_write_leaves_the_link_usable(
     await complete_channel_link(session, sign_in=sign_in, code="c", user_id=user.id)
 
     actor = await resolve_channel_actor(
-        session, organization_id=org.organization_id, evidence=_evidence("U12")
+        session, organization_id=org.organization_id, identity=_identity("U12")
     )
     assert actor.user_id == user.id
 
@@ -588,11 +449,9 @@ async def test_unlink_removes_future_authority(
     assert await unlink_channel_user(
         session, organization_id=org.organization_id, link_id=link_id, user_id=user.id
     )
-    # A still-qualifying email does not relink an unlinked sender.
+    assert await session.scalar(select(AgentChannelUser.id)) is None
     actor = await resolve_channel_actor(
-        session,
-        organization_id=org.organization_id,
-        evidence=_evidence("U9", user.email),
+        session, organization_id=org.organization_id, identity=_identity("U9")
     )
     assert actor.user_id is None
     with pytest.raises(ChannelLinkRequired):

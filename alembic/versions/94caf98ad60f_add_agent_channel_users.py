@@ -31,15 +31,8 @@ def upgrade() -> None:
         sa.Column("provider", sa.String(length=32), nullable=False),
         sa.Column("provider_tenant_id", sa.String(length=255), nullable=False),
         sa.Column("provider_user_id", sa.String(length=255), nullable=False),
-        sa.Column("user_id", sa.UUID(), nullable=True),
-        sa.Column("link_method", sa.String(length=16), nullable=False),
+        sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("provider_email", sa.String(length=320), nullable=True),
-        sa.Column(
-            "linked_at",
-            sa.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -52,10 +45,6 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.CheckConstraint(
-            "link_method IN ('email', 'challenge')",
-            name=op.f("ck_agent_channel_user_link_method"),
-        ),
         sa.ForeignKeyConstraint(
             ["organization_id"],
             ["organization.id"],
@@ -66,7 +55,7 @@ def upgrade() -> None:
             ["user_id"],
             ["user.id"],
             name=op.f("fk_agent_channel_user_user_id_user"),
-            ondelete="SET NULL",
+            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_agent_channel_user")),
         sa.UniqueConstraint(

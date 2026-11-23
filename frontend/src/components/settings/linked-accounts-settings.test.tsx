@@ -26,9 +26,7 @@ const LINK = {
   provider_tenant_id: "T0000TEST",
   provider_user_id: "U0000TEST",
   user_id: "user-1",
-  link_method: "challenge" as const,
   provider_email: "slack-user@example.com",
-  linked_at: "2026-01-02T00:00:00Z",
 }
 
 function renderSettings() {

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict
 
 from tracecat import config
-from tracecat.agent.channel_users.enums import ChannelLinkMethod
 
 CHANNEL_LINKS_PREFIX = "/agent/channel-links"
 CHANNEL_LINK_CALLBACK_ROUTE = f"{CHANNEL_LINKS_PREFIX}/callback"
@@ -42,7 +40,5 @@ class AgentChannelUserRead(BaseModel):
     provider: str
     provider_tenant_id: str
     provider_user_id: str
-    user_id: uuid.UUID | None
-    link_method: ChannelLinkMethod
+    user_id: uuid.UUID
     provider_email: str | None
-    linked_at: datetime

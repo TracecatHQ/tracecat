@@ -586,10 +586,8 @@ export type AgentChannelUserRead = {
   provider: string
   provider_tenant_id: string
   provider_user_id: string
-  user_id: string | null
-  link_method: ChannelLinkMethod
+  user_id: string
   provider_email: string | null
-  linked_at: string
 }
 
 /**
@@ -3983,11 +3981,6 @@ export type ChannelBotStatus =
  * How a bot's events arrive: posted to our endpoint, or read from a provider socket.
  */
 export type ChannelBotTransport = "http" | "socket"
-
-/**
- * How a channel sender was linked to a Tracecat user.
- */
-export type ChannelLinkMethod = "email" | "challenge"
 
 /**
  * Where to send the browser to prove the provider identity.

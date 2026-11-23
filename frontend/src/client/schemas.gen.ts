@@ -1893,19 +1893,9 @@ export const $AgentChannelUserRead = {
       title: "Provider User Id",
     },
     user_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid",
       title: "User Id",
-    },
-    link_method: {
-      $ref: "#/components/schemas/ChannelLinkMethod",
     },
     provider_email: {
       anyOf: [
@@ -1918,11 +1908,6 @@ export const $AgentChannelUserRead = {
       ],
       title: "Provider Email",
     },
-    linked_at: {
-      type: "string",
-      format: "date-time",
-      title: "Linked At",
-    },
   },
   type: "object",
   required: [
@@ -1931,9 +1916,7 @@ export const $AgentChannelUserRead = {
     "provider_tenant_id",
     "provider_user_id",
     "user_id",
-    "link_method",
     "provider_email",
-    "linked_at",
   ],
   title: "AgentChannelUserRead",
   description: "A linked provider user.",
@@ -14796,13 +14779,6 @@ export const $ChannelBotTransport = {
   title: "ChannelBotTransport",
   description:
     "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
-} as const
-
-export const $ChannelLinkMethod = {
-  type: "string",
-  enum: ["email", "challenge"],
-  title: "ChannelLinkMethod",
-  description: "How a channel sender was linked to a Tracecat user.",
 } as const
 
 export const $ChannelLinkSignInRead = {

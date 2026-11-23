@@ -20,13 +20,6 @@ class ChannelAction(StrEnum):
     APPROVE = "approve"
 
 
-class ChannelLinkMethod(StrEnum):
-    """How a channel sender was linked to a Tracecat user."""
-
-    EMAIL = "email"
-    CHALLENGE = "challenge"
-
-
 class ChannelLinkError(StrEnum):
     """Why linking failed; the link page maps each to fixed copy."""
 
