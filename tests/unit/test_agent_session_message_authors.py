@@ -15,7 +15,8 @@ from tracecat.agent.session.activities import (
     LoadSessionMessagesInput,
     load_session_messages_activity,
 )
-from tracecat.agent.session.service import AgentSessionService, may_act_on_session
+from tracecat.agent.session.participation import may_act_on_session
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, can_decide_on_session
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind

@@ -28,7 +28,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
@@ -100,6 +99,7 @@ from tracecat.agent.session.history import (
     decode_raw_session_line,
     prepare_session_history,
 )
+from tracecat.agent.session.participation import sessions_with_messages_from
 from tracecat.agent.session.results import (
     DecisionRecorded,
     DecisionRejected,
@@ -126,10 +126,8 @@ from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     PreparedAgentTurn,
-    SessionAccessCheck,
     TurnLifecycle,
     TurnLifecycleResult,
-    can_act_on_session,
 )
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
@@ -411,42 +409,6 @@ async def _run_session_cleanup(cleanup: SessionCleanup, session_id: uuid.UUID) -
             session_id=session_id,
             error_type=type(e).__name__,
         )
-
-
-async def sessions_with_messages_from(
-    session: AsyncSession, user_id: UserID | None, session_ids: Sequence[uuid.UUID]
-) -> set[uuid.UUID]:
-    """The sessions among ``session_ids`` where ``user_id`` authored a message."""
-    if user_id is None or not session_ids:
-        return set()
-    result = await session.scalars(
-        select(AgentSessionHistory.session_id)
-        .where(
-            AgentSessionHistory.author_id == user_id,
-            AgentSessionHistory.session_id.in_(session_ids),
-        )
-        .distinct()
-    )
-    return set(result.all())
-
-
-async def may_act_on_session(
-    role: Role,
-    agent_session: AgentSession,
-    *,
-    sent_in: Callable[[Sequence[uuid.UUID]], Awaitable[set[uuid.UUID]]],
-    check: SessionAccessCheck = can_act_on_session,
-) -> bool:
-    """Whether ``role`` passes ``check`` as owner, on a shared session, or as a participant.
-
-    ``sent_in`` returns the sessions the role's user sent a message in; it runs only
-    when the cheaper rule refuses.
-    """
-    entity_type, created_by = agent_session.entity_type, agent_session.created_by
-    if check(role, entity_type, created_by, participated=False):
-        return True
-    participated = agent_session.id in await sent_in([agent_session.id])
-    return participated and check(role, entity_type, created_by, participated=True)
 
 
 class AgentSessionService(BaseWorkspaceService):

@@ -45,7 +45,7 @@ def can_act_on_session(
     entity_type: str,
     created_by: UserID | None,
     *,
-    participated: bool = False,
+    participated: bool,
 ) -> bool:
     """Return whether an actor may act on a session: message, steer, stop it.
 
@@ -71,7 +71,7 @@ def can_decide_on_session(
     entity_type: str,
     created_by: UserID | None,
     *,
-    participated: bool = False,
+    participated: bool,
 ) -> bool:
     """Return whether an actor may decide a session's pending approvals.
 

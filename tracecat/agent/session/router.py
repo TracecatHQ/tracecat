@@ -29,6 +29,7 @@ from tracecat.agent.backends.types import (
     SessionDispatchUncertain,
 )
 from tracecat.agent.control.schemas import AgentControlReceipt, AgentControlRequest
+from tracecat.agent.session.participation import may_act_on_session
 from tracecat.agent.session.schemas import (
     AgentBackendRead,
     AgentSessionArtifactsRead,
@@ -42,7 +43,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadWithMessages,
     AgentSessionUpdate,
 )
-from tracecat.agent.session.service import AgentSessionService, may_act_on_session
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     TurnLifecycle,
@@ -138,7 +139,9 @@ async def _participated(
     svc: AgentSessionService, role: WorkspaceActorRouteRole, agent_session: AgentSession
 ) -> bool:
     """Whether the actor sent a message in the session; read only when it decides access."""
-    if can_act_on_session(role, agent_session.entity_type, agent_session.created_by):
+    if can_act_on_session(
+        role, agent_session.entity_type, agent_session.created_by, participated=False
+    ):
         return False
     return agent_session.id in await svc.participated_session_ids([agent_session.id])
 
