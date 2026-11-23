@@ -35,6 +35,21 @@ export function channelPersonName(
   return person?.name ?? UNKNOWN_CHANNEL_PERSON
 }
 
+function quotedAuthor(
+  quoted: QuotedMessageData,
+  message: ChannelMessageData
+): string {
+  if (!quoted.author_id) return quoted.author
+  const person = (message.people ?? []).find(
+    (candidate) => candidate.provider_user_id === quoted.author_id
+  )
+  if (person) return person.name
+  // Without a lookup, keep the forward's own name, but never an ID in its place.
+  return quoted.author && quoted.author !== quoted.author_id
+    ? quoted.author
+    : UNKNOWN_CHANNEL_PERSON
+}
+
 /** The text with Slack user mentions shown by name instead of ID. */
 export function withChannelMentionNames(
   text: string,
@@ -85,9 +100,7 @@ function QuotedMessage({
 }) {
   // Stored text can be edited by workspace members, so only link https.
   const link = quoted.link?.startsWith("https://") ? quoted.link : null
-  const author = quoted.author_id
-    ? channelPersonName(message, quoted.author_id)
-    : quoted.author
+  const author = quotedAuthor(quoted, message)
   return (
     <blockquote className="border-l-2 pl-3 text-sm">
       <div className="text-xs text-muted-foreground">

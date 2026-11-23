@@ -106,6 +106,24 @@ describe("ChannelMessageContext names", () => {
     expect(container.textContent).not.toMatch(/U0C9F646K8B|U0UNKNOWN1/)
   })
 
+  it("keeps a forward's own name when the person was not looked up", () => {
+    const forward = NAMED.quoted?.[0]
+    if (!forward) throw new Error("NAMED has a forward")
+    const unnamed: ChannelMessageData = {
+      ...NAMED,
+      quoted: [
+        forward,
+        { ...forward, author: "U0BBBBBBB1", author_id: "U0BBBBBBB1" },
+      ],
+      people: [],
+    }
+    const { container } = render(<ChannelMessageContext message={unnamed} />)
+
+    expect(screen.getByText(/Forwarded from sam/)).toBeInTheDocument()
+    expect(screen.getByText(/Forwarded from Slack user/)).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/U0BBBBBBB1/)
+  })
+
   it("shows mentions by name, else as a Slack user", () => {
     expect(withChannelMentionNames(NAMED.text, NAMED)).toBe(
       "ask @Ada Lovelace and @Slack user"
