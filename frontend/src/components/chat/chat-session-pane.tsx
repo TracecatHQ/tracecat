@@ -32,7 +32,11 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
-import { Message, MessageContent } from "@/components/ai-elements/message"
+import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+} from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputBody,
@@ -74,6 +78,7 @@ import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
 import { extensions } from "@/extensions"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
 import {
   makeContinueMessage,
@@ -470,6 +475,12 @@ export function ChatSessionPane({
           chat.entity_type === "external_channel" ||
           ("channel_context" in chat && chat.channel_context)))
   )
+  const { preset: agentPreset } = useAgentPreset(
+    workspaceId,
+    chat && "agent_preset_id" in chat ? chat.agent_preset_id : null,
+    { enabled: showMessageAuthors }
+  )
+  const agentName = agentPreset?.name ?? "Agent"
   // Name the missing scope only where it is why a shared session is read-only.
   let readonlyDescription =
     cannotExecuteAgents && showMessageAuthors
@@ -1697,24 +1708,28 @@ export function ChatSessionPane({
                           </SourcesContent>
                         </Sources>
                       )}
-                    <AgentTurn
-                      messages={block.messages}
-                      startedAt={block.startedAt}
-                      status={status}
-                      isLive={
-                        blockIndex === threadBlocks.length - 1 &&
-                        isGeneratingTurn
-                      }
-                      isSuperseded={blockIndex < threadBlocks.length - 1}
-                      lastMessageId={lastMessageId}
-                      cancelledMessageIds={cancelledTurnMessageIds}
-                      interruptedToolCallIds={interruptedToolCallIds}
-                      onSubmitApprovals={
-                        cannotDecideApprovals
-                          ? undefined
-                          : handleSubmitApprovals
-                      }
-                    />
+                    <AgentTurnFrame
+                      agentName={showMessageAuthors ? agentName : null}
+                    >
+                      <AgentTurn
+                        messages={block.messages}
+                        startedAt={block.startedAt}
+                        status={status}
+                        isLive={
+                          blockIndex === threadBlocks.length - 1 &&
+                          isGeneratingTurn
+                        }
+                        isSuperseded={blockIndex < threadBlocks.length - 1}
+                        lastMessageId={lastMessageId}
+                        cancelledMessageIds={cancelledTurnMessageIds}
+                        interruptedToolCallIds={interruptedToolCallIds}
+                        onSubmitApprovals={
+                          cannotDecideApprovals
+                            ? undefined
+                            : handleSubmitApprovals
+                        }
+                      />
+                    </AgentTurnFrame>
                     {/* A failed turn's Retry sits with its error below. */}
                     {holdsLatestResponse && canRetry && !displayedError && (
                       <RetryAction onRetry={handleRetry} />
@@ -2005,5 +2020,29 @@ function isShownPart(part: UIMessage["parts"][number]): boolean {
     !part.type.startsWith("data-") ||
     part.type === CANCELLED_DATA_PART_TYPE ||
     part.type === "data-approval-request"
+  )
+}
+
+/** An agent's turn, with its avatar and name where several people talk. */
+function AgentTurnFrame({
+  agentName,
+  children,
+}: {
+  agentName: string | null
+  children: ReactNode
+}) {
+  if (!agentName) return <>{children}</>
+  return (
+    <div className="flex items-start gap-2.5">
+      <MessageAvatar
+        name={agentName}
+        aria-label={agentName}
+        icon={<MousePointerClickIcon className="size-4" />}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="pt-1.5 text-xs font-medium">{agentName}</span>
+        {children}
+      </div>
+    </div>
   )
 }

@@ -622,6 +622,15 @@ export function getAuthorId(author: unknown): string | null {
   return "id" in author && typeof author.id === "string" ? author.id : null
 }
 
+/** Who sent a user message, as the chat labels them. */
+export type MessageActor = {
+  name: string
+  /** Sent from Slack rather than typed in Tracecat. */
+  fromSlack: boolean
+  /** The name is a Tracecat member's: a web author or a linked Slack sender. */
+  linked: boolean
+}
+
 /** The display name of a user message's author, or null if none was recorded. */
 export function getMessageAuthorName(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null

@@ -101,8 +101,8 @@ describe("ChannelMessageContext names", () => {
 
     expect(screen.getByText("Ada Lovelace:")).toBeInTheDocument()
     expect(screen.getByText("Slack user:")).toBeInTheDocument()
-    expect(screen.getByText("cc @Sam Doe")).toBeInTheDocument()
-    expect(screen.getByText(/Forwarded from Sam Doe/)).toBeInTheDocument()
+    expect(container.textContent).toContain("cc @Sam Doe")
+    expect(container.textContent).toContain("Forwarded from Sam Doe")
     expect(container.textContent).not.toMatch(/U0C9F646K8B|U0UNKNOWN1/)
   })
 
@@ -119,9 +119,28 @@ describe("ChannelMessageContext names", () => {
     }
     const { container } = render(<ChannelMessageContext message={unnamed} />)
 
-    expect(screen.getByText(/Forwarded from sam/)).toBeInTheDocument()
-    expect(screen.getByText(/Forwarded from Slack user/)).toBeInTheDocument()
+    expect(container.textContent).toContain("Forwarded from sam")
+    expect(container.textContent).toContain("Forwarded from Slack user")
     expect(container.textContent).not.toMatch(/U0BBBBBBB1/)
+  })
+
+  it("highlights linked members and mutes unlinked Slack names", () => {
+    const linked: ChannelMessageData = {
+      ...NAMED,
+      people: [
+        { provider_user_id: "U0C9F646K8B", name: "Ada Lovelace", linked: true },
+        { provider_user_id: "U0AAAAAAA1", name: "Sam Doe" },
+      ],
+    }
+    render(<ChannelMessageContext message={linked} />)
+    fireEvent.click(screen.getByText(/Earlier thread · 2 messages/))
+
+    expect(screen.getByText("Ada Lovelace:")).toHaveClass(
+      "font-medium",
+      "text-foreground"
+    )
+    expect(screen.getByText("@Sam Doe")).toHaveClass("text-muted-foreground")
+    expect(screen.getByText("Sam Doe")).toHaveClass("text-muted-foreground")
   })
 
   it("shows mentions by name, else as a Slack user", () => {

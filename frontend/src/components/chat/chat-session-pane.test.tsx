@@ -29,6 +29,7 @@ import {
   AGENT_EXECUTE_REQUIRED_MESSAGE,
   ChatSessionPane,
 } from "@/components/chat/chat-session-pane"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -184,6 +185,7 @@ jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => "locked",
 }))
 jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPreset: jest.fn(() => ({ preset: undefined })),
   useAgentPresets: jest.fn(() => ({
     presets: [],
     presetsIsLoading: false,
@@ -1357,6 +1359,44 @@ describe("ChatSessionPane author labels", () => {
     renderChatSessionPane({ chat: workflowChat })
 
     expect(await screen.findByText("Sam")).toBeInTheDocument()
+  })
+
+  it("draws the agent's avatar and name beside its turn in a shared session", async () => {
+    const preset = jest
+      .mocked(useAgentPreset)
+      .mockReturnValue({ preset: { name: "Triage bot" } } as ReturnType<
+        typeof useAgentPreset
+      >)
+    mockUseVercelChatResult.messages = [
+      AUTHORED,
+      {
+        id: "reply",
+        role: "assistant",
+        parts: [{ type: "text", text: "on it" }],
+      },
+    ]
+    try {
+      renderChatSessionPane({
+        chat: {
+          ...webChat,
+          entity_type: "workflow",
+          entity_id: "wf-1",
+        } as Parameters<typeof ChatSessionPane>[0]["chat"],
+      })
+
+      expect(await screen.findByText("on it")).toBeInTheDocument()
+      expect(
+        screen.getByRole("img", { name: "Triage bot" })
+      ).toBeInTheDocument()
+      expect(screen.getByText("Triage bot")).toBeInTheDocument()
+      expect(
+        screen.getByRole("img", { name: "Sam, from Tracecat" })
+      ).toBeInTheDocument()
+    } finally {
+      preset.mockReturnValue({ preset: undefined } as ReturnType<
+        typeof useAgentPreset
+      >)
+    }
   })
 })
 

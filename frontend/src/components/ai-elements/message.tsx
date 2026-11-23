@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai"
 import { cva, type VariantProps } from "class-variance-authority"
-import type { ComponentProps, HTMLAttributes } from "react"
+import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 
@@ -59,18 +59,45 @@ export const MessageContent = ({
 )
 
 export type MessageAvatarProps = ComponentProps<typeof Avatar> & {
-  src: string
+  src?: string
   name?: string
+  /** Drawn instead of the initials, such as an agent's icon. */
+  icon?: ReactNode
+  /** A small mark on the avatar's corner, such as where the message came from. */
+  badge?: ReactNode
+}
+
+/** Up to two initials of a display name. */
+function initials(name: string | undefined): string {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return "?"
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return `${words[0][0]}${words[1][0]}`.toUpperCase()
 }
 
 export const MessageAvatar = ({
   src,
   name,
+  icon,
+  badge,
   className,
   ...props
 }: MessageAvatarProps) => (
-  <Avatar className={cn("size-8 ring-1 ring-border", className)} {...props}>
-    <AvatarImage alt="" className="mt-0 mb-0" src={src} />
-    <AvatarFallback>{name?.slice(0, 2) || "ME"}</AvatarFallback>
-  </Avatar>
+  <div className="relative shrink-0">
+    <Avatar
+      role="img"
+      className={cn("size-8 ring-1 ring-border", className)}
+      {...props}
+    >
+      {src ? <AvatarImage alt="" className="mt-0 mb-0" src={src} /> : null}
+      <AvatarFallback className="text-xs font-medium">
+        {icon ?? initials(name)}
+      </AvatarFallback>
+    </Avatar>
+    {badge ? (
+      <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-[5px] bg-background">
+        {badge}
+      </span>
+    ) : null}
+  </div>
 )

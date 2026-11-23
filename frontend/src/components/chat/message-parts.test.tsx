@@ -30,6 +30,7 @@ jest.mock("@/components/ai-elements/response", () => ({
 
 jest.mock("@/components/icons", () => ({
   getIcon: () => <span data-testid="tool-icon" />,
+  SlackIcon: () => <span data-testid="slack-icon" />,
 }))
 
 jest.mock("@/hooks/use-subagent-stream", () => ({
@@ -496,6 +497,114 @@ describe("channel messages", () => {
 })
 
 describe("message authors", () => {
+  it("puts a Slack badge on the avatar of a message sent from Slack only", () => {
+    const fromSlack: UIMessage = {
+      id: "u-slack",
+      role: "user",
+      parts: [
+        {
+          type: "data-channel-message",
+          data: {
+            provider: "slack",
+            text: "from slack",
+            sender: { provider_user_id: "U1", name: "alice.slack" },
+            quoted: [],
+            people: [
+              { provider_user_id: "U1", name: "Alice Doe", linked: true },
+            ],
+          },
+        },
+      ],
+    }
+    const fromWeb: UIMessage = {
+      id: "u-web",
+      role: "user",
+      metadata: {
+        author: {
+          id: "user-1",
+          email: "alice@example.com",
+          first_name: "Alice",
+          last_name: "Doe",
+        },
+      },
+      parts: [{ type: "text", text: "from web" }],
+    }
+    render(
+      <>
+        <MessageParts
+          message={fromSlack}
+          status="ready"
+          isLastMessage
+          showAuthor
+        />
+        <MessageParts
+          message={fromWeb}
+          status="ready"
+          isLastMessage
+          showAuthor
+        />
+      </>
+    )
+
+    const slackAvatar = screen.getByRole("img", {
+      name: "Alice Doe, from Slack",
+    })
+    const webAvatar = screen.getByRole("img", {
+      name: "Alice Doe, from Tracecat",
+    })
+    expect(slackAvatar.parentElement).toContainElement(
+      screen.getByTestId("slack-icon")
+    )
+    expect(
+      webAvatar.parentElement?.querySelector("[data-testid=slack-icon]")
+    ).toBeNull()
+    expect(screen.getAllByText("AD")).toHaveLength(2)
+    expect(screen.getByText(/from Slack$/)).toBeInTheDocument()
+  })
+
+  it("mutes an unlinked Slack sender's name and highlights a linked one", () => {
+    function channelMessage(id: string, linked: boolean): UIMessage {
+      return {
+        id,
+        role: "user",
+        parts: [
+          {
+            type: "data-channel-message",
+            data: {
+              provider: "slack",
+              text: id,
+              sender: { provider_user_id: id, name: `${id}.slack` },
+              quoted: [],
+              people: [{ provider_user_id: id, name: `Name ${id}`, linked }],
+            },
+          },
+        ],
+      }
+    }
+    render(
+      <>
+        <MessageParts
+          message={channelMessage("linked", true)}
+          status="ready"
+          isLastMessage
+        />
+        <MessageParts
+          message={channelMessage("unlinked", false)}
+          status="ready"
+          isLastMessage
+        />
+      </>
+    )
+
+    expect(screen.getByText("Name linked")).toHaveClass(
+      "font-medium",
+      "text-foreground"
+    )
+    expect(screen.getByText("Name unlinked")).toHaveClass(
+      "text-muted-foreground"
+    )
+  })
+
   it("labels a web prompt with its recorded author", () => {
     const message: UIMessage = {
       id: "u1",

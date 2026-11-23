@@ -69,6 +69,7 @@ import {
   isApprovalCardArray,
   isInterruptArtifactError,
   isUserPrompt,
+  type MessageActor,
   type ToolDenial,
   USER_MESSAGE_DATA_PART_TYPE,
 } from "@/lib/chat"
@@ -102,7 +103,7 @@ type MessagePartProps = {
   /** How long a reloaded thought took, from history timestamps. */
   reasoningSeconds?: number
   /** Who sent a user message, when recorded. */
-  authorName?: string | null
+  author?: MessageActor | null
 }
 
 type DerivedToolState = {
@@ -166,7 +167,7 @@ export function MessagePart({
   interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
   reasoningSeconds,
-  authorName = null,
+  author = null,
 }: MessagePartProps) {
   const { expandSteps } = useChatVerbosityPolicy()
   // Steps remount on a level change, since defaultOpen applies only on mount.
@@ -225,7 +226,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={message.text}
         channelMessage={message.channelMessage}
-        authorName={authorName}
+        author={author}
       />
     )
   }
@@ -238,7 +239,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={channelMessage.text}
         channelMessage={channelMessage}
-        authorName={authorName}
+        author={author}
       />
     )
   }
@@ -249,7 +250,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={part.text}
         channelMessage={null}
-        authorName={authorName}
+        author={author}
       />
     )
   }
@@ -354,7 +355,7 @@ export function MessagePart({
 
 type MessagePartsProps = Omit<
   MessagePartProps,
-  "part" | "partIdx" | "id" | "role" | "authorName"
+  "part" | "partIdx" | "id" | "role" | "author"
 > & {
   message: Pick<UIMessage, "id" | "role" | "parts" | "metadata">
   /** Label web prompts with their author; only shared sessions need it. */
@@ -468,10 +469,10 @@ export function MessageParts({
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
-  const authorName =
-    showAuthor && message.role === "user"
-      ? getMessageAuthorName(message.metadata)
-      : null
+  const author = useMemo(
+    () => (showAuthor && message.role === "user" ? webActor(message) : null),
+    [showAuthor, message]
+  )
 
   function renderPart({ part, partIdx }: IndexedPart) {
     return (
@@ -487,7 +488,7 @@ export function MessageParts({
         interruptedToolCallIds={interruptedToolCallIds}
         onSubmitApprovals={onSubmitApprovals}
         reasoningSeconds={reasoningSeconds}
-        authorName={authorName}
+        author={author}
       />
     )
   }
@@ -943,7 +944,7 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals ||
     prev.reasoningSeconds !== next.reasoningSeconds ||
-    prev.authorName !== next.authorName
+    !sameActor(prev.author, next.author)
   ) {
     return false
   }
@@ -980,3 +981,20 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
   return prevPart === nextPart
 })
 MemoizedMessagePart.displayName = "MessagePart"
+
+/** A web message's recorded author, labelled as a Tracecat member. */
+function webActor(message: Pick<UIMessage, "metadata">): MessageActor | null {
+  const name = getMessageAuthorName(message.metadata)
+  return name ? { name, fromSlack: false, linked: true } : null
+}
+
+function sameActor(
+  a: MessageActor | null | undefined,
+  b: MessageActor | null | undefined
+): boolean {
+  return (
+    a?.name === b?.name &&
+    a?.fromSlack === b?.fromSlack &&
+    a?.linked === b?.linked
+  )
+}
