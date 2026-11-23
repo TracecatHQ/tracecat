@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { ArtifactPanelContext } from "@/components/chat/artifact-mention"
 import { ChatInterface } from "@/components/chat/chat-interface"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -182,6 +183,15 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
   const collapsePanel = useCallback(() => setIsPanelCollapsed(true), [])
   const expandPanel = useCallback(() => setIsPanelCollapsed(false), [])
 
+  const { openArtifact: openArtifactTab } = artifactsState
+  const openArtifact = useCallback(
+    (artifact: WorkspaceChatArtifact) => {
+      openArtifactTab(artifact)
+      expandPanel()
+    },
+    [openArtifactTab, expandPanel]
+  )
+
   useEffect(() => {
     if (isLoading || canAccessMissionControl === undefined) {
       return
@@ -228,36 +238,40 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
         className="min-w-0"
       >
         <div className="flex size-full min-w-[320px] flex-col">
-          <ChatInterface
-            chatId={chatId}
-            entityType="copilot"
-            entityId={workspaceId}
-            bodyClassName="min-h-0"
-            placeholder="Ask Tracecat..."
-            surface="workspace-chat"
-            onMessagesChange={setMessages}
-            onData={handleStreamData}
-            onStatusChange={setChatStatus}
-            onChatChange={setChat}
-            headerActions={
-              showExpandButton ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="size-6 p-0"
-                      onClick={expandPanel}
-                      aria-label="Show artifacts"
-                    >
-                      <PanelLeftIcon className="size-4 -scale-x-100" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Show artifacts</TooltipContent>
-                </Tooltip>
-              ) : null
-            }
-          />
+          <ArtifactPanelContext.Provider value={openArtifact}>
+            <ChatInterface
+              chatId={chatId}
+              entityType="copilot"
+              entityId={workspaceId}
+              bodyClassName="min-h-0"
+              placeholder="Ask Tracecat..."
+              surface="workspace-chat"
+              onMessagesChange={setMessages}
+              onData={handleStreamData}
+              onStatusChange={setChatStatus}
+              onChatChange={setChat}
+              headerActions={
+                showExpandButton ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="size-6 p-0"
+                        onClick={expandPanel}
+                        aria-label="Show artifacts"
+                      >
+                        <PanelLeftIcon className="size-4 -scale-x-100" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      Show artifacts
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null
+              }
+            />
+          </ArtifactPanelContext.Provider>
         </div>
       </ResizablePanel>
 

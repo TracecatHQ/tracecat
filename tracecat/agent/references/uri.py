@@ -17,6 +17,13 @@ class ReferenceKind(StrEnum):
     WORKFLOW = "workflow"
     SKILL = "skill"
     AGENT = "agent"
+    ARTIFACT = "artifact"
+
+
+class ArtifactMentionType(StrEnum):
+    """Artifact types an agent may mention: `tracecat-ref://v1/artifact/{type}/{id}`."""
+
+    CASE = "case"
 
 
 class ReferenceDiagnosticCode(StrEnum):
@@ -55,8 +62,16 @@ def is_reference_uri(value: str) -> bool:
 
 
 def _validate_identity(
-    kind: ReferenceKind, identity: str, tool_name: str | None
+    kind: ReferenceKind,
+    identity: str,
+    tool_name: str | None,
+    artifact_type: ArtifactMentionType | None,
 ) -> None:
+    # Artifact references, and only they, name a known artifact type.
+    if (kind == ReferenceKind.ARTIFACT) != isinstance(
+        artifact_type, ArtifactMentionType
+    ):
+        raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
     if kind == ReferenceKind.TOOL:
         if (
             len(identity) > 255
@@ -86,15 +101,16 @@ class ReferenceTarget:
     kind: ReferenceKind
     identity: str
     tool_name: str | None = None
+    artifact_type: ArtifactMentionType | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, ReferenceKind):
             raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
-        _validate_identity(self.kind, self.identity, self.tool_name)
+        _validate_identity(self.kind, self.identity, self.tool_name, self.artifact_type)
 
 
 def parse_reference_uri(value: str) -> ReferenceTarget:
-    """Validate seven URI forms, decoding segments exactly once.
+    """Validate eight URI forms, decoding segments exactly once.
 
     Reject URL normalization (authority case, dot segments, queries, fragments),
     encoded separators, controls and double encoding before identity validation.
@@ -114,7 +130,9 @@ def parse_reference_uri(value: str) -> ReferenceTarget:
         kind = ReferenceKind(parts[1])
     except ValueError as exc:
         raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_URI) from exc
-    if len(parts) != (4 if kind == ReferenceKind.MCP_TOOL else 3):
+    if len(parts) != (
+        4 if kind in (ReferenceKind.MCP_TOOL, ReferenceKind.ARTIFACT) else 3
+    ):
         raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_URI)
     decoded: list[str] = []
     for segment in parts[2:]:
@@ -127,13 +145,23 @@ def parse_reference_uri(value: str) -> ReferenceTarget:
         if not item or re.search(r"[/\\%?#\x00-\x1f\x7f]", item):
             raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_URI)
         decoded.append(item)
+    if kind == ReferenceKind.ARTIFACT:
+        try:
+            artifact_type = ArtifactMentionType(decoded[0])
+        except ValueError as exc:
+            raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY) from exc
+        return ReferenceTarget(kind, decoded[1], artifact_type=artifact_type)
     return ReferenceTarget(kind, decoded[0], decoded[1] if len(decoded) == 2 else None)
 
 
 def serialize_reference_uri(target: ReferenceTarget) -> str:
     """Produce a canonical URI; labels and selected versions are never encoded."""
-    _validate_identity(target.kind, target.identity, target.tool_name)
+    _validate_identity(
+        target.kind, target.identity, target.tool_name, target.artifact_type
+    )
     parts = [target.identity]
+    if target.artifact_type is not None:
+        parts.insert(0, target.artifact_type)
     if target.tool_name is not None:
         parts.append(target.tool_name)
     return f"tracecat-ref://v1/{target.kind}/" + "/".join(

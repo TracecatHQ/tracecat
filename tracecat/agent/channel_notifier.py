@@ -135,11 +135,19 @@ def get_channel_notifier() -> ChannelNotifier | None:
     return installed[0].load()() if installed else None
 
 
-async def is_channel_linked(role: Role, session_id: uuid.UUID) -> bool:
-    """Ask the notifier whether a session is linked, failing closed."""
+async def is_channel_linked(
+    role: Role, session_id: uuid.UUID, *, require_mention_rendering: bool = False
+) -> bool:
+    """Ask the notifier whether a session is linked, failing closed. With
+    `require_mention_rendering`, also whether its channel draws artifact mentions."""
     try:
         notifier = get_channel_notifier()
         if notifier is None:
+            return False
+        # A notifier opts in with `renders_mentions = True`; older ones lack it.
+        if require_mention_rendering and not getattr(
+            notifier, "renders_mentions", False
+        ):
             return False
         return await asyncio.wait_for(
             notifier.is_linked(role, session_id),

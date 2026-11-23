@@ -134,6 +134,37 @@ async def test_without_a_notifier_no_session_is_linked(installed) -> None:
     assert await push_updates(ROLE, [TURN_FINISHED]) == [None]
 
 
+class _MentionNotifier(_RecordingNotifier):
+    renders_mentions = True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entries", "renders"),
+    [
+        ((), False),
+        # Installed before notifiers declared it.
+        ((_EntryPoint("example", _RecordingNotifier),), False),
+        ((_EntryPoint("example", _MentionNotifier),), True),
+        (
+            (
+                _EntryPoint(
+                    "example", lambda: _MentionNotifier(error=RuntimeError("db"))
+                ),
+            ),
+            False,
+        ),
+    ],
+    ids=["no-notifier", "undeclared", "linked", "link-check-fails"],
+)
+async def test_only_a_linked_channel_that_draws_mentions_renders_them(
+    installed, entries: tuple[_EntryPoint, ...], renders: bool
+) -> None:
+    installed(*entries)
+    linked = await is_channel_linked(ROLE, SESSION_ID, require_mention_rendering=True)
+    assert linked is renders
+
+
 @pytest.mark.anyio
 async def test_installed_notifier_receives_the_updates_in_order(installed) -> None:
     notifier = _RecordingNotifier()

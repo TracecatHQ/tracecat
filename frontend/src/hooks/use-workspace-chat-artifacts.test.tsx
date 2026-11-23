@@ -173,4 +173,68 @@ describe("useWorkspaceChatArtifacts", () => {
       `case-${MAX_OPEN_ARTIFACT_TABS + 2}`
     )
   })
+
+  it("keeps a viewer-opened tab across persisted updates until closed", async () => {
+    const { result, rerender } = renderHook(
+      ({
+        persistedArtifacts,
+      }: {
+        persistedArtifacts: WorkspaceChatArtifact[]
+      }) => useWorkspaceChatArtifacts([], { persistedArtifacts }),
+      {
+        initialProps: {
+          persistedArtifacts: [tableArtifact] as WorkspaceChatArtifact[],
+        },
+      }
+    )
+
+    act(() => result.current.openArtifact(caseArtifact))
+    expect(result.current.activeArtifactKey).toBe("case:case-1")
+
+    rerender({ persistedArtifacts: [tableArtifact, agentArtifact] })
+    await waitFor(() =>
+      expect(result.current.artifacts.map((a) => a.id)).toEqual([
+        "table-1",
+        "agent-1",
+        "case-1",
+      ])
+    )
+
+    act(() => result.current.closeArtifact("case", "case-1"))
+    rerender({ persistedArtifacts: [tableArtifact] })
+    await waitFor(() =>
+      expect(result.current.artifacts.map((a) => a.id)).toEqual(["table-1"])
+    )
+  })
+
+  it("does not bring back a viewer-opened tab the agent removed", async () => {
+    const { result, rerender } = renderHook(
+      ({
+        persistedArtifacts,
+      }: {
+        persistedArtifacts: WorkspaceChatArtifact[]
+      }) => useWorkspaceChatArtifacts([], { persistedArtifacts }),
+      {
+        initialProps: {
+          persistedArtifacts: [tableArtifact] as WorkspaceChatArtifact[],
+        },
+      }
+    )
+
+    act(() => result.current.openArtifact(caseArtifact))
+    act(() =>
+      result.current.applyStreamPart({
+        type: "data-artifact",
+        data: { op: "remove", artifact: caseArtifact },
+      })
+    )
+    rerender({ persistedArtifacts: [tableArtifact, agentArtifact] })
+
+    await waitFor(() =>
+      expect(result.current.artifacts.map((a) => a.id)).toEqual([
+        "table-1",
+        "agent-1",
+      ])
+    )
+  })
 })

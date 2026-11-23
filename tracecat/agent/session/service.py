@@ -67,6 +67,7 @@ from tracecat.agent.backends.types import (
     TurnAlreadyStarted,
 )
 from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channel_notifier import is_channel_linked
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
     AgentCancelControl,
@@ -80,6 +81,10 @@ from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.references.prompts import (
+    ARTIFACT_MENTION_PROMPT,
+    artifact_mention_prompt,
+)
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
@@ -461,6 +466,33 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             return None
         return form_page_context(page_context.id)
+
+    async def _mention_prompt(self, agent_session: AgentSession) -> str | None:
+        """The mention prompt, if this session's replies render mentions."""
+        if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL:
+            return artifact_mention_prompt(agent_session.entity_type)
+        if not await is_channel_linked(
+            self.role, agent_session.id, require_mention_rendering=True
+        ):
+            return None
+        # Deferred: the legacy sink imports the Slack handlers, which import this module.
+        from tracecat.agent.channels.sinks.session import streams_to_legacy_channel
+
+        try:
+            # A savepoint, so a failed lookup leaves the turn's transaction usable.
+            async with self.session.begin_nested():
+                legacy_streams = await streams_to_legacy_channel(
+                    self.session, agent_session
+                )
+        except SQLAlchemyError as e:
+            logger.warning(
+                "Failed to check the legacy channel sink",
+                session_id=agent_session.id,
+                error=repr(e),
+            )
+            return None
+        # The legacy fan-out streams the raw reply, mentions included.
+        return None if legacy_streams else ARTIFACT_MENTION_PROMPT
 
     async def _resolve_workspace_chat_actions(
         self,
@@ -2075,8 +2107,9 @@ class AgentSessionService(BaseWorkspaceService):
         page_context_prompt = await self._page_context_prompt(
             agent_session, page_context
         )
+        mention_prompt = await self._mention_prompt(agent_session)
         async with self._build_agent_config(agent_session) as agent_config:
-            if request_instructions or page_context_prompt:
+            if request_instructions or page_context_prompt or mention_prompt:
                 agent_config = replace(
                     agent_config,
                     instructions="\n\n".join(
@@ -2085,6 +2118,7 @@ class AgentSessionService(BaseWorkspaceService):
                             agent_config.instructions,
                             request_instructions,
                             page_context_prompt,
+                            mention_prompt,
                         )
                         if part
                     ),
