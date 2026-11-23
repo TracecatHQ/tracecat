@@ -591,6 +591,35 @@ export type AgentChannelUserRead = {
 }
 
 /**
+ * A channel a workspace bot answers in, and the agent that answers there.
+ */
+export type AgentChannelWorkspaceRouteRead = {
+  bot_id: string
+  provider: ChannelBotProvider
+  app_owner: ChannelBotAppOwner
+  provider_channel_id: string
+  /**
+   * A platform install's route; False for a channel a workspace app is in, answered by its one agent.
+   */
+  routed: boolean
+  agent_preset_id: string
+  agent_name: string
+  /**
+   * The channel's name in the provider now; None when the lookup did not find it.
+   */
+  channel_name: string | null
+  is_private: boolean | null
+  /**
+   * Whether the bot is in the channel; None when the lookup could not tell.
+   */
+  is_member: boolean | null
+  /**
+   * The bot's channels were not looked up: it is not running, or the provider call failed.
+   */
+  name_unavailable: boolean
+}
+
+/**
  * The running turn's outcome for a control request.
  */
 export type AgentControlReceipt = {
@@ -4726,6 +4755,30 @@ export type CursorPaginatedResponse_AgentChannelRouteRead_ = {
 
 export type CursorPaginatedResponse_AgentChannelUserRead_ = {
   items: Array<AgentChannelUserRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_ = {
+  items: Array<AgentChannelWorkspaceRouteRead>
   /**
    * Cursor for next page
    */
@@ -17476,6 +17529,16 @@ export type AgentChannelBotsGetBotAppManifestData = {
 
 export type AgentChannelBotsGetBotAppManifestResponse = ChannelBotAppManifest
 
+export type AgentChannelBotsListWorkspaceRoutesData = {
+  cursor?: string | null
+  limit?: number
+  q?: string | null
+  workspaceId: string
+}
+
+export type AgentChannelBotsListWorkspaceRoutesResponse =
+  CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_
+
 export type AgentChannelBotsListBotRoutesData = {
   agentPresetId?: string | null
   botId: string
@@ -24679,6 +24742,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChannelBotAppManifest
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channel-bots/routes": {
+    get: {
+      req: AgentChannelBotsListWorkspaceRoutesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_
         /**
          * Validation Error
          */

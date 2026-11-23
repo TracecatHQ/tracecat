@@ -15,6 +15,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    AgentChannelWorkspaceRouteRead,
     ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
@@ -124,6 +125,23 @@ class ChannelBotAdmin(Protocol):
         ordered by `provider_channel_id` ascending.
 
         Raise ``PaginationError`` for a malformed or foreign cursor.
+        """
+        ...
+
+    async def list_workspace_routes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        *,
+        q: str | None,
+        page: PageParams,
+    ) -> CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]:
+        """A page of every channel the workspace's bots answer in: each platform install's
+        routes and each workspace app's channels, named by the provider at read time.
+
+        `q` matches the channel name or ID, ignoring case and a leading `#`. A bot whose
+        lookup fails keeps its routes, marked `name_unavailable`. Raise
+        ``PaginationError`` for a malformed cursor.
         """
         ...
 
