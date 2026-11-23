@@ -49,7 +49,10 @@ import {
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { AgentDeleteDescription } from "@/components/agents/agent-preset-delete-dialog"
-import { AgentSlackBadges } from "@/components/agents/agent-slack-badges"
+import {
+  AgentSlackBadges,
+  type SlackPlacement,
+} from "@/components/agents/agent-slack-badges"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import {
@@ -163,7 +166,6 @@ import {
   matchesAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
-import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
   compareAgentStatusPriority,

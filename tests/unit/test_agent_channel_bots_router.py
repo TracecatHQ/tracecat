@@ -29,9 +29,11 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelRouteRead,
     AgentChannelRouteSet,
     AgentChannelWorkspaceRouteRead,
+    AgentChannelWorkspaceRoutesPage,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstallResult,
+    ChannelBotListingFailure,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
     ChannelBotPlatformApp,
@@ -740,8 +742,9 @@ def test_workspace_routes_hand_the_search_and_page_to_the_admin(
         is_member=None,
         name_unavailable=True,
     )
-    admin.list_workspace_routes.return_value = CursorPaginatedResponse(
-        items=[row], next_cursor="next", has_more=True
+    failure = ChannelBotListingFailure(bot_id=uuid.uuid4(), needs_reinstall=True)
+    admin.list_workspace_routes.return_value = AgentChannelWorkspaceRoutesPage(
+        items=[row], next_cursor="next", has_more=True, listing_failures=[failure]
     )
 
     response = client.get(
@@ -752,6 +755,7 @@ def test_workspace_routes_hand_the_search_and_page_to_the_admin(
     assert response.status_code == 200
     assert response.json()["items"] == [row.model_dump(mode="json")]
     assert response.json()["next_cursor"] == "next"
+    assert response.json()["listing_failures"] == [failure.model_dump(mode="json")]
     admin.list_workspace_routes.assert_awaited_once_with(
         SESSION, ROLE, q="#alerts", page=PageParams(limit=2, cursor="c")
     )

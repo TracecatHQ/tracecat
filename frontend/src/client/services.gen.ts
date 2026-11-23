@@ -6946,7 +6946,7 @@ export const agentChannelBotsInstallPlatformBot = (
  * @param data.q
  * @param data.limit
  * @param data.cursor
- * @returns CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_ Successful Response
+ * @returns AgentChannelWorkspaceRoutesPage Successful Response
  * @throws ApiError
  */
 export const agentChannelBotsListWorkspaceRoutes = (

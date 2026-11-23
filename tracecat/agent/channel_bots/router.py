@@ -28,7 +28,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
-    AgentChannelWorkspaceRouteRead,
+    AgentChannelWorkspaceRoutesPage,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstall,
@@ -222,9 +222,7 @@ async def install_platform_bot(
     return await _call(admin.install_platform(session, role, params))
 
 
-@router.get(
-    "/routes", response_model=CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]
-)
+@router.get("/routes", response_model=AgentChannelWorkspaceRoutesPage)
 @require_scope("agent:read")
 async def list_workspace_routes(
     *,
@@ -233,7 +231,7 @@ async def list_workspace_routes(
     admin: Admin,
     q: Annotated[str | None, Query(max_length=255)] = None,
     page: PageQuery,
-) -> CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]:
+) -> AgentChannelWorkspaceRoutesPage:
     """Every channel the workspace's bots answer in, across bots, with its agent."""
     return await _call(admin.list_workspace_routes(session, role, q=q, page=page))
 
