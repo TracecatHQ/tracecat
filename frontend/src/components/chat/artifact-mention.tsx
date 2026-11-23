@@ -1,6 +1,6 @@
 "use client"
 
-import { LayersIcon } from "lucide-react"
+import { LayersIcon, type LucideIcon } from "lucide-react"
 import Link from "next/link"
 import {
   type ComponentProps,
@@ -9,11 +9,11 @@ import {
   useContext,
 } from "react"
 import { type CaseReadMinimal, casesQueryCases } from "@/client"
-import { CaseBadge } from "@/components/cases/case-badge"
 import { SEVERITIES, STATUSES } from "@/components/cases/case-categories"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import {
   type ArtifactMention,
+  isMentionPath,
   mentionFromHref,
   remarkArtifactMentions,
 } from "@/lib/agent-artifact-mentions"
@@ -47,6 +47,22 @@ function useMentionedCase(workspaceId: string, caseId: string) {
   })
 }
 
+/** A case badge as a span: the chip sits inside a paragraph, link, or button. */
+function InlineCaseBadge({
+  label,
+  icon: Icon,
+}: {
+  label: string
+  icon: LucideIcon
+}) {
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[0.85em] font-normal text-muted-foreground">
+      <Icon className="size-[0.9em] shrink-0" strokeWidth={3} />
+      {label}
+    </span>
+  )
+}
+
 const CHIP_CLASS =
   "inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/40 px-1.5 align-baseline text-[0.9em] font-medium leading-snug no-underline hover:bg-muted"
 
@@ -67,17 +83,10 @@ function CaseMentionChip({
   const body = (
     <>
       <LayersIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{children}</span>
-      <CaseBadge
-        {...STATUSES[mentioned.status]}
-        color={undefined}
-        className="text-[0.85em]"
-      />
-      <CaseBadge
-        {...SEVERITIES[mentioned.severity]}
-        color={undefined}
-        className="text-[0.85em]"
-      />
+      {/* The case's own ID, so the chip never shows one case's label on another. */}
+      <span className="truncate">{mentioned.short_id}</span>
+      <InlineCaseBadge {...STATUSES[mentioned.status]} />
+      <InlineCaseBadge {...SEVERITIES[mentioned.severity]} />
     </>
   )
   if (!openArtifact) {
@@ -115,6 +124,8 @@ export function ArtifactMentionLink({
 }: ComponentProps<"a"> & { node?: unknown }) {
   const workspaceId = useOptionalWorkspaceId()
   const mention = mentionFromHref(href)
+  // A reserved path that is not a case mention is a dead link: show its text.
+  if (!mention && isMentionPath(href)) return <span>{children}</span>
   if (!mention) {
     // Mirrors Streamdown's default link, which it does not export.
     return (

@@ -60,6 +60,25 @@ describe("remarkArtifactMentions", () => {
     expect(docs).toEqual(link("https://example.com", "docs"))
   })
 
+  it("never shows an autolink's URI as its text", () => {
+    const formURI = FORM_URI
+    const tree = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [link(CASE_URI, CASE_URI), link(formURI, formURI)],
+        },
+      ],
+    }
+
+    remarkArtifactMentions()(tree)
+
+    const [mention, form] = tree.children[0].children
+    expect(mention.children).toEqual([{ type: "text", value: "case" }])
+    expect(form).toEqual({ type: "text", value: "case" })
+  })
+
   it("never reads an ordinary path as a mention", () => {
     expect(mentionFromHref(`/workspaces/ws/cases/${CASE_ID}`)).toBeNull()
     expect(mentionFromHref(undefined)).toBeNull()

@@ -125,6 +125,26 @@ it.each([
   expect(container.textContent).toBe("CASE-0142")
 })
 
+it("shows the case's own ID, not the agent's label", async () => {
+  renderIn(
+    <ArtifactMentionLink href={CASE_HREF}>CASE-0001</ArtifactMentionLink>
+  )
+
+  expect(await screen.findByText("CASE-0142")).toBeInTheDocument()
+  expect(screen.queryByText("CASE-0001")).not.toBeInTheDocument()
+})
+
+it("shows a reserved path that is not a case mention as text", () => {
+  const { container } = renderIn(
+    <ArtifactMentionLink href={`/tracecat-ref/v1/artifact/form/${CASE_ID}`}>
+      Intake
+    </ArtifactMentionLink>
+  )
+
+  expect(screen.queryByRole("link")).not.toBeInTheDocument()
+  expect(container.textContent).toBe("Intake")
+})
+
 it("keeps ordinary links as new-tab links", () => {
   renderIn(
     <ArtifactMentionLink href="https://example.com/docs">

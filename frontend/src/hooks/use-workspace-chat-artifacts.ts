@@ -546,6 +546,7 @@ export function useWorkspaceChatArtifacts(
   const closeArtifact = useCallback(
     (type: ArtifactType, id: string) => {
       const key = `${type}:${id}`
+      openedArtifactKeysRef.current.delete(key)
       setStreamArtifacts((current) => {
         if (!current.has(key)) {
           return current

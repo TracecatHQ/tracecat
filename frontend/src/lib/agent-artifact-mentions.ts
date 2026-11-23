@@ -29,9 +29,14 @@ export function parseArtifactMention(uri: string): ArtifactMention | null {
   }
 }
 
+/** Whether an href uses the path the remark plugin rewrites mentions into. */
+export function isMentionPath(href: unknown): href is string {
+  return typeof href === "string" && href.startsWith(MENTION_PATH_PREFIX)
+}
+
 /** Read back a mention the remark plugin rewrote into a link path. */
 export function mentionFromHref(href: unknown): ArtifactMention | null {
-  return typeof href === "string" && href.startsWith(MENTION_PATH_PREFIX)
+  return isMentionPath(href)
     ? parseArtifactMention(SCHEME + href.slice(MENTION_PATH_PREFIX.length))
     : null
 }
@@ -43,6 +48,11 @@ interface MarkdownNode {
   [key: string]: unknown
 }
 
+function isBareURI(link: MarkdownNode): boolean {
+  const [only, ...rest] = link.children ?? []
+  return rest.length === 0 && only?.type === "text" && only.value === link.url
+}
+
 function rewriteLinks(parent: MarkdownNode): void {
   if (!parent.children) return
   parent.children = parent.children.flatMap((node) => {
@@ -50,6 +60,8 @@ function rewriteLinks(parent: MarkdownNode): void {
     if (node.type !== "link" || !node.url || !isReferenceURI(node.url)) {
       return [node]
     }
+    // An autolink's text is the URI itself; it must not show.
+    if (isBareURI(node)) node.children = [{ type: "text", value: "case" }]
     const mention = parseArtifactMention(node.url)
     if (!mention) return node.children ?? []
     const canonical = serializeReferenceURI({
