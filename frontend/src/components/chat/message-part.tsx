@@ -39,12 +39,8 @@ import {
 } from "@/components/ai-elements/tool"
 import { ApprovalRequestPart } from "@/components/chat/approval-request-part"
 import { AgentReplyText } from "@/components/chat/artifact-mention"
-import {
-  ChannelMessageContext,
-  channelSenderName,
-  withChannelMentionNames,
-} from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
+import { UserBubble } from "@/components/chat/user-bubble"
 import { getIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -63,7 +59,6 @@ import { useSubagentTranscript } from "@/hooks/use-subagent-stream"
 import {
   CANCELLED_DATA_PART_TYPE,
   CHANNEL_MESSAGE_DATA_PART_TYPE,
-  type ChannelMessageData,
   type CompactionData,
   collectInterruptedToolCallIds,
   getChannelMessageData,
@@ -230,11 +225,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={message.text}
         channelMessage={message.channelMessage}
-        authorName={
-          (message.channelMessage &&
-            channelSenderName(message.channelMessage)) ??
-          authorName
-        }
+        authorName={authorName}
       />
     )
   }
@@ -247,7 +238,7 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={channelMessage.text}
         channelMessage={channelMessage}
-        authorName={channelSenderName(channelMessage) ?? authorName}
+        authorName={authorName}
       />
     )
   }
@@ -391,41 +382,6 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
     part.type === "step-start" ||
     part.type === "source-url" ||
     part.type === ARTIFACT_DATA_PART_TYPE
-  )
-}
-
-/** A user's message: its author, text, and a channel message's forwards and thread. */
-function UserBubble({
-  text,
-  channelMessage,
-  authorName,
-}: {
-  text: string
-  channelMessage: ChannelMessageData | null
-  authorName: string | null
-}) {
-  return (
-    <Message
-      from="user"
-      className={authorName ? "flex-col items-end gap-1" : undefined}
-    >
-      {authorName && (
-        <span className="text-xs text-muted-foreground">{authorName}</span>
-      )}
-      <MessageContent variant="flat">
-        {text && (
-          <SmoothResponse
-            text={
-              channelMessage
-                ? withChannelMentionNames(text, channelMessage)
-                : text
-            }
-            animate={false}
-          />
-        )}
-        {channelMessage && <ChannelMessageContext message={channelMessage} />}
-      </MessageContent>
-    </Message>
   )
 }
 
