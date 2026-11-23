@@ -22,6 +22,7 @@ from typing import Annotated, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.auth.types import Role
 from tracecat.core.schemas import Variant
 from tracecat.logger import logger
@@ -127,6 +128,9 @@ def turn_started_updates(
     started = TurnStarted(session_id=session_id, run_id=run_id)
     # Channel messages run as the bot's service role, so only Tracecat users relay.
     if role.user_id is None or prompt is None or not prompt.strip():
+        return [started]
+    # A web Retry of a Slack message resends its envelope; the thread already has it.
+    if ChannelMessage.parse(prompt.lstrip()) is not None:
         return [started]
     sent = MessageSent(
         session_id=session_id,

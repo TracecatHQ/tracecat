@@ -311,7 +311,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
         linked = await is_channel_linked(input.role, input.session_id)
         if linked and input.curr_run_id is not None:
-            # An approval continuation resumes a run; only a new message relays its prompt.
+            # A workflow continuing an existing session relays no prompt; a new message does.
             prompt = None if input.require_existing else input.initial_user_prompt
             await push_updates(
                 input.role,

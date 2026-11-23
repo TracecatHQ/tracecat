@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent import channel_notifier
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import SessionWorkflowContext
+from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.channel_notifier import (
     ChannelDestination,
     ChannelDestinationRef,
@@ -311,6 +313,18 @@ async def test_retry_names_the_run_that_first_sent_the_stored_prompt(
     # A new message carries a client id; another session's row is not this prompt.
     assert await svc._retried_prompt_run_id(web.id, "msg-client-id") is None
     assert await svc._retried_prompt_run_id(uuid.uuid4(), str(prompt.id)) is None
+
+
+def test_a_retried_channel_envelope_is_not_relayed_again() -> None:
+    message = ChannelMessage(
+        provider=ChannelBotProvider.SLACK,
+        sender=ChannelMessageSender(provider_user_id="U1", name="Sam"),
+        text="look at this",
+    )
+
+    updates = turn_started_updates(_user_role(), SESSION_ID, RUN_ID, message.render())
+
+    assert updates == [TurnStarted(session_id=SESSION_ID, run_id=RUN_ID)]
 
 
 def test_the_retried_run_reaches_the_turn_workflow() -> None:
