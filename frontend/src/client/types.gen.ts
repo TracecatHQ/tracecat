@@ -877,9 +877,7 @@ export type AgentPresetApproverRef = {
 }
 
 /**
- * The full approver set for a preset; an empty list clears the policy.
- *
- * A principal named twice collapses to one grant.
+ * Approvers to add to or remove from a preset; repeats collapse to one.
  */
 export type AgentPresetApproversUpdate = {
   approvers: Array<AgentPresetApproverRef>
@@ -17574,21 +17572,31 @@ export type AgentPresetsListAgentPresetApproverOptionsResponse =
   CursorPaginatedResponse_AgentPresetApproverRead_
 
 export type AgentPresetsListAgentPresetApproversData = {
+  cursor?: string | null
+  limit?: number
   presetId: string
   workspaceId: string
 }
 
 export type AgentPresetsListAgentPresetApproversResponse =
-  Array<AgentPresetApproverRead>
+  CursorPaginatedResponse_AgentPresetApproverRead_
 
-export type AgentPresetsReplaceAgentPresetApproversData = {
+export type AgentPresetsAddAgentPresetApproversData = {
   presetId: string
   requestBody: AgentPresetApproversUpdate
   workspaceId: string
 }
 
-export type AgentPresetsReplaceAgentPresetApproversResponse =
+export type AgentPresetsAddAgentPresetApproversResponse =
   Array<AgentPresetApproverRead>
+
+export type AgentPresetsRemoveAgentPresetApproversData = {
+  presetId: string
+  requestBody: AgentPresetApproversUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsRemoveAgentPresetApproversResponse = void
 
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
@@ -24874,7 +24882,11 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentPresetApproverRead>
+        200: CursorPaginatedResponse_AgentPresetApproverRead_
+        /**
+         * Invalid cursor
+         */
+        400: AgentPresetValidationErrorResponse
         /**
          * Agent preset not found
          */
@@ -24885,17 +24897,34 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    put: {
-      req: AgentPresetsReplaceAgentPresetApproversData
+    post: {
+      req: AgentPresetsAddAgentPresetApproversData
       res: {
         /**
          * Successful Response
          */
         200: Array<AgentPresetApproverRead>
         /**
-         * Unknown approvers
+         * Approvers outside the workspace, or over the cap
          */
         400: AgentPresetValidationErrorResponse
+        /**
+         * Agent preset not found
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsRemoveAgentPresetApproversData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Agent preset not found
          */

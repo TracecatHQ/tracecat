@@ -30,7 +30,11 @@ from tracecat.agent.preset.schemas import (
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import (
     CursorPaginatedResponse,
     PaginationError,
@@ -276,7 +280,9 @@ def test_approver_options_route_is_not_read_as_a_preset_id() -> None:
             new_callable=AsyncMock,
             return_value=CursorPaginatedResponse[AgentPresetApproverRead](items=[]),
         ) as list_options,
-        _approver_client(frozenset({"agent:read", "workspace:member:read"})) as client,
+        _approver_client(
+            frozenset({"agent:update", "workspace:member:read"})
+        ) as client,
     ):
         response = client.get("/agent/presets/approver-options")
 
@@ -285,27 +291,59 @@ def test_approver_options_route_is_not_read_as_a_preset_id() -> None:
     list_options.assert_awaited_once()
 
 
+def test_approver_options_refuse_read_only_viewers() -> None:
+    with (
+        _approver_client(frozenset({"agent:read", "workspace:member:read"})) as client,
+        pytest.raises(ScopeDeniedError),
+    ):
+        client.get("/agent/presets/approver-options")
+
+
 @pytest.mark.parametrize(
-    ("error", "status_code"),
+    ("method", "service_method", "error", "status_code"),
     [
-        (TracecatValidationError("Approvers must be workspace members"), 400),
-        (TracecatNotFoundError("Agent preset not found"), 404),
+        ("POST", "add_approvers", TracecatValidationError("Not here"), 400),
+        ("POST", "add_approvers", TracecatNotFoundError("No preset"), 404),
+        ("DELETE", "remove_approvers", TracecatNotFoundError("No preset"), 404),
     ],
 )
-def test_replace_approvers_maps_service_errors(
-    error: Exception, status_code: int
+def test_approver_changes_map_service_errors(
+    method: str, service_method: str, error: Exception, status_code: int
 ) -> None:
     with (
         patch(
-            "tracecat.agent.preset.router.AgentPresetApproverService.replace_approvers",
+            f"tracecat.agent.preset.router.AgentPresetApproverService.{service_method}",
             new_callable=AsyncMock,
             side_effect=error,
         ),
         _approver_client(frozenset({"agent:update"})) as client,
     ):
-        response = client.put(
+        response = client.request(
+            method,
             f"/agent/presets/{uuid.uuid4()}/approvers",
             json={"approvers": [{"kind": "user", "id": str(uuid.uuid4())}]},
         )
 
     assert response.status_code == status_code
+
+
+def test_remove_approvers_returns_no_content() -> None:
+    preset_id = uuid.uuid4()
+    ref = {"kind": "group", "id": str(uuid.uuid4())}
+    with (
+        patch(
+            "tracecat.agent.preset.router.AgentPresetApproverService.remove_approvers",
+            new_callable=AsyncMock,
+        ) as remove,
+        _approver_client(frozenset({"agent:update"})) as client,
+    ):
+        response = client.request(
+            "DELETE",
+            f"/agent/presets/{preset_id}/approvers",
+            json={"approvers": [ref]},
+        )
+
+    assert response.status_code == 204
+    remove.assert_awaited_once()
+    assert remove.await_args is not None
+    assert remove.await_args.args[0] == preset_id

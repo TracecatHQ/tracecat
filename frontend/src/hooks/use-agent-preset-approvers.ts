@@ -1,42 +1,45 @@
 import {
   type AgentPresetApproverRead,
   type AgentPresetApproverRef,
+  agentPresetsAddAgentPresetApprovers,
   agentPresetsListAgentPresetApproverOptions,
   agentPresetsListAgentPresetApprovers,
-  agentPresetsReplaceAgentPresetApprovers,
+  agentPresetsRemoveAgentPresetApprovers,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@/lib/query"
+import { useInfiniteQuery, useMutation, useQueryClient } from "@/lib/query"
 
-/** Who may decide a preset's tool approvals; empty means the default rule. */
+/** Who may decide a preset's tool approvals, a page at a time; none = default rule. */
 export function useAgentPresetApprovers(
   workspaceId: string,
   presetId: string | null | undefined
 ) {
-  return useQuery<AgentPresetApproverRead[], TracecatApiError>({
+  const query = useInfiniteQuery({
     queryKey: ["agent-preset-approvers", workspaceId, presetId],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }) => {
       if (!presetId) {
         throw new Error("presetId is required")
       }
       return await agentPresetsListAgentPresetApprovers({
         workspaceId,
         presetId,
+        cursor: pageParam,
       })
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
     enabled: Boolean(workspaceId) && Boolean(presetId),
     retry: retryHandler,
   })
+  const approvers: AgentPresetApproverRead[] =
+    query.data?.pages.flatMap((page) => page.items) ?? []
+  return { ...query, approvers }
 }
 
-/** Workspace members, groups, and roles matching `search`, a page at a time. */
+/** Principals of this workspace matching `search`, a page at a time. */
 export function useAgentPresetApproverOptions(
   workspaceId: string,
   search: string
@@ -62,32 +65,30 @@ export function useAgentPresetApproverOptions(
   return { ...query, options }
 }
 
-/** Replace a preset's approvers; the change applies at once, unversioned. */
-export function useReplaceAgentPresetApprovers(
+/** Add or remove a preset's approvers; changes apply at once, unversioned. */
+export function useChangeAgentPresetApprovers(
   workspaceId: string,
   presetId: string | null
 ) {
   const queryClient = useQueryClient()
   return useMutation<
-    AgentPresetApproverRead[],
+    unknown,
     TracecatApiError,
-    AgentPresetApproverRef[]
+    { action: "add" | "remove"; approvers: AgentPresetApproverRef[] }
   >({
-    mutationFn: async (approvers) => {
+    mutationFn: async ({ action, approvers }) => {
       if (!presetId) {
         throw new Error("presetId is required")
       }
-      return await agentPresetsReplaceAgentPresetApprovers({
-        workspaceId,
-        presetId,
-        requestBody: { approvers },
-      })
+      const request = { workspaceId, presetId, requestBody: { approvers } }
+      return action === "add"
+        ? await agentPresetsAddAgentPresetApprovers(request)
+        : await agentPresetsRemoveAgentPresetApprovers(request)
     },
-    onSuccess: (approvers) => {
-      queryClient.setQueryData(
-        ["agent-preset-approvers", workspaceId, presetId],
-        approvers
-      )
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["agent-preset-approvers", workspaceId, presetId],
+      })
     },
     onError: (error) => {
       toast({

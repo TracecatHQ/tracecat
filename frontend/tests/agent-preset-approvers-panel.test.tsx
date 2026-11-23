@@ -2,9 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   type AgentPresetApproverRead,
+  agentPresetsAddAgentPresetApprovers,
   agentPresetsListAgentPresetApproverOptions,
   agentPresetsListAgentPresetApprovers,
-  agentPresetsReplaceAgentPresetApprovers,
+  agentPresetsRemoveAgentPresetApprovers,
 } from "@/client"
 import { AgentPresetApproversPanel } from "@/components/agents/agent-preset-rail-approvers"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -14,7 +15,8 @@ jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentPresetsListAgentPresetApprovers: jest.fn(),
   agentPresetsListAgentPresetApproverOptions: jest.fn(),
-  agentPresetsReplaceAgentPresetApprovers: jest.fn(),
+  agentPresetsAddAgentPresetApprovers: jest.fn(),
+  agentPresetsRemoveAgentPresetApprovers: jest.fn(),
 }))
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
@@ -22,7 +24,8 @@ jest.mock("@/components/auth/scope-guard", () => ({
 
 const listApprovers = jest.mocked(agentPresetsListAgentPresetApprovers)
 const listOptions = jest.mocked(agentPresetsListAgentPresetApproverOptions)
-const replaceApprovers = jest.mocked(agentPresetsReplaceAgentPresetApprovers)
+const addApprovers = jest.mocked(agentPresetsAddAgentPresetApprovers)
+const removeApprovers = jest.mocked(agentPresetsRemoveAgentPresetApprovers)
 
 const person: AgentPresetApproverRead = {
   kind: "user",
@@ -57,7 +60,7 @@ beforeEach(() => {
 })
 
 it("explains the default rule while no approvers are listed", async () => {
-  listApprovers.mockResolvedValue([] as never)
+  listApprovers.mockResolvedValue({ items: [] } as never)
 
   renderPanel()
 
@@ -69,10 +72,12 @@ it("explains the default rule while no approvers are listed", async () => {
   expect(listOptions).not.toHaveBeenCalled()
 })
 
-it("adds a group from the picker and saves the full set", async () => {
-  listApprovers.mockResolvedValue([person] as never)
+it("adds a picked group at once", async () => {
+  listApprovers
+    .mockResolvedValueOnce({ items: [person] } as never)
+    .mockResolvedValue({ items: [person, oncall] } as never)
   listOptions.mockResolvedValue({ items: [person, oncall] } as never)
-  replaceApprovers.mockResolvedValue([person, oncall] as never)
+  addApprovers.mockResolvedValue([oncall] as never)
   const user = userEvent.setup()
 
   renderPanel()
@@ -81,22 +86,17 @@ it("adds a group from the picker and saves the full set", async () => {
   await user.click(await screen.findByText("Example on-call"))
 
   await waitFor(() =>
-    expect(replaceApprovers).toHaveBeenCalledWith({
+    expect(addApprovers).toHaveBeenCalledWith({
       workspaceId: "workspace-example",
       presetId: "preset-example",
-      requestBody: {
-        approvers: [
-          { kind: "user", id: "user-example" },
-          { kind: "group", id: "group-example" },
-        ],
-      },
+      requestBody: { approvers: [{ kind: "group", id: "group-example" }] },
     })
   )
   expect(await screen.findByText("Group")).toBeInTheDocument()
 })
 
 it("never offers an already-listed approver again", async () => {
-  listApprovers.mockResolvedValue([person] as never)
+  listApprovers.mockResolvedValue({ items: [person] } as never)
   listOptions.mockResolvedValue({ items: [person, oncall] } as never)
   const user = userEvent.setup()
 
@@ -107,11 +107,11 @@ it("never offers an already-listed approver again", async () => {
   expect(listed).toHaveAttribute("aria-disabled", "true")
   await user.click(listed as HTMLElement)
 
-  expect(replaceApprovers).not.toHaveBeenCalled()
+  expect(addApprovers).not.toHaveBeenCalled()
 })
 
 it("searches approver options on the server", async () => {
-  listApprovers.mockResolvedValue([] as never)
+  listApprovers.mockResolvedValue({ items: [] } as never)
   listOptions.mockResolvedValue({ items: [oncall] } as never)
   const user = userEvent.setup()
 
@@ -133,9 +133,9 @@ it("searches approver options on the server", async () => {
   expect(await screen.findByText("Example on-call")).toBeInTheDocument()
 })
 
-it("removes an approver", async () => {
-  listApprovers.mockResolvedValue([person, oncall] as never)
-  replaceApprovers.mockResolvedValue([oncall] as never)
+it("removes only the clicked approver", async () => {
+  listApprovers.mockResolvedValue({ items: [person, oncall] } as never)
+  removeApprovers.mockResolvedValue(undefined as never)
   const user = userEvent.setup()
 
   renderPanel()
@@ -144,15 +144,39 @@ it("removes an approver", async () => {
   )
 
   await waitFor(() =>
-    expect(replaceApprovers).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestBody: { approvers: [{ kind: "group", id: "group-example" }] },
-      })
-    )
+    expect(removeApprovers).toHaveBeenCalledWith({
+      workspaceId: "workspace-example",
+      presetId: "preset-example",
+      requestBody: { approvers: [{ kind: "user", id: "user-example" }] },
+    })
   )
+  expect(addApprovers).not.toHaveBeenCalled()
 })
 
-it("blocks edits until the current approvers load", async () => {
+it("loads more listed approvers a page at a time", async () => {
+  listApprovers
+    .mockResolvedValueOnce({
+      items: [person],
+      has_more: true,
+      next_cursor: "page-2",
+    } as never)
+    .mockResolvedValueOnce({ items: [oncall] } as never)
+  const user = userEvent.setup()
+
+  renderPanel()
+  await screen.findByText("Example person")
+  await user.click(screen.getByRole("button", { name: "Load more" }))
+
+  expect(await screen.findByText("Example on-call")).toBeInTheDocument()
+  expect(listApprovers).toHaveBeenLastCalledWith({
+    workspaceId: "workspace-example",
+    presetId: "preset-example",
+    cursor: "page-2",
+  })
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull()
+})
+
+it("says when the listed approvers could not load", async () => {
   listApprovers.mockRejectedValue(
     Object.assign(new Error("denied"), { status: 403 })
   )
@@ -162,8 +186,6 @@ it("blocks edits until the current approvers load", async () => {
   expect(
     await screen.findByText("Approvers could not be loaded.")
   ).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Add approver" })).toBeDisabled()
-  expect(replaceApprovers).not.toHaveBeenCalled()
 })
 
 it("asks for a save before an unsaved agent can list approvers", () => {

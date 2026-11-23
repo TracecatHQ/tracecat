@@ -237,6 +237,8 @@ import type {
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentPresetsAddAgentPresetApproversData,
+  AgentPresetsAddAgentPresetApproversResponse,
   AgentPresetsAddPresetTagData,
   AgentPresetsAddPresetTagResponse,
   AgentPresetsCompareAgentPresetVersionsData,
@@ -267,10 +269,10 @@ import type {
   AgentPresetsMoveAgentPresetToFolderResponse,
   AgentPresetsPreviewToolPolicyData,
   AgentPresetsPreviewToolPolicyResponse,
+  AgentPresetsRemoveAgentPresetApproversData,
+  AgentPresetsRemoveAgentPresetApproversResponse,
   AgentPresetsRemovePresetTagData,
   AgentPresetsRemovePresetTagResponse,
-  AgentPresetsReplaceAgentPresetApproversData,
-  AgentPresetsReplaceAgentPresetApproversResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
@@ -7506,7 +7508,7 @@ export const agentPresetsPreviewToolPolicy = (
 
 /**
  * List Agent Preset Approver Options
- * Page through the workspace members, groups, and roles that can approve.
+ * Page through the principals that already apply in this workspace.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit
@@ -7538,11 +7540,13 @@ export const agentPresetsListAgentPresetApproverOptions = (
 
 /**
  * List Agent Preset Approvers
- * List who may approve the preset's tool calls; empty means the default rule.
+ * Page through who may approve the preset's tool calls; none = default rule.
  * @param data The data for the request.
  * @param data.presetId
  * @param data.workspaceId
- * @returns AgentPresetApproverRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentPresetApproverRead_ Successful Response
  * @throws ApiError
  */
 export const agentPresetsListAgentPresetApprovers = (
@@ -7555,7 +7559,12 @@ export const agentPresetsListAgentPresetApprovers = (
       preset_id: data.presetId,
       workspace_id: data.workspaceId,
     },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
     errors: {
+      400: "Invalid cursor",
       404: "Agent preset not found",
       422: "Validation Error",
     },
@@ -7563,8 +7572,8 @@ export const agentPresetsListAgentPresetApprovers = (
 }
 
 /**
- * Replace Agent Preset Approvers
- * Replace who may approve the preset's tool calls; applies at once, unversioned.
+ * Add Agent Preset Approvers
+ * Add who may approve the preset's tool calls; idempotent, applies at once.
  * @param data The data for the request.
  * @param data.presetId
  * @param data.workspaceId
@@ -7572,11 +7581,11 @@ export const agentPresetsListAgentPresetApprovers = (
  * @returns AgentPresetApproverRead Successful Response
  * @throws ApiError
  */
-export const agentPresetsReplaceAgentPresetApprovers = (
-  data: AgentPresetsReplaceAgentPresetApproversData
-): CancelablePromise<AgentPresetsReplaceAgentPresetApproversResponse> => {
+export const agentPresetsAddAgentPresetApprovers = (
+  data: AgentPresetsAddAgentPresetApproversData
+): CancelablePromise<AgentPresetsAddAgentPresetApproversResponse> => {
   return __request(OpenAPI, {
-    method: "PUT",
+    method: "POST",
     url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
     path: {
       preset_id: data.presetId,
@@ -7585,7 +7594,36 @@ export const agentPresetsReplaceAgentPresetApprovers = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      400: "Unknown approvers",
+      400: "Approvers outside the workspace, or over the cap",
+      404: "Agent preset not found",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Agent Preset Approvers
+ * Remove approvers; idempotent. Removing the last restores the default rule.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsRemoveAgentPresetApprovers = (
+  data: AgentPresetsRemoveAgentPresetApproversData
+): CancelablePromise<AgentPresetsRemoveAgentPresetApproversResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
       404: "Agent preset not found",
       422: "Validation Error",
     },

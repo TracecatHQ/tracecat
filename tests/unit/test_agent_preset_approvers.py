@@ -60,6 +60,7 @@ from tracecat.db.models import (
     Approval,
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Organization,
     User,
     UserRoleAssignment,
@@ -471,54 +472,114 @@ async def test_web_continuation_outside_the_policy_is_refused(
         assert row.status is ApprovalStatus.PENDING
 
 
-async def test_replace_lists_and_clears_approvers(
-    session: AsyncSession, svc_role: Role
-) -> None:
-    assert svc_role.organization_id is not None
-    preset = await _preset(session, svc_role)
-    member = await _make_user(session, svc_role, workspace_role="workspace-editor")
+async def _assigned_group(
+    session: AsyncSession,
+    role: Role,
+    role_id: uuid.UUID,
+    *,
+    workspace_id: uuid.UUID | None,
+) -> Group:
+    """An org group granted ``role_id`` in ``workspace_id`` (None = org-wide)."""
+    assert role.organization_id is not None
     group = Group(
-        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=role.organization_id
     )
     session.add(group)
-    await session.commit()
-    editor_role_id = await _system_role_id(session, svc_role, "workspace-editor")
-    service = AgentPresetApproverService(session, role=svc_role)
-
-    replaced = await service.replace_approvers(
-        preset.id,
-        [
-            AgentPresetApproverRef(kind="role", id=editor_role_id),
-            AgentPresetApproverRef(kind="user", id=member.id),
-            AgentPresetApproverRef(kind="group", id=group.id),
-            # Naming a principal twice collapses to one grant.
-            AgentPresetApproverRef(kind="user", id=member.id),
-        ],
+    await session.flush()
+    session.add(
+        GroupRoleAssignment(
+            organization_id=role.organization_id,
+            group_id=group.id,
+            workspace_id=workspace_id,
+            role_id=role_id,
+        )
     )
+    await session.commit()
+    return group
 
-    assert [(r.kind, r.id) for r in replaced] == [
+
+async def _custom_role(session: AsyncSession, role: Role) -> DBRole:
+    assert role.organization_id is not None
+    custom = DBRole(
+        name=f"Triage {uuid.uuid4().hex[:8]}",
+        slug=f"triage-{uuid.uuid4().hex[:8]}",
+        organization_id=role.organization_id,
+    )
+    session.add(custom)
+    await session.commit()
+    return custom
+
+
+async def _all_listed(
+    service: AgentPresetApproverService, preset_id: uuid.UUID
+) -> list[AgentPresetApproverRead]:
+    seen: list[AgentPresetApproverRead] = []
+    cursor: str | None = None
+    while True:
+        page = await service.list_approvers(
+            preset_id, PageParams(limit=1, cursor=cursor)
+        )
+        seen.extend(page.items)
+        if not page.has_more:
+            return seen
+        cursor = page.next_cursor
+
+
+async def _option_keys(
+    service: AgentPresetApproverService,
+) -> set[tuple[str, uuid.UUID]]:
+    options = await service.list_options(PageParams(limit=100))
+    return {(o.kind, o.id) for o in options.items}
+
+
+async def test_add_and_remove_approvers_one_at_a_time(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.workspace_id is not None
+    preset = await _preset(session, svc_role)
+    member = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    editor_role_id = await _system_role_id(session, svc_role, "workspace-editor")
+    group = await _assigned_group(
+        session, svc_role, editor_role_id, workspace_id=svc_role.workspace_id
+    )
+    service = AgentPresetApproverService(session, role=svc_role)
+    user_ref = AgentPresetApproverRef(kind="user", id=member.id)
+    group_ref = AgentPresetApproverRef(kind="group", id=group.id)
+    role_ref = AgentPresetApproverRef(kind="role", id=editor_role_id)
+
+    added = await service.add_approvers(preset.id, [role_ref, user_ref, user_ref])
+    assert [(r.kind, r.id) for r in added] == [
+        ("user", member.id),
+        ("role", editor_role_id),
+    ]
+    assert added[0].email == member.email
+    # Adding again is a no-op, not a conflict.
+    await service.add_approvers(preset.id, [user_ref, group_ref])
+    listed = await _all_listed(service, preset.id)
+    assert [(r.kind, r.id) for r in listed] == [
         ("user", member.id),
         ("group", group.id),
         ("role", editor_role_id),
     ]
-    assert replaced[0].email == member.email
-    assert await service.list_approvers(preset.id) == replaced
-    options = await service.list_options(PageParams(limit=100))
-    assert {(r.kind, r.id) for r in replaced} <= {(o.kind, o.id) for o in options.items}
+    assert {(r.kind, r.id) for r in listed} <= await _option_keys(service)
 
-    assert await service.replace_approvers(preset.id, []) == []
-    assert await service.list_approvers(preset.id) == []
+    await service.remove_approvers(preset.id, [group_ref, group_ref])
+    await service.remove_approvers(preset.id, [group_ref])
+    assert [r.id for r in await _all_listed(service, preset.id)] == [
+        member.id,
+        editor_role_id,
+    ]
+    await service.remove_approvers(preset.id, [user_ref, role_ref])
+    assert await _all_listed(service, preset.id) == []
 
 
 async def test_approver_options_page_in_order_and_search(
     session: AsyncSession, svc_role: Role
 ) -> None:
-    assert svc_role.organization_id is not None
-    tag = uuid.uuid4().hex[:8]
+    assert svc_role.workspace_id is not None
     member = await _make_user(session, svc_role, workspace_role="workspace-editor")
-    group = Group(name=f"oncall-{tag}", organization_id=svc_role.organization_id)
-    session.add(group)
-    await session.commit()
+    viewer_role_id = await _system_role_id(session, svc_role, "workspace-viewer")
+    group = await _assigned_group(session, svc_role, viewer_role_id, workspace_id=None)
     service = AgentPresetApproverService(session, role=svc_role)
 
     seen: list[AgentPresetApproverRead] = []
@@ -534,29 +595,81 @@ async def test_approver_options_page_in_order_and_search(
     assert len({(o.kind, o.id) for o in seen}) == len(seen)
     assert ("user", member.id) in {(o.kind, o.id) for o in seen}
 
-    found = await service.list_options(PageParams(limit=100), search=tag)
+    found = await service.list_options(PageParams(limit=100), search=group.name[-8:])
     assert [(o.kind, o.id) for o in found.items] == [("group", group.id)]
     assert (
         await service.list_options(PageParams(limit=100), search=member.email.upper())
     ).items[0].id == member.id
 
 
+async def test_options_hold_only_principals_that_apply_in_this_workspace(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None and svc_role.workspace_id is not None
+    preset = await _preset(session, svc_role)
+    await seed_system_scopes(session)
+    await seed_system_roles_for_org(session, svc_role.organization_id)
+    other = Workspace(name="Other", organization_id=svc_role.organization_id)
+    session.add(other)
+    await session.flush()
+    assigned_here = await _custom_role(session, svc_role)
+    assigned_elsewhere = await _custom_role(session, svc_role)
+    unassigned = await _custom_role(session, svc_role)
+    here = await _assigned_group(
+        session, svc_role, assigned_here.id, workspace_id=svc_role.workspace_id
+    )
+    elsewhere = await _assigned_group(
+        session, svc_role, assigned_elsewhere.id, workspace_id=other.id
+    )
+    org_only = Group(
+        name=f"org-only-{uuid.uuid4().hex[:8]}",
+        organization_id=svc_role.organization_id,
+    )
+    session.add(org_only)
+    await session.commit()
+    service = AgentPresetApproverService(session, role=svc_role)
+    preset_id = preset.id
+
+    inside = [
+        AgentPresetApproverRef(kind="role", id=assigned_here.id),
+        AgentPresetApproverRef(kind="group", id=here.id),
+    ]
+    options = await _option_keys(service)
+    assert {(ref.kind, ref.id) for ref in inside} <= options
+    for system_slug in ("workspace-admin", "workspace-editor", "workspace-viewer"):
+        role_id = await _system_role_id(session, svc_role, system_slug)
+        assert ("role", role_id) in options
+    outside = [
+        AgentPresetApproverRef(kind="group", id=elsewhere.id),
+        AgentPresetApproverRef(kind="group", id=org_only.id),
+        AgentPresetApproverRef(kind="role", id=assigned_elsewhere.id),
+        AgentPresetApproverRef(kind="role", id=unassigned.id),
+    ]
+    assert not {(ref.kind, ref.id) for ref in outside} & options
+
+    for ref in outside:
+        with pytest.raises(TracecatValidationError):
+            await service.add_approvers(preset_id, [ref])
+        await session.rollback()
+    added = await service.add_approvers(preset_id, inside)
+    assert {r.id for r in added} == {ref.id for ref in inside}
+
+
 async def test_a_user_and_their_group_are_two_grants(
     session: AsyncSession, svc_role: Role
 ) -> None:
-    assert svc_role.organization_id is not None
+    assert svc_role.workspace_id is not None
     preset = await _preset(session, svc_role)
     member = await _make_user(session, svc_role, workspace_role="workspace-editor")
-    group = Group(
-        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+    editor_role_id = await _system_role_id(session, svc_role, "workspace-editor")
+    group = await _assigned_group(
+        session, svc_role, editor_role_id, workspace_id=svc_role.workspace_id
     )
-    session.add(group)
-    await session.flush()
     session.add(GroupMember(group_id=group.id, user_id=member.id))
     await session.commit()
     service = AgentPresetApproverService(session, role=svc_role)
 
-    replaced = await service.replace_approvers(
+    added = await service.add_approvers(
         preset.id,
         [
             AgentPresetApproverRef(kind="user", id=member.id),
@@ -564,7 +677,7 @@ async def test_a_user_and_their_group_are_two_grants(
         ],
     )
 
-    assert [(r.kind, r.id) for r in replaced] == [
+    assert [(r.kind, r.id) for r in added] == [
         ("user", member.id),
         ("group", group.id),
     ]
@@ -579,7 +692,7 @@ async def test_a_user_and_their_group_are_two_grants(
     assert await _allowed(session, svc_role, preset, member)
 
 
-async def test_replace_refuses_principals_outside_the_workspace(
+async def test_add_refuses_principals_outside_the_workspace(
     session: AsyncSession, svc_role: Role
 ) -> None:
     preset = await _preset(session, svc_role)
@@ -592,49 +705,76 @@ async def test_replace_refuses_principals_outside_the_workspace(
     session.add(foreign_group)
     # In the org, but holds no role path into this workspace.
     stranger = await _make_user(session, svc_role, workspace_role=None)
+    member = await _make_user(session, svc_role, workspace_role="workspace-editor")
     service = AgentPresetApproverService(session, role=svc_role)
     preset_id = preset.id
-    member_group = Group(
-        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
-    )
-    session.add(member_group)
     await session.commit()
     refs = [
         AgentPresetApproverRef(kind="group", id=foreign_group.id),
         AgentPresetApproverRef(kind="user", id=stranger.id),
         AgentPresetApproverRef(kind="role", id=uuid.uuid4()),
-        # A real group named as a user must not slip through.
-        AgentPresetApproverRef(kind="user", id=member_group.id),
+        # A real member named as a group must not slip through.
+        AgentPresetApproverRef(kind="group", id=member.id),
     ]
 
     for ref in refs:
         with pytest.raises(TracecatValidationError):
-            await service.replace_approvers(preset_id, [ref])
+            await service.add_approvers(preset_id, [ref])
         await session.rollback()
 
-    assert await service.list_approvers(preset_id) == []
+    assert await _all_listed(service, preset_id) == []
 
 
-async def test_only_agent_editors_may_change_approvers(
+async def test_add_refuses_going_over_the_cap(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("tracecat.agent.preset.approvers.MAX_AGENT_PRESET_APPROVERS", 2)
+    preset = await _preset(session, svc_role)
+    users = [
+        await _make_user(session, svc_role, workspace_role="workspace-editor")
+        for _ in range(3)
+    ]
+    service = AgentPresetApproverService(session, role=svc_role)
+    preset_id = preset.id
+    refs = [AgentPresetApproverRef(kind="user", id=user.id) for user in users]
+
+    await service.add_approvers(preset_id, refs[:2])
+    # Re-adding listed approvers does not count against the cap.
+    await service.add_approvers(preset_id, refs[:2])
+    with pytest.raises(TracecatValidationError, match="at most 2"):
+        await service.add_approvers(preset_id, refs[2:])
+    await session.rollback()
+
+    assert {r.id for r in await _all_listed(service, preset_id)} == {
+        users[0].id,
+        users[1].id,
+    }
+
+
+async def test_only_agent_editors_may_see_options_or_change_approvers(
     session: AsyncSession, svc_role: Role
 ) -> None:
     preset = await _preset(session, svc_role)
-    viewer = svc_role.model_copy(update={"scopes": VIEWER_SCOPES})
-    editor = svc_role.model_copy(update={"scopes": EDITOR_SCOPES})
-
-    with pytest.raises(ScopeDeniedError):
-        await AgentPresetApproverService(session, role=viewer).replace_approvers(
-            preset.id, []
-        )
-    assert (
-        await AgentPresetApproverService(session, role=editor).replace_approvers(
-            preset.id, []
-        )
-        == []
+    viewer = AgentPresetApproverService(
+        session, role=svc_role.model_copy(update={"scopes": VIEWER_SCOPES})
+    )
+    editor = AgentPresetApproverService(
+        session, role=svc_role.model_copy(update={"scopes": EDITOR_SCOPES})
     )
 
+    with pytest.raises(ScopeDeniedError):
+        await viewer.list_options(PageParams(limit=10))
+    with pytest.raises(ScopeDeniedError):
+        await viewer.add_approvers(preset.id, [])
+    with pytest.raises(ScopeDeniedError):
+        await viewer.remove_approvers(preset.id, [])
+    assert (await viewer.list_approvers(preset.id, PageParams(limit=10))).items == []
+    await editor.list_options(PageParams(limit=10))
+    assert await editor.add_approvers(preset.id, []) == []
+    await editor.remove_approvers(preset.id, [])
 
-async def test_replace_keeps_a_listed_user_who_left_the_workspace(
+
+async def test_a_listed_user_who_left_the_workspace_stays_listed(
     session: AsyncSession, svc_role: Role
 ) -> None:
     assert svc_role.workspace_id is not None
@@ -648,7 +788,7 @@ async def test_replace_keeps_a_listed_user_who_left_the_workspace(
     await session.commit()
     service = AgentPresetApproverService(session, role=svc_role)
 
-    replaced = await service.replace_approvers(
+    added = await service.add_approvers(
         preset.id,
         [
             AgentPresetApproverRef(kind="user", id=leaver.id),
@@ -656,7 +796,7 @@ async def test_replace_keeps_a_listed_user_who_left_the_workspace(
         ],
     )
 
-    assert {r.id for r in replaced} == {leaver.id, joiner.id}
+    assert {r.id for r in added} == {leaver.id, joiner.id}
 
 
 async def test_deleting_the_last_listed_principal_empties_the_policy(
@@ -804,11 +944,13 @@ async def test_without_rbac_addons_grants_are_inert_and_unmanageable(
     assert await _allowed(session, svc_role, preset, outsider)
     assert await _allowed(session, svc_role, preset, None)
     with pytest.raises(EntitlementRequired):
-        await service.list_approvers(preset.id)
+        await service.list_approvers(preset.id, PageParams(limit=10))
     with pytest.raises(EntitlementRequired):
         await service.list_options(PageParams(limit=10))
     with pytest.raises(EntitlementRequired):
-        await service.replace_approvers(preset.id, [])
+        await service.add_approvers(preset.id, [])
+    with pytest.raises(EntitlementRequired):
+        await service.remove_approvers(preset.id, [])
     assert await session.scalar(
         select(AgentPresetApprover.id).where(AgentPresetApprover.preset_id == preset.id)
     )

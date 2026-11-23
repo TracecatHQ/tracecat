@@ -553,7 +553,7 @@ class AgentPresetVersionDiff(BaseModel):
 
 type AgentPresetApproverKind = Literal["user", "group", "role"]
 
-# Abuse guard on the replace-all body, far above any real org's headcount.
+# Cap on a preset's total grants and on one request body; far above any org's headcount.
 MAX_AGENT_PRESET_APPROVERS = 10_000
 
 
@@ -574,10 +574,7 @@ class AgentPresetApproverRead(AgentPresetApproverRef):
 
 
 class AgentPresetApproversUpdate(BaseModel):
-    """The full approver set for a preset; an empty list clears the policy.
-
-    A principal named twice collapses to one grant.
-    """
+    """Approvers to add to or remove from a preset; repeats collapse to one."""
 
     approvers: list[AgentPresetApproverRef] = Field(
         max_length=MAX_AGENT_PRESET_APPROVERS

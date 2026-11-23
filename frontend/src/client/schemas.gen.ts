@@ -2865,9 +2865,8 @@ export const $AgentPresetApproversUpdate = {
   type: "object",
   required: ["approvers"],
   title: "AgentPresetApproversUpdate",
-  description: `The full approver set for a preset; an empty list clears the policy.
-
-A principal named twice collapses to one grant.`,
+  description:
+    "Approvers to add to or remove from a preset; repeats collapse to one.",
 } as const
 
 export const $AgentPresetCapability = {

@@ -1,4 +1,4 @@
-"""Read and replace who may approve an agent preset's tool calls."""
+"""Read, add, and remove who may approve an agent preset's tool calls."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from sqlalchemy import (
     Uuid,
     and_,
     delete,
-    insert,
+    func,
     literal,
     or_,
     select,
@@ -22,9 +22,11 @@ from sqlalchemy import (
     union,
     union_all,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import raiseload
 
 from tracecat.agent.preset.schemas import (
+    MAX_AGENT_PRESET_APPROVERS,
     AgentPresetApproverKind,
     AgentPresetApproverRead,
     AgentPresetApproverRef,
@@ -36,8 +38,10 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetApprover,
     Group,
+    GroupRoleAssignment,
     Membership,
     User,
+    UserRoleAssignment,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -47,6 +51,13 @@ from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
 type _IdSelect = Select[Any] | CompoundSelect
+
+# Every workspace has these roles, so they apply here without an assignment.
+WORKSPACE_SYSTEM_ROLE_SLUGS = (
+    "workspace-admin",
+    "workspace-editor",
+    "workspace-viewer",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,24 +110,133 @@ class AgentPresetApproverService(BaseWorkspaceService):
     @require_scope("agent:read")
     @requires_entitlement(Entitlement.RBAC_ADDONS)
     async def list_approvers(
-        self, preset_id: uuid.UUID
-    ) -> list[AgentPresetApproverRead]:
-        """List a preset's approvers: users by email, then groups, then roles."""
-        return await self._named(self._listed(preset_id))
-
-    @require_scope("agent:read", "workspace:member:read")
-    @requires_entitlement(Entitlement.RBAC_ADDONS)
-    async def list_options(
-        self, page: PageParams, *, search: str | None = None
+        self, preset_id: uuid.UUID, page: PageParams
     ) -> CursorPaginatedResponse[AgentPresetApproverRead]:
-        """A page of the workspace members, org groups, and org roles one can pick.
-
-        Users come first by email, then groups, then roles, each by name.
+        """A page of the preset's approvers: users by email, then groups, then roles.
 
         Raises:
             PaginationError: If the cursor is invalid.
         """
-        options = self._options()
+        return await self._page(self._listed(preset_id), page)
+
+    @require_scope("agent:update", "workspace:member:read")
+    @requires_entitlement(Entitlement.RBAC_ADDONS)
+    async def list_options(
+        self, page: PageParams, *, search: str | None = None
+    ) -> CursorPaginatedResponse[AgentPresetApproverRead]:
+        """A page of the principals that already apply in this workspace.
+
+        Raises:
+            PaginationError: If the cursor is invalid.
+        """
+        return await self._page(self._options(), page, search=search)
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.RBAC_ADDONS)
+    @audit_log(
+        resource_type="agent_preset", action="update", resource_id_attr="preset_id"
+    )
+    async def add_approvers(
+        self, preset_id: uuid.UUID, approvers: Sequence[AgentPresetApproverRef]
+    ) -> list[AgentPresetApproverRead]:
+        """Add approvers; already-listed ones and repeats are no-ops.
+
+        Raises:
+            TracecatNotFoundError: If the preset is not in this workspace.
+            TracecatValidationError: If an approver does not apply in this
+                workspace, or the preset would exceed the approver cap.
+        """
+        approvers = list(dict.fromkeys(approvers))
+        await self._lock_preset(preset_id)
+        if not approvers:
+            return []
+        valid = await self._named(
+            self._options().union(self._listed(preset_id)), only=approvers
+        )
+        if {(read.kind, read.id) for read in valid} != {
+            (ref.kind, ref.id) for ref in approvers
+        }:
+            raise TracecatValidationError(
+                "Approvers must be members, groups, or roles of this workspace"
+            )
+        await self.session.execute(
+            pg_insert(AgentPresetApprover)
+            .values(
+                [
+                    {
+                        "workspace_id": self.workspace_id,
+                        "preset_id": preset_id,
+                        "user_id": ref.id if ref.kind == "user" else None,
+                        "group_id": ref.id if ref.kind == "group" else None,
+                        "role_id": ref.id if ref.kind == "role" else None,
+                    }
+                    for ref in approvers
+                ]
+            )
+            .on_conflict_do_nothing()
+        )
+        listed = await self.session.scalar(
+            select(func.count()).where(_preset_approvers(self.workspace_id, preset_id))
+        )
+        if (listed or 0) > MAX_AGENT_PRESET_APPROVERS:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                f"An agent can list at most {MAX_AGENT_PRESET_APPROVERS:,} approvers"
+            )
+        await self.session.commit()
+        return valid
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.RBAC_ADDONS)
+    @audit_log(
+        resource_type="agent_preset", action="update", resource_id_attr="preset_id"
+    )
+    async def remove_approvers(
+        self, preset_id: uuid.UUID, approvers: Sequence[AgentPresetApproverRef]
+    ) -> None:
+        """Remove approvers; ones not listed are no-ops. Removing all restores the default rule.
+
+        Raises:
+            TracecatNotFoundError: If the preset is not in this workspace.
+        """
+        await self._lock_preset(preset_id)
+        if approvers:
+            await self.session.execute(
+                delete(AgentPresetApprover).where(
+                    _preset_approvers(self.workspace_id, preset_id),
+                    or_(
+                        AgentPresetApprover.user_id.in_(_requested(approvers, "user")),
+                        AgentPresetApprover.group_id.in_(
+                            _requested(approvers, "group")
+                        ),
+                        AgentPresetApprover.role_id.in_(_requested(approvers, "role")),
+                    ),
+                )
+            )
+        await self.session.commit()
+
+    async def _lock_preset(self, preset_id: uuid.UUID) -> None:
+        # FOR NO KEY UPDATE: serializes changes without blocking FK checks.
+        preset = await self.session.scalar(
+            select(AgentPreset.id)
+            .where(
+                AgentPreset.id == preset_id,
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+            )
+            .with_for_update(key_share=True)
+        )
+        if preset is None:
+            raise TracecatNotFoundError(f"Agent preset {preset_id} not found")
+
+    async def _page(
+        self,
+        principals: _Principals,
+        page: PageParams,
+        *,
+        search: str | None = None,
+    ) -> CursorPaginatedResponse[AgentPresetApproverRead]:
+        """Page the principals: users by email, then groups, then roles by name."""
         user_id, email = cast(Any, User.id), cast(Any, User.email)
         users = select(
             literal("user").label("kind"),
@@ -124,12 +244,12 @@ class AgentPresetApproverService(BaseWorkspaceService):
             email.label("sort_key"),
             # The union's first select types its cursor columns.
             type_coerce(user_id, Uuid).label("id"),
-        ).where(user_id.in_(options.users))
+        ).where(user_id.in_(principals.users))
         groups = select(literal("group"), literal(1), Group.name, Group.id).where(
-            Group.id.in_(options.groups)
+            Group.id.in_(principals.groups)
         )
         roles = select(literal("role"), literal(2), DBRole.name, DBRole.id).where(
-            DBRole.id.in_(options.roles)
+            DBRole.id.in_(principals.roles)
         )
         if search:
             users = users.where(
@@ -154,7 +274,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         named = (
             {
                 (read.kind, read.id): read
-                for read in await self._named(options, only=result.items)
+                for read in await self._named(principals, only=result.items)
             }
             if result.items
             else {}
@@ -171,72 +291,6 @@ class AgentPresetApproverService(BaseWorkspaceService):
             has_previous=result.has_previous,
         )
 
-    @require_scope("agent:update")
-    @requires_entitlement(Entitlement.RBAC_ADDONS)
-    @audit_log(
-        resource_type="agent_preset", action="update", resource_id_attr="preset_id"
-    )
-    async def replace_approvers(
-        self, preset_id: uuid.UUID, approvers: Sequence[AgentPresetApproverRef]
-    ) -> list[AgentPresetApproverRead]:
-        """Replace the preset-wide approver set; an empty set clears the policy.
-
-        Approvers already listed may stay even after leaving the workspace. A
-        principal named twice collapses to one grant.
-
-        Raises:
-            TracecatNotFoundError: If the preset is not in this workspace.
-            TracecatValidationError: If a new approver is not a workspace
-                member, org group, or org role.
-        """
-        approvers = list(dict.fromkeys(approvers))
-        # FOR NO KEY UPDATE: serializes replacements without blocking FK checks.
-        preset = await self.session.scalar(
-            select(AgentPreset.id)
-            .where(
-                AgentPreset.id == preset_id,
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-            .with_for_update(key_share=True)
-        )
-        if preset is None:
-            raise TracecatNotFoundError(f"Agent preset {preset_id} not found")
-        valid = (
-            await self._named(
-                self._options().union(self._listed(preset_id)), only=approvers
-            )
-            if approvers
-            else []
-        )
-        if {(read.kind, read.id) for read in valid} != {
-            (ref.kind, ref.id) for ref in approvers
-        }:
-            raise TracecatValidationError(
-                "Approvers must be workspace members, groups, or roles"
-            )
-        await self.session.execute(
-            delete(AgentPresetApprover).where(
-                _preset_approvers(self.workspace_id, preset_id)
-            )
-        )
-        if approvers:
-            await self.session.execute(
-                insert(AgentPresetApprover),
-                [
-                    {
-                        "workspace_id": self.workspace_id,
-                        "preset_id": preset_id,
-                        "user_id": ref.id if ref.kind == "user" else None,
-                        "group_id": ref.id if ref.kind == "group" else None,
-                        "role_id": ref.id if ref.kind == "role" else None,
-                    }
-                    for ref in approvers
-                ],
-            )
-        await self.session.commit()
-        return valid
-
     def _listed(self, preset_id: uuid.UUID) -> _Principals:
         listed = _preset_approvers(self.workspace_id, preset_id)
         return _Principals(
@@ -246,16 +300,36 @@ class AgentPresetApproverService(BaseWorkspaceService):
         )
 
     def _options(self) -> _Principals:
+        """Principals that already apply in this workspace, never org-only ones."""
+        group_grants = select(GroupRoleAssignment).where(
+            GroupRoleAssignment.organization_id == self.organization_id,
+            or_(
+                GroupRoleAssignment.workspace_id == self.workspace_id,
+                GroupRoleAssignment.workspace_id.is_(None),
+            ),
+        )
+        user_grants = select(UserRoleAssignment.role_id).where(
+            UserRoleAssignment.organization_id == self.organization_id,
+            or_(
+                UserRoleAssignment.workspace_id == self.workspace_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            ),
+        )
         return _Principals(
             users=select(Membership.user_id).where(
                 Membership.workspace_id == self.workspace_id
             ),
-            groups=select(Group.id).where(
-                Group.organization_id == self.organization_id
-            ),
+            groups=group_grants.with_only_columns(GroupRoleAssignment.group_id),
             roles=select(DBRole.id).where(
                 DBRole.organization_id == self.organization_id,
                 DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
+                or_(
+                    DBRole.slug.in_(WORKSPACE_SYSTEM_ROLE_SLUGS),
+                    DBRole.id.in_(user_grants),
+                    DBRole.id.in_(
+                        group_grants.with_only_columns(GroupRoleAssignment.role_id)
+                    ),
+                ),
             ),
         )
 

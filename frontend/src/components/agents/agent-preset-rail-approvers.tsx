@@ -34,7 +34,7 @@ import { DialogDescription } from "@/components/ui/dialog"
 import {
   useAgentPresetApproverOptions,
   useAgentPresetApprovers,
-  useReplaceAgentPresetApprovers,
+  useChangeAgentPresetApprovers,
 } from "@/hooks/use-agent-preset-approvers"
 import { useDebounce } from "@/hooks/use-debounce"
 
@@ -62,8 +62,8 @@ function approverDetail(approver: AgentPresetApproverRead): string {
 }
 
 /**
- * Who may decide this preset's tool approvals. Saved on change and never
- * versioned, so it stays editable on synced presets.
+ * Who may decide this preset's tool approvals. Each add or remove saves at
+ * once and is never versioned, so it stays editable on synced presets.
  */
 export function AgentPresetApproversPanel({
   workspaceId,
@@ -73,22 +73,25 @@ export function AgentPresetApproversPanel({
   presetId: string | null
 }) {
   const canEdit = useScopeCheck("agent:update") === true
-  // The picker lists workspace members, which needs its own read scopes.
+  // The picker lists workspace members, which needs its own read scope.
   const canPick =
-    useScopeCheck(undefined, ["agent:read", "workspace:member:read"], {
+    useScopeCheck(undefined, ["agent:update", "workspace:member:read"], {
       all: true,
     }) === true
   const approversQuery = useAgentPresetApprovers(workspaceId, presetId)
-  const { mutate: replaceApprovers, isPending } =
-    useReplaceAgentPresetApprovers(workspaceId, presetId)
+  const { mutate: changeApprovers, isPending } = useChangeAgentPresetApprovers(
+    workspaceId,
+    presetId
+  )
   const [isPickerOpen, setIsPickerOpen] = useState(false)
-  const approvers = approversQuery.data ?? []
+  const { approvers } = approversQuery
   const listed = new Set(approvers.map(approverKey))
-  // Every save replaces the whole set, so edit only a loaded one.
-  const editable = canEdit && approversQuery.isSuccess && !isPending
 
-  function save(next: AgentPresetApproverRead[]) {
-    replaceApprovers(next.map(({ kind, id }) => ({ kind, id })))
+  function change(action: "add" | "remove", approver: AgentPresetApproverRef) {
+    changeApprovers({
+      action,
+      approvers: [{ kind: approver.kind, id: approver.id }],
+    })
   }
 
   let addDisabledReason: string | null = null
@@ -98,8 +101,6 @@ export function AgentPresetApproversPanel({
     addDisabledReason = "Only agent editors can change approvers."
   } else if (!canPick) {
     addDisabledReason = "Choosing approvers needs permission to view members."
-  } else if (!approversQuery.isSuccess) {
-    addDisabledReason = "Approvers have not loaded yet."
   } else if (isPending) {
     addDisabledReason = "Saving approvers..."
   }
@@ -130,14 +131,8 @@ export function AgentPresetApproversPanel({
                   variant="ghost"
                   size="icon"
                   className={RAIL_REMOVE_BUTTON}
-                  onClick={() =>
-                    save(
-                      approvers.filter(
-                        (other) => approverKey(other) !== approverKey(approver)
-                      )
-                    )
-                  }
-                  disabled={!editable}
+                  onClick={() => change("remove", approver)}
+                  disabled={isPending}
                   aria-label={`Remove ${approver.name}`}
                 >
                   <X className="size-3" />
@@ -146,6 +141,18 @@ export function AgentPresetApproversPanel({
             </div>
           )
         })}
+        {approversQuery.hasNextPage ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full text-xs text-muted-foreground"
+            onClick={() => approversQuery.fetchNextPage()}
+            disabled={approversQuery.isFetchingNextPage}
+          >
+            Load more
+          </Button>
+        ) : null}
         <p className="px-2 pt-2 text-[12px] text-muted-foreground/70">
           Approvers also need permission to run agents. Workspace admins can
           always approve.
@@ -176,7 +183,7 @@ export function AgentPresetApproversPanel({
             workspaceId={workspaceId}
             listed={listed}
             onPick={(option) => {
-              save([...approvers, option])
+              change("add", option)
               setIsPickerOpen(false)
             }}
           />

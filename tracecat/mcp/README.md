@@ -296,8 +296,9 @@ Notes:
 - `list_agent_presets(workspace_id, limit=20, cursor=None)`
 - `get_agent_preset(workspace_id, preset_slug)`
 - `list_agent_preset_approver_options(workspace_id, search=None, limit=20, cursor=None)`
-- `list_agent_preset_approvers(workspace_id, preset_slug)`
-- `set_agent_preset_approvers(workspace_id, preset_slug, approvers)`
+- `list_agent_preset_approvers(workspace_id, preset_slug, limit=20, cursor=None)`
+- `add_agent_preset_approvers(workspace_id, preset_slug, approvers)`
+- `remove_agent_preset_approvers(workspace_id, preset_slug, approvers)`
 - `list_agent_tree(workspace_id, path="/", depth=1, include_presets=True, limit=20, cursor=None)`
 - `create_agent_folder(workspace_id, path, parents=False)`
 - `rename_agent_folder(workspace_id, path, new_name)`

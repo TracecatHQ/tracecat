@@ -722,21 +722,27 @@
 </ResponseField>
 
 <ResponseField name="list_agent_preset_approver_options" type="tool">
-  List the workspace members, groups, and roles that can approve tool calls.
+  List the members, groups, and roles of this workspace that can approve.
 
-  Pass picked entries' `kind` and `id` to `set_agent_preset_approvers`.
+  Pass picked entries' `kind` and `id` to `add_agent_preset_approvers`.
 </ResponseField>
 
 <ResponseField name="list_agent_preset_approvers" type="tool">
   List who may approve an agent preset's tool calls.
 
-  An empty list means the default rule: anyone who may run the agent decides.
+  No approvers means the default rule: anyone who may run the agent decides.
 </ResponseField>
 
-<ResponseField name="set_agent_preset_approvers" type="tool">
-  Replace who may approve an agent preset's tool calls; applies at once.
+<ResponseField name="add_agent_preset_approvers" type="tool">
+  Add who may approve an agent preset's tool calls; applies at once.
 
-  Each approver is `{kind, id}` from `list_agent_preset_approver_options`, with `kind` one of `user`, `group`, or `role`. The list replaces the current set. An empty list removes all approvers and restores the default rule: anyone who may run the agent decides.
+  Each approver is `{kind, id}` from `list_agent_preset_approver_options`, with `kind` one of `user`, `group`, or `role`. Already-listed approvers and repeats are ignored. Once any approver is listed, only listed approvers and workspace admins can decide the agent's tool calls.
+</ResponseField>
+
+<ResponseField name="remove_agent_preset_approvers" type="tool">
+  Remove approvers from an agent preset; applies at once.
+
+  Each approver is `{kind, id}`. Approvers not listed are ignored. Removing the last approver restores the default rule: anyone who may run the agent decides.
 </ResponseField>
 
 <ResponseField name="run_agent_preset" type="tool">
