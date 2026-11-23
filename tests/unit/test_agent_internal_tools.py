@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from claude_agent_sdk.types import UserMessage
 from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.backends import registry
@@ -13,6 +14,7 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.mcp import internal_tools
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
+from tracecat.chat.schemas import ChatMessage, MessageAuthor
 from tracecat.db.models import AgentSession
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -197,6 +199,43 @@ async def test_internal_session_read_derives_readonly_from_backend_state(
         )
     assert response["backend_id"] == "external"
     assert response["is_readonly"] is (backend_state != "enabled")
+
+
+@pytest.mark.anyio
+async def test_get_session_keeps_message_authors_out_of_the_models_context():
+    preset_id = uuid.uuid4()
+    claims = _build_claims(preset_id)
+    now = datetime.now(UTC)
+    session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=claims.workspace_id,
+        created_by=claims.user_id,
+        title="Example chat",
+        entity_type="agent_preset",
+        entity_id=preset_id,
+        backend_id="external",
+        harness_type="claude_code",
+        created_at=now,
+        updated_at=now,
+    )
+    message = ChatMessage(
+        id="m1",
+        message=UserMessage(content="hi"),
+        author=MessageAuthor(id=uuid.uuid4(), email="sam@example.com"),
+    )
+    service = SimpleNamespace(
+        get_session=AsyncMock(return_value=session),
+        list_messages=AsyncMock(return_value=[message]),
+    )
+    with patch(
+        "tracecat.agent.session.service.AgentSessionService.with_session",
+        return_value=_AsyncContext(service),
+    ):
+        response = await internal_tools.get_session(
+            {"session_id": str(session.id)}, claims
+        )
+    [listed] = response["messages"]
+    assert "author" not in listed
 
 
 @pytest.mark.anyio
