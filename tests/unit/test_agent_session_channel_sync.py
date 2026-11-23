@@ -293,26 +293,55 @@ async def _flag(session: AsyncSession, session_id: uuid.UUID) -> bool | None:
 
 
 @pytest.mark.anyio
-async def test_retry_names_the_run_that_first_sent_the_stored_prompt(
+@pytest.mark.usefixtures("redis_server")
+async def test_every_retry_of_a_web_message_names_the_run_that_first_sent_it(
     session: AsyncSession, svc_role: Role
 ) -> None:
     web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
-    first_run = uuid.uuid4()
-    prompt = AgentSessionHistory(
+    svc = AgentSessionService(session, svc_role)
+    client_id = f"msg-{uuid.uuid4().hex[:12]}"
+    first_run, same_tab_retry, reload_retry, second_reload_retry = (
+        uuid.uuid4() for _ in range(4)
+    )
+
+    # A new message names no earlier run; Retry before a reload resends its client id.
+    assert await svc._prompt_origin_run_id(web.id, client_id, first_run) is None
+    assert (
+        await svc._prompt_origin_run_id(web.id, client_id, same_tab_retry) == first_run
+    )
+
+    # After a reload, Retry names the prompt row the retried run wrote.
+    retried_row = AgentSessionHistory(
         session_id=web.id,
         workspace_id=web.workspace_id,
         kind=MessageKind.CHAT_MESSAGE.value,
-        curr_run_id=first_run,
+        curr_run_id=same_tab_retry,
         content={"type": "user", "message": {"role": "user", "content": "hi"}},
     )
-    session.add(prompt)
+    session.add(retried_row)
     await session.flush()
-    svc = AgentSessionService(session, svc_role)
+    assert (
+        await svc._prompt_origin_run_id(web.id, str(retried_row.id), reload_retry)
+        == first_run
+    )
 
-    assert await svc._retried_prompt_run_id(web.id, str(prompt.id)) == first_run
-    # A new message carries a client id; another session's row is not this prompt.
-    assert await svc._retried_prompt_run_id(web.id, "msg-client-id") is None
-    assert await svc._retried_prompt_run_id(uuid.uuid4(), str(prompt.id)) is None
+    # A row with no recorded origin is its own run's prompt.
+    unrecorded_run = uuid.uuid4()
+    unrecorded_row = AgentSessionHistory(
+        session_id=web.id,
+        workspace_id=web.workspace_id,
+        kind=MessageKind.CHAT_MESSAGE.value,
+        curr_run_id=unrecorded_run,
+        content={"type": "user", "message": {"role": "user", "content": "hi"}},
+    )
+    session.add(unrecorded_row)
+    await session.flush()
+    assert (
+        await svc._prompt_origin_run_id(
+            web.id, str(unrecorded_row.id), second_reload_retry
+        )
+        == unrecorded_run
+    )
 
 
 def test_a_retried_channel_envelope_is_not_relayed_again() -> None:

@@ -15,6 +15,7 @@ import orjson
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from claude_agent_sdk.types import TextBlock, UserMessage
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from sqlalchemy import (
     Select,
     and_,
@@ -196,6 +197,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
@@ -219,6 +221,8 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
 _background_tasks: set[asyncio.Task[None]] = set()
 # Caps both the attempts a message's run lookup walks and a start's retries.
 _MESSAGE_ADMISSION_TRIES = 5
+# How long a Retry can still find the run that first sent its web message.
+_PROMPT_ORIGIN_TTL_SECONDS = 24 * 60 * 60
 
 
 def _require_parent_session(agent_session: AgentSession) -> None:
@@ -2102,7 +2106,7 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str | None = None
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
-        prompt_run_id: uuid.UUID | None = None
+        prompt_message_id: str | None = None
         is_continuation = False
         origin = UserMessageOrigin.TRACECAT
         author_id: uuid.UUID | None = None
@@ -2124,9 +2128,7 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "VercelChatRequest contained no supported text parts"
                     )
-                prompt_run_id = await self._retried_prompt_run_id(
-                    session_id, ui_message.id
-                )
+                prompt_message_id = ui_message.id
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
                 request_instructions = instructions
@@ -2141,6 +2143,11 @@ class AgentSessionService(BaseWorkspaceService):
             return await self._continue_with_approvals(session_id, request)
 
         run_id = uuid.uuid4()
+        prompt_run_id = (
+            await self._prompt_origin_run_id(session_id, prompt_message_id, run_id)
+            if prompt_message_id is not None
+            else None
+        )
         await self._start_new_turn(
             agent_session,
             user_prompt=user_prompt,
@@ -2250,25 +2257,50 @@ class AgentSessionService(BaseWorkspaceService):
                     partial(_finalize_auto_title_task, session_id=session_id)
                 )
 
-    async def _retried_prompt_run_id(
-        self, session_id: uuid.UUID, message_id: str
+    async def _prompt_origin_run_id(
+        self, session_id: uuid.UUID, message_id: str, run_id: uuid.UUID
     ) -> uuid.UUID | None:
-        """The run that first sent ``message_id``, when Retry resends a stored prompt.
+        """The run that first sent web message ``message_id``; None when ``run_id`` is it.
 
-        Reloaded transcripts name a prompt by its history row; a new message has a
-        client id that names no row.
+        Retry resends a client id before a reload and a history row id after one.
+        Redis maps both, and each retried run, to the first run, so the channel
+        mirror posts once. Best effort: on a Redis failure the row's own run applies.
         """
         try:
             row_id = uuid.UUID(message_id)
         except ValueError:
-            return None
-        return await self.session.scalar(
-            select(AgentSessionHistory.curr_run_id).where(
-                AgentSessionHistory.id == row_id,
-                AgentSessionHistory.session_id == session_id,
-                AgentSessionHistory.workspace_id == self.workspace_id,
+            row_id = None
+        row_run_id = None
+        if row_id is not None:
+            row_run_id = await self.session.scalar(
+                select(AgentSessionHistory.curr_run_id).where(
+                    AgentSessionHistory.id == row_id,
+                    AgentSessionHistory.session_id == session_id,
+                    AgentSessionHistory.workspace_id == self.workspace_id,
+                )
             )
-        )
+        try:
+            redis = await get_redis_client()
+            if row_run_id is None:
+                key = f"agent:web-prompt-run:{session_id}:{message_id}"
+                if await redis.set_if_not_exists(
+                    key, str(run_id), expire_seconds=_PROMPT_ORIGIN_TTL_SECONDS
+                ):
+                    return None
+                first = await redis.get(key)
+            else:
+                first = await redis.get(f"agent:prompt-origin-run:{row_run_id}")
+            origin = uuid.UUID(first) if first else row_run_id
+            if origin is not None and origin != run_id:
+                await redis.set(
+                    f"agent:prompt-origin-run:{run_id}",
+                    str(origin),
+                    expire_seconds=_PROMPT_ORIGIN_TTL_SECONDS,
+                )
+            return origin
+        except (RedisError, RuntimeError) as e:
+            logger.warning("Prompt origin lookup failed", error=str(e))
+            return row_run_id
 
     async def get_turn_lifecycle(
         self, agent_session: AgentSession
