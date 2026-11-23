@@ -13,6 +13,7 @@ from slack_sdk.errors import SlackApiError
 from tracecat import config
 from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.channels.handlers.slack import (
+    BOT_LINKED_THREAD_MESSAGE,
     SLACK_EVENT_DEDUP_TTL_SECONDS,
     SlackChannelHandler,
     SlackMentioningUserProfile,
@@ -351,6 +352,7 @@ async def test_resolve_or_create_session_reuses_existing_thread_context_session(
             "_resolve_session_id_from_channel_context",
             AsyncMock(return_value=existing_session_id),
         ),
+        patch.object(handler, "_is_bot_linked", AsyncMock(return_value=False)),
         patch.object(
             handler,
             "_persist_session_channel_context",
@@ -370,6 +372,58 @@ async def test_resolve_or_create_session_reuses_existing_thread_context_session(
     assert session_id == existing_session_id
     persist_mock.assert_awaited_once()
     create_session_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_handle_ignores_old_app_mention_in_a_thread_a_channel_bot_took_over(
+    handler: SlackChannelHandler,
+    token: ValidatedChannelToken,
+) -> None:
+    fake_client = _FakeSlackClient(token="xoxb-test")
+    bot_linked_session_id = uuid.uuid4()
+
+    with (
+        patch(f"{_SLACK}.AsyncWebClient", return_value=fake_client),
+        patch(
+            f"{_SLACK}.get_redis_client",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("redis unavailable"),
+        ),
+        patch(f"{_SLACK}.ack_event", new_callable=AsyncMock),
+        patch(f"{_SLACK}.set_in_progress", new_callable=AsyncMock) as set_in_progress,
+        patch.object(
+            handler,
+            "_resolve_session_id_from_thread_metadata",
+            AsyncMock(return_value=bot_linked_session_id),
+        ),
+        patch.object(handler, "_is_bot_linked", AsyncMock(return_value=True)),
+        patch.object(
+            handler, "_persist_session_channel_context", AsyncMock()
+        ) as persist_mock,
+        patch(
+            f"{_SLACK}.AgentSessionService.create_session", new_callable=AsyncMock
+        ) as create_session_mock,
+        patch(
+            f"{_SLACK}.AgentSessionService.run_turn", new_callable=AsyncMock
+        ) as run_turn_mock,
+    ):
+        await handler.handle(payload=_APP_MENTION_PAYLOAD, token=token)
+
+    run_turn_mock.assert_not_awaited()
+    create_session_mock.assert_not_awaited()
+    persist_mock.assert_not_awaited()
+    set_in_progress.assert_not_awaited()
+    assert fake_client.calls == [
+        (
+            "chat.postEphemeral",
+            {
+                "channel": "C1",
+                "user": "U1",
+                "text": BOT_LINKED_THREAD_MESSAGE,
+                "thread_ts": "1700000000.100",
+            },
+        )
+    ]
 
 
 @pytest.mark.anyio

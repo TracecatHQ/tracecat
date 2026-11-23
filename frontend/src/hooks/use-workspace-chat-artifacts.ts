@@ -18,6 +18,8 @@ export type UseWorkspaceChatArtifactsResult = {
   activeArtifactKey: string | null
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
+  /** Open and focus a tab the viewer asked for, such as a mentioned case. */
+  openArtifact: (artifact: WorkspaceChatArtifact) => void
   applyStreamPart: (part: WorkspaceChatArtifactStreamPart) => void
 }
 
@@ -159,6 +161,22 @@ function artifactMapFromArtifactsAndMessageStreamParts(
   return next
 }
 
+// Viewer-opened tabs are not persisted, so a rebuild from the persisted
+// projection keeps those still open in `current`.
+function withOpenedArtifacts(
+  rebuilt: Map<string, WorkspaceChatArtifact>,
+  current: Map<string, WorkspaceChatArtifact>,
+  openedKeys: Set<string>
+): Map<string, WorkspaceChatArtifact> {
+  const next = new Map(rebuilt)
+  for (const key of openedKeys) {
+    const artifact = current.get(key)
+    if (artifact && !next.has(key)) next.set(key, artifact)
+  }
+  evictOldestArtifacts(next)
+  return next
+}
+
 function lastUpsertKey(
   streamParts: WorkspaceChatArtifactMessageStreamPart[]
 ): string | null {
@@ -228,6 +246,7 @@ export function useWorkspaceChatArtifacts(
     [persistedArtifacts]
   )
   const processedMessagePartKeysRef = useRef<Set<string>>(new Set())
+  const openedArtifactKeysRef = useRef(new Set<string>())
   const previousEnabledRef = useRef(enabled)
   const previousFirstMessageIdRef = useRef<string | null>(
     messages[0]?.id ?? null
@@ -293,6 +312,7 @@ export function useWorkspaceChatArtifacts(
 
     if (!enabled) {
       processedMessagePartKeysRef.current.clear()
+      openedArtifactKeysRef.current.clear()
       deferredActiveArtifactKeyRef.current = null
       setStreamArtifacts((current) =>
         current.size === 0 ? current : new Map()
@@ -313,6 +333,9 @@ export function useWorkspaceChatArtifacts(
       processedMessagePartKeysRef.current = new Set(
         currentParts.map(({ eventKey }) => eventKey)
       )
+      if (firstMessageChanged) {
+        openedArtifactKeysRef.current.clear()
+      }
       const nextArtifacts = artifactMapFromArtifactsAndMessageStreamParts(
         persistedArtifacts,
         currentParts
@@ -341,7 +364,13 @@ export function useWorkspaceChatArtifacts(
         persistedArtifacts,
         pendingParts
       )
-      setStreamArtifacts(nextArtifacts)
+      setStreamArtifacts((current) =>
+        withOpenedArtifacts(
+          nextArtifacts,
+          current,
+          openedArtifactKeysRef.current
+        )
+      )
       const nextActiveArtifactKey =
         lastUpsertKey(pendingParts) ?? lastArtifactKey(persistedArtifacts)
       if (isStreaming) {
@@ -498,9 +527,26 @@ export function useWorkspaceChatArtifacts(
     setActiveArtifactKey(artifactKey(artifacts[artifacts.length - 1]))
   }, [activeArtifactKey, artifacts])
 
+  const openArtifact = useCallback(
+    (artifact: WorkspaceChatArtifact) => {
+      const key = artifactKey(artifact)
+      openedArtifactKeysRef.current.add(key)
+      setStreamArtifacts((current) => {
+        // An open tab keeps its place and the agent's payload; it is focused.
+        if (current.has(key)) return current
+        const next = new Map(current)
+        reduceArtifactPayload(next, { op: "upsert", artifact })
+        return next
+      })
+      setActiveArtifactKeyAndClearInitial(key)
+    },
+    [setActiveArtifactKeyAndClearInitial]
+  )
+
   const closeArtifact = useCallback(
     (type: ArtifactType, id: string) => {
       const key = `${type}:${id}`
+      openedArtifactKeysRef.current.delete(key)
       setStreamArtifacts((current) => {
         if (!current.has(key)) {
           return current
@@ -527,6 +573,7 @@ export function useWorkspaceChatArtifacts(
     activeArtifactKey,
     setActiveArtifactKey: setActiveArtifactKeyAndClearInitial,
     closeArtifact,
+    openArtifact,
     applyStreamPart,
   }
 }

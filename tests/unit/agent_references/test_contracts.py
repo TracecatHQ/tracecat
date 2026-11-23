@@ -26,6 +26,7 @@ from tracecat.agent.references.markdown import (
 )
 from tracecat.agent.references.types import ReferenceDiagnostic
 from tracecat.agent.references.uri import (
+    ArtifactMentionType,
     ReferenceDiagnosticCode,
     ReferenceKind,
     ReferenceTarget,
@@ -209,6 +210,7 @@ def test_skill_manifest_rejects_other_reference_kinds(kind):
         if kind == ReferenceKind.TOOL
         else "11111111-1111-4111-8111-111111111111",
         "lookup" if kind == ReferenceKind.MCP_TOOL else None,
+        ArtifactMentionType.CASE if kind == ReferenceKind.ARTIFACT else None,
     )
     with pytest.raises(
         ValidationError, match="Skill manifests require a skill reference"

@@ -80,6 +80,7 @@ from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.references.prompts import artifact_mention_prompt
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
@@ -2075,8 +2076,9 @@ class AgentSessionService(BaseWorkspaceService):
         page_context_prompt = await self._page_context_prompt(
             agent_session, page_context
         )
+        mention_prompt = await artifact_mention_prompt(self.role, agent_session)
         async with self._build_agent_config(agent_session) as agent_config:
-            if request_instructions or page_context_prompt:
+            if request_instructions or page_context_prompt or mention_prompt:
                 agent_config = replace(
                     agent_config,
                     instructions="\n\n".join(
@@ -2085,6 +2087,7 @@ class AgentSessionService(BaseWorkspaceService):
                             agent_config.instructions,
                             request_instructions,
                             page_context_prompt,
+                            mention_prompt,
                         )
                         if part
                     ),

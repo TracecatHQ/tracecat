@@ -109,9 +109,13 @@ class ChannelNotifier(Protocol):
 
     Raise ``ChannelPushRetryAfter`` to honor a provider's Retry-After, and
     a non-retryable ``ApplicationError`` for a definitive rejection. The
-    constructor runs once on the worker loop; methods must not block it.
+    constructor runs once per process, on the API or worker loop; methods
+    must not block it.
     Pushing must be idempotent per update: a retried host activity resends.
     """
+
+    # True when the channel draws artifact mentions in replies instead of raw URIs.
+    renders_mentions: bool
 
     async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
         """Return whether the session is linked to a channel."""
@@ -153,6 +157,19 @@ async def is_channel_linked(role: Role, session_id: uuid.UUID) -> bool:
         )
         # Failing open would hold every session's turn on a broken notifier.
         return False
+
+
+async def channel_renders_mentions(role: Role, session_id: uuid.UUID) -> bool:
+    """Whether the session's linked channel draws artifact mentions, failing closed."""
+    try:
+        notifier = get_channel_notifier()
+    except Exception as e:
+        logger.warning("Failed to load the channel notifier", error=repr(e))
+        return False
+    # A notifier built before `renders_mentions` existed lacks the attribute.
+    if notifier is None or not getattr(notifier, "renders_mentions", False):
+        return False
+    return await is_channel_linked(role, session_id)
 
 
 def push_budget(updates: Sequence[RunUpdate]) -> timedelta:

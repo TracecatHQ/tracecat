@@ -7,12 +7,18 @@ export type ReferenceKind =
   | "workflow"
   | "skill"
   | "agent"
+  | "artifact"
+
+const ARTIFACT_MENTION_TYPES = ["case"] as const
+/** Artifact types an agent may mention: `tracecat-ref://v1/artifact/{type}/{id}`. */
+export type ArtifactMentionType = (typeof ARTIFACT_MENTION_TYPES)[number]
 
 /** URI-only value, not a duplicate of an API resource or preparation payload. */
 export interface ReferenceTarget {
   kind: ReferenceKind
   identity: string
   toolName?: string
+  artifactType?: ArtifactMentionType
 }
 
 /** Stable diagnostics shared with the Python URI parser. */
@@ -37,6 +43,7 @@ const KINDS = new Set<string>([
   "workflow",
   "skill",
   "agent",
+  "artifact",
 ])
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -51,8 +58,18 @@ export function isReferenceURI(value: string): boolean {
 }
 
 function validateTarget(target: ReferenceTarget): void {
-  const { kind, identity, toolName } = target
+  const { kind, identity, toolName, artifactType } = target
   if (!KINDS.has(kind)) throw new ReferenceURIError("invalid_uri")
+  if (
+    kind === "artifact" &&
+    (artifactType === undefined ||
+      !ARTIFACT_MENTION_TYPES.includes(artifactType))
+  ) {
+    throw new ReferenceURIError("invalid_identity")
+  }
+  if (kind !== "artifact" && artifactType !== undefined) {
+    throw new ReferenceURIError("invalid_identity")
+  }
   if (kind === "tool") {
     if (
       identity.length > 255 ||
@@ -88,7 +105,7 @@ export function parseReferenceURI(value: string): ReferenceTarget {
   if (![3, 4].includes(parts.length) || !KINDS.has(parts[1]))
     throw new ReferenceURIError("invalid_uri")
   const kind = parts[1] as ReferenceKind
-  if (parts.length !== (kind === "mcp-tool" ? 4 : 3))
+  if (parts.length !== (kind === "mcp-tool" || kind === "artifact" ? 4 : 3))
     throw new ReferenceURIError("invalid_uri")
   const decoded = parts.slice(2).map((segment) => {
     let item: string
@@ -101,7 +118,14 @@ export function parseReferenceURI(value: string): ReferenceTarget {
       throw new ReferenceURIError("invalid_uri")
     return item
   })
-  const target: ReferenceTarget = { kind, identity: decoded[0] }
+  const target: ReferenceTarget =
+    kind === "artifact"
+      ? {
+          kind,
+          identity: decoded[1],
+          artifactType: decoded[0] as ArtifactMentionType,
+        }
+      : { kind, identity: decoded[0] }
   if (kind === "mcp-tool") target.toolName = decoded[1]
   validateTarget(target)
   return target
@@ -111,6 +135,7 @@ export function parseReferenceURI(value: string): ReferenceTarget {
 export function serializeReferenceURI(target: ReferenceTarget): string {
   validateTarget(target)
   const segments = [target.identity]
+  if (target.artifactType !== undefined) segments.unshift(target.artifactType)
   if (target.toolName !== undefined) segments.push(target.toolName)
   return `tracecat-ref://v1/${target.kind}/${segments.map(encodeURIComponent).join("/")}`
 }

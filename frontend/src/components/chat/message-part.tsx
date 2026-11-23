@@ -38,6 +38,7 @@ import {
   type ToolVerbs,
 } from "@/components/ai-elements/tool"
 import { ApprovalRequestPart } from "@/components/chat/approval-request-part"
+import { AgentReplyText } from "@/components/chat/artifact-mention"
 import {
   ChannelMessageContext,
   withChannelMentionNames,
@@ -241,13 +242,15 @@ export function MessagePart({
   }
 
   if (part.type === "text") {
+    const animate = status === "streaming" && isLastMessage
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
-          <SmoothResponse
-            text={part.text}
-            animate={status === "streaming" && isLastMessage}
-          />
+          {role === "assistant" ? (
+            <AgentReplyText text={part.text} animate={animate} />
+          ) : (
+            <SmoothResponse text={part.text} animate={animate} />
+          )}
         </MessageContent>
       </Message>
     )

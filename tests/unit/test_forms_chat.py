@@ -157,6 +157,11 @@ async def _turn_instructions(
         patch.object(service, "validate_turn_request", return_value=agent_session),
         patch.object(service, "_build_agent_config", configuration),
         patch("tracecat.agent.session.service.get_agent_backend", return_value=backend),
+        # Only the page context is under test here.
+        patch(
+            "tracecat.agent.session.service.artifact_mention_prompt",
+            AsyncMock(return_value=None),
+        ),
     ):
         await service.run_turn(agent_session.id, request, is_first_prompt=False)
     return backend.start_turn.await_args.args[0].config.instructions

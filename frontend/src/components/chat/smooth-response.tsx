@@ -1,9 +1,14 @@
 "use client"
 
+import type { ComponentProps } from "react"
 import { Response } from "@/components/ai-elements/response"
 import { useSmoothText } from "@/hooks/use-smooth-text"
 
-interface SmoothResponseProps {
+interface SmoothResponseProps
+  extends Pick<
+    ComponentProps<typeof Response>,
+    "remarkPlugins" | "components"
+  > {
   text: string
   /**
    * When true, newly-arrived characters are revealed on
@@ -21,7 +26,11 @@ interface SmoothResponseProps {
  * {@link useSmoothText}, avoiding the "catch up, pause, catch up" pulse that
  * happens when each network burst is revealed as fast as possible.
  */
-export function SmoothResponse({ text, animate }: SmoothResponseProps) {
+export function SmoothResponse({
+  text,
+  animate,
+  ...markdownProps
+}: SmoothResponseProps) {
   const shown = useSmoothText(text, animate)
-  return <Response>{shown}</Response>
+  return <Response {...markdownProps}>{shown}</Response>
 }

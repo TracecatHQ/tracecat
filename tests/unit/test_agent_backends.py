@@ -55,6 +55,7 @@ from tracecat.agent.control.schemas import (
 )
 from tracecat.agent.mcp.stdio_probe_types import StdioMCPProbeResult
 from tracecat.agent.mcp.stdio_runner import StdioMCPServer
+from tracecat.agent.references.prompts import ARTIFACT_MENTION_PROMPT
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     create_session_activity,
@@ -850,7 +851,8 @@ async def test_service_dispatches_resolved_config_and_propagates_uncertainty():
     submitted = provider.start_turn.await_args.args[0]
     assert submitted.prompt == "Hello"
     assert submitted.stream_id == ctx.stream_id
-    assert submitted.config is ctx.config
+    # A copilot session's replies render case mentions, so it learns the format.
+    assert submitted.config == replace(ctx.config, instructions=ARTIFACT_MENTION_PROMPT)
     assert submitted.role.workspace_id == ctx.role.workspace_id
     # Reservation belongs to dispatch; the service must not clear an uncertain turn.
     ctx.db.commit.assert_not_awaited()

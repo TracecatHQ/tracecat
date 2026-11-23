@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.channels.schemas import ChannelType
@@ -23,7 +23,7 @@ from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.db.engine import get_async_session_tenant_context_manager
-from tracecat.db.models import AgentChannelToken, AgentSession
+from tracecat.db.models import AgentChannelToken, AgentSession, AgentSessionThread
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
 
@@ -218,6 +218,14 @@ async def _build_external_channel_sink(
             return None
 
         if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL.value:
+            return None
+
+        # A channel bot took over this thread and renders its replies;
+        # streaming here too would double them.
+        bot_linked = await session.execute(
+            select(exists().where(AgentSessionThread.session_id == session_id))
+        )
+        if bot_linked.scalar():
             return None
 
         if not isinstance(agent_session.channel_context, dict):
