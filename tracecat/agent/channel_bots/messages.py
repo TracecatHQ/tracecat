@@ -62,7 +62,7 @@ class EarlierThreadMessage(BaseModel):
 
 
 class EarlierThread(BaseModel):
-    """The thread's messages before the bot was summoned that the session has not seen."""
+    """Thread messages before this mention that the session has not seen."""
 
     messages: list[EarlierThreadMessage]
     has_parent: bool = True
