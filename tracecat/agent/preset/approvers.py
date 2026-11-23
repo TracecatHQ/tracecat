@@ -305,9 +305,19 @@ class AgentPresetApproverService(BaseWorkspaceService):
 
     def _options(self) -> _Principals:
         """Principals granted in this workspace; org-wide grants never count."""
+        workspace_role = and_(
+            DBRole.organization_id == self.organization_id,
+            # Custom roles have no slug; NOT IN alone would drop them.
+            or_(
+                DBRole.slug.is_(None),
+                DBRole.slug.not_in(ORGANIZATION_SYSTEM_ROLE_SLUGS),
+            ),
+        )
+        # A group granted only an organization role here is not an option.
         group_grants = select(GroupRoleAssignment).where(
             GroupRoleAssignment.organization_id == self.organization_id,
             GroupRoleAssignment.workspace_id == self.workspace_id,
+            GroupRoleAssignment.role_id.in_(select(DBRole.id).where(workspace_role)),
         )
         user_grants = select(UserRoleAssignment.role_id).where(
             UserRoleAssignment.organization_id == self.organization_id,
@@ -319,12 +329,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
             ),
             groups=group_grants.with_only_columns(GroupRoleAssignment.group_id),
             roles=select(DBRole.id).where(
-                DBRole.organization_id == self.organization_id,
-                # Custom roles have no slug; NOT IN alone would drop them.
-                or_(
-                    DBRole.slug.is_(None),
-                    DBRole.slug.not_in(ORGANIZATION_SYSTEM_ROLE_SLUGS),
-                ),
+                workspace_role,
                 or_(
                     DBRole.slug.in_(WORKSPACE_SYSTEM_ROLE_SLUGS),
                     DBRole.id.in_(user_grants),

@@ -638,8 +638,9 @@ async def test_options_hold_only_principals_that_apply_in_this_workspace(
     await _assigned_group(session, svc_role, org_admin_id, workspace_id=None)
     org_wide_custom = await _custom_role(session, svc_role)
     await _assigned_group(session, svc_role, org_wide_custom.id, workspace_id=None)
-    # Organization roles are never offered, even when assigned in this workspace.
-    await _assigned_group(
+    # Organization roles are never offered, even when assigned in this workspace,
+    # nor is a group whose only grant here is one.
+    org_role_group = await _assigned_group(
         session, svc_role, org_admin_id, workspace_id=svc_role.workspace_id
     )
     service = AgentPresetApproverService(session, role=svc_role)
@@ -662,6 +663,7 @@ async def test_options_hold_only_principals_that_apply_in_this_workspace(
         AgentPresetApproverRef(kind="group", id=org_wide.id),
         AgentPresetApproverRef(kind="role", id=org_admin_id),
         AgentPresetApproverRef(kind="role", id=org_wide_custom.id),
+        AgentPresetApproverRef(kind="group", id=org_role_group.id),
     ]
     assert not {(ref.kind, ref.id) for ref in outside} & options
 
