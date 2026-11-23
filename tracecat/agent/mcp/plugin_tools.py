@@ -148,9 +148,11 @@ async def granted_plugin_internal_tools(
     granted: list[PluginInternalTool] = []
     for plugin, own in loaded.plugins:
         try:
-            names = await asyncio.wait_for(
-                plugin.granted_tools(role, session_id),
-                timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
+            names = frozenset(
+                await asyncio.wait_for(
+                    plugin.granted_tools(role, session_id),
+                    timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
+                )
             )
         except Exception as e:
             logger.warning(

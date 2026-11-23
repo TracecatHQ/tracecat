@@ -6,7 +6,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastmcp.exceptions import ToolError
@@ -140,6 +140,7 @@ async def test_a_session_gets_only_granted_tools_and_a_failing_plugin_grants_non
             granted=["internal.broken.tool"],
             fails=True,
         ),
+        _Plugin([_tool("internal.none.tool")], granted=cast(Collection[str], None)),
     )
     granted = await granted_plugin_internal_tools(_role(), uuid.uuid4())
     assert [tool.name for tool in granted] == [WRITE]
