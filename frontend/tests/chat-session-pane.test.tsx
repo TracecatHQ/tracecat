@@ -122,7 +122,14 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
   ),
 }))
 jest.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { firstName: "Daryl" } }),
+  useAuth: () => ({
+    user: {
+      id: "user-1",
+      email: "daryl@example.com",
+      firstName: "Daryl",
+      lastName: "Dixon",
+    },
+  }),
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
@@ -636,9 +643,17 @@ describe("ChatSessionPane", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Hello" })
-      )
+      expect(sendMessage).toHaveBeenCalledWith({
+        text: "Hello",
+        metadata: {
+          author: {
+            id: "user-1",
+            email: "daryl@example.com",
+            first_name: "Daryl",
+            last_name: "Dixon",
+          },
+        },
+      })
     })
 
     expect(console.error).toHaveBeenCalledWith(
