@@ -165,7 +165,7 @@ async def granted_plugin_internal_tools(
                 error_type=type(e).__name__,
             )
             continue
-        if foreign := sorted(names - own):
+        if foreign := sorted(map(str, names - own)):
             logger.warning(
                 "Internal tool plugin granted tools it does not serve; ignoring them",
                 plugin=type(plugin).__name__,

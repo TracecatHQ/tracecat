@@ -135,7 +135,10 @@ async def test_a_session_gets_only_granted_tools_and_a_failing_plugin_grants_non
     install: InstallPlugins,
 ) -> None:
     install(
-        _Plugin([_tool(READ), _tool(WRITE)], granted=[WRITE, "internal.other.x"]),
+        _Plugin(
+            [_tool(READ), _tool(WRITE)],
+            granted=cast(Collection[str], [WRITE, "internal.other.x", 1]),
+        ),
         _Plugin(
             [_tool("internal.broken.tool")],
             granted=["internal.broken.tool"],

@@ -422,11 +422,13 @@ class TestBuildToolDefinitionsActivity:
             )
         )
 
-        assert sorted(result.allowed_internal_tools or []) == [
+        plugin_names = [
             "internal.demo.read",
             "internal.demo.waived",
             "internal.demo.write",
         ]
+        assert sorted(result.allowed_internal_tools or []) == plugin_names
+        assert sorted(result.tool_definitions) == plugin_names
         assert result.tool_approvals == {
             "internal.demo.waived": False,
             "internal.demo.write": True,
