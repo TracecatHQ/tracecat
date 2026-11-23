@@ -1,0 +1,28 @@
+.github/docker-compose.integration.yml
+  h_5f9670feebc95f 17-34
+.github/workflows/run-integration-tests.yml
+  h_5f9670feebc95f 81,167-168,180-181,219-224,231,291
+tests/fixtures/registry_git/Dockerfile
+  h_5f9670feebc95f 1-19
+tests/fixtures/registry_git/repository/pyproject.toml
+  h_5f9670feebc95f 1-8
+tests/fixtures/registry_git/repository/registry_fixture/__init__.py
+  h_5f9670feebc95f 1
+tests/fixtures/registry_git/repository/registry_fixture/arithmetic.py
+  h_5f9670feebc95f 1-9
+tests/fixtures/registry_git/sshd_config
+  h_5f9670feebc95f 1-8
+tests/integration/test_install_and_run_custom_remote_registry_flow.py
+  h_5f9670feebc95f 1-4,12,39-42,46-49,272,281-282,336,338,373,377-381,383-384,388,391,396,401,418-419,422,485
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5a411de8e953064d957e217b6183cb079f6b90ad",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
