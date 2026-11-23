@@ -284,12 +284,14 @@ def _retried_channel_message(ui_message: Any) -> ChannelMessage | None:
     return None
 
 
-def _refuse_channel_envelope(prompt: str) -> None:
-    """Refuse a Tracecat user's prompt that reads as a channel message.
+def _refuse_channel_envelope(role: Role, prompt: str) -> None:
+    """Refuse a prompt that reads as a channel message unless a service sent it.
 
-    Only channel ingress, which runs as a service, sends envelopes.
+    Channel ingress runs as a service; people and API keys never send envelopes.
     """
-    if ChannelMessage.parse(prompt) is not None:
+    if role.type == "service":
+        return
+    if ChannelMessage.parse(prompt.lstrip()) is not None:
         raise TracecatValidationError(
             "A message from Tracecat can't be a channel message"
         )
@@ -1999,7 +2001,6 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str | None = None
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
-        retried: ChannelMessage | None = None
         is_continuation = False
 
         match request:
@@ -2012,13 +2013,6 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "VercelChatRequest contained no supported text parts"
                     )
-                retried = _retried_channel_message(ui_message)
-                if retried is not None and not await self._holds_channel_message(
-                    agent_session, retried
-                ):
-                    raise TracecatValidationError(
-                        "Only a channel message this session received can be retried"
-                    )
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
                 request_instructions = instructions
@@ -2027,8 +2021,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         if user_prompt is not None:
             logger.info("Received user prompt", prompt_length=len(user_prompt))
-            if self.role.user_id is not None and retried is None:
-                _refuse_channel_envelope(user_prompt)
 
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
@@ -2229,9 +2221,28 @@ class AgentSessionService(BaseWorkspaceService):
                 await self._admit_message(
                     agent_session, resume_prepared_turn=resume_prepared_turn
                 )
+                await self._require_genuine_channel_message(agent_session, request)
                 return agent_session
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
+
+    async def _require_genuine_channel_message(
+        self,
+        agent_session: AgentSession,
+        request: VercelChatRequest | BasicChatRequest,
+    ) -> None:
+        """Refuse a written envelope, or a Retry of one the session never received."""
+        if isinstance(request, BasicChatRequest):
+            _refuse_channel_envelope(self.role, request.message)
+            return
+        retried = _retried_channel_message(request.message)
+        if retried is None:
+            prompt = _extract_vercel_user_prompt(request.message)
+            _refuse_channel_envelope(self.role, prompt or "")
+        elif not await self._holds_channel_message(agent_session, retried):
+            raise TracecatValidationError(
+                "Only a channel message this session received can be retried"
+            )
 
     async def _admit_message(
         self, agent_session: AgentSession, *, resume_prepared_turn: bool = False
@@ -2731,6 +2742,7 @@ class AgentSessionService(BaseWorkspaceService):
         The backend deduplicates ``request.id`` across the session, so a retry
         never reaches a later turn.
         """
+        _refuse_channel_envelope(self.role, request.text)
         backend, run_id = await self._get_control_turn(session_id, "steer")
         accepted = await backend.steer(run_id, request.id, request.text)
         return AgentControlReceipt(
@@ -3213,14 +3225,9 @@ class AgentSessionService(BaseWorkspaceService):
     async def _holds_channel_message(
         self, agent_session: AgentSession, message: ChannelMessage
     ) -> bool:
-        """Whether the channel session's history holds ``message`` as a user prompt."""
-        if not await self.is_channel_session(agent_session):
-            return False
+        """Whether the session's history holds ``message`` as a user prompt."""
         history = await self.list_messages(agent_session.id)
-        return any(
-            entry.message is not None and _channel_message_of(entry.message) == message
-            for entry in history
-        )
+        return any(entry.channel_message == message for entry in history)
 
     async def is_channel_session(self, agent_session: AgentSession) -> bool:
         """Whether the session, or the session it was forked from, is an external

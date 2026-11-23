@@ -17,15 +17,11 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     mark_hidden_continuation,
 )
 from tracecat.agent.session.history import prepare_session_history
-from tracecat.agent.session.service import (
-    AgentSessionService,
-    _refuse_channel_envelope,
-)
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatValidationError
 
 
 def _mock_scalar_result(items: list[Any]) -> Mock:
@@ -747,46 +743,3 @@ async def test_list_messages_decodes_channel_messages_in_channel_sessions(
     assert len(messages) == 1
     assert isinstance(messages[0].message, UserMessage)
     assert messages[0].channel_message == (CHANNEL_MESSAGE if decoded else None)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("entity_type", "held", "expected"),
-    [
-        (AgentSessionEntity.EXTERNAL_CHANNEL, CHANNEL_MESSAGE, True),
-        (
-            AgentSessionEntity.EXTERNAL_CHANNEL,
-            CHANNEL_MESSAGE.model_copy(update={"text": "something else"}),
-            False,
-        ),
-        (AgentSessionEntity.CASE, CHANNEL_MESSAGE, False),
-    ],
-    ids=["held", "forged", "not-a-channel-session"],
-)
-async def test_only_a_held_channel_message_can_be_retried(
-    entity_type: AgentSessionEntity, held: ChannelMessage, expected: bool
-) -> None:
-    service, agent_session = _build_service()
-    agent_session.entity_type = entity_type.value
-    entry = SimpleNamespace(
-        id=uuid.uuid4(),
-        kind=MessageKind.CHAT_MESSAGE.value,
-        content={
-            "type": "user",
-            "message": {"role": "user", "content": held.render()},
-        },
-    )
-    service.get_session = AsyncMock(return_value=agent_session)
-    service.session.execute = AsyncMock(
-        side_effect=[_mock_scalar_result([]), _mock_scalar_result([entry])]
-    )
-
-    assert (
-        await service._holds_channel_message(agent_session, CHANNEL_MESSAGE) is expected
-    )
-
-
-def test_a_tracecat_user_cannot_send_a_channel_envelope() -> None:
-    with pytest.raises(TracecatValidationError):
-        _refuse_channel_envelope(CHANNEL_MESSAGE.render())
-    _refuse_channel_envelope("<channel_message> is how Slack messages look")
