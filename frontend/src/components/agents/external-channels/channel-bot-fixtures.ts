@@ -1,6 +1,7 @@
 import {
   type AgentChannelBotRead,
   type AgentChannelRouteRead,
+  type AgentChannelWorkspaceRouteRead,
   type AgentPresetRead,
   type AgentPresetReadMinimal,
   agentChannelBotsAddBotRoute,
@@ -14,6 +15,7 @@ import {
   agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
+  agentChannelBotsListWorkspaceRoutes,
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   agentPresetsListAgentPresets,
@@ -36,6 +38,7 @@ export const api = {
   listPlatformApps: jest.mocked(agentChannelBotsListPlatformApps),
   installPlatformBot: jest.mocked(agentChannelBotsInstallPlatformBot),
   listRoutes: jest.mocked(agentChannelBotsListBotRoutes),
+  listWorkspaceRoutes: jest.mocked(agentChannelBotsListWorkspaceRoutes),
   addRoute: jest.mocked(agentChannelBotsAddBotRoute),
   listChannels: jest.mocked(agentChannelBotsListBotChannels),
   listRoutableChannels: jest.mocked(agentChannelBotsListBotRoutableChannels),
@@ -138,6 +141,7 @@ export function serveBots(bots: AgentChannelBotRead[]): void {
   )
   api.listPlatformApps.mockResolvedValue([])
   api.listRoutes.mockResolvedValue(routePage([]))
+  api.listWorkspaceRoutes.mockResolvedValue(routePage([]))
   api.listChannels.mockResolvedValue(channelPage([]))
   api.listRoutableChannels.mockResolvedValue(channelPage([]))
   api.listPresets.mockResolvedValue(AGENTS)
@@ -161,9 +165,50 @@ export function serveRoutes(routes: AgentChannelRouteRead[]): void {
   )
 }
 
-/** One page of an install's routes; `nextCursor` means more follow. */
-export function routePage(
-  items: AgentChannelRouteRead[],
+/** A channel a workspace bot answers in, as the workspace routes list reads it. */
+export function workspaceRoute(
+  overrides: Partial<AgentChannelWorkspaceRouteRead> = {}
+): AgentChannelWorkspaceRouteRead {
+  return {
+    bot_id: "platform-1",
+    provider: "slack",
+    app_owner: "platform",
+    provider_channel_id: "C1",
+    routed: true,
+    agent_preset_id: PRESET.id,
+    agent_name: PRESET.name,
+    channel_name: "soc-alerts",
+    is_private: false,
+    is_member: true,
+    name_unavailable: false,
+    ...overrides,
+  }
+}
+
+/** Serves `rows` as one page, searched by name or ID as the API does. */
+export function serveWorkspaceRoutes(
+  rows: AgentChannelWorkspaceRouteRead[]
+): void {
+  api.listWorkspaceRoutes.mockImplementation(({ q }) => {
+    const needle = (q ?? "").replace(/^#/, "").trim().toLowerCase()
+    return new CancelablePromise((resolve) =>
+      resolve(
+        routePage(
+          rows.filter(
+            (row) =>
+              !needle ||
+              (row.channel_name ?? "").toLowerCase().includes(needle) ||
+              row.provider_channel_id.toLowerCase().includes(needle)
+          )
+        )
+      )
+    )
+  })
+}
+
+/** One page of routes; `nextCursor` means more follow. */
+export function routePage<T = AgentChannelRouteRead>(
+  items: T[],
   nextCursor: string | null = null
 ) {
   return { items, next_cursor: nextCursor, has_more: nextCursor !== null }

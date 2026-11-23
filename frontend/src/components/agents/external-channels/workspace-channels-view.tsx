@@ -3,6 +3,7 @@
 import type { ReactNode } from "react"
 
 import { SlackPlatformCard } from "@/components/agents/external-channels/slack-platform-card"
+import { WorkspaceChannelsTable } from "@/components/agents/external-channels/workspace-channels-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   useChannelBotInstallResult,
@@ -10,7 +11,7 @@ import {
 } from "@/hooks/use-agent-channel-bots"
 import { getApiErrorDetail } from "@/lib/errors"
 
-/** The workspace's Channels page: Tracecat for Slack, where available. */
+/** The workspace's Channels page: every bot's channels, then Tracecat for Slack. */
 export function WorkspaceChannelsView({
   workspaceId,
 }: {
@@ -56,10 +57,12 @@ export function WorkspaceChannelsView({
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">Channels</h2>
             <p className="text-base text-muted-foreground">
-              Add Tracecat to Slack and pick which agent answers each channel.
+              Bots installed in this workspace and the agent that answers in
+              each channel.
             </p>
           </div>
         </div>
+        <WorkspaceChannelsTable workspaceId={workspaceId} />
         {body}
       </div>
     </div>

@@ -5,6 +5,7 @@ import {
   type AgentChannelBotUpdate,
   type AgentChannelRouteRead,
   type AgentChannelRouteSet,
+  type AgentChannelWorkspaceRouteRead,
   agentChannelBotsAddBotRoute,
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
@@ -16,6 +17,7 @@ import {
   agentChannelBotsListBotRoutes,
   agentChannelBotsListBots,
   agentChannelBotsListPlatformApps,
+  agentChannelBotsListWorkspaceRoutes,
   agentChannelBotsSetBotRoute,
   agentChannelBotsUpdateBot,
   type ChannelBotAppOwner,
@@ -40,6 +42,7 @@ import {
 } from "@/components/agents/external-channels/channel-bot-utils"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
+import { useDebounce } from "@/hooks/use-debounce"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   type BotChannels,
@@ -74,6 +77,10 @@ const ROUTE_PAGE_LIMIT = 200
 const MAX_ROUTE_PAGES = 50
 // Channel listings call Slack per bot, so mounts and focus reuse them briefly.
 const CHANNEL_LIST_STALE_TIME = 60_000
+// Names come from Slack on every read, so a search keeps its results a while.
+const WORKSPACE_ROUTES_GC_TIME = 5 * 60_000
+// The search box is typed live; the list refetches once it settles.
+const ROUTE_SEARCH_DEBOUNCE_MS = 300
 
 /** What an OAuth return needs the Channels tab to show beside the cards. */
 export type ChannelBotInstallFailure = "slack_workspace_claimed"
@@ -212,6 +219,65 @@ function useChannelBotsOwnedBy(
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
+}
+
+/** Every bot in the workspace, any provider and app, newest first. */
+export function useWorkspaceChannelBots(workspaceId: string, enabled: boolean) {
+  return useQuery<Array<AgentChannelBotRead>, TracecatApiError>({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "all-bots"],
+    queryFn: async () => {
+      // Only the first 100 bots are read; the accepted bound per workspace.
+      const page = await agentChannelBotsListBots({ workspaceId, limit: 100 })
+      return page.items
+    },
+    enabled,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+}
+
+/**
+ * Every channel the workspace's bots answer in, named by Slack at read time.
+ * `search` is matched server side once typing settles; results stay cached
+ * client side only.
+ */
+export function useWorkspaceChannelRoutes(
+  workspaceId: string,
+  search: string,
+  enabled: boolean
+) {
+  const [q] = useDebounce(search.trim(), ROUTE_SEARCH_DEBOUNCE_MS)
+  const query = useInfiniteQuery({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "workspace-routes", q],
+    queryFn: async ({ pageParam }) =>
+      await agentChannelBotsListWorkspaceRoutes({
+        workspaceId,
+        q: q || undefined,
+        limit: ROUTE_PAGE_LIMIT,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
+    enabled,
+    staleTime: CHANNEL_LIST_STALE_TIME,
+    gcTime: WORKSPACE_ROUTES_GC_TIME,
+    placeholderData: (previous) => previous,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+  const routes: AgentChannelWorkspaceRouteRead[] | undefined =
+    query.data?.pages.flatMap((page) => page.items)
+  return {
+    routes,
+    routesIsLoading: query.isLoading,
+    routesError: query.error as TracecatApiError | null,
+    // The shown rows are for an earlier search until this one settles.
+    searching: q !== search.trim() || query.isPlaceholderData,
+    hasMoreRoutes: query.hasNextPage,
+    loadingMoreRoutes: query.isFetchingNextPage,
+    loadMoreRoutes: () => void query.fetchNextPage(),
+  }
 }
 
 /** The workspace's installs of the platform app for `provider`, any agent. */
