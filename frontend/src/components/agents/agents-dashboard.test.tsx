@@ -64,6 +64,7 @@ jest.mock("@/client", () => ({
   agentChannelBotsListBots: jest.fn(),
   agentChannelBotsListPlatformApps: jest.fn(),
   agentChannelBotsListBotRoutes: jest.fn(),
+  agentChannelBotsListWorkspaceRoutes: jest.fn(),
   agentChannelBotsListBotChannels: jest.fn(),
   agentChannelBotsListBotRoutableChannels: jest.fn(),
   agentPresetsListAgentPresets: jest.fn(),
