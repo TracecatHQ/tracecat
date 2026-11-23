@@ -27,12 +27,13 @@ const SLACK_MENTION = /@([UW][A-Z0-9]{6,})\b/g
 /** The display name for a provider user the message refers to by ID. */
 export function channelPersonName(
   message: ChannelMessageData,
-  providerUserId: string
+  providerUserId: string,
+  fallback: string = UNKNOWN_CHANNEL_PERSON
 ): string {
   const person = (message.people ?? []).find(
     (candidate) => candidate.provider_user_id === providerUserId
   )
-  return person?.name ?? UNKNOWN_CHANNEL_PERSON
+  return person?.name ?? fallback
 }
 
 function quotedAuthor(
@@ -40,14 +41,12 @@ function quotedAuthor(
   message: ChannelMessageData
 ): string {
   if (!quoted.author_id) return quoted.author
-  const person = (message.people ?? []).find(
-    (candidate) => candidate.provider_user_id === quoted.author_id
-  )
-  if (person) return person.name
   // Without a lookup, keep the forward's own name, but never an ID in its place.
-  return quoted.author && quoted.author !== quoted.author_id
-    ? quoted.author
-    : UNKNOWN_CHANNEL_PERSON
+  const fallback =
+    quoted.author && quoted.author !== quoted.author_id
+      ? quoted.author
+      : UNKNOWN_CHANNEL_PERSON
+  return channelPersonName(message, quoted.author_id, fallback)
 }
 
 /** The text with Slack user mentions shown by name instead of ID. */
