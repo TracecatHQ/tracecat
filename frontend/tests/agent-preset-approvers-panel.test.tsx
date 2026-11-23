@@ -95,6 +95,21 @@ it("adds a group from the picker and saves the full set", async () => {
   expect(await screen.findByText("Group")).toBeInTheDocument()
 })
 
+it("never offers an already-listed approver again", async () => {
+  listApprovers.mockResolvedValue([person] as never)
+  listOptions.mockResolvedValue({ items: [person, oncall] } as never)
+  const user = userEvent.setup()
+
+  renderPanel()
+  await screen.findByText("Example person")
+  await user.click(screen.getByRole("button", { name: "Add approver" }))
+  const listed = (await screen.findByText("Added")).closest("[cmdk-item]")
+  expect(listed).toHaveAttribute("aria-disabled", "true")
+  await user.click(listed as HTMLElement)
+
+  expect(replaceApprovers).not.toHaveBeenCalled()
+})
+
 it("searches approver options on the server", async () => {
   listApprovers.mockResolvedValue([] as never)
   listOptions.mockResolvedValue({ items: [oncall] } as never)

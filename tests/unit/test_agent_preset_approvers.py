@@ -541,6 +541,44 @@ async def test_approver_options_page_in_order_and_search(
     ).items[0].id == member.id
 
 
+async def test_a_user_and_their_group_are_two_grants(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    preset = await _preset(session, svc_role)
+    member = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    group = Group(
+        name=f"oncall-{uuid.uuid4().hex[:8]}", organization_id=svc_role.organization_id
+    )
+    session.add(group)
+    await session.flush()
+    session.add(GroupMember(group_id=group.id, user_id=member.id))
+    await session.commit()
+    service = AgentPresetApproverService(session, role=svc_role)
+
+    replaced = await service.replace_approvers(
+        preset.id,
+        [
+            AgentPresetApproverRef(kind="user", id=member.id),
+            AgentPresetApproverRef(kind="group", id=group.id),
+        ],
+    )
+
+    assert [(r.kind, r.id) for r in replaced] == [
+        ("user", member.id),
+        ("group", group.id),
+    ]
+    rows = (
+        await session.scalars(
+            select(AgentPresetApprover.id).where(
+                AgentPresetApprover.preset_id == preset.id
+            )
+        )
+    ).all()
+    assert len(rows) == 2
+    assert await _allowed(session, svc_role, preset, member)
+
+
 async def test_replace_refuses_principals_outside_the_workspace(
     session: AsyncSession, svc_role: Role
 ) -> None:
