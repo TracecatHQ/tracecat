@@ -6,12 +6,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.channels.schemas import SlackChannelTokenConfig
@@ -19,7 +18,6 @@ from tracecat.agent.channels.sinks.session import (
     AgentStreamSink,
     FanoutStreamSink,
     open_session_event_sink,
-    streams_to_legacy_channel,
 )
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import (
@@ -28,7 +26,6 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.db.models import AgentSession
 
 
 @dataclass
@@ -522,8 +519,25 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
     """Only Slack-bound sessions stream to their thread; others use Redis alone."""
     channel_id = "C1"
     thread_ts = "1700000000.100"
-    agent_session = _slack_session(entity_type, channel_id, thread_ts)
-    lookup = _FakeLookupSession(agent_session, _slack_token())
+    preset_id = uuid.uuid4()
+    agent_session = SimpleNamespace(
+        entity_type=entity_type.value,
+        channel_context={
+            "channel_type": "slack",
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+        },
+        agent_preset_id=preset_id,
+        entity_id=preset_id,
+    )
+    channel_token = SimpleNamespace(
+        id=uuid.uuid4(),
+        config=SlackChannelTokenConfig(
+            slack_bot_token="xoxb-test",
+            slack_signing_secret="signing-secret",
+        ),
+    )
+    lookup = _FakeLookupSession(agent_session, channel_token)
 
     session_scopes: list[dict[str, object]] = []
 
@@ -568,45 +582,3 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
     else:
         assert isinstance(sink, AgentStreamSink)
         assert sink.stream is redis_stream
-
-
-def _slack_session(
-    entity_type: AgentSessionEntity = AgentSessionEntity.EXTERNAL_CHANNEL,
-    channel_id: str = "C1",
-    thread_ts: str = "1700000000.100",
-) -> SimpleNamespace:
-    preset_id = uuid.uuid4()
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        entity_type=entity_type.value,
-        channel_context={
-            "channel_type": "slack",
-            "channel_id": channel_id,
-            "thread_ts": thread_ts,
-        },
-        agent_preset_id=preset_id,
-        entity_id=preset_id,
-    )
-
-
-def _slack_token() -> SimpleNamespace:
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        config=SlackChannelTokenConfig(
-            slack_bot_token="xoxb-test", slack_signing_secret="signing-secret"
-        ),
-    )
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("has_token", [True, False], ids=["active-token", "no-token"])
-async def test_only_a_session_with_an_active_legacy_token_streams_to_its_channel(
-    has_token: bool,
-) -> None:
-    """A dual-written channel context alone does not stream; the legacy token does."""
-    lookup = _FakeLookupSession(_slack_token() if has_token else None)
-    streams_to = await streams_to_legacy_channel(
-        cast(AsyncSession, lookup), cast(AgentSession, _slack_session())
-    )
-    assert streams_to is has_token

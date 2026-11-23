@@ -1,13 +1,10 @@
 """Only sessions whose every reader renders mentions learn to write them."""
 
-import contextlib
 import uuid
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.references import prompts
 from tracecat.agent.references.prompts import (
@@ -26,17 +23,6 @@ def _session(entity_type: AgentSessionEntity) -> Any:
     return SimpleNamespace(id=uuid.uuid4(), entity_type=entity_type.value)
 
 
-@contextlib.asynccontextmanager
-async def _savepoint():
-    yield
-
-
-def _async_db() -> Any:
-    db = MagicMock()
-    db.begin_nested = _savepoint
-    return db
-
-
 @pytest.mark.parametrize(
     ("entity_type", "expected"),
     [
@@ -49,52 +35,21 @@ def _async_db() -> Any:
 async def test_web_rendered_sessions_learn_mentions(
     entity_type: AgentSessionEntity, expected: str | None
 ) -> None:
-    assert await artifact_mention_prompt(ROLE, _async_db(), _session(entity_type)) == (
-        expected
-    )
+    assert await artifact_mention_prompt(ROLE, _session(entity_type)) == expected
 
 
 @pytest.mark.parametrize(
-    ("renders", "legacy", "expected"),
-    [
-        (False, False, None),
-        (True, True, None),
-        (True, False, ARTIFACT_MENTION_PROMPT),
-    ],
-    ids=["channel-does-not-render", "legacy-sink-streams-raw", "rendering-channel"],
+    ("renders", "expected"),
+    [(False, None), (True, ARTIFACT_MENTION_PROMPT)],
+    ids=["channel-does-not-render", "rendering-channel"],
 )
 async def test_a_channel_session_learns_mentions_only_where_they_render(
-    monkeypatch: pytest.MonkeyPatch, renders: bool, legacy: bool, expected: str | None
+    monkeypatch: pytest.MonkeyPatch, renders: bool, expected: str | None
 ) -> None:
     async def channel_renders(*_args: object) -> bool:
         return renders
 
-    async def streams_legacy(*_args: object) -> bool:
-        return legacy
-
     monkeypatch.setattr(prompts, "channel_renders_mentions", channel_renders)
-    monkeypatch.setattr(
-        "tracecat.agent.channels.sinks.session.streams_to_legacy_channel",
-        streams_legacy,
-    )
     session = _session(AgentSessionEntity.EXTERNAL_CHANNEL)
 
-    assert await artifact_mention_prompt(ROLE, _async_db(), session) == expected
-
-
-async def test_a_failed_legacy_check_teaches_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def channel_renders(*_args: object) -> bool:
-        return True
-
-    async def broken(*_args: object) -> bool:
-        raise SQLAlchemyError("db")
-
-    monkeypatch.setattr(prompts, "channel_renders_mentions", channel_renders)
-    monkeypatch.setattr(
-        "tracecat.agent.channels.sinks.session.streams_to_legacy_channel", broken
-    )
-    session = _session(AgentSessionEntity.EXTERNAL_CHANNEL)
-
-    assert await artifact_mention_prompt(ROLE, _async_db(), session) is None
+    assert await artifact_mention_prompt(ROLE, session) == expected

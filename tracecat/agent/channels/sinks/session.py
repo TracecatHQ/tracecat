@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.channels.schemas import ChannelType, SlackChannelTokenConfig
+from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.channels.sinks.base import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
@@ -218,17 +217,77 @@ async def _build_external_channel_sink(
             )
             return None
 
-        legacy = await _legacy_sink_target(session, agent_session)
-        if legacy is None:
+        if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL.value:
             return None
-        if isinstance(legacy, _NoLegacySink):
+
+        if not isinstance(agent_session.channel_context, dict):
             logger.warning(
-                f"{legacy.reason}; falling back to Redis",
+                "External channel session missing channel_context; falling back to Redis",
                 session_id=session_id,
-                **legacy.details,
             )
             return None
-        slack_ctx = legacy.slack_context
+
+        channel_context = agent_session.channel_context
+        channel_type = channel_context.get("channel_type")
+        if not isinstance(channel_type, str):
+            # Backward-compatible inference for existing Slack channel context.
+            if isinstance(channel_context.get("channel_id"), str) and isinstance(
+                channel_context.get("thread_ts"), str
+            ):
+                channel_type = ChannelType.SLACK.value
+
+        if channel_type != ChannelType.SLACK.value:
+            logger.warning(
+                "Unsupported external channel type; falling back to Redis",
+                session_id=session_id,
+                channel_type=channel_type,
+            )
+            return None
+
+        slack_ctx = ResolvedSlackContext.from_channel_context(channel_context)
+        if slack_ctx is None:
+            logger.warning(
+                "Slack channel context missing channel_id/thread_ts; falling back to Redis",
+                session_id=session_id,
+                channel_context=channel_context,
+            )
+            return None
+
+        preset_id = agent_session.agent_preset_id or agent_session.entity_id
+        token_stmt = (
+            select(AgentChannelToken)
+            .where(
+                AgentChannelToken.workspace_id == workspace_id,
+                AgentChannelToken.agent_preset_id == preset_id,
+                AgentChannelToken.channel_type == ChannelType.SLACK.value,
+                AgentChannelToken.is_active.is_(True),
+            )
+            .order_by(AgentChannelToken.updated_at.desc())
+            .limit(1)
+        )
+        token_result = await session.execute(token_stmt)
+        channel_token = token_result.scalar_one_or_none()
+        if channel_token is None:
+            logger.warning(
+                "Active Slack channel token not found; falling back to Redis",
+                session_id=session_id,
+                preset_id=preset_id,
+            )
+            return None
+
+        try:
+            config = AgentChannelService.parse_stored_channel_config(
+                channel_type=ChannelType.SLACK,
+                config_payload=channel_token.config,
+            )
+        except TracecatValidationError:
+            logger.exception(
+                "Slack token config is invalid; falling back to Redis",
+                session_id=session_id,
+                token_id=channel_token.id,
+            )
+            return None
+
         logger.info(
             "Using Slack stream sink for external channel session",
             session_id=session_id,
@@ -237,8 +296,15 @@ async def _build_external_channel_sink(
             slack_channel_id=slack_ctx.channel_id,
             reaction_ts=slack_ctx.reaction_ts,
         )
+        if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
+            logger.warning(
+                "Slack bot token is pending OAuth install; falling back to Redis",
+                session_id=session_id,
+                token_id=channel_token.id,
+            )
+            return None
         return SlackStreamSink(
-            slack_bot_token=legacy.config.slack_bot_token,
+            slack_bot_token=config.slack_bot_token,
             channel_id=slack_ctx.channel_id,
             thread_ts=slack_ctx.thread_ts,
             recipient_user_id=slack_ctx.recipient_user_id,
@@ -247,95 +313,3 @@ async def _build_external_channel_sink(
             session_id=str(session_id),
             workspace_id=str(workspace_id),
         )
-
-
-async def streams_to_legacy_channel(
-    db: AsyncSession, agent_session: AgentSession
-) -> bool:
-    """Whether the legacy channel fan-out streams this session's raw replies."""
-    target = await _legacy_sink_target(db, agent_session)
-    return isinstance(target, _LegacySinkTarget)
-
-
-@dataclass(frozen=True, slots=True)
-class _LegacySinkTarget:
-    """The legacy Slack thread a session streams to, and the token config to post with."""
-
-    slack_context: ResolvedSlackContext
-    config: SlackChannelTokenConfig
-
-
-@dataclass(frozen=True, slots=True)
-class _NoLegacySink:
-    """Why a session has no legacy sink; the sink logs it, other callers stay quiet."""
-
-    reason: str
-    details: dict[str, object] = field(default_factory=dict)
-
-
-async def _legacy_sink_target(
-    db: AsyncSession, agent_session: AgentSession
-) -> _LegacySinkTarget | _NoLegacySink | None:
-    """The legacy thread and token config this session streams to; None for other entities."""
-    if agent_session.entity_type != AgentSessionEntity.EXTERNAL_CHANNEL.value:
-        return None
-
-    if not isinstance(agent_session.channel_context, dict):
-        return _NoLegacySink("External channel session missing channel_context")
-
-    channel_context = agent_session.channel_context
-    channel_type = channel_context.get("channel_type")
-    if not isinstance(channel_type, str):
-        # Backward-compatible inference for existing Slack channel context.
-        if isinstance(channel_context.get("channel_id"), str) and isinstance(
-            channel_context.get("thread_ts"), str
-        ):
-            channel_type = ChannelType.SLACK.value
-
-    if channel_type != ChannelType.SLACK.value:
-        return _NoLegacySink(
-            "Unsupported external channel type", {"channel_type": channel_type}
-        )
-
-    slack_ctx = ResolvedSlackContext.from_channel_context(channel_context)
-    if slack_ctx is None:
-        return _NoLegacySink(
-            "Slack channel context missing channel_id/thread_ts",
-            {"channel_context": channel_context},
-        )
-
-    preset_id = agent_session.agent_preset_id or agent_session.entity_id
-    token_stmt = (
-        select(AgentChannelToken)
-        .where(
-            AgentChannelToken.workspace_id == agent_session.workspace_id,
-            AgentChannelToken.agent_preset_id == preset_id,
-            AgentChannelToken.channel_type == ChannelType.SLACK.value,
-            AgentChannelToken.is_active.is_(True),
-        )
-        .order_by(AgentChannelToken.updated_at.desc())
-        .limit(1)
-    )
-    token_result = await db.execute(token_stmt)
-    channel_token = token_result.scalar_one_or_none()
-    if channel_token is None:
-        return _NoLegacySink(
-            "Active Slack channel token not found", {"preset_id": preset_id}
-        )
-
-    try:
-        config = AgentChannelService.parse_stored_channel_config(
-            channel_type=ChannelType.SLACK,
-            config_payload=channel_token.config,
-        )
-    except TracecatValidationError as e:
-        return _NoLegacySink(
-            "Slack token config is invalid",
-            {"token_id": channel_token.id, "error": repr(e)},
-        )
-
-    if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
-        return _NoLegacySink(
-            "Slack bot token is pending OAuth install", {"token_id": channel_token.id}
-        )
-    return _LegacySinkTarget(slack_ctx, config)

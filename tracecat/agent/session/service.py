@@ -2076,9 +2076,7 @@ class AgentSessionService(BaseWorkspaceService):
         page_context_prompt = await self._page_context_prompt(
             agent_session, page_context
         )
-        mention_prompt = await artifact_mention_prompt(
-            self.role, self.session, agent_session
-        )
+        mention_prompt = await artifact_mention_prompt(self.role, agent_session)
         async with self._build_agent_config(agent_session) as agent_config:
             if request_instructions or page_context_prompt or mention_prompt:
                 agent_config = replace(
