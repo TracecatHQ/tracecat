@@ -22,6 +22,7 @@ class SecretSource(StrEnum):
     LOCAL = "local"
     AWS_SECRETS_MANAGER = "aws_secrets_manager"
     BITWARDEN_SECRETS_MANAGER = "bitwarden_secrets_manager"
+    AZURE_KEY_VAULT = "azure_key_vault"
 
 
 def is_external_source(source: str | None) -> bool:
@@ -34,6 +35,7 @@ class SecretStoreProvider(StrEnum):
 
     AWS_SECRETS_MANAGER = "aws_secrets_manager"
     BITWARDEN_SECRETS_MANAGER = "bitwarden_secrets_manager"
+    AZURE_KEY_VAULT = "azure_key_vault"
 
 
 class SecretMappingMode(StrEnum):

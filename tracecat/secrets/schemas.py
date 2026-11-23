@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 from uuid import UUID
 
 import botocore.session
@@ -509,6 +509,25 @@ _BITWARDEN_HOSTNAME = re.compile(
 )
 
 
+def _split_https_url(value: str, *, invalid_message: str) -> tuple[SplitResult, str]:
+    """Split an ``https://`` URL, refusing parts that make hosts ambiguous.
+
+    A backslash is part of the host to Python but ends it in other URL
+    parsers, so the host checked would not be the one dialled.
+    """
+    if any(c.isspace() or not c.isprintable() for c in value):
+        raise ValueError("URL must not contain whitespace")
+    parts = urlsplit(value)
+    hostname = parts.hostname
+    if parts.scheme != "https" or not hostname:
+        raise ValueError(invalid_message)
+    if any(c in value for c in "?#\\") or "@" in parts.netloc:
+        raise ValueError(
+            "URL must not carry credentials, a query, a fragment or a backslash"
+        )
+    return parts, hostname
+
+
 def _check_bitwarden_server(value: str) -> str:
     """Accept a cloud region or the HTTPS base URL of a self-hosted server.
 
@@ -518,22 +537,15 @@ def _check_bitwarden_server(value: str) -> str:
     """
     if value in BITWARDEN_CLOUD_REGIONS:
         return value
-    if any(c.isspace() or not c.isprintable() for c in value):
-        raise ValueError("server URL must not contain whitespace")
-    parts = urlsplit(value)
-    if parts.scheme != "https" or not parts.hostname:
-        raise ValueError(
-            "server must be 'us', 'eu', or the https:// base URL of a"
-            " self-hosted Bitwarden server"
-        )
-    if "?" in value or "#" in value or "@" in parts.netloc:
-        raise ValueError("server URL must not carry credentials, a query or a fragment")
-    # To Python a backslash is part of the host; to the SDK's URL parser it
-    # ends the host. The address checked would not be the one dialled.
-    if "\\" in value or not _BITWARDEN_HOSTNAME.fullmatch(parts.hostname):
+    parts, hostname = _split_https_url(
+        value,
+        invalid_message="server must be 'us', 'eu', or the https:// base URL of a"
+        " self-hosted Bitwarden server",
+    )
+    if not _BITWARDEN_HOSTNAME.fullmatch(hostname):
         raise ValueError("server URL must name a DNS hostname or an IPv4 address")
     port = parts.port
-    netloc = parts.hostname if port in (None, 443) else f"{parts.hostname}:{port}"
+    netloc = hostname if port in (None, 443) else f"{hostname}:{port}"
     return urlunsplit(("https", netloc, parts.path.rstrip("/"), "", ""))
 
 
@@ -576,6 +588,86 @@ class BitwardenSecretsManagerStoreUpdate(BaseModel):
     organization_id: UUID | None = None
 
 
+AZURE_KEY_VAULT_AUTHORITY_BY_SUFFIX: dict[str, str] = {
+    "vault.azure.net": "login.microsoftonline.com",
+    "vault.usgovcloudapi.net": "login.microsoftonline.us",
+    "vault.azure.cn": "login.chinacloudapi.cn",
+}
+"""Entra ID sign-in host for the Key Vault DNS suffix of each Azure cloud."""
+
+# 3-24 characters; starts with a letter, no trailing or consecutive hyphens.
+_AZURE_KEY_VAULT_NAME = re.compile(r"(?=.{3,24}$)[a-z](?:-?[a-z0-9])*")
+
+
+def _check_azure_key_vault_url(value: str) -> str:
+    """Accept ``https://<vault-name>.<key-vault-suffix>`` and normalize it.
+
+    Only Azure Key Vault hosts are accepted, so a store can never point the
+    executor at another host. The host is lowercased and a trailing slash is
+    dropped, so one vault has one spelling.
+    """
+    example = "https://my-vault.vault.azure.net"
+    invalid = f"vault URL must be the vault's URI, for example {example}"
+    parts, host = _split_https_url(value, invalid_message=invalid)
+    name, _, suffix = host.partition(".")
+    if (
+        parts.port not in (None, 443)
+        or parts.path not in ("", "/")
+        or suffix not in AZURE_KEY_VAULT_AUTHORITY_BY_SUFFIX
+        or not _AZURE_KEY_VAULT_NAME.fullmatch(name)
+    ):
+        raise ValueError(invalid)
+    return f"https://{host}"
+
+
+AzureKeyVaultUrl = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=255),
+    AfterValidator(_check_azure_key_vault_url),
+]
+
+
+class AzureKeyVaultStoreConfig(BaseModel):
+    """Persisted provider configuration for an Azure Key Vault store.
+
+    The service principal's client secret is not part of the config; it is
+    stored encrypted in the store's ``encrypted_access_token`` column.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    provider: Literal[SecretStoreProvider.AZURE_KEY_VAULT] = (
+        SecretStoreProvider.AZURE_KEY_VAULT
+    )
+    vault_url: AzureKeyVaultUrl
+    tenant_id: UUID
+    client_id: UUID
+
+    @property
+    def authority(self) -> str:
+        """The Entra ID sign-in host of the vault's Azure cloud."""
+        suffix = self.vault_url.removeprefix("https://").partition(".")[2]
+        return AZURE_KEY_VAULT_AUTHORITY_BY_SUFFIX[suffix]
+
+
+class AzureKeyVaultStoreCreate(BaseModel):
+    """Client-supplied fields when creating an Azure Key Vault store."""
+
+    provider: Literal[SecretStoreProvider.AZURE_KEY_VAULT]
+    vault_url: AzureKeyVaultUrl
+    tenant_id: UUID
+    client_id: UUID
+
+
+class AzureKeyVaultStoreUpdate(BaseModel):
+    """Client-supplied fields when updating an Azure Key Vault store."""
+
+    provider: Literal[SecretStoreProvider.AZURE_KEY_VAULT]
+    vault_url: AzureKeyVaultUrl | None = None
+    tenant_id: UUID | None = None
+    client_id: UUID | None = None
+
+
 def _config_provider(value: Any) -> str:
     """Discriminate store configs; configs without ``provider`` predate it (AWS)."""
     if isinstance(value, dict):
@@ -592,7 +684,8 @@ SecretStoreConfig = Annotated[
     | Annotated[
         BitwardenSecretsManagerStoreConfig,
         Tag(SecretStoreProvider.BITWARDEN_SECRETS_MANAGER),
-    ],
+    ]
+    | Annotated[AzureKeyVaultStoreConfig, Tag(SecretStoreProvider.AZURE_KEY_VAULT)],
     Discriminator(_config_provider),
 ]
 SecretStoreCreateConfig = Annotated[
@@ -602,7 +695,8 @@ SecretStoreCreateConfig = Annotated[
     | Annotated[
         BitwardenSecretsManagerStoreCreate,
         Tag(SecretStoreProvider.BITWARDEN_SECRETS_MANAGER),
-    ],
+    ]
+    | Annotated[AzureKeyVaultStoreCreate, Tag(SecretStoreProvider.AZURE_KEY_VAULT)],
     Discriminator(_config_provider),
 ]
 SecretStoreUpdateConfig = Annotated[
@@ -612,7 +706,8 @@ SecretStoreUpdateConfig = Annotated[
     | Annotated[
         BitwardenSecretsManagerStoreUpdate,
         Tag(SecretStoreProvider.BITWARDEN_SECRETS_MANAGER),
-    ],
+    ]
+    | Annotated[AzureKeyVaultStoreUpdate, Tag(SecretStoreProvider.AZURE_KEY_VAULT)],
     Discriminator(_config_provider),
 ]
 

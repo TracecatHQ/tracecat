@@ -17,6 +17,7 @@ from tracecat.secrets.enums import SecretStoreProvider
 from tracecat.secrets.schemas import SecretStoreConfig, parse_secret_store_config
 from tracecat.secrets.types import FetchOutcome, StoreContext
 from tracecat_ee.secrets.providers.aws_secrets_manager import AwsSecretsManagerBackend
+from tracecat_ee.secrets.providers.azure_key_vault import AzureKeyVaultBackend
 from tracecat_ee.secrets.providers.bitwarden_secrets_manager import (
     BitwardenSecretsManagerBackend,
 )
@@ -104,6 +105,7 @@ type AnyBackend = SecretStoreBackend[Any, Any, Any]
 BACKENDS: dict[SecretStoreProvider, AnyBackend] = {
     SecretStoreProvider.AWS_SECRETS_MANAGER: AwsSecretsManagerBackend(),
     SecretStoreProvider.BITWARDEN_SECRETS_MANAGER: BitwardenSecretsManagerBackend(),
+    SecretStoreProvider.AZURE_KEY_VAULT: AzureKeyVaultBackend(),
 }
 
 

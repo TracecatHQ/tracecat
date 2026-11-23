@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     # Bitwarden SDK License Agreement; only the Bitwarden secret store provider imports it.
     "bitwarden-sdk==2.1.0",
+    "azure-keyvault-secrets==4.12.0",
 ]
 dynamic = ["version"]
 

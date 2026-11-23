@@ -341,7 +341,7 @@ Tracecat stores credential metadata and resolves values at execution time, in tr
 - The LLM gateway, which attaches provider credentials per request.
 - The preset service, for `stdio` MCP environment values.
 
-All of these services run outside the agent sandbox, and Tracecat never persists a credential value in workflow state. You can keep workspace and integration credentials in AWS Secrets Manager or Bitwarden Secrets Manager instead of Tracecat.
+All of these services run outside the agent sandbox, and Tracecat never persists a credential value in workflow state. You can keep workspace and integration credentials in AWS Secrets Manager, Bitwarden Secrets Manager or Azure Key Vault instead of Tracecat.
 
 #### Workflow actions
 

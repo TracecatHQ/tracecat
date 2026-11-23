@@ -7501,6 +7501,121 @@ export const $AzureAICatalogUpdate = {
   title: "AzureAICatalogUpdate",
 } as const
 
+export const $AzureKeyVaultStoreConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "azure_key_vault",
+      title: "Provider",
+      default: "azure_key_vault",
+    },
+    vault_url: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Vault Url",
+    },
+    tenant_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tenant Id",
+    },
+    client_id: {
+      type: "string",
+      format: "uuid",
+      title: "Client Id",
+    },
+  },
+  type: "object",
+  required: ["vault_url", "tenant_id", "client_id"],
+  title: "AzureKeyVaultStoreConfig",
+  description: `Persisted provider configuration for an Azure Key Vault store.
+
+The service principal's client secret is not part of the config; it is
+stored encrypted in the store's \`\`encrypted_access_token\`\` column.`,
+} as const
+
+export const $AzureKeyVaultStoreCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "azure_key_vault",
+      title: "Provider",
+    },
+    vault_url: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Vault Url",
+    },
+    tenant_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tenant Id",
+    },
+    client_id: {
+      type: "string",
+      format: "uuid",
+      title: "Client Id",
+    },
+  },
+  type: "object",
+  required: ["provider", "vault_url", "tenant_id", "client_id"],
+  title: "AzureKeyVaultStoreCreate",
+  description: "Client-supplied fields when creating an Azure Key Vault store.",
+} as const
+
+export const $AzureKeyVaultStoreUpdate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "azure_key_vault",
+      title: "Provider",
+    },
+    vault_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vault Url",
+    },
+    tenant_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tenant Id",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "AzureKeyVaultStoreUpdate",
+  description: "Client-supplied fields when updating an Azure Key Vault store.",
+} as const
+
 export const $AzureOpenAICatalogCreate = {
   properties: {
     display_name: {
@@ -36215,7 +36330,12 @@ members are never renamed or merged; providers add codes instead.`,
 
 export const $SecretSource = {
   type: "string",
-  enum: ["local", "aws_secrets_manager", "bitwarden_secrets_manager"],
+  enum: [
+    "local",
+    "aws_secrets_manager",
+    "bitwarden_secrets_manager",
+    "azure_key_vault",
+  ],
   title: "SecretSource",
   description: `Where a workspace secret's values live.
 
@@ -36297,6 +36417,9 @@ export const $SecretStoreCreate = {
         },
         {
           $ref: "#/components/schemas/BitwardenSecretsManagerStoreCreate",
+        },
+        {
+          $ref: "#/components/schemas/AzureKeyVaultStoreCreate",
         },
       ],
       title: "Config",
@@ -36479,7 +36602,7 @@ export const $SecretStoreMappingSelection = {
 
 export const $SecretStoreProvider = {
   type: "string",
-  enum: ["aws_secrets_manager", "bitwarden_secrets_manager"],
+  enum: ["aws_secrets_manager", "bitwarden_secrets_manager", "azure_key_vault"],
   title: "SecretStoreProvider",
   description: "Supported external secret store providers.",
 } as const
@@ -36521,6 +36644,9 @@ export const $SecretStoreRead = {
         },
         {
           $ref: "#/components/schemas/BitwardenSecretsManagerStoreConfig",
+        },
+        {
+          $ref: "#/components/schemas/AzureKeyVaultStoreConfig",
         },
       ],
       title: "Config",
@@ -36708,6 +36834,9 @@ export const $SecretStoreUpdate = {
             },
             {
               $ref: "#/components/schemas/BitwardenSecretsManagerStoreUpdate",
+            },
+            {
+              $ref: "#/components/schemas/AzureKeyVaultStoreUpdate",
             },
           ],
         },
