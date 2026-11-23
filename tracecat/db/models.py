@@ -5041,6 +5041,11 @@ class AgentSessionThread(TimestampMixin, Base):
     sync_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
+    last_seen_ts: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="The provider ts of the thread's last message delivered to the session",
+    )
 
 
 class AgentFolder(WorkspaceModel):

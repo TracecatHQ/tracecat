@@ -5861,10 +5861,11 @@ export type DynamicToolUIPartOutputError = {
 }
 
 /**
- * The thread before the bot was summoned, parent first.
+ * The thread's messages before the bot was summoned that the session has not seen.
  */
 export type EarlierThread = {
   messages: Array<EarlierThreadMessage>
+  has_parent?: boolean
   older_omitted?: boolean
   later_omitted?: boolean
 }

@@ -19700,6 +19700,11 @@ export const $EarlierThread = {
       type: "array",
       title: "Messages",
     },
+    has_parent: {
+      type: "boolean",
+      title: "Has Parent",
+      default: true,
+    },
     older_omitted: {
       type: "boolean",
       title: "Older Omitted",
@@ -19714,7 +19719,8 @@ export const $EarlierThread = {
   type: "object",
   required: ["messages"],
   title: "EarlierThread",
-  description: "The thread before the bot was summoned, parent first.",
+  description:
+    "The thread's messages before the bot was summoned that the session has not seen.",
 } as const
 
 export const $EarlierThreadMessage = {

@@ -276,6 +276,25 @@ def test_caps_clip_forwards_and_the_earlier_thread() -> None:
     assert all(len(quoted.text) == 2_000 for quoted in parsed.quoted)
 
 
+def test_a_thread_without_its_parent_keeps_only_the_latest_replies() -> None:
+    original = message(
+        thread=EarlierThread(
+            messages=[
+                EarlierThreadMessage(author=f"user{index}", text=f"reply {index}")
+                for index in range(25)
+            ],
+            has_parent=False,
+        )
+    )
+
+    parsed = ChannelMessage.parse(original.render())
+
+    assert parsed is not None and parsed.thread is not None
+    assert not parsed.thread.has_parent and parsed.thread.older_omitted
+    authors = [reply.author for reply in parsed.thread.messages]
+    assert authors == [f"user{index}" for index in range(5, 25)]
+
+
 def test_long_authors_count_toward_the_earlier_thread_cap() -> None:
     # Texts alone fit in 8,000 characters; with 200-character authors they do not.
     replies = [

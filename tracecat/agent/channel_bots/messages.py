@@ -62,9 +62,11 @@ class EarlierThreadMessage(BaseModel):
 
 
 class EarlierThread(BaseModel):
-    """The thread before the bot was summoned, parent first."""
+    """The thread's messages before the bot was summoned that the session has not seen."""
 
     messages: list[EarlierThreadMessage]
+    has_parent: bool = True
+    """The first message is the thread's parent; False after an earlier mention."""
     older_omitted: bool = False
     later_omitted: bool = False
 
@@ -161,11 +163,12 @@ class ChannelMessage(BaseModel):
                 len(_dump(m.model_dump(mode="json", exclude_defaults=True)))
                 for m in messages
             ]
-            # Keep the parent and the latest replies.
+            # Keep the parent, if any, and the latest replies.
+            oldest = 1 if self.thread.has_parent else 0
             while len(messages) > EARLIER_THREAD_MAX_MESSAGES or (
                 len(messages) > 1 and sum(sizes) > EARLIER_THREAD_MAX_CHARACTERS
             ):
-                del messages[1], sizes[1]
+                del messages[oldest], sizes[oldest]
                 older_omitted = True
             thread = self.thread.model_copy(
                 update={"messages": messages, "older_omitted": older_omitted}
