@@ -1395,6 +1395,9 @@ def convert_chat_messages_to_ui(
                         )
                     ],
                     created_at=chat_message.created_at,
+                    author=chat_message.author.model_dump(mode="json")
+                    if chat_message.author
+                    else None,
                 )
             )
             continue

@@ -379,6 +379,23 @@ def test_convert_chat_messages_to_ui_shows_a_channel_message_and_its_context(
     assert data["sender"]["name"] == "Dana"
 
 
+def test_a_channel_message_carries_its_author() -> None:
+    author = MessageAuthor(id=uuid4(), email="sam@example.com", first_name="Sam")
+    channel_message = _channel_message("triage this")
+    [ui_message] = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(content=channel_message.render()),
+                channel_message=channel_message,
+                author=author,
+            )
+        ]
+    )
+
+    assert ui_message.metadata == {"author": author.model_dump(mode="json")}
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("channel_session", [True, False])
 async def test_a_steered_channel_message_decodes_only_in_a_channel_session(
