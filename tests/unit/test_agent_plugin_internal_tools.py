@@ -122,6 +122,7 @@ def test_a_plugin_that_fails_to_load_or_misnames_a_tool_is_skipped(
         _Plugin([_tool(READ)]),
         _Plugin([_tool(READ), _tool("internal.dup.other")]),
         _Plugin([_tool("internal.builder.update_preset")]),
+        _Plugin([_tool("internal.bad__name.tool")]),
         None,
         _Plugin([_tool(WRITE)]),
     )

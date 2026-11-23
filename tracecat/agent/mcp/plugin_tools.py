@@ -103,7 +103,7 @@ def _validated_tools(
     """The plugin's tools by name.
 
     Raises:
-        ValueError: If a name lacks the internal prefix or is taken twice.
+        ValueError: If a name lacks the internal prefix, holds `__`, or is taken twice.
     """
     own: dict[str, PluginInternalTool] = {}
     for tool in plugin.tools():
@@ -111,6 +111,9 @@ def _validated_tools(
             raise ValueError(
                 f"Plugin tool {tool.name!r} must start with {INTERNAL_TOOL_PREFIX!r}"
             )
+        # MCP names swap `.` for `__`; a name holding `__` would not round-trip.
+        if "__" in tool.name:
+            raise ValueError(f"Plugin tool {tool.name!r} must not contain '__'")
         if (
             tool.name in own
             or tool.name in taken
@@ -162,5 +165,11 @@ async def granted_plugin_internal_tools(
                 error_type=type(e).__name__,
             )
             continue
-        granted.extend(loaded.tools[name] for name in names if name in own)
+        if foreign := sorted(names - own):
+            logger.warning(
+                "Internal tool plugin granted tools it does not serve; ignoring them",
+                plugin=type(plugin).__name__,
+                tools=foreign,
+            )
+        granted.extend(loaded.tools[name] for name in names & own)
     return sorted(granted, key=lambda tool: tool.name)

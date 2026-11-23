@@ -77,6 +77,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.mcp import user_client
+from tracecat.agent.mcp.plugin_tools import PluginInternalTool
 from tracecat.agent.metrics import TurnOutcome
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
 from tracecat.agent.otel_delivery import OtelDeliveryPool
@@ -386,6 +387,49 @@ class TestBuildToolDefinitionsActivity:
         assert result.tool_approvals == {
             "custom.delete": True,
             "custom.waived": False,
+        }
+
+    @pytest.mark.anyio
+    async def test_records_plugin_tool_approval_defaults_unless_overridden(
+        self,
+        registry_default_tools: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def plugin_tool(name: str, requires_approval: bool) -> PluginInternalTool:
+            return PluginInternalTool(
+                definition=MCPToolDefinition(
+                    name=name, description=name, parameters_json_schema={}
+                ),
+                handler=AsyncMock(),
+                requires_approval=requires_approval,
+            )
+
+        granted = AsyncMock(
+            return_value=[
+                plugin_tool("internal.demo.read", False),
+                plugin_tool("internal.demo.write", True),
+                plugin_tool("internal.demo.waived", True),
+            ]
+        )
+        monkeypatch.setattr(agent_activities, "granted_plugin_internal_tools", granted)
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=Role(type="service", service_id="tracecat-api"),
+                tool_filters=ToolFilters(actions=[]),
+                tool_approvals={"internal.demo.waived": False},
+                session_id=uuid.uuid4(),
+            )
+        )
+
+        assert sorted(result.allowed_internal_tools or []) == [
+            "internal.demo.read",
+            "internal.demo.waived",
+            "internal.demo.write",
+        ]
+        assert result.tool_approvals == {
+            "internal.demo.waived": False,
+            "internal.demo.write": True,
         }
 
     @pytest.mark.anyio
