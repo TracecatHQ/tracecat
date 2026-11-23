@@ -15,5 +15,8 @@ CANCELLED_DATA_PART_TYPE = "data-cancelled"
 USER_MESSAGE_DATA_PART_TYPE = "data-user-message"
 """UI data part identifier for a user message that joined the running turn."""
 
+CHANNEL_MESSAGE_DATA_PART_TYPE = "data-channel-message"
+"""UI data part identifier for a channel message's sender, forwards and thread."""
+
 AGENT_CHUNK_DATA_PART_TYPE = "data-agent-chunk"
 """UI data part identifier for transient child-session UI chunks."""

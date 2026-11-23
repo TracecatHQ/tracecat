@@ -14909,6 +14909,107 @@ export const $ChannelLinkSignInRead = {
   description: "Where to send the browser to prove the provider identity.",
 } as const
 
+export const $ChannelMessage = {
+  properties: {
+    provider: {
+      $ref: "#/components/schemas/ChannelBotProvider",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    sender: {
+      $ref: "#/components/schemas/ChannelMessageSender",
+    },
+    thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EarlierThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    quoted: {
+      items: {
+        $ref: "#/components/schemas/QuotedMessage",
+      },
+      type: "array",
+      title: "Quoted",
+      default: [],
+    },
+    quoted_omitted: {
+      type: "integer",
+      title: "Quoted Omitted",
+      default: 0,
+    },
+    people: {
+      items: {
+        $ref: "#/components/schemas/ChannelPerson",
+      },
+      type: "array",
+      title: "People",
+      default: [],
+    },
+  },
+  type: "object",
+  required: ["provider", "text", "sender"],
+  title: "ChannelMessage",
+} as const
+
+export const $ChannelMessageSender = {
+  properties: {
+    provider_user_id: {
+      type: "string",
+      title: "Provider User Id",
+    },
+    provider_team_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Team Id",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["provider_user_id"],
+  title: "ChannelMessageSender",
+} as const
+
+export const $ChannelPerson = {
+  properties: {
+    provider_user_id: {
+      type: "string",
+      title: "Provider User Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["provider_user_id", "name"],
+  title: "ChannelPerson",
+  description:
+    "A display name for a provider user the message refers to, by raw ID.",
+} as const
+
 export const $ChannelType = {
   type: "string",
   enum: ["slack"],
@@ -15009,6 +15110,17 @@ export const $ChatMessage = {
       ],
       title: "Created At",
       description: "When the agent runtime recorded the message",
+    },
+    channel_message: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelMessage",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The channel message a user message's text renders, decoded",
     },
   },
   type: "object",
@@ -19235,6 +19347,53 @@ export const $DynamicToolUIPartOutputError = {
   type: "object",
   required: ["type", "toolName", "toolCallId", "state", "input", "errorText"],
   title: "DynamicToolUIPartOutputError",
+} as const
+
+export const $EarlierThread = {
+  properties: {
+    messages: {
+      items: {
+        $ref: "#/components/schemas/EarlierThreadMessage",
+      },
+      type: "array",
+      title: "Messages",
+    },
+    older_omitted: {
+      type: "boolean",
+      title: "Older Omitted",
+      default: false,
+    },
+    later_omitted: {
+      type: "boolean",
+      title: "Later Omitted",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["messages"],
+  title: "EarlierThread",
+  description: "The thread before the bot was summoned, parent first.",
+} as const
+
+export const $EarlierThreadMessage = {
+  properties: {
+    author: {
+      type: "string",
+      title: "Author",
+    },
+    is_bot: {
+      type: "boolean",
+      title: "Is Bot",
+      default: false,
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["author", "text"],
+  title: "EarlierThreadMessage",
 } as const
 
 export const $EditorActionRead = {
@@ -31730,6 +31889,70 @@ export const $PushStatus = {
   enum: ["committed", "no_op"],
   title: "PushStatus",
   description: "Status of a push/commit operation.",
+} as const
+
+export const $QuotedMessage = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/QuotedMessageKind",
+    },
+    author: {
+      type: "string",
+      title: "Author",
+    },
+    author_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author Id",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    is_preview: {
+      type: "boolean",
+      title: "Is Preview",
+      default: false,
+    },
+    where: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Where",
+    },
+    link: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Link",
+    },
+  },
+  type: "object",
+  required: ["kind", "author", "text"],
+  title: "QuotedMessage",
+  description: "A message attached to this one, such as a forward.",
+} as const
+
+export const $QuotedMessageKind = {
+  type: "string",
+  enum: ["forwarded", "quoted_reply"],
+  title: "QuotedMessageKind",
 } as const
 
 export const $RateLimitEvent = {

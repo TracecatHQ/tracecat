@@ -27,6 +27,7 @@ from tracecat.agent.channel_users.service import (
     ChannelLinkRequired,
     check_channel_access,
     complete_channel_link,
+    linked_member_names,
     resolve_channel_actor,
     start_provider_sign_in,
     unlink_channel_user,
@@ -270,6 +271,30 @@ async def test_same_provider_user_is_isolated_per_organization(
         session, organization_id=other.organization_id, identity=_identity("U5")
     )
     assert (in_a.user_id, in_b.user_id) == (user_a.id, user_b.id)
+
+
+async def test_linked_member_names_cover_current_members_only(
+    session: AsyncSession, org: _Org
+) -> None:
+    named = await _user(session, org)
+    named.first_name, named.last_name = "Ada", "Lovelace"
+    unnamed = await _user(session, org)
+    gone = await _user(session, org)
+    await session.commit()
+    await _link(session, org, "U1", named)
+    await _link(session, org, "U2", unnamed)
+    await _link(session, org, "U4", gone)
+    gone.is_active = False
+    await session.commit()
+
+    names = await linked_member_names(
+        session,
+        organization_id=org.organization_id,
+        identities=[_identity(f"U{n}") for n in range(1, 6)],
+    )
+
+    # Deactivated and unlinked users get no Tracecat name.
+    assert names == {_identity("U1"): "Ada Lovelace", _identity("U2"): unnamed.email}
 
 
 class _SignedInAs:

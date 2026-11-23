@@ -12,6 +12,9 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import orjson
+from claude_agent_sdk.types import Message as ClaudeSDKMessage
+from claude_agent_sdk.types import TextBlock, UserMessage
+from pydantic import ValidationError
 from sqlalchemy import (
     and_,
     case,
@@ -63,6 +66,7 @@ from tracecat.agent.backends.types import (
     SessionTurnContext,
     TurnAlreadyStarted,
 )
+from tracecat.agent.channel_bots.messages import ChannelMessage
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
     AgentCancelControl,
@@ -143,6 +147,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
+from tracecat.chat.constants import CHANNEL_MESSAGE_DATA_PART_TYPE
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalDecision,
@@ -268,7 +273,32 @@ def _finalize_auto_title_task(
         )
 
 
+def _retried_channel_message(ui_message: Any) -> ChannelMessage | None:
+    """The channel message a Retry resends, when the UI message carries one."""
+    for part in ui_message.parts:
+        if part.get("type") == CHANNEL_MESSAGE_DATA_PART_TYPE:
+            try:
+                return ChannelMessage.model_validate(part.get("data"))
+            except ValidationError as e:
+                raise TracecatValidationError("Invalid channel message") from e
+    return None
+
+
+def refuse_channel_envelope(prompt: str) -> None:
+    """Refuse a prompt that reads as a channel message.
+
+    Channel ingress writes envelopes through ``send_message``, never these paths.
+    """
+    if ChannelMessage.parse(prompt.lstrip()) is not None:
+        raise TracecatValidationError(
+            "A message from Tracecat can't be a channel message"
+        )
+
+
 def _extract_vercel_user_prompt(ui_message: Any) -> str | None:
+    # A retried channel message resends its envelope, not just its text.
+    if (retried := _retried_channel_message(ui_message)) is not None:
+        return retried.render()
     text_parts = [part["text"] for part in ui_message.parts if is_text_ui_part(part)]
     return "\n".join(text_parts) or None
 
@@ -324,6 +354,25 @@ class StreamResumeState:
 
 class SessionAwaitingApprovalsError(ValueError):
     """A new message arrived while the session waits for approval decisions."""
+
+
+def _display_text(text: str, *, channel_session: bool) -> str:
+    """A user message's text as people read it: a channel message's summary."""
+    if channel_session and (message := ChannelMessage.parse(text)):
+        return message.summary_text()
+    return text
+
+
+def _channel_message_of(message: ClaudeSDKMessage) -> ChannelMessage | None:
+    """The channel message a user message's lone text renders, if any."""
+    if not isinstance(message, UserMessage):
+        return None
+    content = message.content
+    if isinstance(content, str):
+        return ChannelMessage.parse(content)
+    if len(content) == 1 and isinstance(text := content[0], TextBlock):
+        return ChannelMessage.parse(text.text)
+    return None
 
 
 def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
@@ -652,6 +701,19 @@ class AgentSessionService(BaseWorkspaceService):
         self, session_ids: Sequence[uuid.UUID]
     ) -> set[uuid.UUID]:
         """Find sessions whose own type or ancestry requires Workspace Chat."""
+        return await self._ids_with_entity_in_ancestry(
+            session_ids, AgentSessionEntity.WORKSPACE_CHAT, via_spawn=True
+        )
+
+    async def _ids_with_entity_in_ancestry(
+        self,
+        session_ids: Sequence[uuid.UUID],
+        entity_type: AgentSessionEntity,
+        *,
+        via_spawn: bool,
+    ) -> set[uuid.UUID]:
+        """The sessions that are, or forked (or, `via_spawn`, were spawned) from,
+        an `entity_type` session."""
         if not session_ids:
             return set()
         ancestry = (
@@ -668,6 +730,9 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .cte("session_ancestry", recursive=True)
         )
+        parents = [AgentSession.id == ancestry.c.forked_from_session_id]
+        if via_spawn:
+            parents.append(AgentSession.id == ancestry.c.spawned_by_session_id)
         # UNION deduplicates visited (root, ancestor) pairs, including cycles.
         ancestry = ancestry.union(
             select(
@@ -679,16 +744,13 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .join(
                 ancestry,
-                or_(
-                    AgentSession.id == ancestry.c.spawned_by_session_id,
-                    AgentSession.id == ancestry.c.forked_from_session_id,
-                ),
+                or_(*parents),
             )
             .where(AgentSession.workspace_id == self.workspace_id)
         )
         result = await self.session.scalars(
             select(ancestry.c.root_id)
-            .where(ancestry.c.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value)
+            .where(ancestry.c.entity_type == entity_type.value)
             .distinct()
         )
         return set(result.all())
@@ -1570,8 +1632,9 @@ class AgentSessionService(BaseWorkspaceService):
         expected_title: str,
     ) -> None:
         """Best-effort auto-title on the first prompt."""
-        prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
+        channel_session = await self.is_channel_session(agent_session)
+        prompt = _display_text(user_prompt, channel_session=channel_session).strip()
         old_title = expected_title
 
         if agent_session.title != expected_title:
@@ -2156,9 +2219,28 @@ class AgentSessionService(BaseWorkspaceService):
                 await self._admit_message(
                     agent_session, resume_prepared_turn=resume_prepared_turn
                 )
+                await self._require_genuine_channel_message(agent_session, request)
                 return agent_session
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
+
+    async def _require_genuine_channel_message(
+        self,
+        agent_session: AgentSession,
+        request: VercelChatRequest | BasicChatRequest,
+    ) -> None:
+        """Refuse a written envelope, or a Retry of one the session never received."""
+        if isinstance(request, BasicChatRequest):
+            refuse_channel_envelope(request.message)
+            return
+        retried = _retried_channel_message(request.message)
+        if retried is None:
+            prompt = _extract_vercel_user_prompt(request.message)
+            refuse_channel_envelope(prompt or "")
+        elif not await self._holds_channel_message(agent_session, retried):
+            raise TracecatValidationError(
+                "Only a channel message this session received can be retried"
+            )
 
     async def _admit_message(
         self, agent_session: AgentSession, *, resume_prepared_turn: bool = False
@@ -2545,13 +2627,14 @@ class AgentSessionService(BaseWorkspaceService):
                 "This agent backend does not support listing pending messages"
             )
         pending = await backend.list_pending(session_id)
+        channel_session = await self.is_channel_session(agent_session)
         return AgentSessionPendingRead(
             session_id=session_id,
             items=[
                 AgentPendingMessageRead(
                     id=message.id,
                     type=message.type,
-                    text=message.text,
+                    text=_display_text(message.text, channel_session=channel_session),
                     created_at=message.created_at,
                 )
                 for message in pending
@@ -2657,6 +2740,7 @@ class AgentSessionService(BaseWorkspaceService):
         The backend deduplicates ``request.id`` across the session, so a retry
         never reaches a later turn.
         """
+        refuse_channel_envelope(request.text)
         backend, run_id = await self._get_control_turn(session_id, "steer")
         accepted = await backend.steer(run_id, request.id, request.text)
         return AgentControlReceipt(
@@ -3133,6 +3217,27 @@ class AgentSessionService(BaseWorkspaceService):
             history=history,
             approvals_by_tool_id=approval_by_tool_id,
             kinds=kinds,
+            channel_session=await self.is_channel_session(agent_session),
+        )
+
+    async def _holds_channel_message(
+        self, agent_session: AgentSession, message: ChannelMessage
+    ) -> bool:
+        """Whether the session's history holds ``message`` as a user prompt."""
+        history = await self.list_messages(agent_session.id)
+        return any(entry.channel_message == message for entry in history)
+
+    async def is_channel_session(self, agent_session: AgentSession) -> bool:
+        """Whether the session, or the session it was forked from, is an external
+        channel session, whose user messages may be rendered channel messages."""
+        if agent_session.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
+            return True
+        if agent_session.forked_from_session_id is None:
+            return False
+        return bool(
+            await self._ids_with_entity_in_ancestry(
+                [agent_session.id], AgentSessionEntity.EXTERNAL_CHANNEL, via_spawn=False
+            )
         )
 
     def _render_history_entries(
@@ -3142,6 +3247,7 @@ class AgentSessionService(BaseWorkspaceService):
         approvals_by_tool_id: dict[str, Approval],
         kinds: Sequence[MessageKind] | None,
         history: SessionHistoryAdapter | None = None,
+        channel_session: bool = False,
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
@@ -3223,6 +3329,9 @@ class AgentSessionService(BaseWorkspaceService):
                     id=str(entry.id),
                     message=message,
                     created_at=_session_line_time(content),
+                    channel_message=_channel_message_of(message)
+                    if channel_session
+                    else None,
                 )
             )
 

@@ -38,6 +38,10 @@ import {
   type ToolVerbs,
 } from "@/components/ai-elements/tool"
 import { ApprovalRequestPart } from "@/components/chat/approval-request-part"
+import {
+  ChannelMessageContext,
+  withChannelMentionNames,
+} from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import { getIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
@@ -56,8 +60,11 @@ import {
 import { useSubagentTranscript } from "@/hooks/use-subagent-stream"
 import {
   CANCELLED_DATA_PART_TYPE,
+  CHANNEL_MESSAGE_DATA_PART_TYPE,
+  type ChannelMessageData,
   type CompactionData,
   collectInterruptedToolCallIds,
+  getChannelMessageData,
   getCompactionData,
   getToolDenial,
   getUserMessageData,
@@ -213,11 +220,23 @@ export function MessagePart({
     const message = getUserMessageData(part.data)
     if (!message) return null
     return (
-      <Message key={`${id}-${partIdx}`} from="user">
-        <MessageContent variant="flat">
-          <SmoothResponse text={message.text} animate={false} />
-        </MessageContent>
-      </Message>
+      <UserBubble
+        key={`${id}-${partIdx}`}
+        text={message.text}
+        channelMessage={message.channelMessage}
+      />
+    )
+  }
+
+  if (part.type === CHANNEL_MESSAGE_DATA_PART_TYPE) {
+    const channelMessage = getChannelMessageData(part.data)
+    if (!channelMessage) return null
+    return (
+      <UserBubble
+        key={`${id}-${partIdx}`}
+        text={channelMessage.text}
+        channelMessage={channelMessage}
+      />
     )
   }
 
@@ -345,6 +364,33 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
     part.type === "step-start" ||
     part.type === "source-url" ||
     part.type === ARTIFACT_DATA_PART_TYPE
+  )
+}
+
+/** A user's message: its text, and a channel message's forwards and thread. */
+function UserBubble({
+  text,
+  channelMessage,
+}: {
+  text: string
+  channelMessage: ChannelMessageData | null
+}) {
+  return (
+    <Message from="user">
+      <MessageContent variant="flat">
+        {text && (
+          <SmoothResponse
+            text={
+              channelMessage
+                ? withChannelMentionNames(text, channelMessage)
+                : text
+            }
+            animate={false}
+          />
+        )}
+        {channelMessage && <ChannelMessageContext message={channelMessage} />}
+      </MessageContent>
+    </Message>
   )
 }
 
