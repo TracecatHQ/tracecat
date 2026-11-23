@@ -19,8 +19,7 @@ These instructions apply to all files under `.github/`, especially `.github/work
 - GitHub loads the workflow from the selected ref. Enforce access to privileged credentials and resources with GitHub settings as well as workflow job conditions.
 - Declare explicit `permissions:` on every workflow or job. Default to read-only and scope writes to the minimum required permission.
 - Use `persist-credentials: false` on `actions/checkout` unless the job must push with `GITHUB_TOKEN`.
-- Put high-value credentials in protected environments with required reviewers. In this repo:
-  - `CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY` belongs in the `release` environment.
+- Put high-value credentials in protected environments with required reviewers.
 - Ensure external fork PRs cannot reach secret-backed or private-infrastructure jobs.
 - For sensitive PR workflows, require `github.event.pull_request.head.repo.full_name == github.repository` before using secrets or private credentials.
 - Add `concurrency` to release, tag, publish, deploy, and downstream-dispatch workflows so duplicate runs cannot race each other.

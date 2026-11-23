@@ -40,6 +40,7 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import SecretType
 from tracecat.settings.schemas import GitSettingsUpdate
 
@@ -47,6 +48,7 @@ REGISTRY_HOST = "registry-git"
 GIT_SSH_URL = f"git+ssh://git@{REGISTRY_HOST}/fixtures/registry_fixture.git"
 REGISTRY_PACKAGE = "registry_fixture"
 REGISTRY_ACTION = "fixture.arithmetic.add_300"
+FIXTURE_KEY_DESCRIPTION = "Ephemeral SSH key for the registry integration fixture"
 PLACEHOLDER_TARBALL_URI = "s3://test/test.tar.gz"
 TEST_USER_EMAIL = "test@tracecat.com"
 TEST_USER_PASSWORD = "password1234"
@@ -55,6 +57,47 @@ TEST_USER_PASSWORD = "password1234"
 def _assert_response_ok(response: requests.Response, action: str) -> None:
     assert response.status_code == 200, (
         f"{action} failed: {response.status_code} - {response.text}"
+    )
+
+
+def _register_fixture_ssh_key(
+    session: requests.Session, base_url: str, key_file: Path
+) -> None:
+    secrets_url = f"{base_url}/organization/secrets"
+    payload = {
+        "type": SecretType.SSH_KEY.value,
+        "name": REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+        "description": FIXTURE_KEY_DESCRIPTION,
+        "environment": DEFAULT_SECRETS_ENVIRONMENT,
+        "keys": [{"key": "PRIVATE_KEY", "value": key_file.read_text()}],
+    }
+    response = session.post(secrets_url, json=payload)
+    if response.status_code == 409:
+        # SSH key values are write-once. A previous run may have left its key.
+        listed = session.get(secrets_url, params={"type": SecretType.SSH_KEY.value})
+        assert listed.status_code == 200, (
+            f"Fixture SSH key lookup failed: {listed.status_code}"
+        )
+        existing = next(
+            (
+                secret
+                for secret in listed.json()
+                if secret["name"] == REGISTRY_GIT_SSH_KEY_SECRET_NAME
+                and secret["environment"] == DEFAULT_SECRETS_ENVIRONMENT
+            ),
+            None,
+        )
+        assert (
+            existing is not None and existing["description"] == FIXTURE_KEY_DESCRIPTION
+        ), "The existing registry SSH key does not belong to the integration fixture"
+        secret_id = uuid.UUID(existing["id"])
+        deleted = session.delete(f"{secrets_url}/{secret_id}")
+        assert deleted.status_code == 204, (
+            f"Fixture SSH key removal failed: {deleted.status_code}"
+        )
+        response = session.post(secrets_url, json=payload)
+    assert response.status_code == 201, (
+        f"Fixture SSH key registration failed: {response.status_code}"
     )
 
 
@@ -372,17 +415,7 @@ async def test_remote_custom_registry_repo() -> None:
     # ---------------------------------------------------------------------
     # 3.  Register the fixture's ephemeral SSH key in the test organization
     # ---------------------------------------------------------------------
-    secret_response = session.post(
-        f"{base_url}/organization/secrets",
-        json={
-            "type": SecretType.SSH_KEY.value,
-            "name": REGISTRY_GIT_SSH_KEY_SECRET_NAME,
-            "keys": [{"key": "PRIVATE_KEY", "value": fixture_key_file.read_text()}],
-        },
-    )
-    assert secret_response.status_code in (200, 201, 409), (
-        f"Fixture SSH key registration failed: {secret_response.status_code}"
-    )
+    _register_fixture_ssh_key(session, base_url, fixture_key_file)
 
     # ---------------------------------------------------------------------
     # 4.  Sync the fixture repository
