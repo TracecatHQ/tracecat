@@ -109,7 +109,8 @@ class ChannelNotifier(Protocol):
 
     Raise ``ChannelPushRetryAfter`` to honor a provider's Retry-After, and
     a non-retryable ``ApplicationError`` for a definitive rejection. The
-    constructor runs once on the worker loop; methods must not block it.
+    constructor runs once per process, on the API or worker loop; methods
+    must not block it.
     Pushing must be idempotent per update: a retried host activity resends.
     """
 

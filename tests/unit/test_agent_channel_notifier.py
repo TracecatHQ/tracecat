@@ -139,6 +139,12 @@ class _MentionNotifier(_RecordingNotifier):
     renders_mentions = True
 
 
+class _UnlinkedMentionNotifier(_MentionNotifier):
+    async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
+        del role, session_id
+        return False
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("entries", "renders"),
@@ -147,6 +153,7 @@ class _MentionNotifier(_RecordingNotifier):
         # Installed before notifiers declared it.
         ((_EntryPoint("example", _RecordingNotifier),), False),
         ((_EntryPoint("example", _MentionNotifier),), True),
+        ((_EntryPoint("example", _UnlinkedMentionNotifier),), False),
         (
             (
                 _EntryPoint(
@@ -156,7 +163,7 @@ class _MentionNotifier(_RecordingNotifier):
             False,
         ),
     ],
-    ids=["no-notifier", "undeclared", "linked", "link-check-fails"],
+    ids=["no-notifier", "undeclared", "linked", "unlinked", "link-check-fails"],
 )
 async def test_only_a_linked_channel_that_draws_mentions_renders_them(
     installed, entries: tuple[_EntryPoint, ...], renders: bool

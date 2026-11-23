@@ -28,6 +28,8 @@ def _session(entity_type: AgentSessionEntity) -> Any:
     [
         (AgentSessionEntity.WORKSPACE_CHAT, ARTIFACT_MENTION_PROMPT),
         (AgentSessionEntity.CASE, ARTIFACT_MENTION_PROMPT),
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, ARTIFACT_MENTION_PROMPT),
+        (AgentSessionEntity.APPROVAL, ARTIFACT_MENTION_PROMPT),
         (AgentSessionEntity.WORKFLOW, None),
         (AgentSessionEntity.AGENT_PRESET, None),
     ],
