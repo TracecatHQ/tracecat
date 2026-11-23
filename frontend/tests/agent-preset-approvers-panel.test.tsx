@@ -165,9 +165,12 @@ it("loads more listed approvers a page at a time", async () => {
 
   renderPanel()
   await screen.findByText("Example person")
+  // A partial count would understate the list.
+  expect(screen.queryByText("1")).toBeNull()
   await user.click(screen.getByRole("button", { name: "Load more" }))
 
   expect(await screen.findByText("Example on-call")).toBeInTheDocument()
+  expect(screen.getByText("2")).toBeInTheDocument()
   expect(listApprovers).toHaveBeenLastCalledWith({
     workspaceId: "workspace-example",
     presetId: "preset-example",

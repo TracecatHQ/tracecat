@@ -7768,7 +7768,7 @@ async def test_agent_preset_approver_tools_call_the_approver_service(
 
     assert options.items == [user] and options.next_cursor == "next"
     assert listed.items == [user] and listed.next_cursor == "more"
-    assert added == [user] and "Removed 1" in removed
+    assert added == [user] and "no longer listed" in removed
     service.list_approvers.assert_awaited_once_with(
         preset_id, PageParams(limit=5, cursor="c1")
     )

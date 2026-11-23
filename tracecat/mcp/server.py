@@ -12558,7 +12558,7 @@ async def remove_agent_preset_approvers(
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
             approvers_service = AgentPresetApproverService(svc.session, role=role)
             await approvers_service.remove_approvers(preset.id, params.approvers)
-        return f"Removed {len(params.approvers)} approver(s) from '{preset_slug}'"
+        return f"Approvers no longer listed on '{preset_slug}'"
     except ToolError:
         raise
     except ScopeDeniedError as e:

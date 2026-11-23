@@ -165,7 +165,8 @@ export function AgentPresetApproversPanel({
     <section>
       <RailSectionHeader
         title="Approvers"
-        count={approvers.length}
+        // A partial count would understate the list, so hide it until all load.
+        count={approversQuery.hasNextPage ? undefined : approvers.length}
         addLabel="Add approver"
         onAdd={() => setIsPickerOpen(true)}
         addDisabled={addDisabledReason !== null}

@@ -149,6 +149,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         approvers = list(dict.fromkeys(approvers))
         await self._lock_preset(preset_id)
         if not approvers:
+            await self.session.commit()
             return []
         valid = await self._named(
             self._options().union(self._listed(preset_id)), only=approvers
@@ -159,21 +160,19 @@ class AgentPresetApproverService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Approvers must be members, groups, or roles of this workspace"
             )
+        # executemany: SQLAlchemy pages the rows under the driver's bind limit.
         await self.session.execute(
-            pg_insert(AgentPresetApprover)
-            .values(
-                [
-                    {
-                        "workspace_id": self.workspace_id,
-                        "preset_id": preset_id,
-                        "user_id": ref.id if ref.kind == "user" else None,
-                        "group_id": ref.id if ref.kind == "group" else None,
-                        "role_id": ref.id if ref.kind == "role" else None,
-                    }
-                    for ref in approvers
-                ]
-            )
-            .on_conflict_do_nothing()
+            pg_insert(AgentPresetApprover).on_conflict_do_nothing(),
+            [
+                {
+                    "workspace_id": self.workspace_id,
+                    "preset_id": preset_id,
+                    "user_id": ref.id if ref.kind == "user" else None,
+                    "group_id": ref.id if ref.kind == "group" else None,
+                    "role_id": ref.id if ref.kind == "role" else None,
+                }
+                for ref in approvers
+            ],
         )
         listed = await self.session.scalar(
             select(func.count()).where(_preset_approvers(self.workspace_id, preset_id))
