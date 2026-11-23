@@ -1,13 +1,7 @@
-"""Integration test: install and execute a remote custom registry repo.
+"""Sync an isolated Git fixture and execute its installed action via Temporal.
 
-This checks the full "happy path" in production mode:
-1. Login with test credentials
-2. Get or create a RegistryRepository record that points to the internal-registry repo
-3. Create GitHub SSH deploy key secret for repository access
-4. Sync the repo, which clones via git+ssh and installs with `uv add`
-5. Verify the action is registered in the repository
-6. Run a DSLWorkflow that calls `tracecat.math.add_300` via Temporal,
-   verifying the worker can import and execute the freshly-installed code
+The integration Compose stack serves the fixture over SSH and accepts an
+ephemeral deploy key generated for the test run.
 """
 
 from __future__ import annotations
@@ -15,10 +9,10 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 import requests
-from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -42,13 +36,17 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+)
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretCreate
 from tracecat.settings.schemas import GitSettingsUpdate
 
-GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
-KNOWN_GOOD_REMOTE_COMMIT_SHA = "e2bfd94c35c93f8052c2b97ff542961596ddd3f8"
+REGISTRY_HOST = "registry-git"
+GIT_SSH_URL = f"git+ssh://git@{REGISTRY_HOST}/fixtures/registry_fixture.git"
+REGISTRY_PACKAGE = "registry_fixture"
+REGISTRY_ACTION = "fixture.arithmetic.add_300"
 PLACEHOLDER_TARBALL_URI = "s3://test/test.tar.gz"
 TEST_USER_EMAIL = "test@tracecat.com"
 TEST_USER_PASSWORD = "password1234"
@@ -271,11 +269,7 @@ def _sync_builtin_platform_registry(
 
 @pytest.mark.anyio
 async def test_remote_custom_registry_repo() -> None:
-    """
-    End-to-end assertion that the worker can:
-    1. Clone & install the remote repo via `uv add`.
-    2. Execute the `tracecat.math.add_300` action inside a workflow via Temporal.
-    """
+    """Clone and install the fixture and execute its custom action via Temporal."""
     logger.info("Starting remote custom registry repo test")
 
     # ---------------------------------------------------------------------
@@ -284,6 +278,8 @@ async def test_remote_custom_registry_repo() -> None:
     logger.info("Step 1: Creating session and setting up test user")
     base_url = os.environ.get("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     session = requests.Session()
+    fixture_key_file = Path(os.environ["TRACECAT_TEST_REGISTRY_KEY_FILE"])
+    fixture_commit = os.environ["TRACECAT_TEST_REGISTRY_COMMIT_SHA"]
 
     # First, try to register the test user (in case it doesn't exist)
     register_response = session.post(
@@ -337,8 +333,9 @@ async def test_remote_custom_registry_repo() -> None:
     git_repo_setting_response = session.patch(
         f"{base_url}/settings/git",
         json=GitSettingsUpdate(
+            git_allowed_domains=[REGISTRY_HOST],
             git_repo_url=GIT_SSH_URL,
-            git_repo_package_name="custom_actions",
+            git_repo_package_name=REGISTRY_PACKAGE,
         ).model_dump(mode="json"),
     )
     assert git_repo_setting_response.status_code == 204, (
@@ -373,63 +370,35 @@ async def test_remote_custom_registry_repo() -> None:
         logger.info("Created new repository", repository_id=repository_id)
 
     # ---------------------------------------------------------------------
-    # 3.  Create GitHub SSH deploy key secret for repository access
+    # 3.  Register the fixture's ephemeral SSH key in the test organization
     # ---------------------------------------------------------------------
-    logger.info("Step 3: Creating GitHub SSH deploy key secret")
-    github_deploy_key = os.environ.get("CUSTOM_REPO_SSH_PRIVATE_KEY")
-    if not github_deploy_key:
-        pytest.fail("CUSTOM_REPO_SSH_PRIVATE_KEY environment variable is not set")
-    # Validate that newlines are preserved in the decoded SSH private key
-    assert "\n" in github_deploy_key, "Key should contain newlines"
-    secret_github_ssh_key = SecretStr(github_deploy_key)
-
-    # Create or update the github-ssh-key secret
-    # Create the secret model and serialize with custom handling for SecretStr
-    secret_dict = {
-        "type": SecretType.SSH_KEY.value,
-        "name": "github-ssh-key",
-        "keys": [
-            {
-                "key": "PRIVATE_KEY",
-                "value": secret_github_ssh_key.get_secret_value(),
-            }
-        ],
-        "description": "GitHub SSH deploy key for accessing private repositories",
-    }
-
-    # Validate the secret dict
-    try:
-        SecretCreate.model_validate(secret_dict)
-    except ValidationError:
-        pytest.fail("SecretCreate validation failed")
-
     secret_response = session.post(
         f"{base_url}/organization/secrets",
-        json=secret_dict,
+        json={
+            "type": SecretType.SSH_KEY.value,
+            "name": REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+            "keys": [{"key": "PRIVATE_KEY", "value": fixture_key_file.read_text()}],
+        },
     )
-    # Accept 200 (updated), 201 (created), and 409 (already exists) status codes
-    assert secret_response.status_code in [200, 201, 409], (
-        f"Secret creation failed: {secret_response.text}"
-    )
-    logger.info(
-        "GitHub SSH deploy key secret created successfully",
-        length=len(secret_github_ssh_key),
+    assert secret_response.status_code in (200, 201, 409), (
+        f"Fixture SSH key registration failed: {secret_response.status_code}"
     )
 
     # ---------------------------------------------------------------------
-    # 4.  Sync the repository (clones & installs with uv add)
+    # 4.  Sync the fixture repository
     # ---------------------------------------------------------------------
     logger.info(
-        "Step 4: Syncing repository (cloning and installing with uv add)",
+        "Step 4: Syncing fixture repository",
         repository_id=repository_id,
     )
     sync_response = session.post(
         f"{base_url}/registry/repos/{repository_id}/sync",
-        json={"target_commit_sha": KNOWN_GOOD_REMOTE_COMMIT_SHA},
+        json={"target_commit_sha": fixture_commit},
     )
     assert sync_response.status_code == 200, f"Sync failed: {sync_response.text}"
     sync_data = sync_response.json()
     assert sync_data["success"] is True, f"Sync was not successful: {sync_data}"
+    assert sync_data["commit_sha"] == fixture_commit
     logger.info(
         "Repository sync completed successfully",
         version=sync_data.get("version"),
@@ -446,13 +415,11 @@ async def test_remote_custom_registry_repo() -> None:
 
     # Check that our action is in the actions list
     actions = repo_details.get("actions", [])
-    action_found = any(
-        action["action"] == "tracecat.math.add_300" for action in actions
-    )
-    assert action_found, "tracecat.math.add_300 should be in the repository actions"
+    action_found = any(action["action"] == REGISTRY_ACTION for action in actions)
+    assert action_found, f"{REGISTRY_ACTION} should be in the repository actions"
     logger.info(
         "Action verification successful",
-        action="tracecat.math.add_300",
+        action=REGISTRY_ACTION,
         total_actions=len(actions),
     )
 
@@ -515,7 +482,7 @@ async def test_remote_custom_registry_repo() -> None:
         actions=[
             ActionStatement(
                 ref="add_action",
-                action="tracecat.math.add_300",
+                action=REGISTRY_ACTION,
                 args={"number": 1},
             )
         ],

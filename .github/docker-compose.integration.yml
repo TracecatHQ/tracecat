@@ -14,3 +14,21 @@ services:
 
   migrations:
     <<: *tracecat-ci-image
+
+  registry-git:
+    build:
+      context: ./tests/fixtures/registry_git
+    networks:
+      - core
+    volumes:
+      - type: bind
+        source: ${RUNNER_TEMP:-/tmp}/registry-fixture-key.pub
+        target: /run/registry-fixture-key.pub
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "ssh-keyscan -t ed25519 -T 1 127.0.0.1 >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 2s
+      retries: 15

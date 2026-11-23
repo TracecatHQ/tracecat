@@ -21,7 +21,6 @@ These instructions apply to all files under `.github/`, especially `.github/work
 - Use `persist-credentials: false` on `actions/checkout` unless the job must push with `GITHUB_TOKEN`.
 - Put high-value credentials in protected environments with required reviewers. In this repo:
   - `CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY` belongs in the `release` environment.
-  - `CUSTOM_REPO_SSH_PRIVATE_KEY` belongs in the `internal-registry-ci` environment.
 - Ensure external fork PRs cannot reach secret-backed or private-infrastructure jobs.
 - For sensitive PR workflows, require `github.event.pull_request.head.repo.full_name == github.repository` before using secrets or private credentials.
 - Add `concurrency` to release, tag, publish, deploy, and downstream-dispatch workflows so duplicate runs cannot race each other.
