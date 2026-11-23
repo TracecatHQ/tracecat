@@ -18,7 +18,6 @@ def run_image_guard(
     event: str = "push",
     ref_type: str = "tag",
     ref: str,
-    tag: str = "",
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     script = workflow["jobs"]["validate"]["steps"][0]["run"]
@@ -31,7 +30,6 @@ def run_image_guard(
             "EVENT_NAME": event,
             "REF_TYPE": ref_type,
             "REF_NAME": ref,
-            "INPUT_TAG": tag,
             "GITHUB_OUTPUT": str(output),
         },
         capture_output=True,
@@ -41,7 +39,6 @@ def run_image_guard(
     return result, dict(line.split("=", 1) for line in output.read_text().splitlines())
 
 
-@pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 @pytest.mark.parametrize(
     ("tag", "latest", "release"),
     [
@@ -55,14 +52,13 @@ def run_image_guard(
     ],
 )
 def test_only_stable_tags_promote_latest(
-    tmp_path: Path, event: str, tag: str, latest: str, release: str
+    tmp_path: Path, tag: str, latest: str, release: str
 ) -> None:
-    result, output = run_image_guard(tmp_path, event=event, ref=tag, tag=tag)
+    result, output = run_image_guard(tmp_path, ref=tag)
     assert result.returncode == 0, result.stderr
     assert output == {"tag": tag, "latest": latest, "release": release}
 
 
-@pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 @pytest.mark.parametrize(
     "tag",
     [
@@ -76,32 +72,15 @@ def test_only_stable_tags_promote_latest(
         "1.2.3-" + "a" * 128,
     ],
 )
-def test_rejects_aliases_and_malformed_tags(
-    tmp_path: Path, event: str, tag: str
-) -> None:
-    result, output = run_image_guard(tmp_path, event=event, ref=tag, tag=tag)
+def test_rejects_aliases_and_malformed_tags(tmp_path: Path, tag: str) -> None:
+    result, output = run_image_guard(tmp_path, ref=tag)
     assert result.returncode != 0
     assert output == {}
 
 
-@pytest.mark.parametrize(
-    ("ref_type", "ref", "tag"),
-    [
-        ("branch", "main", "1.2.3"),
-        ("branch", "1.2.3", "1.2.3"),
-        ("tag", "1.3.0-alpha.1", "1.3.0"),
-        ("tag", "1.2.3", "latest"),
-        ("tag", "1.2.3", ""),
-    ],
-)
-def test_manual_rebuild_requires_matching_tag_ref(
-    tmp_path: Path, ref_type: str, ref: str, tag: str
-) -> None:
-    result, output = run_image_guard(
-        tmp_path, event="workflow_dispatch", ref_type=ref_type, ref=ref, tag=tag
-    )
-    assert result.returncode != 0
-    assert output == {}
+def test_image_publishing_only_runs_on_push_and_schedule() -> None:
+    workflow = yaml.load(IMAGE_WORKFLOW.read_text(), Loader=yaml.BaseLoader)
+    assert set(workflow["on"]) == {"push", "schedule"}
 
 
 @pytest.mark.parametrize(
