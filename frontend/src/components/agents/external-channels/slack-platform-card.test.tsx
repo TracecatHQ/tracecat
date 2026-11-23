@@ -74,7 +74,7 @@ describe("Channels page", () => {
     renderChannelsPage()
     expect(
       await screen.findByText(
-        "Tracecat for Slack isn't set up on this instance yet. An admin sets it up in Admin › Slack app."
+        "Tracecat for Slack isn't set up on this instance yet. A platform admin sets it up in Admin › Slack app."
       )
     ).toBeInTheDocument()
     expect(

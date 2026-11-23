@@ -46,8 +46,8 @@ export function WorkspaceChannelsView({
   } else if (hasEntitlement("agent_channels_preview")) {
     body = (
       <p className="text-sm text-muted-foreground">
-        Tracecat for Slack isn&apos;t set up on this instance yet. An admin sets
-        it up in Admin › Slack app.
+        Tracecat for Slack isn&apos;t set up on this instance yet. A platform
+        admin sets it up in Admin › Slack app.
       </p>
     )
   } else {
