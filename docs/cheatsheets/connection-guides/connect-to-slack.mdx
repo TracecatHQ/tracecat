@@ -26,7 +26,7 @@ Slack app settings pages live at `https://api.slack.com/apps/<app-id>/<page>`. F
 
 ### App manifest and scopes
 
-The manifest requests these [bot token scopes](https://docs.slack.dev/reference/scopes). Edit scopes later in `OAuth & Permissions` (`/apps/<app-id>/oauth`).
+The manifest requests these [bot token scopes](https://docs.slack.dev/reference/scopes), which cover every [`tools.slack`](/tools/slack) action except those under `Optional scopes`. Edit scopes later in `OAuth & Permissions` (`/apps/<app-id>/oauth`).
 
 Remove the `slash_commands`, `event_subscriptions`, or `interactivity` block if you don't use that feature. See the [app manifest reference](https://docs.slack.dev/reference/app-manifest).
 
@@ -35,28 +35,30 @@ Open the [sample Slack app manifest](https://github.com/TracecatHQ/tracecat/blob
 | Scope | Why |
 | --- | --- |
 | `app_mentions:read` | Receive `@Tracecat` mentions |
-| `chat:write` | Post and update messages |
 | `commands` | Register slash commands |
+| `chat:write` | Post, update, delete, and stream messages |
+| `canvases:write` | Write reports, such as incident summaries, to new or existing [canvases](/tools/slack#create-canvas) |
+| `canvases:read` | [Look up canvas sections](/tools/slack#lookup-canvas-sections) to update part of a report |
+| `channels:history`, `groups:history`, `im:history`, `mpim:history` | Read messages and threads in conversations the app is in |
+| `channels:read`, `groups:read`, `im:read`, `mpim:read` | List conversations and their members |
+| `channels:manage`, `groups:write`, `im:write` | Create and archive channels, set topics and descriptions, invite and remove members, and open DMs |
+| `reactions:read`, `reactions:write` | Read and add reactions |
+| `pins:read`, `pins:write` | List and add pins |
+| `bookmarks:read`, `bookmarks:write` | List and add channel bookmarks |
+| `users:read`, `users:read.email`, `users.profile:read` | Look up users by ID or email and read their profiles |
 
 <Accordion title="Optional scopes">
-Add these only for the `tools.slack` actions you use.
+Add these only if you need them.
 
 | Scope | Add it for |
 | --- | --- |
-| `channels:history`, `groups:history` | Reading messages and threads in channels the app is in |
-| `channels:read`, `groups:read` | Looking up channel names and IDs |
 | `chat:write.public` | Posting to public channels without joining |
-| `im:history`, `im:write` | Reading DMs to the app and opening DMs with users |
-| `reactions:read`, `reactions:write` | Reading and adding reactions |
-| `users:read`, `users:read.email` | Looking up users by ID or email |
-| `channels:manage`, `groups:write` | Creating, archiving, or managing channel members |
 | `channels:join` | Joining public channels without an invite |
-| `pins:read`, `pins:write` | Listing and adding pins |
-| `bookmarks:read`, `bookmarks:write` | Listing and adding channel bookmarks |
-| `canvases:read`, `canvases:write` | Reading and editing canvases |
+| `assistant:write` | Status, title, and suggested prompts in agent threads. Turn on `Agents & AI Apps` in the app settings first |
+| `search:read.public`, `search:read.files`, `search:read.users` | The `assistant_search_context` and `assistant_search_info` actions ([Real-time Search API](https://docs.slack.dev/apis/web-api/real-time-search-api)) |
+| `search:read` (user token) | The `search_messages` action, which uses the `slack_oauth` credential's `SLACK_USER_TOKEN` |
+| `admin.users:write` (user token) | The `revoke_sessions` action, on Enterprise plans only |
 | `files:read`, `files:write` | Reading and uploading files |
-| `assistant:write` | Status, title, and suggested prompts in assistant threads |
-| `mpim:history`, `mpim:read` | Reading group DMs |
 | `emoji:read` | Using custom workspace emoji |
 | `links:read`, `links:write` | Unfurling links to your domains |
 </Accordion>
