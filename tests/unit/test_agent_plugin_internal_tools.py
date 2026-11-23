@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from typing import Any
 
 import pytest
@@ -79,8 +79,11 @@ class _EntryPoint:
         return lambda: self._plugin
 
 
+InstallPlugins = Callable[..., None]
+
+
 @pytest.fixture
-def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[InstallPlugins]:
     def install(*plugins: _Plugin | None) -> None:
         installed = [_EntryPoint(f"p{i}", plugin) for i, plugin in enumerate(plugins)]
         plugin_tools._loaded_plugins.cache_clear()
@@ -111,7 +114,7 @@ def _claims(allowed: list[str], deferred: list[str] | None = None) -> MCPTokenCl
 
 
 def test_a_plugin_that_fails_to_load_or_misnames_a_tool_is_skipped(
-    install: Any,
+    install: InstallPlugins,
 ) -> None:
     # One broken plugin must not fail every turn: its tools are simply absent.
     install(
@@ -128,7 +131,7 @@ def test_a_plugin_that_fails_to_load_or_misnames_a_tool_is_skipped(
 
 @pytest.mark.anyio
 async def test_a_session_gets_only_granted_tools_and_a_failing_plugin_grants_none(
-    install: Any,
+    install: InstallPlugins,
 ) -> None:
     install(
         _Plugin([_tool(READ), _tool(WRITE)], granted=[WRITE, "internal.other.x"]),
@@ -150,7 +153,7 @@ class _StuckPlugin(_Plugin):
 
 @pytest.mark.anyio
 async def test_a_stuck_grant_gives_up_and_grants_nothing(
-    install: Any, monkeypatch: pytest.MonkeyPatch
+    install: InstallPlugins, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(plugin_tools, "PLUGIN_GRANT_TIMEOUT_SECONDS", 0.01)
     install(
@@ -164,7 +167,7 @@ async def test_a_stuck_grant_gives_up_and_grants_nothing(
 
 @pytest.mark.anyio
 async def test_the_trusted_server_lists_and_runs_only_allowed_plugin_tools(
-    install: Any,
+    install: InstallPlugins,
 ) -> None:
     install(_Plugin([_tool(READ), _tool(WRITE, requires_approval=True)]))
     claims = _claims([READ], deferred=[WRITE])
@@ -204,7 +207,9 @@ def test_approved_internal_calls_route_to_the_trusted_router() -> None:
     assert _approved_internal_tool_name("mcp.Jira.getIssue") is None
 
 
-def test_runtime_payload_marks_granted_plugin_tools_root_only(install: Any) -> None:
+def test_runtime_payload_marks_granted_plugin_tools_root_only(
+    install: InstallPlugins,
+) -> None:
     install(_Plugin([_tool(READ), _tool(WRITE)]))
     role = _role()
     assert role.workspace_id is not None

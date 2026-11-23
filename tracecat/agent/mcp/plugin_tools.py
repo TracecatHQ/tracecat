@@ -62,7 +62,8 @@ class InternalToolPlugin(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class _LoadedPlugins:
-    plugins: tuple[InternalToolPlugin, ...]
+    # Each plugin with its tool names, read once at load.
+    plugins: tuple[tuple[InternalToolPlugin, frozenset[str]], ...]
     tools: Mapping[str, PluginInternalTool]
 
 
@@ -77,7 +78,7 @@ def _loaded_plugins() -> _LoadedPlugins:
         entry_points(group=INTERNAL_TOOL_PLUGIN_ENTRY_POINT_GROUP),
         key=lambda ep: ep.name,
     )
-    plugins: list[InternalToolPlugin] = []
+    plugins: list[tuple[InternalToolPlugin, frozenset[str]]] = []
     tools: dict[str, PluginInternalTool] = {}
     for entry_point in installed:
         try:
@@ -91,7 +92,7 @@ def _loaded_plugins() -> _LoadedPlugins:
                 error=str(e),
             )
             continue
-        plugins.append(plugin)
+        plugins.append((plugin, frozenset(own)))
         tools.update(own)
     return _LoadedPlugins(plugins=tuple(plugins), tools=MappingProxyType(tools))
 
@@ -145,7 +146,7 @@ async def granted_plugin_internal_tools(
     """
     loaded = _loaded_plugins()
     granted: list[PluginInternalTool] = []
-    for plugin in loaded.plugins:
+    for plugin, own in loaded.plugins:
         try:
             names = await asyncio.wait_for(
                 plugin.granted_tools(role, session_id),
@@ -159,6 +160,5 @@ async def granted_plugin_internal_tools(
                 error_type=type(e).__name__,
             )
             continue
-        own = {tool.name for tool in plugin.tools()}
         granted.extend(loaded.tools[name] for name in names if name in own)
     return sorted(granted, key=lambda tool: tool.name)
