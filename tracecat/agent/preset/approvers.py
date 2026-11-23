@@ -33,7 +33,6 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetApprover,
@@ -59,8 +58,10 @@ WORKSPACE_SYSTEM_ROLE_SLUGS = (
     "workspace-viewer",
 )
 # Organization roles are never workspace approvers, even if assigned here.
-ORGANIZATION_SYSTEM_ROLE_SLUGS = tuple(
-    slug for slug in PRESET_ROLE_SCOPES if slug.startswith("organization-")
+ORGANIZATION_SYSTEM_ROLE_SLUGS = (
+    "organization-owner",
+    "organization-admin",
+    "organization-member",
 )
 
 
@@ -338,21 +339,24 @@ class AgentPresetApproverService(BaseWorkspaceService):
         self,
         principals: _Principals,
         *,
-        only: Sequence[AgentPresetApproverRef] | None = None,
+        only: Sequence[AgentPresetApproverRef],
     ) -> list[AgentPresetApproverRead]:
-        """Name the principals, narrowed to ``only``: users by email, then groups, roles."""
+        """Name the principals in ``only``: users by email, then groups, roles."""
         user_id = cast(Any, User.id)
         users = (
             select(User)
-            .where(user_id.in_(principals.users))
+            .where(
+                user_id.in_(principals.users),
+                user_id.in_(_requested(only, "user")),
+            )
             .options(raiseload(cast(Any, User.oauth_accounts)))
         )
-        groups = select(Group).where(Group.id.in_(principals.groups))
-        roles = select(DBRole).where(DBRole.id.in_(principals.roles))
-        if only is not None:
-            users = users.where(user_id.in_(_requested(only, "user")))
-            groups = groups.where(Group.id.in_(_requested(only, "group")))
-            roles = roles.where(DBRole.id.in_(_requested(only, "role")))
+        groups = select(Group).where(
+            Group.id.in_(principals.groups), Group.id.in_(_requested(only, "group"))
+        )
+        roles = select(DBRole).where(
+            DBRole.id.in_(principals.roles), DBRole.id.in_(_requested(only, "role"))
+        )
         return [
             *map(_user_read, await self.session.scalars(users.order_by(User.email))),
             *(
