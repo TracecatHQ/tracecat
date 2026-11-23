@@ -7,7 +7,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sqlalchemy import CompoundSelect, Select, delete, select, union
+from sqlalchemy import (
+    CompoundSelect,
+    Select,
+    Uuid,
+    delete,
+    literal,
+    or_,
+    select,
+    type_coerce,
+    union,
+    union_all,
+)
 from sqlalchemy.orm import raiseload
 
 from tracecat.agent.approvals.policy import preset_approvers
@@ -28,6 +39,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseWorkspaceService
 
 type _IdSelect = Select[Any] | CompoundSelect
@@ -75,9 +87,70 @@ class AgentPresetApproverService(BaseWorkspaceService):
         return await self._named(self._listed(preset_id))
 
     @require_scope("agent:read", "workspace:member:read")
-    async def list_options(self) -> list[AgentPresetApproverRead]:
-        """List the workspace members, org groups, and org roles one can pick."""
-        return await self._named(self._options())
+    async def list_options(
+        self, page: PageParams, *, search: str | None = None
+    ) -> CursorPaginatedResponse[AgentPresetApproverRead]:
+        """A page of the workspace members, org groups, and org roles one can pick.
+
+        Users come first by email, then groups, then roles, each by name.
+
+        Raises:
+            PaginationError: If the cursor is invalid.
+        """
+        options = self._options()
+        user_id, email = cast(Any, User.id), cast(Any, User.email)
+        users = select(
+            literal("user").label("kind"),
+            literal(0).label("rank"),
+            email.label("sort_key"),
+            # The union's first select types its cursor columns.
+            type_coerce(user_id, Uuid).label("id"),
+        ).where(user_id.in_(options.users))
+        groups = select(literal("group"), literal(1), Group.name, Group.id).where(
+            Group.id.in_(options.groups)
+        )
+        roles = select(literal("role"), literal(2), DBRole.name, DBRole.id).where(
+            DBRole.id.in_(options.roles)
+        )
+        if search:
+            users = users.where(
+                or_(
+                    email.icontains(search, autoescape=True),
+                    cast(Any, User.first_name).icontains(search, autoescape=True),
+                    cast(Any, User.last_name).icontains(search, autoescape=True),
+                )
+            )
+            groups = groups.where(Group.name.icontains(search, autoescape=True))
+            roles = roles.where(DBRole.name.icontains(search, autoescape=True))
+        rows = union_all(users, groups, roles).subquery()
+        result = await paginate(
+            self.session,
+            select(rows.c.kind, rows.c.id),
+            page=page,
+            order_by=(rows.c.rank.asc(), rows.c.sort_key.asc(), rows.c.id.asc()),
+            row_factory=lambda values: AgentPresetApproverRef.model_validate(
+                {"kind": values[0], "id": values[1]}
+            ),
+        )
+        named = (
+            {
+                (read.kind, read.id): read
+                for read in await self._named(options, only=result.items)
+            }
+            if result.items
+            else {}
+        )
+        return CursorPaginatedResponse(
+            items=[
+                named[ref.kind, ref.id]
+                for ref in result.items
+                if (ref.kind, ref.id) in named
+            ],
+            next_cursor=result.next_cursor,
+            prev_cursor=result.prev_cursor,
+            has_more=result.has_more,
+            has_previous=result.has_previous,
+        )
 
     @require_scope("agent:update")
     @audit_log(
@@ -95,7 +168,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
             TracecatValidationError: If a new approver is not a workspace
                 member, org group, or org role.
         """
-        # Serializes replacements without blocking FK checks against the preset.
+        # FOR NO KEY UPDATE: serializes replacements without blocking FK checks.
         preset = await self.session.scalar(
             select(AgentPreset.id)
             .where(

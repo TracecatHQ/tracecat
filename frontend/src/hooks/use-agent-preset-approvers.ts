@@ -8,7 +8,12 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
-import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
 /** Who may decide a preset's tool approvals; empty means the default rule. */
 export function useAgentPresetApprovers(
@@ -31,15 +36,30 @@ export function useAgentPresetApprovers(
   })
 }
 
-/** Workspace members, groups, and roles that can be named as approvers. */
-export function useAgentPresetApproverOptions(workspaceId: string) {
-  return useQuery<AgentPresetApproverRead[], TracecatApiError>({
-    queryKey: ["agent-preset-approver-options", workspaceId],
-    queryFn: async () =>
-      await agentPresetsListAgentPresetApproverOptions({ workspaceId }),
+/** Workspace members, groups, and roles matching `search`, a page at a time. */
+export function useAgentPresetApproverOptions(
+  workspaceId: string,
+  search: string
+) {
+  const term = search.trim()
+  const query = useInfiniteQuery({
+    queryKey: ["agent-preset-approver-options", workspaceId, term],
+    queryFn: async ({ pageParam }) =>
+      await agentPresetsListAgentPresetApproverOptions({
+        workspaceId,
+        search: term || undefined,
+        cursor: pageParam,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
     enabled: Boolean(workspaceId),
     retry: retryHandler,
+    meta: { suppressErrorToast: true },
   })
+  const options: AgentPresetApproverRead[] =
+    query.data?.pages.flatMap((page) => page.items) ?? []
+  return { ...query, options }
 }
 
 /** Replace a preset's approvers; the change applies at once, unversioned. */

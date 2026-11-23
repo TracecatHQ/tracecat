@@ -143,18 +143,44 @@ async def create_agent_preset(
         raise _validation_error(exc) from exc
 
 
-@router.get("/approver-options", response_model=list[AgentPresetApproverRead])
+@router.get(
+    "/approver-options",
+    response_model=CursorPaginatedResponse[AgentPresetApproverRead],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid cursor",
+        },
+    },
+)
 @require_scope("agent:read", "workspace:member:read")
 async def list_agent_preset_approver_options(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-) -> list[AgentPresetApproverRead]:
-    """List the workspace members, groups, and roles that can approve tool calls."""
-    return await AgentPresetApproverService(session, role=role).list_options()
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+    search: str | None = Query(default=None, max_length=255),
+) -> CursorPaginatedResponse[AgentPresetApproverRead]:
+    """Page through the workspace members, groups, and roles that can approve."""
+    service = AgentPresetApproverService(session, role=role)
+    try:
+        return await service.list_options(
+            PageParams(limit=limit, cursor=cursor), search=search
+        )
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
-@router.get("/{preset_id}/approvers", response_model=list[AgentPresetApproverRead])
+@router.get(
+    "/{preset_id}/approvers",
+    response_model=list[AgentPresetApproverRead],
+    responses={status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"}},
+)
 @require_scope("agent:read")
 async def list_agent_preset_approvers(
     *,
@@ -181,6 +207,7 @@ async def list_agent_preset_approvers(
             "model": AgentPresetValidationErrorResponse,
             "description": "Unknown approvers",
         },
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
     },
 )
 @require_scope("agent:update")

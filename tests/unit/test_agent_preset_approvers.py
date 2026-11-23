@@ -40,6 +40,7 @@ from tracecat.agent.approvals.policy import (
 from tracecat.agent.channel_users.service import resolve_channel_actor
 from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
     AgentPresetApproverRef,
     AgentPresetApproversUpdate,
 )
@@ -61,9 +62,11 @@ from tracecat.db.models import (
     Organization,
     User,
     UserRoleAssignment,
+    Workspace,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+from tracecat.pagination import PageParams
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
 
@@ -479,11 +482,42 @@ async def test_replace_lists_and_clears_approvers(
     ]
     assert replaced[0].email == member.email
     assert await service.list_approvers(preset.id) == replaced
-    options = {(o.kind, o.id) for o in await service.list_options()}
-    assert {(r.kind, r.id) for r in replaced} <= options
+    options = await service.list_options(PageParams(limit=100))
+    assert {(r.kind, r.id) for r in replaced} <= {(o.kind, o.id) for o in options.items}
 
     assert await service.replace_approvers(preset.id, []) == []
     assert await service.list_approvers(preset.id) == []
+
+
+async def test_approver_options_page_in_order_and_search(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    tag = uuid.uuid4().hex[:8]
+    member = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    group = Group(name=f"oncall-{tag}", organization_id=svc_role.organization_id)
+    session.add(group)
+    await session.commit()
+    service = AgentPresetApproverService(session, role=svc_role)
+
+    seen: list[AgentPresetApproverRead] = []
+    cursor: str | None = None
+    while True:
+        page = await service.list_options(PageParams(limit=1, cursor=cursor))
+        seen.extend(page.items)
+        if not page.has_more:
+            break
+        cursor = page.next_cursor
+    kinds = [option.kind for option in seen]
+    assert kinds == sorted(kinds, key=["user", "group", "role"].index)
+    assert len({(o.kind, o.id) for o in seen}) == len(seen)
+    assert ("user", member.id) in {(o.kind, o.id) for o in seen}
+
+    found = await service.list_options(PageParams(limit=100), search=tag)
+    assert [(o.kind, o.id) for o in found.items] == [("group", group.id)]
+    assert (
+        await service.list_options(PageParams(limit=100), search=member.email.upper())
+    ).items[0].id == member.id
 
 
 async def test_replace_refuses_principals_outside_the_workspace(
@@ -645,3 +679,36 @@ async def test_deleting_a_principal_or_preset_removes_its_rows(
         )
         is None
     )
+
+
+async def test_approval_preset_stays_in_the_workspace_and_nulls_on_delete(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None and svc_role.workspace_id is not None
+    preset_id = (await _preset(session, svc_role)).id
+    other = Workspace(name="Other", organization_id=svc_role.organization_id)
+    session.add(other)
+    await session.flush()
+
+    def approval(workspace_id: uuid.UUID) -> Approval:
+        return Approval(
+            workspace_id=workspace_id,
+            tool_call_id=f"call_{uuid.uuid4().hex[:8]}",
+            tool_name="core.http_request",
+            status=ApprovalStatus.PENDING,
+            agent_preset_id=preset_id,
+        )
+
+    session.add(approval(other.id))
+    with pytest.raises(IntegrityError):
+        await session.commit()
+    await session.rollback()
+
+    stamped = approval(svc_role.workspace_id)
+    session.add(stamped)
+    await session.commit()
+    await session.execute(delete(AgentPreset).where(AgentPreset.id == preset_id))
+    await session.commit()
+    await session.refresh(stamped)
+    assert stamped.agent_preset_id is None
+    assert stamped.workspace_id == svc_role.workspace_id

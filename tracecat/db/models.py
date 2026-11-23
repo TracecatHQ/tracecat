@@ -3819,6 +3819,13 @@ class Approval(WorkspaceModel):
             "agent_preset_id",
             postgresql_where=text("agent_preset_id IS NOT NULL"),
         ),
+        # Same-workspace preset only; deleting it nulls the preset, not the workspace.
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            name="fk_approval_agent_preset_id_agent_preset",
+            ondelete="SET NULL (agent_preset_id)",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -3881,7 +3888,6 @@ class Approval(WorkspaceModel):
     )
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
-        ForeignKey("agent_preset.id", ondelete="SET NULL"),
         nullable=True,
         doc="Preset the paused run was configured from; its approvers decide",
     )

@@ -1755,6 +1755,19 @@ export type ApprovalSubmission = {
   approvals: ApprovalMap
 }
 
+export type ApproverNotAllowedErrorBody = {
+  code?: "approver_not_allowed"
+  message: string
+}
+
+/**
+ * HTTP 403 body when the agent's approver policy refuses the decider.
+ */
+export type ApproverNotAllowedResponse = {
+  detail: string
+  error: ApproverNotAllowedErrorBody
+}
+
 export type Artifact =
   | CaseArtifact
   | WorkflowArtifact
@@ -4737,6 +4750,30 @@ export type CursorPaginatedResponse_AgentChannelUserRead_ = {
 
 export type CursorPaginatedResponse_AgentFolderRead_ = {
   items: Array<AgentFolderRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentPresetApproverRead_ = {
+  items: Array<AgentPresetApproverRead>
   /**
    * Cursor for next page
    */
@@ -17525,11 +17562,14 @@ export type AgentPresetsPreviewToolPolicyData = {
 export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
 export type AgentPresetsListAgentPresetApproverOptionsData = {
+  cursor?: string | null
+  limit?: number
+  search?: string | null
   workspaceId: string
 }
 
 export type AgentPresetsListAgentPresetApproverOptionsResponse =
-  Array<AgentPresetApproverRead>
+  CursorPaginatedResponse_AgentPresetApproverRead_
 
 export type AgentPresetsListAgentPresetApproversData = {
   presetId: string
@@ -24813,7 +24853,11 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentPresetApproverRead>
+        200: CursorPaginatedResponse_AgentPresetApproverRead_
+        /**
+         * Invalid cursor
+         */
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -24829,6 +24873,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<AgentPresetApproverRead>
+        /**
+         * Agent preset not found
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -24846,6 +24894,10 @@ export type $OpenApiTs = {
          * Unknown approvers
          */
         400: AgentPresetValidationErrorResponse
+        /**
+         * Agent preset not found
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -25931,6 +25983,10 @@ export type $OpenApiTs = {
          */
         200: unknown
         /**
+         * The agent's approver policy refuses the decider
+         */
+        403: ApproverNotAllowedResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -26035,6 +26091,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * The agent's approver policy refuses the decider
+         */
+        403: ApproverNotAllowedResponse
         /**
          * Validation Error
          */

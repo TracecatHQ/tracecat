@@ -17,7 +17,10 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
-from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.policy import (
+    APPROVER_NOT_ALLOWED_RESPONSES,
+    ApproverNotAllowedError,
+)
 from tracecat.agent.backends.access import can_use_backend
 from tracecat.agent.backends.registry import (
     get_agent_backends,
@@ -582,7 +585,11 @@ async def delete_session(
     await svc.delete_session(agent_session)
 
 
-@router.post("/{session_id}/messages", dependencies=[ReleaseRequestSession])
+@router.post(
+    "/{session_id}/messages",
+    dependencies=[ReleaseRequestSession],
+    responses=APPROVER_NOT_ALLOWED_RESPONSES,
+)
 @require_scope("agent:execute")
 async def send_message(
     session_id: uuid.UUID,

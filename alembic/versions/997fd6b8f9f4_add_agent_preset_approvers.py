@@ -124,10 +124,12 @@ def upgrade() -> None:
         sa.Column("agent_preset_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
     # NOT VALID skips the table scan under ACCESS EXCLUSIVE; existing rows are NULL.
+    # Column-list SET NULL so deleting a preset never nulls workspace_id.
     op.execute(
         "ALTER TABLE approval ADD CONSTRAINT fk_approval_agent_preset_id_agent_preset "
-        "FOREIGN KEY (agent_preset_id) REFERENCES agent_preset (id) "
-        "ON DELETE SET NULL NOT VALID"
+        "FOREIGN KEY (agent_preset_id, workspace_id) "
+        "REFERENCES agent_preset (id, workspace_id) "
+        "ON DELETE SET NULL (agent_preset_id) NOT VALID"
     )
     # Deleting a preset nulls its approvals; without this each delete scans the table.
     op.create_index(

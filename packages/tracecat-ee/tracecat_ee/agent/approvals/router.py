@@ -7,7 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.policy import (
+    APPROVER_NOT_ALLOWED_RESPONSES,
+    ApproverNotAllowedError,
+)
 from tracecat.agent.backends.types import AgentControlUncertain
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import TurnLifecycle
@@ -74,7 +77,11 @@ def _to_approval_decisions(approvals: ApprovalMap) -> list[ApprovalDecision]:
     return decisions
 
 
-@router.post("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=APPROVER_NOT_ALLOWED_RESPONSES,
+)
 @require_scope("agent:update")
 async def submit_approvals(
     *,

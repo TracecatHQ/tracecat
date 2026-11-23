@@ -36,6 +36,7 @@ import {
   useAgentPresetApprovers,
   useReplaceAgentPresetApprovers,
 } from "@/hooks/use-agent-preset-approvers"
+import { useDebounce } from "@/hooks/use-debounce"
 
 const APPROVER_KINDS: Record<
   AgentPresetApproverKind,
@@ -70,6 +71,11 @@ export function AgentPresetApproversPanel({
   presetId: string | null
 }) {
   const canEdit = useScopeCheck("agent:update") === true
+  // The picker lists workspace members, which needs its own read scopes.
+  const canPick =
+    useScopeCheck(undefined, ["agent:read", "workspace:member:read"], {
+      all: true,
+    }) === true
   const approversQuery = useAgentPresetApprovers(workspaceId, presetId)
   const { mutate: replaceApprovers, isPending } =
     useReplaceAgentPresetApprovers(workspaceId, presetId)
@@ -88,6 +94,8 @@ export function AgentPresetApproversPanel({
     addDisabledReason = "Save the agent first, then choose its approvers."
   } else if (!canEdit) {
     addDisabledReason = "Only agent editors can change approvers."
+  } else if (!canPick) {
+    addDisabledReason = "Choosing approvers needs permission to view members."
   } else if (!approversQuery.isSuccess) {
     addDisabledReason = "Approvers have not loaded yet."
   }
@@ -145,11 +153,16 @@ export function AgentPresetApproversPanel({
         count={approvers.length}
         addLabel="Add approver"
         onAdd={() => setIsPickerOpen(true)}
-        addDisabled={!editable}
+        addDisabled={!editable || !canPick}
         addDisabledReason={addDisabledReason}
       />
       {body}
-      <CommandDialog open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+      {/* The server searches, so cmdk must not filter again. */}
+      <CommandDialog
+        open={isPickerOpen}
+        onOpenChange={setIsPickerOpen}
+        shouldFilter={false}
+      >
         {isPickerOpen ? (
           <ApproverPicker
             workspaceId={workspaceId}
@@ -175,30 +188,36 @@ function ApproverPicker({
   listed: Set<string>
   onPick: (option: AgentPresetApproverRead) => void
 }) {
-  const {
-    data: options = [],
-    isError,
-    isPending,
-  } = useAgentPresetApproverOptions(workspaceId)
+  const [search, setSearch] = useState("")
+  const [debouncedSearch] = useDebounce(search, 250)
+  const { options, isError, isPending, hasNextPage, fetchNextPage } =
+    useAgentPresetApproverOptions(workspaceId, debouncedSearch)
+  // Until the debounced query catches up, the loaded page answers older text.
+  const isCatchingUp = search.trim() !== debouncedSearch.trim()
+  const visible = isCatchingUp ? [] : options
   const kinds = Object.keys(APPROVER_KINDS) as AgentPresetApproverKind[]
+  let emptyMessage = "No matches."
+  if (isError) {
+    emptyMessage = "People, groups, and roles could not be loaded."
+  } else if (isPending || isCatchingUp) {
+    emptyMessage = "Loading..."
+  }
   return (
     <>
       <DialogDescription className="sr-only">
         Choose a person, group, or role that can approve this agent&apos;s tool
         calls.
       </DialogDescription>
-      <CommandInput placeholder="Search people, groups, and roles..." />
+      <CommandInput
+        value={search}
+        onValueChange={setSearch}
+        placeholder="Search people, groups, and roles..."
+      />
       <CommandList>
-        <CommandEmpty>
-          {isError
-            ? "People, groups, and roles could not be loaded."
-            : isPending
-              ? "Loading..."
-              : "No matches."}
-        </CommandEmpty>
+        <CommandEmpty>{emptyMessage}</CommandEmpty>
         {kinds.map((kind) => {
           const { heading, Icon } = APPROVER_KINDS[kind]
-          const group = options.filter((option) => option.kind === kind)
+          const group = visible.filter((option) => option.kind === kind)
           if (group.length === 0) return null
           return (
             <CommandGroup key={kind} heading={heading}>
@@ -208,7 +227,6 @@ function ApproverPicker({
                   <CommandItem
                     key={approverKey(option)}
                     value={approverKey(option)}
-                    keywords={[option.name, option.email ?? ""]}
                     disabled={added}
                     onSelect={() => onPick(option)}
                     className="flex min-w-0 items-center gap-2"
@@ -231,6 +249,15 @@ function ApproverPicker({
             </CommandGroup>
           )
         })}
+        {hasNextPage && !isCatchingUp ? (
+          <CommandItem
+            value="__load-more__"
+            onSelect={() => fetchNextPage()}
+            className="text-muted-foreground"
+          >
+            Load more
+          </CommandItem>
+        ) : null}
       </CommandList>
     </>
   )

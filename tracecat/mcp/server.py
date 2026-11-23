@@ -12379,17 +12379,43 @@ async def get_agent_preset(
 @mcp.tool()
 async def list_agent_preset_approver_options(
     workspace_id: uuid.UUID,
-) -> list[AgentPresetApproverRead]:
+    search: str | None = None,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[AgentPresetApproverRead]:
     """List the workspace members, groups, and roles that can approve tool calls.
 
     Pass picked entries' `kind` and `id` to `set_agent_preset_approvers`.
+
+    Args:
+        workspace_id: The workspace ID.
+        search: Match names, and emails for people.
+        limit: Maximum number of entries to return.
+        cursor: `next_cursor` from a previous page.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        page = PageParams(
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
         async with AgentPresetApproverService.with_session(role=role) as svc:
-            return await svc.list_options()
+            options = await svc.list_options(page, search=search)
+        return MCPPaginatedResponse(
+            items=options.items,
+            next_cursor=options.next_cursor,
+            prev_cursor=options.prev_cursor,
+            has_more=options.has_more,
+            has_previous=options.has_previous,
+        )
     except ToolError:
         raise
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
     except Exception as e:
         logger.error("Failed to list agent preset approver options", error=str(e))
         raise ToolError(f"Failed to list agent preset approver options: {e}") from None

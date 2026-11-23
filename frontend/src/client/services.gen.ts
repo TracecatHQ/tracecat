@@ -7506,10 +7506,13 @@ export const agentPresetsPreviewToolPolicy = (
 
 /**
  * List Agent Preset Approver Options
- * List the workspace members, groups, and roles that can approve tool calls.
+ * Page through the workspace members, groups, and roles that can approve.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns AgentPresetApproverRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.search
+ * @returns CursorPaginatedResponse_AgentPresetApproverRead_ Successful Response
  * @throws ApiError
  */
 export const agentPresetsListAgentPresetApproverOptions = (
@@ -7521,7 +7524,13 @@ export const agentPresetsListAgentPresetApproverOptions = (
     path: {
       workspace_id: data.workspaceId,
     },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      search: data.search,
+    },
     errors: {
+      400: "Invalid cursor",
       422: "Validation Error",
     },
   })
@@ -7547,6 +7556,7 @@ export const agentPresetsListAgentPresetApprovers = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Agent preset not found",
       422: "Validation Error",
     },
   })
@@ -7576,6 +7586,7 @@ export const agentPresetsReplaceAgentPresetApprovers = (
     mediaType: "application/json",
     errors: {
       400: "Unknown approvers",
+      404: "Agent preset not found",
       422: "Validation Error",
     },
   })
@@ -9544,6 +9555,7 @@ export const agentSessionsSendMessage = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "The agent's approver policy refuses the decider",
       422: "Validation Error",
     },
   })
@@ -9771,6 +9783,7 @@ export const approvalsSubmitApprovals = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "The agent's approver policy refuses the decider",
       422: "Validation Error",
     },
   })

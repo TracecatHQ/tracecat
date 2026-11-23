@@ -21,6 +21,7 @@ from tracecat.agent.preset.router import (
     update_agent_preset,
 )
 from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
     AgentPresetCreate,
     AgentPresetToolPolicyPreview,
     AgentPresetUpdate,
@@ -30,7 +31,11 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.pagination import PaginationError, PaginationErrorCode
+from tracecat.pagination import (
+    CursorPaginatedResponse,
+    PaginationError,
+    PaginationErrorCode,
+)
 
 
 @pytest.mark.parametrize(
@@ -269,14 +274,14 @@ def test_approver_options_route_is_not_read_as_a_preset_id() -> None:
         patch(
             "tracecat.agent.preset.router.AgentPresetApproverService.list_options",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value=CursorPaginatedResponse[AgentPresetApproverRead](items=[]),
         ) as list_options,
         _approver_client(frozenset({"agent:read", "workspace:member:read"})) as client,
     ):
         response = client.get("/agent/presets/approver-options")
 
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json()["items"] == []
     list_options.assert_awaited_once()
 
 

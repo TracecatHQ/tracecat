@@ -7732,7 +7732,9 @@ async def test_agent_preset_approver_tools_call_the_approver_service(
     workspace_id = uuid.uuid4()
     user = AgentPresetApproverRead(kind="user", id=uuid.uuid4(), name="Ana")
     service = SimpleNamespace(
-        list_options=AsyncMock(return_value=[user]),
+        list_options=AsyncMock(
+            return_value=CursorPaginatedResponse(items=[user], next_cursor="next")
+        ),
         list_approvers=AsyncMock(return_value=[user]),
         replace_approvers=AsyncMock(return_value=[]),
     )
@@ -7749,7 +7751,8 @@ async def test_agent_preset_approver_tools_call_the_approver_service(
         workspace_id=str(workspace_id), preset_slug="triage", approvers=[]
     )
 
-    assert options == [user] and listed == [user] and cleared == []
+    assert options.items == [user] and options.next_cursor == "next"
+    assert listed == [user] and cleared == []
     service.list_approvers.assert_awaited_once_with(preset_id)
     service.replace_approvers.assert_awaited_once_with(preset_id, [])
 

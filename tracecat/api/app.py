@@ -51,7 +51,11 @@ from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.admin.slack_app.router import router as admin_slack_app_router
 from tracecat.agent.access.router import router as agent_model_access_router
-from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.policy import (
+    ApproverNotAllowedError,
+    ApproverNotAllowedErrorBody,
+    ApproverNotAllowedResponse,
+)
 from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
@@ -584,10 +588,9 @@ def approver_not_allowed_exception_handler(
     logger.info("Refused approval decision", path=request.url.path, role=ctx_role.get())
     return ORJSONResponse(
         status_code=status.HTTP_403_FORBIDDEN,
-        content={
-            "detail": message,
-            "error": {"code": "approver_not_allowed", "message": message},
-        },
+        content=ApproverNotAllowedResponse(
+            detail=message, error=ApproverNotAllowedErrorBody(message=message)
+        ).model_dump(),
     )
 
 
