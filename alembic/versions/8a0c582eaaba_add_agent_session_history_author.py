@@ -25,17 +25,18 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Fail fast instead of queueing history writes behind a long transaction.
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.add_column(
         "agent_session_history",
         sa.Column("author_id", sa.UUID(), nullable=True),
     )
-    op.create_foreign_key(
-        op.f("fk_agent_session_history_author_id_user"),
-        "agent_session_history",
-        "user",
-        ["author_id"],
-        ["id"],
-        ondelete="SET NULL",
+    # NOT VALID skips the table scan under ACCESS EXCLUSIVE; existing rows are NULL.
+    op.execute(
+        "ALTER TABLE agent_session_history "
+        "ADD CONSTRAINT fk_agent_session_history_author_id_user "
+        'FOREIGN KEY (author_id) REFERENCES "user" (id) '
+        "ON DELETE SET NULL NOT VALID"
     )
     op.create_index(
         "ix_agent_session_history_author_id",
