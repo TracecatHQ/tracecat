@@ -7834,11 +7834,6 @@ async def test_set_agent_preset_approvers_validates_like_the_route(
     _patch_approver_services(monkeypatch, workspace_id, service)
     ref = AgentPresetApproverRef(kind="group", id=uuid.uuid4())
 
-    with pytest.raises(ToolError, match="Approvers must be unique"):
-        await _tool(mcp_server.set_agent_preset_approvers)(
-            workspace_id=str(workspace_id), preset_slug="triage", approvers=[ref, ref]
-        )
-    service.replace_approvers.assert_not_awaited()
     with pytest.raises(ToolError, match="Agent preset 'missing' not found"):
         await _tool(mcp_server.set_agent_preset_approvers)(
             workspace_id=str(workspace_id), preset_slug="missing", approvers=[ref]

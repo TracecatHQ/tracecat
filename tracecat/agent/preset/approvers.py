@@ -181,13 +181,15 @@ class AgentPresetApproverService(BaseWorkspaceService):
     ) -> list[AgentPresetApproverRead]:
         """Replace the preset-wide approver set; an empty set clears the policy.
 
-        Approvers already listed may stay even after leaving the workspace.
+        Approvers already listed may stay even after leaving the workspace. A
+        principal named twice collapses to one grant.
 
         Raises:
             TracecatNotFoundError: If the preset is not in this workspace.
             TracecatValidationError: If a new approver is not a workspace
                 member, org group, or org role.
         """
+        approvers = list(dict.fromkeys(approvers))
         # FOR NO KEY UPDATE: serializes replacements without blocking FK checks.
         preset = await self.session.scalar(
             select(AgentPreset.id)

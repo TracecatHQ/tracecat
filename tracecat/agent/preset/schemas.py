@@ -574,14 +574,11 @@ class AgentPresetApproverRead(AgentPresetApproverRef):
 
 
 class AgentPresetApproversUpdate(BaseModel):
-    """The full approver set for a preset; an empty list clears the policy."""
+    """The full approver set for a preset; an empty list clears the policy.
+
+    A principal named twice collapses to one grant.
+    """
 
     approvers: list[AgentPresetApproverRef] = Field(
         max_length=MAX_AGENT_PRESET_APPROVERS
     )
-
-    @model_validator(mode="after")
-    def reject_duplicates(self) -> AgentPresetApproversUpdate:
-        if len(set(self.approvers)) != len(self.approvers):
-            raise ValueError("Approvers must be unique")
-        return self

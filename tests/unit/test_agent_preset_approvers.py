@@ -491,6 +491,8 @@ async def test_replace_lists_and_clears_approvers(
             AgentPresetApproverRef(kind="role", id=editor_role_id),
             AgentPresetApproverRef(kind="user", id=member.id),
             AgentPresetApproverRef(kind="group", id=group.id),
+            # Naming a principal twice collapses to one grant.
+            AgentPresetApproverRef(kind="user", id=member.id),
         ],
     )
 
@@ -642,6 +644,12 @@ async def test_deleting_the_last_listed_principal_empties_the_policy(
     assert await _allowed(session, svc_role, preset, None)
 
 
+def test_update_accepts_a_principal_named_twice() -> None:
+    ref = {"kind": "user", "id": str(uuid.uuid4())}
+    update = AgentPresetApproversUpdate.model_validate({"approvers": [ref, ref]})
+    assert len(update.approvers) == 2
+
+
 def test_update_caps_approvers_far_above_any_org_size() -> None:
     def refs(count: int) -> list[dict[str, str]]:
         return [{"kind": "user", "id": str(uuid.uuid4())} for _ in range(count)]
@@ -655,12 +663,6 @@ def test_update_caps_approvers_far_above_any_org_size() -> None:
         AgentPresetApproversUpdate.model_validate(
             {"approvers": refs(MAX_AGENT_PRESET_APPROVERS + 1)}
         )
-
-
-def test_update_rejects_duplicate_approvers() -> None:
-    ref = {"kind": "user", "id": str(uuid.uuid4())}
-    with pytest.raises(ValidationError):
-        AgentPresetApproversUpdate.model_validate({"approvers": [ref, ref]})
 
 
 async def test_db_keeps_one_principal_per_row_and_no_duplicates(

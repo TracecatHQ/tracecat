@@ -878,6 +878,8 @@ export type AgentPresetApproverRef = {
 
 /**
  * The full approver set for a preset; an empty list clears the policy.
+ *
+ * A principal named twice collapses to one grant.
  */
 export type AgentPresetApproversUpdate = {
   approvers: Array<AgentPresetApproverRef>
