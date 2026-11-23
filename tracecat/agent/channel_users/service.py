@@ -396,8 +396,8 @@ async def complete_channel_link(
             provider_email=signed_in.email,
         )
         await session.commit()
-    except Exception:
-        # The link was not stored, so the page's retry must still find it unused.
+    except BaseException:
+        # The link was not stored (or the request was cancelled); a retry must find it unused.
         await redis.delete(_used_key(claims))
         raise
 
