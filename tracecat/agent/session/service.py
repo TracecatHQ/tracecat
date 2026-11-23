@@ -273,14 +273,32 @@ def _finalize_auto_title_task(
         )
 
 
-def _extract_vercel_user_prompt(ui_message: Any) -> str | None:
+def _retried_channel_message(ui_message: Any) -> ChannelMessage | None:
+    """The channel message a Retry resends, when the UI message carries one."""
     for part in ui_message.parts:
-        # A retried channel message resends its envelope, not just its text.
         if part.get("type") == CHANNEL_MESSAGE_DATA_PART_TYPE:
             try:
-                return ChannelMessage.model_validate(part.get("data")).render()
-            except ValidationError:
-                return None
+                return ChannelMessage.model_validate(part.get("data"))
+            except ValidationError as e:
+                raise TracecatValidationError("Invalid channel message") from e
+    return None
+
+
+def _refuse_channel_envelope(prompt: str) -> None:
+    """Refuse a Tracecat user's prompt that reads as a channel message.
+
+    Only channel ingress, which runs as a service, sends envelopes.
+    """
+    if ChannelMessage.parse(prompt) is not None:
+        raise TracecatValidationError(
+            "A message from Tracecat can't be a channel message"
+        )
+
+
+def _extract_vercel_user_prompt(ui_message: Any) -> str | None:
+    # A retried channel message resends its envelope, not just its text.
+    if (retried := _retried_channel_message(ui_message)) is not None:
+        return retried.render()
     text_parts = [part["text"] for part in ui_message.parts if is_text_ui_part(part)]
     return "\n".join(text_parts) or None
 
@@ -1981,6 +1999,7 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str | None = None
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
+        retried: ChannelMessage | None = None
         is_continuation = False
 
         match request:
@@ -1993,6 +2012,13 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "VercelChatRequest contained no supported text parts"
                     )
+                retried = _retried_channel_message(ui_message)
+                if retried is not None and not await self._holds_channel_message(
+                    agent_session, retried
+                ):
+                    raise TracecatValidationError(
+                        "Only a channel message this session received can be retried"
+                    )
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
                 request_instructions = instructions
@@ -2001,6 +2027,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         if user_prompt is not None:
             logger.info("Received user prompt", prompt_length=len(user_prompt))
+            if self.role.user_id is not None and retried is None:
+                _refuse_channel_envelope(user_prompt)
 
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
@@ -3180,6 +3208,18 @@ class AgentSessionService(BaseWorkspaceService):
             approvals_by_tool_id=approval_by_tool_id,
             kinds=kinds,
             channel_session=await self.is_channel_session(agent_session),
+        )
+
+    async def _holds_channel_message(
+        self, agent_session: AgentSession, message: ChannelMessage
+    ) -> bool:
+        """Whether the channel session's history holds ``message`` as a user prompt."""
+        if not await self.is_channel_session(agent_session):
+            return False
+        history = await self.list_messages(agent_session.id)
+        return any(
+            entry.message is not None and _channel_message_of(entry.message) == message
+            for entry in history
         )
 
     async def is_channel_session(self, agent_session: AgentSession) -> bool:
