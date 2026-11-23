@@ -199,6 +199,16 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
+  AgentChannelUsersListMyChannelUsersData,
+  AgentChannelUsersListMyChannelUsersResponse,
+  AgentChannelUsersListOrganizationChannelUsersData,
+  AgentChannelUsersListOrganizationChannelUsersResponse,
+  AgentChannelUsersStartChannelLinkSignInData,
+  AgentChannelUsersStartChannelLinkSignInResponse,
+  AgentChannelUsersUnlinkMyChannelUserData,
+  AgentChannelUsersUnlinkMyChannelUserResponse,
+  AgentChannelUsersUnlinkOrganizationChannelUserData,
+  AgentChannelUsersUnlinkOrganizationChannelUserResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -1531,6 +1541,127 @@ export const publicHandleSlackOauthCallback = (
       state: data.state,
       error: data.error,
       error_description: data.errorDescription,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Channel Link Sign In
+ * Start the provider sign-in that proves the sender is this user.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns ChannelLinkSignInRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersStartChannelLinkSignIn = (
+  data: AgentChannelUsersStartChannelLinkSignInData
+): CancelablePromise<AgentChannelUsersStartChannelLinkSignInResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channel-links/{token}/sign-in",
+    path: {
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List My Channel Users
+ * The caller's own channel links in this organization.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelUserRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersListMyChannelUsers = (
+  data: AgentChannelUsersListMyChannelUsersData = {}
+): CancelablePromise<AgentChannelUsersListMyChannelUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channel-users/me",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink My Channel User
+ * Remove one of the caller's own links.
+ * @param data The data for the request.
+ * @param data.linkId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersUnlinkMyChannelUser = (
+  data: AgentChannelUsersUnlinkMyChannelUserData
+): CancelablePromise<AgentChannelUsersUnlinkMyChannelUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/channel-users/me/{link_id}",
+    path: {
+      link_id: data.linkId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Channel Users
+ * Every channel link in the organization, or one member's.
+ * @param data The data for the request.
+ * @param data.userId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentChannelUserRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersListOrganizationChannelUsers = (
+  data: AgentChannelUsersListOrganizationChannelUsersData = {}
+): CancelablePromise<AgentChannelUsersListOrganizationChannelUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channel-users",
+    query: {
+      user_id: data.userId,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink Organization Channel User
+ * Remove any link in the organization.
+ * @param data The data for the request.
+ * @param data.linkId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelUsersUnlinkOrganizationChannelUser = (
+  data: AgentChannelUsersUnlinkOrganizationChannelUserData
+): CancelablePromise<AgentChannelUsersUnlinkOrganizationChannelUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/channel-users/{link_id}",
+    path: {
+      link_id: data.linkId,
     },
     errors: {
       422: "Validation Error",

@@ -65,6 +65,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
@@ -4827,6 +4828,10 @@ class AgentChannelBot(TimestampMixin, Base):
         ),
         CheckConstraint("transport IN ('http', 'socket')", name="transport"),
         CheckConstraint("app_owner IN ('workspace', 'platform')", name="app_owner"),
+        CheckConstraint(
+            "channel_access_policy IN ('linked_only', 'linked_approvals', 'open')",
+            name="channel_access_policy",
+        ),
         Index(
             "ix_agent_channel_bot_token_refresh_due_at",
             "token_refresh_due_at",
@@ -4888,6 +4893,13 @@ class AgentChannelBot(TimestampMixin, Base):
         nullable=True,
         doc="Earliest due refresh of a rotating token; null when none rotates",
     )
+    channel_access_policy: Mapped[ChannelAccessPolicy] = mapped_column(
+        String(32),
+        default=ChannelAccessPolicy.LINKED_APPROVALS,
+        server_default=ChannelAccessPolicy.LINKED_APPROVALS.value,
+        nullable=False,
+        doc="Who may act through this bot's channels, for every agent it serves",
+    )
 
 
 class AgentChannelRoute(TimestampMixin, Base):
@@ -4919,6 +4931,34 @@ class AgentChannelRoute(TimestampMixin, Base):
         index=True,
     )
     agent_preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False, index=True)
+
+
+class AgentChannelUser(TimestampMixin, Base):
+    """A provider user linked to a Tracecat user: identity evidence, never authority."""
+
+    __tablename__ = "agent_channel_user"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "provider",
+            "provider_tenant_id",
+            "provider_user_id",
+            name="uq_agent_channel_user_org_provider_identity",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Display only; authority never reads it.
+    provider_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
 
 class AgentSessionThread(TimestampMixin, Base):
@@ -5207,7 +5247,6 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         ForeignKey("agent_folder.id", ondelete="SET NULL"),
         nullable=True,
     )
-
     workspace: Mapped[Workspace] = relationship(
         back_populates="agent_presets", foreign_keys="AgentPreset.workspace_id"
     )

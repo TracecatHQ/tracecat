@@ -198,6 +198,32 @@ describe("Channels page", () => {
     ).toBeNull()
   })
 
+  it("sets who can use the install", async () => {
+    servePlatform()
+    api.updateBot.mockResolvedValue(
+      platformSlackBot({ channel_access_policy: "linked_only" })
+    )
+    renderChannelsPage()
+    const row = await platformRow()
+    const select = await within(row).findByRole("combobox", {
+      name: "Who can use this bot",
+    })
+    expect(select).toHaveTextContent(
+      "Anyone can message; linked members approve"
+    )
+    await userEvent.click(select)
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Only linked members" })
+    )
+    await waitFor(() =>
+      expect(api.updateBot).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        botId: "platform-1",
+        requestBody: { channel_access_policy: "linked_only" },
+      })
+    )
+  })
+
   it("is read-only without agent:update", async () => {
     mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
     servePlatform([])
@@ -223,6 +249,9 @@ describe("Channels page", () => {
       within(row).getByRole("combobox", { name: "Channel" })
     ).toBeDisabled()
     expect(within(row).getByRole("button", { name: "Add" })).toBeDisabled()
+    expect(
+      within(row).getByRole("combobox", { name: "Who can use this bot" })
+    ).toBeDisabled()
     expect(within(row).queryByRole("button", { name: "Pause" })).toBeNull()
     expect(within(row).queryByRole("button", { name: "Disconnect" })).toBeNull()
   })
