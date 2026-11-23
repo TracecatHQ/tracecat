@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.wire import (
@@ -21,6 +21,9 @@ from tracecat.agent.common.wire import (
     required_string,
 )
 from tracecat.agent.session.enums import UserMessageOrigin
+
+if TYPE_CHECKING:
+    from tracecat.chat.schemas import MessageAuthor
 
 type ArtifactEventOp = Literal["upsert", "remove"]
 type ApprovalStreamStatus = Literal["pending", "approved", "rejected"]
@@ -394,17 +397,20 @@ class UnifiedStreamEvent:
         *,
         message_id: str | None = None,
         origin: UserMessageOrigin | None = None,
+        author: MessageAuthor | None = None,
     ) -> UnifiedStreamEvent:
         """A user message that joined the running turn, such as a steering message.
 
-        ``message_id`` is the ID the client submitted it under, if any, and
-        ``origin`` where it entered the session, if known.
+        ``message_id`` is the ID the client submitted it under, if any,
+        ``origin`` where it entered the session, and ``author`` who sent it, if known.
         """
         metadata: dict[str, Any] = {}
         if message_id is not None:
             metadata["id"] = message_id
         if origin is not None:
             metadata["origin"] = origin.value
+        if author is not None:
+            metadata["author"] = author.model_dump(mode="json")
         return cls(
             type=StreamEventType.USER_MESSAGE, text=content, metadata=metadata or None
         )

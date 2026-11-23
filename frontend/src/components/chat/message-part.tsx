@@ -479,17 +479,20 @@ export function MessageParts({
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
-  const author = useMemo(
-    () => (showAuthor && message.role === "user" ? webActor(message) : null),
-    [showAuthor, message]
-  )
-  const own =
-    showAuthor &&
-    message.role === "user" &&
-    currentUserId !== null &&
-    getMessageAuthorId(message.metadata) === currentUserId
 
   function renderPart({ part, partIdx }: IndexedPart) {
+    // A message that joined the turn names its own sender, as a prompt does.
+    const sender =
+      part.type === USER_MESSAGE_DATA_PART_TYPE
+        ? part.data
+        : message.role === "user"
+          ? message.metadata
+          : null
+    const author = showAuthor ? webActor(sender) : null
+    const own =
+      showAuthor &&
+      currentUserId !== null &&
+      getMessageAuthorId(sender) === currentUserId
     return (
       <MemoizedMessagePart
         key={`${message.id}-${part.type}-${partIdx}`}
@@ -999,9 +1002,9 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
 })
 MemoizedMessagePart.displayName = "MessagePart"
 
-/** A web message's recorded author, labelled as a Tracecat member. */
-function webActor(message: Pick<UIMessage, "metadata">): MessageActor | null {
-  const name = getMessageAuthorName(message.metadata)
+/** A message's recorded author, labelled as a Tracecat member. */
+function webActor(metadata: unknown): MessageActor | null {
+  const name = getMessageAuthorName(metadata)
   return name ? { name, fromSlack: false, linked: true } : null
 }
 

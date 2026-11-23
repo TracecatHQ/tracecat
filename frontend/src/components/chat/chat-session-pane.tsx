@@ -1724,6 +1724,8 @@ export function ChatSessionPane({
                         lastMessageId={lastMessageId}
                         cancelledMessageIds={cancelledTurnMessageIds}
                         interruptedToolCallIds={interruptedToolCallIds}
+                        showAuthor={showMessageAuthors}
+                        currentUserId={user?.id ?? null}
                         onSubmitApprovals={
                           cannotDecideApprovals
                             ? undefined

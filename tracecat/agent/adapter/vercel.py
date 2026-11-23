@@ -982,6 +982,9 @@ class VercelStreamContext:
                     "id": message_id if isinstance(message_id, str) else None,
                     "text": event.text or "",
                 }
+                # Same shape as a history message's `metadata.author`.
+                if isinstance(author := (event.metadata or {}).get("author"), dict):
+                    data["author"] = author
                 origin = (event.metadata or {}).get("origin")
                 if origin == UserMessageOrigin.CHANNEL and (
                     channel_message := ChannelMessage.parse(data["text"])

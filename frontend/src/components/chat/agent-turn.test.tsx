@@ -342,4 +342,37 @@ describe("AgentTurn", () => {
 
     expect(screen.getByText("Worked")).toBeInTheDocument()
   })
+
+  it("names the sender of a message that joined the turn", () => {
+    const joined: UIMessage = {
+      id: "live",
+      role: "assistant",
+      parts: [
+        {
+          type: "data-user-message",
+          data: {
+            id: "steer-1",
+            text: "check db-2",
+            author: {
+              id: "user-1",
+              email: "alice@example.com",
+              first_name: "Alice",
+            },
+          },
+        },
+      ],
+    }
+    render(
+      <AgentTurn
+        messages={[joined]}
+        startedAt={null}
+        isLive
+        status="streaming"
+        showAuthor
+        currentUserId="user-2"
+      />
+    )
+
+    expect(screen.getByRole("img", { name: "Alice" })).toBeInTheDocument()
+  })
 })

@@ -421,6 +421,29 @@ async def test_a_steered_message_decodes_only_when_sent_from_a_channel(
         assert payload.data == {"id": "steer-1", "text": rendered}
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "origin", [UserMessageOrigin.CHANNEL, UserMessageOrigin.TRACECAT]
+)
+async def test_a_steered_message_carries_its_sender(
+    origin: UserMessageOrigin,
+) -> None:
+    author = MessageAuthor(id=uuid4(), email="sam@example.com", first_name="Sam")
+    context = VercelStreamContext(message_id="msg_test")
+    event = UnifiedStreamEvent.user_message_event(
+        _channel_message("and db-2").render(),
+        message_id="steer-1",
+        origin=origin,
+        author=author,
+    )
+
+    [payload] = [payload async for payload in context.handle_event(event)]
+
+    assert isinstance(payload, DataEventPayload)
+    assert payload.data["author"] == author.model_dump(mode="json")
+    assert ("channel_message" in payload.data) is (origin is UserMessageOrigin.CHANNEL)
+
+
 def test_quoted_interrupt_markers_do_not_hide_a_channel_message() -> None:
     channel_message = ChannelMessage(
         provider=ChannelBotProvider.SLACK,

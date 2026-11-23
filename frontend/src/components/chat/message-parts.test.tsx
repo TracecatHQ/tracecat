@@ -783,3 +783,91 @@ describe("message authors", () => {
     expect(container.querySelector(".is-user span")).toBeNull()
   })
 })
+
+describe("a message that joined the turn", () => {
+  const ALICE = {
+    id: "user-1",
+    email: "alice@example.com",
+    first_name: "Alice",
+    last_name: "Doe",
+  }
+  function joined(data: Record<string, unknown>): UIMessage {
+    return {
+      id: "a-live",
+      role: "assistant",
+      parts: [{ type: "data-user-message", data: { id: "steer-1", ...data } }],
+    }
+  }
+  const slackSteer = {
+    text: "and db-2",
+    author: ALICE,
+    channel_message: {
+      provider: "slack",
+      text: "and db-2",
+      sender: { provider_user_id: "U1", name: "alice.slack" },
+      quoted: [],
+      people: [{ provider_user_id: "U1", name: "Alice Doe", linked: true }],
+    },
+  }
+
+  it("names another person's web message by its own sender", () => {
+    render(
+      <MessageParts
+        message={joined({ text: "check db-2", author: ALICE })}
+        status="streaming"
+        isLastMessage
+        showAuthor
+        currentUserId="user-2"
+      />
+    )
+
+    expect(screen.getByRole("img", { name: "Alice Doe" })).toBeInTheDocument()
+  })
+
+  it("draws the viewer's own web message with no avatar", () => {
+    render(
+      <MessageParts
+        message={joined({ text: "check db-2", author: ALICE })}
+        status="streaming"
+        isLastMessage
+        showAuthor
+        currentUserId="user-1"
+      />
+    )
+
+    expect(screen.getByText("check db-2")).toBeInTheDocument()
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
+  })
+
+  it("puts a From Slack line above the viewer's own Slack message", () => {
+    render(
+      <MessageParts
+        message={joined(slackSteer)}
+        status="streaming"
+        isLastMessage
+        showAuthor
+        currentUserId="user-1"
+      />
+    )
+
+    expect(screen.getByText("From Slack")).toBeInTheDocument()
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
+  })
+
+  it("marks another person's Slack message by the badge on their avatar", () => {
+    render(
+      <MessageParts
+        message={joined(slackSteer)}
+        status="streaming"
+        isLastMessage
+        showAuthor
+        currentUserId="user-2"
+      />
+    )
+
+    expect(
+      screen.getByRole("img", { name: "Alice Doe" }).parentElement
+    ).toContainElement(screen.getByTestId("slack-icon"))
+    expect(screen.queryByText("From Slack")).not.toBeInTheDocument()
+  })
+})
