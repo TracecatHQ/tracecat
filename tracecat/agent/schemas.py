@@ -59,9 +59,9 @@ class RunAgentArgs(BaseModel):
     """Workflow run id for this turn. Pinned here so the producer tags persisted
     history rows with it, letting mid-turn loads hide the active run's partial
     rows. None for legacy executions."""
-    origin: UserMessageOrigin | None = None
-    """Where the prompt entered the session, recorded on its history row. None
-    for legacy executions."""
+    origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
+    """Where the prompt entered the session, recorded on its history row. Only
+    channel ingress sets ``channel``."""
     config: AgentConfig | None = None
     """Configuration for the agent. Required if preset_slug is not provided."""
     preset_slug: str | None = None
