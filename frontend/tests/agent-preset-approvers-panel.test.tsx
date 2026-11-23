@@ -63,7 +63,7 @@ it("explains the default rule while no approvers are listed", async () => {
 
   expect(
     await screen.findByText(
-      "Anyone who can run agents here. Workspace admins can always approve."
+      "No approvers listed: anyone who can reach an approval, here or in the agent's channel, can decide."
     )
   ).toBeInTheDocument()
   expect(listOptions).not.toHaveBeenCalled()

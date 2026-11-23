@@ -47,7 +47,7 @@ const APPROVER_KINDS: Record<
 }
 
 const DEFAULT_RULE =
-  "Anyone who can run agents here. Workspace admins can always approve."
+  "No approvers listed: anyone who can reach an approval, here or in the agent's channel, can decide."
 
 function approverKey(approver: AgentPresetApproverRef): string {
   return `${approver.kind}:${approver.id}`
