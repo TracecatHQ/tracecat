@@ -60,10 +60,10 @@ function rewriteLinks(parent: MarkdownNode): void {
     if (node.type !== "link" || !node.url || !isReferenceURI(node.url)) {
       return [node]
     }
-    // An autolink's text is the URI itself; it must not show.
-    if (isBareURI(node)) node.children = [{ type: "text", value: "case" }]
     const mention = parseArtifactMention(node.url)
-    if (!mention) return node.children ?? []
+    // An autolink's text is the URI itself; it must not show.
+    if (!mention) return isBareURI(node) ? [] : (node.children ?? [])
+    if (isBareURI(node)) node.children = [{ type: "text", value: "case" }]
     const canonical = serializeReferenceURI({
       kind: "artifact",
       identity: mention.id,

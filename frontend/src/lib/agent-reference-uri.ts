@@ -61,10 +61,13 @@ function validateTarget(target: ReferenceTarget): void {
   const { kind, identity, toolName, artifactType } = target
   if (!KINDS.has(kind)) throw new ReferenceURIError("invalid_uri")
   if (
-    (kind === "artifact") !== (artifactType !== undefined) ||
-    (artifactType !== undefined &&
+    kind === "artifact" &&
+    (artifactType === undefined ||
       !ARTIFACT_MENTION_TYPES.includes(artifactType))
   ) {
+    throw new ReferenceURIError("invalid_identity")
+  }
+  if (kind !== "artifact" && artifactType !== undefined) {
     throw new ReferenceURIError("invalid_identity")
   }
   if (kind === "tool") {

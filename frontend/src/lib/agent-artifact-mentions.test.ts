@@ -74,9 +74,9 @@ describe("remarkArtifactMentions", () => {
 
     remarkArtifactMentions()(tree)
 
-    const [mention, form] = tree.children[0].children
+    const [mention, ...rest] = tree.children[0].children
     expect(mention.children).toEqual([{ type: "text", value: "case" }])
-    expect(form).toEqual({ type: "text", value: "case" })
+    expect(rest).toEqual([])
   })
 
   it("never reads an ordinary path as a mention", () => {
