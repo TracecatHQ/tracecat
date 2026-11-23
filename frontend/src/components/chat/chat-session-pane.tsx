@@ -101,6 +101,7 @@ import {
   CHANNEL_MESSAGE_DATA_PART_TYPE,
   collectCancelledTurns,
   ENTITY_TO_INVALIDATION,
+  getAuthorId,
   getPendingApprovalIds,
   getSessionLastError,
   isApprovalCardArray,
@@ -406,26 +407,6 @@ export function ChatSessionPane({
   )
   const cannotDecideApprovals =
     !canDecideApprovals || approvalsDisabled || cannotExecuteAgents
-  // Author labels are noise in a private chat; show them where several people talk.
-  const showMessageAuthors = Boolean(
-    chat &&
-      "entity_type" in chat &&
-      (chat.entity_type === "workflow" ||
-        chat.entity_type === "external_channel" ||
-        ("channel_context" in chat && chat.channel_context))
-  )
-  // Name the missing scope when that is why a shared session is read-only.
-  let readonlyDescription = cannotExecuteAgents
-    ? AGENT_EXECUTE_REQUIRED_MESSAGE
-    : "This conversation is read-only."
-  if (chat && "user_id" in chat) {
-    readonlyDescription = "This legacy conversation is read-only."
-  }
-  if (chat && "spawned_by_session_id" in chat && chat.spawned_by_session_id) {
-    readonlyDescription =
-      "This subagent conversation is read-only. Message the parent conversation instead."
-  }
-
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
@@ -470,6 +451,38 @@ export function ChatSessionPane({
     pageContext,
     resume: resume && !openedToSend.value,
   })
+  // A teammate who joined a private chat makes it shared too (J2).
+  const teammateSent = messages.some((message) => {
+    const metadata = message.metadata
+    const author =
+      metadata && typeof metadata === "object" && "author" in metadata
+        ? metadata.author
+        : null
+    const authorId = getAuthorId(author)
+    return authorId !== null && authorId !== user?.id
+  })
+  // Author labels are noise in a private chat; show them where several people talk.
+  const showMessageAuthors = Boolean(
+    teammateSent ||
+      (chat &&
+        "entity_type" in chat &&
+        (chat.entity_type === "workflow" ||
+          chat.entity_type === "external_channel" ||
+          ("channel_context" in chat && chat.channel_context)))
+  )
+  // Name the missing scope only where it is why a shared session is read-only.
+  let readonlyDescription =
+    cannotExecuteAgents && showMessageAuthors
+      ? AGENT_EXECUTE_REQUIRED_MESSAGE
+      : "This conversation is read-only."
+  if (chat && "user_id" in chat) {
+    readonlyDescription = "This legacy conversation is read-only."
+  }
+  if (chat && "spawned_by_session_id" in chat && chat.spawned_by_session_id) {
+    readonlyDescription =
+      "This subagent conversation is read-only. Message the parent conversation instead."
+  }
+
   const [verbosity] = useChatVerbosityPreference()
   const verbosityPolicy = getChatVerbosityPolicy(verbosity)
   const subagentStreamContext = useMemo(

@@ -616,6 +616,12 @@ export function getChannelMessageData(
   return data as ChannelMessageData
 }
 
+/** The id of a recorded message author, or null if none was recorded. */
+export function getAuthorId(author: unknown): string | null {
+  if (!author || typeof author !== "object") return null
+  return "id" in author && typeof author.id === "string" ? author.id : null
+}
+
 /** The display name of a user message's author, or null if none was recorded. */
 export function getMessageAuthorName(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null

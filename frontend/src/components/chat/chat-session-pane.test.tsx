@@ -168,6 +168,11 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: jest.fn(() => true),
 }))
+jest.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: { id: "user-1", email: "al@example.com", firstName: "Al" },
+  }),
+}))
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: jest.fn(() => ({
     hasEntitlement: () => false,
@@ -1325,10 +1330,22 @@ describe("ChatSessionPane author labels", () => {
   })
 
   it("hides authors in a private web session", async () => {
+    mockUseVercelChatResult.messages = [
+      {
+        ...AUTHORED,
+        metadata: { author: { id: "user-1", email: "al@example.com" } },
+      },
+    ]
     renderChatSessionPane({ chat: webChat })
 
     await screen.findByText("triage this")
-    expect(screen.queryByText("Sam")).not.toBeInTheDocument()
+    expect(screen.queryByText("al@example.com")).not.toBeInTheDocument()
+  })
+
+  it("shows authors once a teammate sent in a private web session", async () => {
+    renderChatSessionPane({ chat: webChat })
+
+    expect(await screen.findByText("Sam")).toBeInTheDocument()
   })
 
   it("shows authors in a workflow session", async () => {
