@@ -8,12 +8,6 @@ on:
       - "nightly-*"
   schedule:
     - cron: "0 0 * * *"  # Nightly at midnight UTC
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to publish (for example: 1.2.3 or nightly-20250101)"
-        required: true
-        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -27,13 +21,6 @@ concurrency:
 
 jobs:
   validate:
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -47,21 +34,13 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           tag=''
           latest=false
           release=false
-          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
-            # Manual rebuilds must use the existing tag as their checkout ref.
-            if [[ "$REF_TYPE" != 'tag' || "$INPUT_TAG" != "$REF_NAME" ]]; then
-              echo 'Dispatch from the matching tag ref, with tag set to that tag.' >&2
-              exit 1
-            fi
-            tag="$INPUT_TAG"
-          elif [[ "$EVENT_NAME" == 'push' && "$REF_TYPE" == 'tag' ]]; then
+          if [[ "$EVENT_NAME" == 'push' && "$REF_TYPE" == 'tag' ]]; then
             tag="$REF_NAME"
           fi
 
@@ -93,13 +72,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -189,7 +161,6 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       # Layers and cache mounts persist on a Blacksmith sticky disk, so there
       # is no registry cache to import or export. Do not add
@@ -232,13 +203,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
     needs: [validate, build-and-push-api]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
@@ -276,7 +240,6 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -300,13 +263,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -348,7 +304,6 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       # Layers and cache mounts persist on a Blacksmith sticky disk, so there
       # is no registry cache to import or export. Do not add
@@ -388,13 +343,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
     needs: [validate, build-and-push-tunnel-gateway]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
@@ -432,7 +380,6 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/tunnel-gateway-digests
@@ -455,13 +402,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
     # The Next.js bundle is platform independent, so one amd64 runner compiles
     # it once (see frontend/Dockerfile.prod) and only the small runner stage is
     # built per platform. arm64 runner-stage steps run under QEMU.
@@ -503,7 +443,6 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       # Do not add docker/setup-buildx-action to this job: its buildkitd makes
       # this step fall back to an uncached local builder.

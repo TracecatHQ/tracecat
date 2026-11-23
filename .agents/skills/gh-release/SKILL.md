@@ -147,21 +147,31 @@ prerelease moves neither.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
-replacement. To rebuild, use a separate trusted, updated `main` checkout and run:
+replacement. Before retrying, verify that the failed run was triggered by a
+push of the intended tag and used `.github/workflows/build-push-images.yml`.
+Fetch `origin/main` and the release tag. Set `TAG` to that tag, `RUN_HEAD_SHA`
+to the run's `headSha`, and `REVIEWED_MAIN_SHA` to the full commit SHA of the
+current reviewed publisher on `main`. Pin that SHA before comparing the files.
 
 ```sh
-uv run python scripts/rebuild_release_images.py '<tag>'
+(
+  set -eu
+  tag_sha=$(git rev-parse --verify "refs/tags/${TAG}^{commit}")
+  test "$tag_sha" = "$RUN_HEAD_SHA"
+  git merge-base --is-ancestor "$REVIEWED_MAIN_SHA" refs/remotes/origin/main
+
+  workflow=.github/workflows/build-push-images.yml
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf -- "$tmp_dir"' EXIT
+  git cat-file blob "$tag_sha:$workflow" > "$tmp_dir/tag.yml"
+  git cat-file blob "$REVIEWED_MAIN_SHA:$workflow" > "$tmp_dir/main.yml"
+  cmp -s "$tmp_dir/tag.yml" "$tmp_dir/main.yml"
+)
 ```
 
-The helper requires the remote tag's workflow to exactly match the committed
-publisher in that checkout before dispatching with the tag as both ref and
-input. An older tag runs its own historical workflow, so guards on `main`
-cannot protect a direct dispatch or rerun. On a mismatch or lookup failure,
-stop; never bypass the helper or move the tag. A new release containing the
-current publisher requires a separately approved release plan. For a retry,
-verify the run ID, event, and release commit rather than accepting an older
-successful run. Rebuilding an older patch leaves both `X.Y` and `latest`
-unchanged.
+Rerun only that failed run and only if the entire workflow file matches
+byte for byte. On a mismatch, missing file, or verification error, stop and
+prepare a new release containing the reviewed publisher after separate approval.
 
 ## Release notes
 
