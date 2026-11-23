@@ -71,7 +71,7 @@ it("explains the default rule while no approvers are listed", async () => {
 
 it("adds a group from the picker and saves the full set", async () => {
   listApprovers.mockResolvedValue([person] as never)
-  listOptions.mockResolvedValue([person, oncall] as never)
+  listOptions.mockResolvedValue({ items: [person, oncall] } as never)
   replaceApprovers.mockResolvedValue([person, oncall] as never)
   const user = userEvent.setup()
 
@@ -93,6 +93,29 @@ it("adds a group from the picker and saves the full set", async () => {
     })
   )
   expect(await screen.findByText("Group")).toBeInTheDocument()
+})
+
+it("searches approver options on the server", async () => {
+  listApprovers.mockResolvedValue([] as never)
+  listOptions.mockResolvedValue({ items: [oncall] } as never)
+  const user = userEvent.setup()
+
+  renderPanel()
+  await screen.findByText(/No approvers listed/)
+  await user.click(screen.getByRole("button", { name: "Add approver" }))
+  await user.type(
+    await screen.findByPlaceholderText("Search people, groups, and roles..."),
+    "on-call"
+  )
+
+  await waitFor(() =>
+    expect(listOptions).toHaveBeenLastCalledWith({
+      workspaceId: "workspace-example",
+      search: "on-call",
+      cursor: null,
+    })
+  )
+  expect(await screen.findByText("Example on-call")).toBeInTheDocument()
 })
 
 it("removes an approver", async () => {
