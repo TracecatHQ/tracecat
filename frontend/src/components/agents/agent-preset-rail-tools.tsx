@@ -1,9 +1,13 @@
 "use client"
 
-import { X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Info, X } from "lucide-react"
+import { useId, useMemo, useState } from "react"
 import { useFormContext, useWatch } from "react-hook-form"
-import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import type {
+  AgentPresetChannelToolGroup,
+  MCPIntegrationRead,
+  RegistryActionReadMinimal,
+} from "@/client"
 import {
   LogoTile,
   RAIL_FOCUS,
@@ -13,14 +17,21 @@ import {
   RailSectionHeader,
 } from "@/components/agents/agent-preset-rail-primitives"
 import { usePresetToolFields } from "@/components/agents/agent-preset-tools-list"
+import { ChannelProviderIcon } from "@/components/agents/channel-provider"
 import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { ToolPickerDialog } from "@/components/tools/tool-picker-dialog"
 import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import { Button } from "@/components/ui/button"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   buildToolIndex,
   getBlockedActions,
   getToolApproval,
+  isInNamespaces,
   removeTools,
   setToolApproval,
   type ToolEntry,
@@ -32,6 +43,42 @@ const APPROVAL_DOT = "size-1.5 shrink-0 rounded-full bg-[#d6a14a]"
 const APPROVAL_TEXT = "text-[#8a5a12] dark:text-[#b58a45]"
 const EMPTY_ACTIONS: RegistryActionReadMinimal[] = []
 const EMPTY_TOOL_TUNNELS: Record<string, string> = {}
+const NO_CHANNEL_TOOLS: AgentPresetChannelToolGroup[] = []
+const CHANNEL_GROUP_PREFIX = "channel:"
+
+/** Drill-in key for a channel provider's tool group. */
+export function channelGroupKey(provider: string): string {
+  return `${CHANNEL_GROUP_PREFIX}${provider}`
+}
+
+/** Drill-in title for a channel provider's tool group. */
+export function channelGroupTitle(group: AgentPresetChannelToolGroup): string {
+  return `${group.title} · ${group.label}`
+}
+
+function channelApproval(
+  rules: Array<{ tool: string; allow: boolean }>,
+  tool: AgentPresetChannelToolGroup["tools"][number]
+): boolean {
+  return (
+    rules.find((rule) => rule.tool === tool.name)?.allow ??
+    tool.requires_approval
+  )
+}
+
+/** The channel group whose connection replaces a registry namespace, if any. */
+function supersededBy(
+  namespace: string,
+  groups: AgentPresetChannelToolGroup[]
+): AgentPresetChannelToolGroup | undefined {
+  return groups.find((group) =>
+    isInNamespaces(namespace, group.supersedes ?? [])
+  )
+}
+
+function supersededReason(group: AgentPresetChannelToolGroup): string {
+  return `Not used while this agent is connected to ${group.title}. It uses From channels instead.`
+}
 
 /** MCP tools take their tunnel from the MCP integration, not per tool. */
 function isRegistryToolKey(key: string): boolean {
@@ -197,6 +244,100 @@ function ApprovalButton({
   )
 }
 
+/** A registry group a channel connection replaces: kept as selected, greyed, explained. */
+function SupersededGroupRow({
+  group,
+  reason,
+  onOpen,
+}: {
+  group: RailToolGroup
+  reason: string
+  onOpen: () => void
+}) {
+  const reasonId = useId()
+  return (
+    <button
+      type="button"
+      aria-describedby={reasonId}
+      className={cn(RAIL_LIST_ROW, "h-[34px] py-0")}
+      onClick={onOpen}
+    >
+      <span className="flex shrink-0 opacity-45">
+        <ToolLogo entry={group.icon} />
+      </span>
+      <span className="shrink-0 whitespace-nowrap text-[13.5px] opacity-45">
+        {group.title}
+      </span>
+      <span className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground/70 opacity-45">
+        {group.namespace}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            aria-hidden
+            data-testid="superseded-info"
+            className="flex size-[18px] shrink-0 items-center justify-center text-muted-foreground"
+          >
+            <Info className="size-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64">{reason}</TooltipContent>
+      </Tooltip>
+      <span id={reasonId} aria-hidden className="sr-only">
+        {reason}
+      </span>
+      <span className="flex-1" />
+      <span className="min-w-12 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground opacity-45">
+        {group.selected.length} of {group.entries.length}
+      </span>
+    </button>
+  )
+}
+
+/** "Auto" / "Needs approval" for every row of a drill-in. */
+function ApprovalForAll({
+  allAsk,
+  allAuto,
+  disabled,
+  onSet,
+}: {
+  allAsk: boolean
+  allAuto: boolean
+  disabled: boolean
+  onSet: (ask: boolean) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Approval for all tools"
+      className="flex rounded-md bg-foreground/[0.06] p-0.5"
+    >
+      {[
+        { ask: false, label: "Auto", pressed: allAuto },
+        { ask: true, label: "Needs approval", pressed: allAsk },
+      ].map((option) => (
+        <button
+          key={option.label}
+          type="button"
+          aria-pressed={option.pressed}
+          disabled={disabled}
+          onClick={() => onSet(option.ask)}
+          className={cn(
+            "h-[22px] rounded-[5px] px-2 text-xs transition-colors disabled:opacity-50",
+            RAIL_FOCUS,
+            option.pressed
+              ? "bg-background shadow-[0_1px_2px_rgba(0,0,0,0.08)] dark:bg-accent dark:shadow-none"
+              : "text-muted-foreground hover:text-foreground",
+            option.pressed && option.ask && APPROVAL_TEXT
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** Tools grouped by integration, with counts and approval markers. */
 export function AgentPresetRailTools({
   registryActions,
@@ -207,6 +348,7 @@ export function AgentPresetRailTools({
   isSaving,
   maxTools,
   skillActions,
+  channelTools = NO_CHANNEL_TOOLS,
   onOpenGroup,
 }: {
   registryActions?: RegistryActionReadMinimal[]
@@ -217,6 +359,8 @@ export function AgentPresetRailTools({
   isSaving: boolean
   maxTools?: number | null
   skillActions?: string[] | null
+  /** Granted by the agent's channel connections; empty when not connected. */
+  channelTools?: AgentPresetChannelToolGroup[]
   onOpenGroup: (groupKey: string, title: string) => void
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -235,15 +379,21 @@ export function AgentPresetRailTools({
   } = useRailToolsData(registryActions, mcpIntegrations, ready)
   const selected = new Set(value.actions)
   const skillOnly = (skillActions ?? []).filter((key) => !selected.has(key))
-  // Ask rules for tools that are neither listed nor granted by a skill.
-  const skillKeys = new Set(skillOnly)
+  const channelToolList = channelTools.flatMap((group) => group.tools)
+  // Ask rules for tools that are neither listed nor granted by a skill or channel.
+  const grantedKeys = new Set([
+    ...skillOnly,
+    ...channelToolList.map((tool) => tool.name),
+  ])
   const otherRules = value.toolApprovals.filter(
     (rule) =>
-      rule.allow && !selected.has(rule.tool) && !skillKeys.has(rule.tool)
+      rule.allow && !selected.has(rule.tool) && !grantedKeys.has(rule.tool)
   )
   const approvalCount =
     groupApprovalCount +
     skillOnly.filter((key) => getToolApproval(value.toolApprovals, key, index))
+      .length +
+    channelToolList.filter((tool) => channelApproval(value.toolApprovals, tool))
       .length
   const blocked = getBlockedActions(value.actions, value.namespaces)
 
@@ -269,7 +419,7 @@ export function AgentPresetRailTools({
     <section>
       <RailSectionHeader
         title="Tools"
-        count={ready ? selectedCount : undefined}
+        count={ready ? selectedCount + channelToolList.length : undefined}
         extra={
           approvalCount > 0 ? (
             <span
@@ -296,36 +446,50 @@ export function AgentPresetRailTools({
       {ready &&
       selectedCount === 0 &&
       skillOnly.length === 0 &&
+      channelToolList.length === 0 &&
       otherRules.length === 0 ? (
         <RailEmpty />
       ) : null}
       {ready
-        ? groups.map((group) => (
-            <button
-              key={group.key}
-              type="button"
-              className={cn(RAIL_LIST_ROW, "h-[34px] py-0")}
-              onClick={() => onOpenGroup(group.key, group.title)}
-            >
-              <ToolLogo entry={group.icon} />
-              <span className="shrink-0 whitespace-nowrap text-[13.5px]">
-                {group.title}
-              </span>
-              <span className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground/70">
-                {group.namespace}
-              </span>
-              <span className="flex-1" />
-              {group.approvals > 0 ? (
-                <span
-                  className={APPROVAL_DOT}
-                  title={`${group.approvals} ${group.approvals === 1 ? "needs" : "need"} approval`}
+        ? groups.map((group) => {
+            const replacedBy = supersededBy(group.namespace, channelTools)
+            if (replacedBy) {
+              return (
+                <SupersededGroupRow
+                  key={group.key}
+                  group={group}
+                  reason={supersededReason(replacedBy)}
+                  onOpen={() => onOpenGroup(group.key, group.title)}
                 />
-              ) : null}
-              <span className="min-w-12 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
-                {group.selected.length} of {group.entries.length}
-              </span>
-            </button>
-          ))
+              )
+            }
+            return (
+              <button
+                key={group.key}
+                type="button"
+                className={cn(RAIL_LIST_ROW, "h-[34px] py-0")}
+                onClick={() => onOpenGroup(group.key, group.title)}
+              >
+                <ToolLogo entry={group.icon} />
+                <span className="shrink-0 whitespace-nowrap text-[13.5px]">
+                  {group.title}
+                </span>
+                <span className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground/70">
+                  {group.namespace}
+                </span>
+                <span className="flex-1" />
+                {group.approvals > 0 ? (
+                  <span
+                    className={APPROVAL_DOT}
+                    title={`${group.approvals} ${group.approvals === 1 ? "needs" : "need"} approval`}
+                  />
+                ) : null}
+                <span className="min-w-12 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
+                  {group.selected.length} of {group.entries.length}
+                </span>
+              </button>
+            )
+          })
         : null}
       {ready
         ? integrations.map(({ id, entry, approvals }) => (
@@ -405,6 +569,55 @@ export function AgentPresetRailTools({
           })}
         </div>
       ) : null}
+      {ready && channelTools.length > 0 ? (
+        <div className="pt-1">
+          <p className="px-2 pb-0.5 text-xs text-muted-foreground/70">
+            From channels
+          </p>
+          {channelTools.map((group) => {
+            const asks = group.tools.filter((tool) =>
+              channelApproval(value.toolApprovals, tool)
+            ).length
+            return (
+              <button
+                key={group.provider}
+                type="button"
+                className={cn(RAIL_LIST_ROW, "h-[34px] py-0")}
+                onClick={() =>
+                  onOpenGroup(
+                    channelGroupKey(group.provider),
+                    channelGroupTitle(group)
+                  )
+                }
+              >
+                <LogoTile>
+                  <ChannelProviderIcon
+                    provider={group.provider}
+                    className="size-3"
+                  />
+                </LogoTile>
+                <span className="shrink-0 whitespace-nowrap text-[13.5px]">
+                  {group.title}
+                </span>
+                <span className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground/70">
+                  {group.label}
+                </span>
+                <span className="flex-1" />
+                {asks > 0 ? (
+                  <span
+                    className={APPROVAL_DOT}
+                    title={`${asks} ${asks === 1 ? "needs" : "need"} approval`}
+                  />
+                ) : null}
+                <span className="min-w-12 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
+                  {group.tools.length}{" "}
+                  {group.tools.length === 1 ? "tool" : "tools"}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
       {ready && otherRules.length > 0 ? (
         <div className="pt-1">
           <p className="px-2 pb-0.5 text-xs text-muted-foreground/70">
@@ -468,19 +681,7 @@ export function AgentPresetRailTools({
 /** Group key for selected tools the catalog no longer lists. */
 export const UNAVAILABLE_GROUP = "__unavailable__"
 
-/** Drill-in for one integration: per-tool approval and removal. */
-export function AgentPresetRailToolGroup({
-  groupKey,
-  registryActions,
-  mcpIntegrations,
-  registryLoading,
-  mcpLoading,
-  toolsLoadError,
-  isSaving,
-  maxTools,
-  skillActions,
-  onEmptied,
-}: {
+type RailToolGroupProps = {
   groupKey: string
   registryActions?: RegistryActionReadMinimal[]
   mcpIntegrations: MCPIntegrationRead[]
@@ -490,14 +691,118 @@ export function AgentPresetRailToolGroup({
   isSaving: boolean
   maxTools?: number | null
   skillActions?: string[] | null
+  channelTools?: AgentPresetChannelToolGroup[]
   /** Called after "Remove all" empties the group. */
   onEmptied?: () => void
+}
+
+/** Drill-in for one tool group: a selected integration or a channel connection. */
+export function AgentPresetRailToolGroup(props: RailToolGroupProps) {
+  if (props.groupKey.startsWith(CHANNEL_GROUP_PREFIX)) {
+    const group = (props.channelTools ?? NO_CHANNEL_TOOLS).find(
+      (candidate) => channelGroupKey(candidate.provider) === props.groupKey
+    )
+    return group ? (
+      <ChannelToolGroupDetail group={group} isSaving={props.isSaving} />
+    ) : (
+      <RailEmpty>Not connected to a channel.</RailEmpty>
+    )
+  }
+  return <RegistryToolGroupDetail {...props} />
+}
+
+/** A channel connection's tools: granted, never added or removed; Ask or Auto each. */
+function ChannelToolGroupDetail({
+  group,
+  isSaving,
+}: {
+  group: AgentPresetChannelToolGroup
+  isSaving: boolean
 }) {
+  const { value, onChange } = usePresetToolFields()
+  const rows = group.tools.map((tool) => ({
+    tool,
+    ask: channelApproval(value.toolApprovals, tool),
+  }))
+
+  function setApprovals(next: Array<{ name: string; ask: boolean }>) {
+    let rules = value.toolApprovals
+    for (const { name, ask } of next) {
+      const tool = group.tools.find((candidate) => candidate.name === name)
+      rules = setToolApproval(rules, name, ask, tool?.requires_approval)
+    }
+    if (rules !== value.toolApprovals)
+      onChange({ ...value, toolApprovals: rules })
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2.5 px-2 text-[13px]">
+        <LogoTile>
+          <ChannelProviderIcon provider={group.provider} className="size-3" />
+        </LogoTile>
+        <span>{group.label}</span>
+        <span className="flex-1" />
+        <span className="text-xs text-muted-foreground">From channels</span>
+      </div>
+      <p className="px-2 pb-2 text-xs text-muted-foreground">
+        Only in conversations started in {group.title}.
+      </p>
+      <div className="mb-1 flex h-8 items-center gap-2 border-b border-border/60 pr-0.5 pl-2">
+        <span className="flex-1 text-xs text-muted-foreground">
+          {rows.length} {rows.length === 1 ? "tool" : "tools"}
+        </span>
+        <ApprovalForAll
+          allAsk={rows.length > 0 && rows.every((row) => row.ask)}
+          allAuto={rows.length > 0 && rows.every((row) => !row.ask)}
+          disabled={isSaving}
+          onSet={(ask) =>
+            setApprovals(rows.map((row) => ({ name: row.tool.name, ask })))
+          }
+        />
+      </div>
+      {rows.map(({ tool, ask }) => (
+        <div key={tool.name} className={cn(RAIL_LIST_ROW, "h-9 py-0")}>
+          <span className="min-w-0 shrink truncate" title={tool.description}>
+            {tool.title}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/70">
+            {tool.name}
+          </span>
+          <ApprovalButton
+            tool={tool.name}
+            ask={ask}
+            disabled={isSaving}
+            onToggle={() => setApprovals([{ name: tool.name, ask: !ask }])}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Drill-in for one integration: per-tool approval and removal. */
+function RegistryToolGroupDetail({
+  groupKey,
+  registryActions,
+  mcpIntegrations,
+  registryLoading,
+  mcpLoading,
+  toolsLoadError,
+  isSaving,
+  maxTools,
+  skillActions,
+  channelTools = NO_CHANNEL_TOOLS,
+  onEmptied,
+}: RailToolGroupProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const ready = !registryLoading && !mcpLoading && !toolsLoadError
   const { index, groups, unknown, value, onChange, defaultAskKeys } =
     useRailToolsData(registryActions, mcpIntegrations, ready)
   const group = groups.find((candidate) => candidate.key === groupKey)
+  const superseded = group
+    ? supersededBy(group.namespace, channelTools) !== undefined
+    : false
   const isUnavailable = groupKey === UNAVAILABLE_GROUP
   const { control, setValue } = useFormContext<{
     toolTunnels: Record<string, string>
@@ -596,73 +901,53 @@ export function AgentPresetRailToolGroup({
           </span>
         </div>
       ) : null}
-      <div className="mb-1 flex h-8 items-center gap-2 border-b border-border/60 pr-0.5 pl-2">
-        <span className="flex-1 text-xs text-muted-foreground">
-          {rows.length} {rows.length === 1 ? "tool" : "tools"}
-        </span>
-        <div
-          role="group"
-          aria-label="Approval for all tools"
-          className="flex rounded-md bg-foreground/[0.06] p-0.5"
-        >
-          {[
-            { ask: false, label: "Auto", pressed: allAuto },
-            { ask: true, label: "Needs approval", pressed: allAsk },
-          ].map((option) => (
-            <button
-              key={option.label}
-              type="button"
-              aria-pressed={option.pressed}
-              disabled={isSaving}
-              onClick={() => setAllApprovals(option.ask)}
-              className={cn(
-                "h-[22px] rounded-[5px] px-2 text-xs transition-colors disabled:opacity-50",
-                RAIL_FOCUS,
-                option.pressed
-                  ? "bg-background shadow-[0_1px_2px_rgba(0,0,0,0.08)] dark:bg-accent dark:shadow-none"
-                  : "text-muted-foreground hover:text-foreground",
-                option.pressed && option.ask && APPROVAL_TEXT
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {rows.map((row) => (
-        <div key={row.key} className={cn(RAIL_LIST_ROW, "h-9 py-0")}>
-          <span className="min-w-0 shrink truncate">{row.title}</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/70">
-            {isUnavailable ? "" : row.key}
+      <div className={cn(superseded && "opacity-50")}>
+        <div className="mb-1 flex h-8 items-center gap-2 border-b border-border/60 pr-0.5 pl-2">
+          <span className="flex-1 text-xs text-muted-foreground">
+            {rows.length} {rows.length === 1 ? "tool" : "tools"}
           </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={RAIL_REMOVE_BUTTON}
-            aria-label={`Remove ${row.title}`}
+          <ApprovalForAll
+            allAsk={allAsk}
+            allAuto={allAuto}
             disabled={isSaving}
-            onClick={() => remove(row.key)}
-          >
-            <X className="size-3" />
-          </Button>
-          {isRegistryToolKey(row.key) ? (
-            <TunnelSelect
-              value={toolTunnels[row.key]}
-              onChange={(next) => setTunnel(row.key, next)}
-              noneLabel="No tunnel"
-              disabled={isSaving}
-              className="h-7 w-28 shrink-0 shadow-none"
-            />
-          ) : null}
-          <ApprovalButton
-            tool={row.key}
-            ask={row.ask}
-            disabled={isSaving}
-            onToggle={() => toggleApproval(row.key, row.ask)}
+            onSet={setAllApprovals}
           />
         </div>
-      ))}
+        {rows.map((row) => (
+          <div key={row.key} className={cn(RAIL_LIST_ROW, "h-9 py-0")}>
+            <span className="min-w-0 shrink truncate">{row.title}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/70">
+              {isUnavailable ? "" : row.key}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={RAIL_REMOVE_BUTTON}
+              aria-label={`Remove ${row.title}`}
+              disabled={isSaving}
+              onClick={() => remove(row.key)}
+            >
+              <X className="size-3" />
+            </Button>
+            {isRegistryToolKey(row.key) ? (
+              <TunnelSelect
+                value={toolTunnels[row.key]}
+                onChange={(next) => setTunnel(row.key, next)}
+                noneLabel="No tunnel"
+                disabled={isSaving}
+                className="h-7 w-28 shrink-0 shadow-none"
+              />
+            ) : null}
+            <ApprovalButton
+              tool={row.key}
+              ask={row.ask}
+              disabled={isSaving}
+              onToggle={() => toggleApproval(row.key, row.ask)}
+            />
+          </div>
+        ))}
+      </div>
       <div className="mt-3 flex items-center gap-2 px-2">
         <Button
           type="button"

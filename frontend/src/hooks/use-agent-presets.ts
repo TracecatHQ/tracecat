@@ -3,6 +3,7 @@ import {
   type AgentFolderCreate,
   type AgentFolderDirectoryItem,
   type AgentFolderRead,
+  type AgentPresetChannelToolGroup,
   type AgentPresetCreate,
   type AgentPresetDirectoryItem,
   type AgentPresetMoveToFolder,
@@ -25,6 +26,7 @@ import {
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
   agentPresetsGetAgentPresetVersion,
+  agentPresetsListAgentPresetChannelTools,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
   agentPresetsListAgentPresetWorkflowReferences,
@@ -48,6 +50,26 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
+
+const NO_CHANNEL_TOOLS: AgentPresetChannelToolGroup[] = []
+
+/** Tools the agent's channel connections grant; empty until it is connected. */
+export function useAgentPresetChannelTools(
+  workspaceId: string,
+  presetId: string | undefined
+): AgentPresetChannelToolGroup[] {
+  const { data } = useQuery({
+    queryKey: ["agent-preset-channel-tools", workspaceId, presetId],
+    queryFn: () =>
+      agentPresetsListAgentPresetChannelTools({
+        workspaceId,
+        presetId: presetId as string,
+      }),
+    enabled: Boolean(workspaceId && presetId),
+    meta: { suppressErrorToast: true },
+  })
+  return data?.groups ?? NO_CHANNEL_TOOLS
+}
 
 /** Preview unsaved skill tools without surfacing validation failures as toasts. */
 export function useAgentPresetToolPolicyPreview(

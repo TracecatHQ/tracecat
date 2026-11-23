@@ -36,7 +36,11 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
-from tracecat.agent.mcp.plugin_tools import granted_plugin_internal_tools
+from tracecat.agent.mcp.plugin_tools import (
+    granted_plugin_internal_tools,
+    is_superseded,
+    session_superseded_namespaces,
+)
 from tracecat.agent.mcp.stdio_runner import (
     stdio_mcp_tool_definition,
     usable_stdio_mcp_tools,
@@ -434,6 +438,16 @@ class AgentActivities:
             for action in BUILDER_BUNDLED_ACTIONS:
                 if action not in actions_to_build:
                     actions_to_build.append(action)
+
+        if args.session_id is not None and (
+            superseded := await session_superseded_namespaces(role, args.session_id)
+        ):
+            # A plugin connection replaces these; the preset keeps its selection.
+            actions_to_build = [
+                action
+                for action in actions_to_build
+                if not is_superseded(action, superseded)
+            ]
 
         try:
             result = await build_agent_tools(

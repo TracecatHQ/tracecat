@@ -238,6 +238,14 @@ export function removeTools(
   }
 }
 
+/** Whether `key` sits in one of `namespaces`, matched by whole segments. */
+export function isInNamespaces(
+  key: string,
+  namespaces: readonly string[]
+): boolean {
+  return namespaces.some((ns) => key === ns || key.startsWith(`${ns}.`))
+}
+
 /** Namespace prefixes filter existing grants; they never grant additional tools. */
 export function getBlockedActions(
   actions: string[],

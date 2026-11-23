@@ -37,6 +37,9 @@ from tracecat.agent.common.stream_types import (
 from tracecat.agent.preset.schemas import (
     AgentPresetApproverRead,
     AgentPresetApproverRef,
+    AgentPresetChannelTool,
+    AgentPresetChannelToolGroup,
+    AgentPresetChannelToolsRead,
     AgentPresetRead,
 )
 from tracecat.agent.skill.schemas import (
@@ -7666,6 +7669,70 @@ async def test_update_agent_preset_resolves_explicit_model(
     assert params.model_provider == "openai"
     assert payload["model_name"] == "gpt-5-mini"
     assert payload["model_provider"] == "openai"
+
+
+@pytest.mark.anyio
+async def test_get_agent_preset_lists_channel_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Triage",
+        slug="triage",
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        tool_approvals={"internal.slack.post_message": True},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    group = AgentPresetChannelToolGroup(
+        provider="slack",
+        title="Slack",
+        label="as @Tracecat",
+        tools=[
+            AgentPresetChannelTool(
+                name="internal.slack.post_message",
+                title="Post message",
+                description="Post a message.",
+                requires_approval=False,
+            )
+        ],
+        supersedes=["tools.slack"],
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "triage"
+            return preset
+
+        async def list_channel_tools(
+            self, preset_id: uuid.UUID
+        ) -> AgentPresetChannelToolsRead:
+            assert preset_id == preset.id
+            return AgentPresetChannelToolsRead(groups=[group])
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_agent_preset)(
+            workspace_id=str(workspace_id), preset_slug="triage"
+        )
+    )
+
+    assert payload["slug"] == "triage"
+    assert payload["tool_approvals"] == {"internal.slack.post_message": True}
+    assert payload["channel_tools"] == [group.model_dump(mode="json")]
 
 
 @pytest.mark.anyio

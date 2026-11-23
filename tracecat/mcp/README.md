@@ -309,3 +309,9 @@ Notes:
 
 `list_integrations` and `get_agent_preset_authoring_context` keep object
 responses but cap embedded collections and expose `truncation.collections`.
+
+`get_agent_preset` also returns `channel_tools`: tools the agent's channel
+connections grant (for example Slack), grouped by provider. They are not
+selected in `actions`; set their approvals per tool name through
+`update_agent_preset`'s `tool_approvals`. While connected, registry actions
+under a group's `supersedes` namespaces are left out at run time.

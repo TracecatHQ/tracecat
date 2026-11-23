@@ -889,6 +889,49 @@ export type AgentPresetCapability =
   | "internet_access"
 
 /**
+ * One tool an agent's channel connection grants.
+ */
+export type AgentPresetChannelTool = {
+  name: string
+  title: string
+  description: string
+  /**
+   * Default when `tool_approvals` has no rule for `name`.
+   */
+  requires_approval: boolean
+}
+
+/**
+ * Tools one provider connection grants the agent in channel conversations.
+ */
+export type AgentPresetChannelToolGroup = {
+  /**
+   * Provider id, such as `slack`.
+   */
+  provider: string
+  /**
+   * Provider display name.
+   */
+  title: string
+  /**
+   * Which connection, such as `as @Tracecat`.
+   */
+  label: string
+  tools: Array<AgentPresetChannelTool>
+  /**
+   * Registry action namespaces the agent does not use while connected.
+   */
+  supersedes?: Array<string>
+}
+
+/**
+ * Tools granted by the agent's channel connections; empty when it has none.
+ */
+export type AgentPresetChannelToolsRead = {
+  groups?: Array<AgentPresetChannelToolGroup>
+}
+
+/**
  * Payload for creating a new agent preset.
  */
 export type AgentPresetCreate = {
@@ -17620,6 +17663,14 @@ export type AgentPresetsDeleteAgentPresetData = {
 
 export type AgentPresetsDeleteAgentPresetResponse = void
 
+export type AgentPresetsListAgentPresetChannelToolsData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetChannelToolsResponse =
+  AgentPresetChannelToolsRead
+
 export type AgentPresetsGetAgentPresetBySlugData = {
   slug: string
   workspaceId: string
@@ -24982,6 +25033,21 @@ export type $OpenApiTs = {
          * Agent preset not found
          */
         404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-tools": {
+    get: {
+      req: AgentPresetsListAgentPresetChannelToolsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetChannelToolsRead
         /**
          * Validation Error
          */

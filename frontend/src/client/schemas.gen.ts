@@ -2874,6 +2874,89 @@ export const $AgentPresetCapability = {
   enum: ["approvals", "subagents", "internet_access"],
 } as const
 
+export const $AgentPresetChannelTool = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      description: "Default when `tool_approvals` has no rule for `name`.",
+    },
+  },
+  type: "object",
+  required: ["name", "title", "description", "requires_approval"],
+  title: "AgentPresetChannelTool",
+  description: "One tool an agent's channel connection grants.",
+} as const
+
+export const $AgentPresetChannelToolGroup = {
+  properties: {
+    provider: {
+      type: "string",
+      title: "Provider",
+      description: "Provider id, such as `slack`.",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Provider display name.",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+      description: "Which connection, such as `as @Tracecat`.",
+    },
+    tools: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetChannelTool",
+      },
+      type: "array",
+      title: "Tools",
+    },
+    supersedes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Supersedes",
+      description:
+        "Registry action namespaces the agent does not use while connected.",
+    },
+  },
+  type: "object",
+  required: ["provider", "title", "label", "tools"],
+  title: "AgentPresetChannelToolGroup",
+  description:
+    "Tools one provider connection grants the agent in channel conversations.",
+} as const
+
+export const $AgentPresetChannelToolsRead = {
+  properties: {
+    groups: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetChannelToolGroup",
+      },
+      type: "array",
+      title: "Groups",
+    },
+  },
+  type: "object",
+  title: "AgentPresetChannelToolsRead",
+  description:
+    "Tools granted by the agent's channel connections; empty when it has none.",
+} as const
+
 export const $AgentPresetCreate = {
   properties: {
     instructions: {

@@ -257,6 +257,8 @@ import type {
   AgentPresetsListAgentPresetApproverOptionsResponse,
   AgentPresetsListAgentPresetApproversData,
   AgentPresetsListAgentPresetApproversResponse,
+  AgentPresetsListAgentPresetChannelToolsData,
+  AgentPresetsListAgentPresetChannelToolsResponse,
   AgentPresetsListAgentPresetsData,
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
@@ -7706,6 +7708,31 @@ export const agentPresetsDeleteAgentPreset = (
     errors: {
       400: "Agent preset is the default agent of an installed channel app",
       404: "Agent preset not found",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Channel Tools
+ * List the tools the agent's channel connections grant; approvals live in `tool_approvals`.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @returns AgentPresetChannelToolsRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetChannelTools = (
+  data: AgentPresetsListAgentPresetChannelToolsData
+): CancelablePromise<AgentPresetsListAgentPresetChannelToolsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-tools",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
       422: "Validation Error",
     },
   })

@@ -402,6 +402,7 @@ class TestBuildToolDefinitionsActivity:
                 ),
                 handler=AsyncMock(),
                 requires_approval=requires_approval,
+                title=name,
             )
 
         granted = AsyncMock(
@@ -433,6 +434,48 @@ class TestBuildToolDefinitionsActivity:
             "internal.demo.waived": False,
             "internal.demo.write": True,
         }
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("connected", [True, False])
+    async def test_drops_superseded_actions_only_while_connected(
+        self, monkeypatch: pytest.MonkeyPatch, connected: bool
+    ) -> None:
+        built: list[str] = []
+
+        async def build_tools(
+            *, actions: list[str] | None, **_kwargs: Any
+        ) -> BuildToolsResult:
+            built.extend(actions or [])
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        superseded = frozenset({"tools.slack"} if connected else ())
+        _patch_registry(monkeypatch, build_tools=build_tools)
+        monkeypatch.setattr(
+            agent_activities,
+            "session_superseded_namespaces",
+            AsyncMock(return_value=superseded),
+        )
+        monkeypatch.setattr(
+            agent_activities,
+            "granted_plugin_internal_tools",
+            AsyncMock(return_value=[]),
+        )
+        selected = [
+            "tools.slack.post_message",
+            "tools.slack_bot.post",
+            "core.http_request",
+        ]
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=selected),
+            session_id=uuid.uuid4(),
+        )
+
+        await AgentActivities().build_tool_definitions(args)
+
+        assert built == (selected[1:] if connected else selected)
+        # The compile never rewrites the selection it was given.
+        assert args.tool_filters.actions == selected
 
     @pytest.mark.anyio
     async def test_records_registry_default_approvals_per_agent_scope(

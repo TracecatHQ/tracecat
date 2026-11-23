@@ -91,6 +91,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetApproverRead,
     AgentPresetApproverRef,
     AgentPresetApproversUpdate,
+    AgentPresetChannelToolGroup,
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetSkillBindingBase,
@@ -1547,6 +1548,19 @@ class AgentPresetAuthoringContextResponse(BaseModel):
     output_type_context: dict[str, Any]
     notes: list[str] = Field(default_factory=list)
     truncation: MCPTruncationSummary | None = None
+
+
+class AgentPresetWithChannelToolsRead(AgentPresetRead):
+    """A preset with the tools its channel connections grant."""
+
+    channel_tools: list[AgentPresetChannelToolGroup] = Field(
+        default_factory=list,
+        description=(
+            "Granted by the agent's channel connections, not selected in `actions`. "
+            "Set approval per tool name in `tool_approvals`; `requires_approval` is "
+            "the default. Registry actions under `supersedes` go unused while connected."
+        ),
+    )
 
 
 class TemplateUploadPreparedResponse(BaseModel):
@@ -12357,8 +12371,12 @@ async def list_agent_presets(
 @mcp.tool()
 async def get_agent_preset(
     workspace_id: uuid.UUID, preset_slug: str
-) -> AgentPresetRead:
-    """Get the full configuration for a saved agent preset by slug."""
+) -> AgentPresetWithChannelToolsRead:
+    """Get the full configuration for a saved agent preset by slug.
+
+    `channel_tools` lists tools the agent's channel connections grant; set their
+    approvals through `update_agent_preset`'s `tool_approvals`.
+    """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with AgentPresetService.with_session(role=role) as svc:
@@ -12366,7 +12384,10 @@ async def get_agent_preset(
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
             preset_read = await svc.build_preset_read(preset)
-        return preset_read
+            channel_tools = await svc.list_channel_tools(preset.id)
+        return AgentPresetWithChannelToolsRead(
+            **preset_read.model_dump(), channel_tools=channel_tools.groups
+        )
     except ToolError:
         raise
     except Exception as e:
