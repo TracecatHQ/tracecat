@@ -2674,6 +2674,46 @@ def test_a_teammate_may_control_only_shared_sessions(
     assert fake_svc.control.await_count == (1 if shared else 0)
 
 
+def test_a_teammate_who_sent_in_a_private_session_may_control_it() -> None:
+    agent_session = _agent_session_stub(
+        entity_type=AgentSessionEntity.CASE,
+        created_by=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    control_id = uuid.UUID(int=4)
+    fake_svc = SimpleNamespace(
+        participated_session_ids=AsyncMock(return_value={agent_session.id}),
+        get_session=AsyncMock(return_value=agent_session),
+        control=AsyncMock(
+            return_value=AgentControlReceipt(
+                id=control_id,
+                type="cancel",
+                run_id=agent_session.curr_run_id,
+                status="accepted",
+            )
+        ),
+    )
+    app = _scoped_app(_teammate_role(agent_session.workspace_id, EXECUTE_ONLY))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            f"/agent/sessions/{agent_session.id}/control",
+            json={"type": "cancel", "id": str(control_id)},
+        )
+
+    assert response.status_code == 200
+    fake_svc.participated_session_ids.assert_awaited_once_with([agent_session.id])
+    fake_svc.control.assert_awaited_once()
+
+
 @SHARING
 @pytest.mark.anyio
 async def test_a_teammate_may_cancel_only_shared_sessions(
