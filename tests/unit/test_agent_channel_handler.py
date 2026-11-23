@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from slack_sdk.errors import SlackApiError
@@ -703,18 +703,20 @@ async def test_approval_click_with_no_tracecat_user_needs_an_empty_policy(
             return_value=SimpleNamespace(agent_preset_id=None),
         ),
         patch(
-            "tracecat.agent.approvals.policy.has_listed_approvers",
+            "tracecat.agent.approvals.policy._listed_approver_matches",
             new_callable=AsyncMock,
-            return_value=has_policy,
-        ) as has_listed_approvers,
+            return_value={token.agent_preset_id: False} if has_policy else {},
+        ) as listed_approver_matches,
         patch.object(handler, "_record_tool_decision", record),
     ):
         await handler._handle_approval_action(payload={}, token=token)
 
-    has_listed_approvers.assert_awaited_once_with(
+    listed_approver_matches.assert_awaited_once_with(
         handler.session,
+        organization_id=ANY,
         workspace_id=workspace_id,
-        preset_id=token.agent_preset_id,
+        preset_ids={token.agent_preset_id},
+        approved_by=None,
     )
     notices = [
         payload["text"]

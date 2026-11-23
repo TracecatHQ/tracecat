@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -34,6 +35,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.policy import (
     ApproverNotAllowedError,
     ensure_approver_allowed,
+    ensure_decider_allowed,
 )
 from tracecat.agent.channel_users.service import resolve_channel_actor
 from tracecat.agent.preset.approvers import AgentPresetApproverService
@@ -53,6 +55,7 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetApprover,
     AgentSession,
+    Approval,
     Group,
     GroupMember,
     Organization,
@@ -230,6 +233,44 @@ async def test_workspace_admin_is_always_allowed(
     await session.execute(delete(User).where(cast(Any, User.id) == listed.id))
     await session.commit()
     assert await _allowed(session, svc_role, preset, admin)
+
+
+async def test_batch_spanning_presets_needs_every_presets_approval(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    organization_id, workspace_id = svc_role.organization_id, svc_role.workspace_id
+    assert organization_id is not None and workspace_id is not None
+    first = await _preset(session, svc_role)
+    second = await _preset(session, svc_role)
+    both = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    only_first = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    agent_session = cast(AgentSession, SimpleNamespace(agent_preset_id=None))
+    approvals = [
+        cast(Approval, SimpleNamespace(agent_preset_id=first.id)),
+        cast(Approval, SimpleNamespace(agent_preset_id=second.id)),
+    ]
+
+    async def allowed(user: User) -> bool:
+        try:
+            await ensure_decider_allowed(
+                session,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                agent_session=agent_session,
+                approvals=approvals,
+                approved_by=user.id,
+            )
+        except ApproverNotAllowedError:
+            return False
+        return True
+
+    assert await allowed(only_first)
+    await _list(session, svc_role, first.id, user_id=both.id)
+    await _list(session, svc_role, first.id, user_id=only_first.id)
+    await _list(session, svc_role, second.id, user_id=both.id)
+
+    assert await allowed(both)
+    assert not await allowed(only_first)
 
 
 async def test_decide_refuses_outside_the_policy_and_leaves_rows_pending(

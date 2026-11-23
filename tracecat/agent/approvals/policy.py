@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select
+from sqlalchemy import Boolean, ColumnElement, and_, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.controls import has_scope
@@ -43,14 +43,80 @@ def preset_approvers(
     )
 
 
-async def has_listed_approvers(
-    session: AsyncSession, *, workspace_id: WorkspaceID, preset_id: uuid.UUID | None
-) -> bool:
-    """Return whether the preset lists any approvers; none means the legacy rule."""
-    if preset_id is None:
-        return False
-    listed = exists().where(preset_approvers(workspace_id, preset_id))
-    return bool(await session.scalar(select(listed)))
+async def _listed_approver_matches(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    preset_ids: Collection[uuid.UUID],
+    approved_by: uuid.UUID | None,
+) -> dict[uuid.UUID, bool]:
+    """Map each preset that lists approvers to whether it lists the decider."""
+    if not preset_ids:
+        return {}
+    if approved_by is None:
+        matches: ColumnElement[bool] = false()
+    else:
+        user_groups = select(effective_group_members.c.group_id).where(
+            effective_group_members.c.user_id == approved_by
+        )
+        matches = or_(
+            AgentPresetApprover.user_id == approved_by,
+            AgentPresetApprover.group_id.in_(user_groups),
+            AgentPresetApprover.role_id.in_(
+                effective_role_ids(approved_by, organization_id, workspace_id)
+            ),
+        )
+    stmt = (
+        select(
+            AgentPresetApprover.preset_id,
+            func.bool_or(matches, type_=Boolean),
+        )
+        .where(
+            AgentPresetApprover.workspace_id == workspace_id,
+            AgentPresetApprover.preset_id.in_(preset_ids),
+        )
+        .group_by(AgentPresetApprover.preset_id)
+    )
+    result = await session.execute(stmt)
+    return {preset_id: bool(allowed) for preset_id, allowed in result.tuples()}
+
+
+async def _ensure_allowed_by_presets(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    preset_ids: Collection[uuid.UUID],
+    approved_by: uuid.UUID | None,
+) -> None:
+    """Refuse a decider any restricting preset excludes; at most two queries."""
+    listed = await _listed_approver_matches(
+        session,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        preset_ids=preset_ids,
+        approved_by=approved_by,
+    )
+    if not listed:
+        return
+    if approved_by is None:
+        raise ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
+
+    scopes = await query_effective_scopes(
+        session, approved_by, organization_id, workspace_id
+    )
+    if has_scope(scopes, APPROVER_OVERRIDE_SCOPE):
+        return
+    if not has_scope(scopes, APPROVER_FLOOR_SCOPE):
+        raise ApproverNotAllowedError(
+            "You need permission to run agents in this workspace to decide "
+            "its tool calls."
+        )
+    if not all(listed.values()):
+        raise ApproverNotAllowedError(
+            "Only this agent's approvers can decide its tool calls."
+        )
 
 
 async def ensure_approver_allowed(
@@ -69,40 +135,13 @@ async def ensure_approver_allowed(
     Raises:
         ApproverNotAllowedError: If the policy does not allow the decider.
     """
-    restricted = await has_listed_approvers(
-        session, workspace_id=workspace_id, preset_id=preset_id
+    await _ensure_allowed_by_presets(
+        session,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        preset_ids=[] if preset_id is None else [preset_id],
+        approved_by=approved_by,
     )
-    if not restricted or preset_id is None:
-        return
-    if approved_by is None:
-        raise ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
-
-    scopes = await query_effective_scopes(
-        session, approved_by, organization_id, workspace_id
-    )
-    if has_scope(scopes, APPROVER_OVERRIDE_SCOPE):
-        return
-    if not has_scope(scopes, APPROVER_FLOOR_SCOPE):
-        raise ApproverNotAllowedError(
-            "You need permission to run agents in this workspace to decide "
-            "its tool calls."
-        )
-    held_roles = effective_role_ids(approved_by, organization_id, workspace_id)
-    user_groups = select(effective_group_members.c.group_id).where(
-        effective_group_members.c.user_id == approved_by
-    )
-    listed = exists().where(
-        preset_approvers(workspace_id, preset_id),
-        or_(
-            AgentPresetApprover.user_id == approved_by,
-            AgentPresetApprover.group_id.in_(user_groups),
-            AgentPresetApprover.role_id.in_(held_roles),
-        ),
-    )
-    if not await session.scalar(select(listed)):
-        raise ApproverNotAllowedError(
-            "Only this agent's approvers can decide its tool calls."
-        )
 
 
 async def ensure_decider_allowed(
@@ -127,11 +166,10 @@ async def ensure_decider_allowed(
         else agent_session.agent_preset_id
         for approval in approvals
     }
-    for preset_id in preset_ids:
-        await ensure_approver_allowed(
-            session,
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            preset_id=preset_id,
-            approved_by=approved_by,
-        )
+    await _ensure_allowed_by_presets(
+        session,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        preset_ids={preset_id for preset_id in preset_ids if preset_id is not None},
+        approved_by=approved_by,
+    )
