@@ -20,7 +20,7 @@ from tracecat.auth.types import Role
 from tracecat.chat.constants import CHANNEL_MESSAGE_DATA_PART_TYPE
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import BasicChatRequest, VercelChatRequest
-from tracecat.db.models import AgentSession, AgentSessionHistory
+from tracecat.db.models import AgentSession, AgentSessionHistory, User
 from tracecat.exceptions import TracecatValidationError
 
 pytestmark = pytest.mark.anyio
@@ -183,3 +183,52 @@ async def test_a_turn_records_where_its_prompt_came_from(
 
     assert start.await_args is not None
     assert start.await_args.kwargs["origin"] is origin
+
+
+async def test_a_retry_keeps_the_linked_sender_as_its_author(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    sender = User(
+        id=uuid.uuid4(),
+        email=f"dana-{uuid.uuid4()}@example.com",
+        first_name="Dana",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Slack thread",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=uuid.uuid4(),
+    )
+    session.add_all([sender, agent_session])
+    await session.flush()
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            origin=UserMessageOrigin.CHANNEL.value,
+            author_id=sender.id,
+            content={
+                "type": "user",
+                "message": {"role": "user", "content": HELD.render()},
+            },
+        )
+    )
+    await session.commit()
+    service = AgentSessionService(session=session, role=_as(svc_role, "user"))
+    with (
+        patch.object(
+            service, "validate_turn_request", AsyncMock(return_value=agent_session)
+        ),
+        patch.object(service, "_start_new_turn", AsyncMock()) as start,
+    ):
+        await service.run_turn(agent_session.id, _retry(HELD))
+
+    assert start.await_args is not None
+    assert start.await_args.kwargs["author_id"] == sender.id

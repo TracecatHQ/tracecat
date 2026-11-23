@@ -331,8 +331,11 @@ def _record_failure(
 
 
 def prompt_author_id(input: AgentExecutorInput) -> uuid.UUID | None:
-    """The prompt's author: a linked channel sender, else the role's user."""
-    if input.author_id is not None:
+    """The prompt's author: a linked channel sender, else the role's user.
+
+    A channel message never falls back to the role: its sender may be unlinked.
+    """
+    if input.author_id is not None or input.origin == UserMessageOrigin.CHANNEL:
         return input.author_id
     return input.role.user_id if input.role.type == "user" else None
 

@@ -2006,6 +2006,7 @@ class AgentSessionService(BaseWorkspaceService):
         page_context: ChatPageContext | None = None
         is_continuation = False
         origin = UserMessageOrigin.TRACECAT
+        author_id: uuid.UUID | None = None
 
         match request:
             case ContinueRunRequest():
@@ -2014,8 +2015,14 @@ class AgentSessionService(BaseWorkspaceService):
                 page_context = request.page_context
                 # validate_turn_request let a Retry through only for a message
                 # the session received from its channel.
-                if _retried_channel_message(ui_message) is not None:
+                if (retried := _retried_channel_message(ui_message)) is not None:
                     origin = UserMessageOrigin.CHANNEL
+                    # The retry keeps the original sender, never the retrying user.
+                    received = await self._received_channel_message(
+                        agent_session, retried
+                    )
+                    if received is not None and received.author is not None:
+                        author_id = received.author.id
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
                     raise ValueError(
@@ -2043,6 +2050,7 @@ class AgentSessionService(BaseWorkspaceService):
             is_first_prompt=is_first_prompt,
             run_id=run_id,
             origin=origin,
+            author_id=author_id,
             # Per-turn stream id: use the HTTP-minted id when provided, else mint
             # one. Pinned into the workflow input so the worker producer writes to
             # the same per-turn Redis key the reader joins (immune to the
@@ -2254,7 +2262,7 @@ class AgentSessionService(BaseWorkspaceService):
         if retried is None:
             prompt = _extract_vercel_user_prompt(request.message)
             refuse_channel_envelope(prompt or "")
-        elif not await self._holds_channel_message(agent_session, retried):
+        elif await self._received_channel_message(agent_session, retried) is None:
             raise TracecatValidationError(
                 "Only a channel message this session received can be retried"
             )
@@ -3268,12 +3276,14 @@ class AgentSessionService(BaseWorkspaceService):
             kinds=kinds,
         )
 
-    async def _holds_channel_message(
+    async def _received_channel_message(
         self, agent_session: AgentSession, message: ChannelMessage
-    ) -> bool:
-        """Whether the session's history holds ``message`` as a user prompt."""
-        history = await self.list_messages(agent_session.id)
-        return any(entry.channel_message == message for entry in history)
+    ) -> ChatMessage | None:
+        """The session's history entry holding ``message`` as a user prompt."""
+        history = await self.list_messages(agent_session.id, with_authors=True)
+        return next(
+            (entry for entry in history if entry.channel_message == message), None
+        )
 
     async def _message_authors(
         self, entries: Sequence[AgentSessionHistory]

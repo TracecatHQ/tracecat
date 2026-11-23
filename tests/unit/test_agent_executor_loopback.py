@@ -364,6 +364,22 @@ def test_prompt_author_is_the_linked_sender_else_the_role_user(
     assert prompt_author_id(executor_input) == expected
 
 
+def test_an_unlinked_channel_prompt_never_credits_the_role_user() -> None:
+    """A web user retrying an unlinked sender's channel message is not its author."""
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="triage this",
+        origin=UserMessageOrigin.CHANNEL,
+        config=AgentConfig(model_name="test", model_provider="anthropic"),
+        role=Role(type="user", user_id=uuid.uuid4(), service_id="tracecat-api"),
+        mcp_auth_token="mcp",
+        llm_gateway_auth_token="llm",
+    )
+
+    assert prompt_author_id(executor_input) is None
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("line", "internal", "authored"),
