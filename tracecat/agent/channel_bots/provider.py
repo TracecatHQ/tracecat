@@ -140,9 +140,11 @@ class ChannelBotAdmin(Protocol):
         routes, and the channels each bot is in without one, named by the provider at read
         time.
 
-        `q` matches the channel name or ID, ignoring case and a leading `#`. A bot whose
-        lookup fails keeps its routes, marked `name_unavailable`, and is named in
-        `listing_failures` when running. Raise ``PaginationError`` for a malformed cursor.
+        Ordered by bot `created_at` descending, then bot ID descending, then
+        `provider_channel_id` ascending. `q` matches the channel name or ID, ignoring case
+        and a leading `#`. A bot whose lookup fails keeps its routes, marked
+        `name_unavailable`, and is named in `listing_failures` when running. Raise
+        ``PaginationError`` for a malformed cursor.
         """
         ...
 

@@ -58,7 +58,7 @@ export function WorkspaceChannelsTable({
   const [search, setSearch] = useState("")
   const enabled = useChannelBotReadsAllowed()
   const { data: bots } = useWorkspaceChannelBots(workspaceId, enabled)
-  const { presets } = useAgentPresets(workspaceId)
+  const { presets } = useAgentPresets(workspaceId, { enabled })
   const {
     routes,
     routesIsLoading,
@@ -135,7 +135,7 @@ export function WorkspaceChannelsTable({
                 unavailable={routesError !== null && !routes}
               />
             ))}
-            {groups.length === 0 ? (
+            {routes && groups.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={3}
