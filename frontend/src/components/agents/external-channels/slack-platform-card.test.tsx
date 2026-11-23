@@ -70,11 +70,11 @@ afterEach(() => {
 })
 
 describe("Channels page", () => {
-  it("says Tracecat for Slack is unavailable when the deployment registers no Slack app", async () => {
+  it("points to Admin › Slack app when the deployment registers no Slack app", async () => {
     renderChannelsPage()
     expect(
       await screen.findByText(
-        "Tracecat for Slack is not available in this workspace."
+        "Tracecat for Slack isn't set up on this instance yet. An admin sets it up in Admin › Slack app."
       )
     ).toBeInTheDocument()
     expect(

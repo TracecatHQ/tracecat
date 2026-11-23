@@ -1,5 +1,6 @@
 "use client"
 
+import { ArrowRight } from "lucide-react"
 import Link from "next/link"
 import type { ReactNode } from "react"
 import type {
@@ -323,7 +324,10 @@ function ChannelsLink({
 }) {
   return (
     <Button type="button" size="sm" variant="outline" asChild>
-      <Link href={href}>{children}</Link>
+      <Link href={href}>
+        {children}
+        <ArrowRight className="ml-2 size-4" />
+      </Link>
     </Button>
   )
 }

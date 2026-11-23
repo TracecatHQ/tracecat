@@ -39,6 +39,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useAdminSlackApp } from "@/hooks/use-admin"
 import { getApiErrorDetail } from "@/lib/errors"
 
@@ -225,8 +226,7 @@ function SlackAppCard({
         <div className="min-w-48 flex-1 space-y-0.5">
           <h3 className="text-sm font-semibold">{PLATFORM_SLACK_TITLE}</h3>
           <p className="text-xs text-muted-foreground">
-            Workspaces with Agent Channels see Add to Slack on their Channels
-            page.
+            Organizations add it to Slack in one click.
           </p>
         </div>
         {status}
@@ -238,7 +238,7 @@ function SlackAppCard({
 
 type MarkSetupSteps = (step: SlackPlatformAppSetupStepsUpdate) => void
 
-/** The settings only Slack can change, until each is marked done. */
+/** The settings only Slack can change, each ticked once it's set. */
 function FinishInSlack({
   slackApp,
   onMark,
@@ -259,46 +259,51 @@ function FinishInSlack({
           role="group"
           aria-label="Turn on public distribution"
         >
+          <Checkbox
+            className="mt-0.5"
+            checked={false}
+            disabled={marking}
+            aria-labelledby="slack-step-distribution"
+            onCheckedChange={() => onMark({ distribution_enabled: true })}
+          />
           <div className="min-w-48 flex-1 space-y-0.5">
-            <h4 className="text-sm font-medium">
+            <h4 id="slack-step-distribution" className="text-sm font-medium">
               Turn on public distribution (optional)
             </h4>
             <p className="text-xs text-muted-foreground">
               Until it&apos;s on, workspaces outside the one the app was created
               in can&apos;t add Tracecat. Slack doesn&apos;t report this, so
-              mark it done once it&apos;s on.
+              tick it once it&apos;s on.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" variant="outline" asChild>
-              <a
-                href={slackAppSettingsUrl(slackApp.app_id, "distribute")}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open Manage Distribution
-                <ExternalLink className="ml-2 size-4" />
-              </a>
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={marking}
-              onClick={() => onMark({ distribution_enabled: true })}
+          <Button type="button" size="sm" variant="outline" asChild>
+            <a
+              href={slackAppSettingsUrl(slackApp.app_id, "distribute")}
+              target="_blank"
+              rel="noreferrer"
             >
-              Mark done
-            </Button>
-          </div>
+              Open Manage Distribution
+              <ExternalLink className="ml-2 size-4" />
+            </a>
+          </Button>
         </div>
       )}
       {slackApp.icon_uploaded ? null : (
         <div
-          className="flex flex-wrap items-center gap-2"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2"
           role="group"
           aria-label="Upload the Tracecat icon"
         >
-          <p className="min-w-48 flex-1 text-xs text-muted-foreground">
+          <Checkbox
+            checked={false}
+            disabled={marking}
+            aria-labelledby="slack-step-icon"
+            onCheckedChange={() => onMark({ icon_uploaded: true })}
+          />
+          <p
+            id="slack-step-icon"
+            className="min-w-48 flex-1 text-xs text-muted-foreground"
+          >
             Optional: upload the Tracecat icon under Display Information.
           </p>
           <Button type="button" size="sm" variant="ghost" asChild>
@@ -307,52 +312,40 @@ function FinishInSlack({
               Download logo
             </a>
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={marking}
-            onClick={() => onMark({ icon_uploaded: true })}
-          >
-            Mark done
-          </Button>
         </div>
       )}
     </div>
   )
 }
 
-/** A setup step marked done, as a summary row with an undo for a wrong tick. */
+/** A setup step ticked done, as a summary row; unticking undoes it. */
 function MarkedStep({
+  id,
   label,
+  checkboxLabel,
   children,
-  undoLabel,
   disabled,
-  onUndo,
+  onUntick,
 }: {
+  id: string
   label: string
+  checkboxLabel: string
   children: ReactNode
-  undoLabel: string
   disabled: boolean
-  onUndo: () => void
+  onUntick: () => void
 }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="flex items-center gap-1">
-        <span>{children}</span>
-        <span aria-hidden>·</span>
-        <Button
-          type="button"
-          size="sm"
-          variant="link"
-          className="h-auto px-0 text-xs text-muted-foreground"
-          aria-label={undoLabel}
+      <dd className="flex items-center gap-1.5">
+        <Checkbox
+          id={id}
+          checked
           disabled={disabled}
-          onClick={onUndo}
-        >
-          Undo
-        </Button>
+          aria-label={checkboxLabel}
+          onCheckedChange={onUntick}
+        />
+        <label htmlFor={id}>{children}</label>
       </dd>
     </>
   )
@@ -398,22 +391,24 @@ function SlackAppSummary({
         <dd>{socket ? "Socket Mode" : "HTTP"}</dd>
         {slackApp.distribution_enabled ? (
           <MarkedStep
+            id="slack-summary-distribution"
             label="Distribution"
-            undoLabel="Undo marking distribution on"
+            checkboxLabel="Public distribution on"
             disabled={marking}
-            onUndo={() => onMark({ distribution_enabled: false })}
+            onUntick={() => onMark({ distribution_enabled: false })}
           >
-            Marked on
+            On
           </MarkedStep>
         ) : null}
         {slackApp.icon_uploaded ? (
           <MarkedStep
+            id="slack-summary-icon"
             label="App icon"
-            undoLabel="Undo marking the icon uploaded"
+            checkboxLabel="Tracecat icon uploaded"
             disabled={marking}
-            onUndo={() => onMark({ icon_uploaded: false })}
+            onUntick={() => onMark({ icon_uploaded: false })}
           >
-            Marked uploaded
+            Uploaded
           </MarkedStep>
         ) : null}
       </dl>

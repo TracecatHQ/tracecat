@@ -193,7 +193,7 @@ describe("PlatformSlackAppSettings", () => {
     expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument()
   })
 
-  it("drops each Slack-only step once marked done, and lists it with an undo", async () => {
+  it("drops each Slack-only step once ticked, and lists it ticked in the summary", async () => {
     api.get.mockResolvedValue(SAVED)
     api.mark
       .mockResolvedValueOnce({ ...SAVED, icon_uploaded: true })
@@ -207,13 +207,18 @@ describe("PlatformSlackAppSettings", () => {
     const icon = await screen.findByRole("group", {
       name: "Upload the Tracecat icon",
     })
+    expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull()
     await userEvent.click(
-      within(icon).getByRole("button", { name: "Mark done" })
+      within(icon).getByRole("checkbox", {
+        name: "Optional: upload the Tracecat icon under Display Information.",
+      })
     )
     expect(api.mark).toHaveBeenLastCalledWith({
       requestBody: { icon_uploaded: true },
     })
-    expect(await screen.findByText("Marked uploaded")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("checkbox", { name: "Tracecat icon uploaded" })
+    ).toBeChecked()
     expect(
       screen.queryByRole("group", { name: "Upload the Tracecat icon" })
     ).toBeNull()
@@ -221,28 +226,30 @@ describe("PlatformSlackAppSettings", () => {
     const distribution = screen.getByRole("group", {
       name: "Turn on public distribution",
     })
-    await userEvent.click(
-      within(distribution).getByRole("button", { name: "Mark done" })
-    )
+    const pending = within(distribution).getByRole("checkbox", {
+      name: "Turn on public distribution (optional)",
+    })
+    expect(pending).not.toBeChecked()
+    await userEvent.click(pending)
     expect(api.mark).toHaveBeenLastCalledWith({
       requestBody: { distribution_enabled: true },
     })
-    expect(await screen.findByText("Marked on")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("checkbox", { name: "Public distribution on" })
+    ).toBeChecked()
     expect(
       screen.queryByRole("group", { name: "Turn on public distribution" })
     ).toBeNull()
     expect(screen.getByText("Ready")).toBeInTheDocument()
   })
 
-  it("undoes a step marked done by mistake", async () => {
+  it("unticks a step ticked by mistake", async () => {
     api.get.mockResolvedValue({ ...SAVED, distribution_enabled: true })
     api.mark.mockResolvedValue(SAVED)
     renderSettings()
 
     await userEvent.click(
-      await screen.findByRole("button", {
-        name: "Undo marking distribution on",
-      })
+      await screen.findByRole("checkbox", { name: "Public distribution on" })
     )
     expect(api.mark).toHaveBeenCalledWith({
       requestBody: { distribution_enabled: false },
@@ -250,7 +257,9 @@ describe("PlatformSlackAppSettings", () => {
     expect(
       await screen.findByRole("group", { name: "Turn on public distribution" })
     ).toBeInTheDocument()
-    expect(screen.queryByText("Marked on")).toBeNull()
+    expect(
+      screen.queryByRole("checkbox", { name: "Public distribution on" })
+    ).toBeNull()
   })
 
   it("asks for the credentials again when the saved ones can't be read", async () => {

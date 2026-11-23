@@ -8,6 +8,7 @@ import {
   useChannelBotInstallResult,
   useSlackPlatformAppAvailable,
 } from "@/hooks/use-agent-channel-bots"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { getApiErrorDetail } from "@/lib/errors"
 
 /** The workspace's Channels page: Tracecat for Slack, where available. */
@@ -19,6 +20,7 @@ export function WorkspaceChannelsView({
   const installFailure = useChannelBotInstallResult()
   const { slackPlatformAvailable, slackPlatformIsLoading, slackPlatformError } =
     useSlackPlatformAppAvailable(workspaceId)
+  const { hasEntitlement } = useEntitlements()
 
   if (slackPlatformIsLoading) {
     return <CenteredSpinner />
@@ -40,6 +42,13 @@ export function WorkspaceChannelsView({
           workspaceClaimed={installFailure === "slack_workspace_claimed"}
         />
       </div>
+    )
+  } else if (hasEntitlement("agent_channels_preview")) {
+    body = (
+      <p className="text-sm text-muted-foreground">
+        Tracecat for Slack isn&apos;t set up on this instance yet. An admin sets
+        it up in Admin › Slack app.
+      </p>
     )
   } else {
     body = (
