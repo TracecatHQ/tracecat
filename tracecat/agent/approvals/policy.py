@@ -18,6 +18,8 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.identifiers import OrganizationID, WorkspaceID
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 # Workspace admins and org owners/admins hold it: they may always decide.
 APPROVER_OVERRIDE_SCOPE = "workspace:update"
@@ -80,7 +82,11 @@ async def _ensure_allowed_by_presets(
     preset_ids: Collection[uuid.UUID],
     approved_by: uuid.UUID | None,
 ) -> None:
-    """Refuse a decider any restricting preset excludes; at most two queries."""
+    """Refuse a decider any restricting preset excludes.
+
+    Unrestricted presets cost one query; restricted ones add the entitlement and
+    scope lookups.
+    """
     listed = await _listed_approver_matches(
         session,
         organization_id=organization_id,
@@ -88,7 +94,10 @@ async def _ensure_allowed_by_presets(
         preset_ids=preset_ids,
         approved_by=approved_by,
     )
-    if not listed:
+    # Approver policy is enterprise: without it, stored grants stay but are inert.
+    if not listed or not await is_org_entitled(
+        session, organization_id, Entitlement.RBAC_ADDONS
+    ):
         return
     if approved_by is None:
         raise ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)

@@ -42,7 +42,8 @@ from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkspaceID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tiers.enums import Entitlement
 
 type _IdSelect = Select[Any] | CompoundSelect
 
@@ -87,11 +88,15 @@ def _requested(
 
 
 class AgentPresetApproverService(BaseWorkspaceService):
-    """The preset-wide approver set: live workspace policy, never versioned."""
+    """The preset-wide approver set: live workspace policy, never versioned.
+
+    Enterprise: every method needs the ``rbac_addons`` entitlement.
+    """
 
     service_name = "agent_preset_approver"
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.RBAC_ADDONS)
     async def list_approvers(
         self, preset_id: uuid.UUID
     ) -> list[AgentPresetApproverRead]:
@@ -99,6 +104,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         return await self._named(self._listed(preset_id))
 
     @require_scope("agent:read", "workspace:member:read")
+    @requires_entitlement(Entitlement.RBAC_ADDONS)
     async def list_options(
         self, page: PageParams, *, search: str | None = None
     ) -> CursorPaginatedResponse[AgentPresetApproverRead]:
@@ -165,6 +171,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.RBAC_ADDONS)
     @audit_log(
         resource_type="agent_preset", action="update", resource_id_attr="preset_id"
     )

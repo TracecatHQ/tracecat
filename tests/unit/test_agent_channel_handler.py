@@ -707,6 +707,11 @@ async def test_approval_click_with_no_tracecat_user_needs_an_empty_policy(
             new_callable=AsyncMock,
             return_value={token.agent_preset_id: False} if has_policy else {},
         ) as listed_approver_matches,
+        patch(
+            "tracecat.agent.approvals.policy.is_org_entitled",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch.object(handler, "_record_tool_decision", record),
     ):
         await handler._handle_approval_action(payload={}, token=token)

@@ -7797,6 +7797,29 @@ async def test_agent_preset_approver_tools_require_the_route_scopes(
 
 
 @pytest.mark.anyio
+async def test_agent_preset_approver_tools_need_rbac_addons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    refused = AsyncMock(side_effect=EntitlementRequired("rbac_addons"))
+    service = SimpleNamespace(
+        list_options=refused, list_approvers=refused, replace_approvers=refused
+    )
+    _patch_approver_services(monkeypatch, workspace_id, service)
+
+    for tool, kwargs in [
+        (mcp_server.list_agent_preset_approver_options, {}),
+        (mcp_server.list_agent_preset_approvers, {"preset_slug": "triage"}),
+        (
+            mcp_server.set_agent_preset_approvers,
+            {"preset_slug": "triage", "approvers": []},
+        ),
+    ]:
+        with pytest.raises(ToolError, match="RBAC add-ons entitlement"):
+            await _tool(tool)(workspace_id=str(workspace_id), **kwargs)
+
+
+@pytest.mark.anyio
 async def test_set_agent_preset_approvers_validates_like_the_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

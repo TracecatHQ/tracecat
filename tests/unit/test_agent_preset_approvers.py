@@ -65,10 +65,28 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatValidationError,
+)
 from tracecat.pagination import PageParams
+from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
+
+
+def _set_rbac_addons(monkeypatch: pytest.MonkeyPatch, enabled: bool) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"rbac_addons": enabled}),
+    )
+
+
+@pytest.fixture(autouse=True)
+def enable_rbac_addons(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_rbac_addons(monkeypatch, True)
 
 
 async def _make_user(
@@ -712,3 +730,29 @@ async def test_approval_preset_stays_in_the_workspace_and_nulls_on_delete(
     await session.refresh(stamped)
     assert stamped.agent_preset_id is None
     assert stamped.workspace_id == svc_role.workspace_id
+
+
+async def test_without_rbac_addons_grants_are_inert_and_unmanageable(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preset = await _preset(session, svc_role)
+    listed = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    outsider = await _make_user(session, svc_role, workspace_role="workspace-editor")
+    await _list(session, svc_role, preset.id, user_id=listed.id)
+    assert not await _allowed(session, svc_role, preset, outsider)
+
+    _set_rbac_addons(monkeypatch, False)
+    service = AgentPresetApproverService(session, role=svc_role)
+
+    # The legacy rule decides; the stored grant is kept for a later upgrade.
+    assert await _allowed(session, svc_role, preset, outsider)
+    assert await _allowed(session, svc_role, preset, None)
+    with pytest.raises(EntitlementRequired):
+        await service.list_approvers(preset.id)
+    with pytest.raises(EntitlementRequired):
+        await service.list_options(PageParams(limit=10))
+    with pytest.raises(EntitlementRequired):
+        await service.replace_approvers(preset.id, [])
+    assert await session.scalar(
+        select(AgentPresetApprover.id).where(AgentPresetApprover.preset_id == preset.id)
+    )

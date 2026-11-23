@@ -12418,6 +12418,11 @@ async def list_agent_preset_approver_options(
     except ScopeDeniedError as e:
         required = ", ".join(e.required_scopes)
         raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
     except TracecatValidationError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -12447,6 +12452,11 @@ async def list_agent_preset_approvers(
     except ScopeDeniedError as e:
         required = ", ".join(e.required_scopes)
         raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
     except Exception as e:
         logger.error(
             "Failed to list agent preset approvers",
@@ -12486,6 +12496,11 @@ async def set_agent_preset_approvers(
     except ScopeDeniedError as e:
         required = ", ".join(e.required_scopes)
         raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
     except (ValidationError, TracecatValidationError, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except Exception as e:
