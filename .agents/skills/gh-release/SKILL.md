@@ -147,9 +147,30 @@ prerelease moves neither.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
-replacement. Before retrying, verify the run ID, push event, and release commit.
-Compare the publisher in that commit with the current reviewed publisher in
-`main` and rerun the failed run only if they match. If verification fails,
+replacement. Before retrying, verify that the failed run was triggered by a
+push of the intended tag and used `.github/workflows/build-push-images.yml`.
+Fetch `origin/main` and the release tag. Set `TAG` to that tag, `RUN_HEAD_SHA`
+to the run's `headSha`, and `REVIEWED_MAIN_SHA` to the full commit SHA of the
+current reviewed publisher on `main`. Pin that SHA before comparing the files.
+
+```sh
+(
+  set -eu
+  tag_sha=$(git rev-parse --verify "refs/tags/${TAG}^{commit}")
+  test "$tag_sha" = "$RUN_HEAD_SHA"
+  git merge-base --is-ancestor "$REVIEWED_MAIN_SHA" refs/remotes/origin/main
+
+  workflow=.github/workflows/build-push-images.yml
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf -- "$tmp_dir"' EXIT
+  git cat-file blob "$tag_sha:$workflow" > "$tmp_dir/tag.yml"
+  git cat-file blob "$REVIEWED_MAIN_SHA:$workflow" > "$tmp_dir/main.yml"
+  cmp -s "$tmp_dir/tag.yml" "$tmp_dir/main.yml"
+)
+```
+
+Rerun only that failed run and only if the entire workflow file matches
+byte for byte. On a mismatch, missing file, or verification error, stop and
 prepare a new release containing the reviewed publisher after separate approval.
 
 ## Release notes
