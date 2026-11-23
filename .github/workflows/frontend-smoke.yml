@@ -11,13 +11,7 @@ permissions:
 
 jobs:
   frontend-smoke:
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
+    if: github.ref == 'refs/heads/main' && github.ref_protected
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 45
     steps:

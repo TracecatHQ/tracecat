@@ -147,21 +147,10 @@ prerelease moves neither.
 
 If image publication fails, stop before creating the GitHub release. Report the
 existing branch/tag and failed run; never move the tag or automatically cut a
-replacement. To rebuild, use a separate trusted, updated `main` checkout and run:
-
-```sh
-uv run python scripts/rebuild_release_images.py '<tag>'
-```
-
-The helper requires the remote tag's workflow to exactly match the committed
-publisher in that checkout before dispatching with the tag as both ref and
-input. An older tag runs its own historical workflow, so guards on `main`
-cannot protect a direct dispatch or rerun. On a mismatch or lookup failure,
-stop; never bypass the helper or move the tag. A new release containing the
-current publisher requires a separately approved release plan. For a retry,
-verify the run ID, event, and release commit rather than accepting an older
-successful run. Rebuilding an older patch leaves both `X.Y` and `latest`
-unchanged.
+replacement. Before retrying, verify the run ID, push event, and release commit.
+Compare the publisher in that commit with the current reviewed publisher in
+`main` and rerun the failed run only if they match. If verification fails,
+prepare a new release containing the reviewed publisher after separate approval.
 
 ## Release notes
 

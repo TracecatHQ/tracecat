@@ -15,8 +15,8 @@ These instructions apply to all files under `.github/`, especially `.github/work
 ## Required Controls
 - Prefer `push`, `pull_request`, and protected branch or tag triggers.
 - Treat `workflow_dispatch` as a privileged operator path, not a convenience default. Add it only when a human-triggered run is genuinely required.
-- Guard privileged manual workflows with the `TRUSTED_CI_ACTORS_JSON` Actions variable. Store it as a JSON array of GitHub usernames.
-- If a guarded `workflow_dispatch` is triggered by another workflow, explicitly allow `github-actions[bot]` for that path instead of weakening the actor guard globally.
+- For manual runs, require the exact `refs/heads/main` ref and `github.ref_protected` before starting jobs. Keep GitHub branch protection or rulesets enabled on `main`.
+- GitHub loads the workflow from the selected ref. Enforce access to privileged credentials and resources with GitHub settings as well as workflow job conditions.
 - Declare explicit `permissions:` on every workflow or job. Default to read-only and scope writes to the minimum required permission.
 - Use `persist-credentials: false` on `actions/checkout` unless the job must push with `GITHUB_TOKEN`.
 - Put high-value credentials in protected environments with required reviewers. In this repo:
