@@ -145,6 +145,51 @@ export function slackUpdateNeeded(
   )
 }
 
+/** Slack scopes by what they let the agent do. */
+const SLACK_SCOPE_GROUPS: { label: string; scopes: readonly string[] }[] = [
+  { label: "Run war rooms", scopes: ["channels:manage", "groups:write"] },
+  {
+    label: "DMs and group DMs",
+    scopes: ["im:read", "im:write", "mpim:read", "mpim:write"],
+  },
+  {
+    label: "Search Slack",
+    scopes: ["search:read.public", "search:read.files", "search:read.users"],
+  },
+  {
+    label: "Canvases, bookmarks, pins",
+    scopes: [
+      "canvases:read",
+      "canvases:write",
+      "bookmarks:read",
+      "bookmarks:write",
+      "pins:read",
+      "pins:write",
+    ],
+  },
+  { label: "Link previews", scopes: ["links:read", "links:write"] },
+  {
+    label: "People and groups",
+    scopes: ["users.profile:read", "usergroups:read"],
+  },
+]
+
+/** `scopes` grouped by what they unlock; scopes no group names go last, under "Other". */
+export function groupSlackScopes(
+  scopes: string[]
+): { label: string; scopes: string[] }[] {
+  const wanted = new Set(scopes)
+  const groups = SLACK_SCOPE_GROUPS.map(({ label, scopes: known }) => ({
+    label,
+    scopes: known.filter((scope) => wanted.has(scope)),
+  })).filter((group) => group.scopes.length > 0)
+  const grouped = new Set(groups.flatMap((group) => group.scopes))
+  const other = scopes.filter((scope) => !grouped.has(scope))
+  return other.length > 0
+    ? [...groups, { label: "Other", scopes: other }]
+    : groups
+}
+
 /** A routed channel's label: its name when listed, else its ID. */
 export function routeChannelLabel(
   provider: ChannelBotProvider,

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ChannelBotInstallResult } from "@/client"
 import {
@@ -358,16 +358,75 @@ describe("SlackBotCard", () => {
   it("asks for an update when only the manifest changed", async () => {
     serveBots([slackBot({}, { update_needed: true })])
     renderPanel()
-    expect(await screen.findByText("Update needed")).toBeInTheDocument()
-    expect(screen.queryByText(/to grant/)).toBeNull()
+    const row = await screen.findByRole("group", { name: "Custom Slack app" })
+    expect(within(row).getByText("Update available")).toBeInTheDocument()
+    expect(
+      within(row).getByText("Slack app is out of date.")
+    ).toBeInTheDocument()
+    expect(within(row).queryByText(/What the agent gains/)).toBeNull()
   })
 
-  it("lists the scopes a reinstall must grant", async () => {
+  it("groups the scopes an update grants by what they unlock", async () => {
     serveBots([
-      slackBot({}, { missing_scopes: ["users:read"], update_needed: true }),
+      slackBot(
+        {},
+        { missing_scopes: ["im:read", "users:read"], update_needed: true }
+      ),
     ])
     renderPanel()
-    expect(await screen.findByText(/to grant: users:read/)).toBeInTheDocument()
+    const row = await screen.findByRole("group", { name: "Custom Slack app" })
+    await userEvent.click(
+      within(row).getByText("What the agent gains (2 permissions)")
+    )
+    expect(within(row).getByText("DMs and group DMs")).toBeVisible()
+    expect(within(row).getByText("Other")).toBeVisible()
+    expect(within(row).getByText("users:read")).toBeVisible()
+  })
+
+  it("copies the manifest and opens the app from the notice", async () => {
+    serveBots([slackBot({}, { update_needed: true })])
+    renderPanel()
+    const row = await screen.findByRole("group", { name: "Custom Slack app" })
+    expect(
+      within(row).getByRole("link", { name: "Open app in Slack" })
+    ).toHaveAttribute("href", "https://api.slack.com/apps/A1/general")
+    const copy = within(row).getByRole("button", { name: "Copy app manifest" })
+    await waitFor(() => expect(copy).toBeEnabled())
+    await userEvent.click(copy)
+
+    expect(api.appManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: "bot-1", appName: "Triage" })
+    )
+    expect(copyToClipboard).toHaveBeenCalledWith({
+      value: slackAppManifest("Triage").content,
+      message: "App manifest copied",
+    })
+  })
+
+  it("reconnects a working but outdated bot from the notice", async () => {
+    serveBots([slackBot({}, { update_needed: true })])
+    renderPanel()
+    await openDialog("Reconnect")
+    expect(
+      screen.getByRole("button", { name: "Reconnect to Slack" })
+    ).toBeInTheDocument()
+    expect(screen.getByText(RECONNECT_WARNING)).toBeInTheDocument()
+  })
+
+  it("says once that a disconnected bot is also out of date", async () => {
+    serveBots([
+      slackBot({ status: "needs_reconnect" }, { missing_scopes: ["im:read"] }),
+    ])
+    renderPanel()
+    const row = await screen.findByRole("group", { name: "Custom Slack app" })
+    expect(within(row).getByText("Disconnected")).toBeInTheDocument()
+    expect(
+      within(row).getByText("Slack app is out of date and disconnected.")
+    ).toBeInTheDocument()
+    expect(within(row).getAllByRole("status")).toHaveLength(1)
+    expect(
+      within(row).getByRole("button", { name: "Copy app manifest" })
+    ).toBeInTheDocument()
   })
 })
 

@@ -207,7 +207,7 @@ export function ChannelBotCard({
   title,
   description,
   state,
-  reconnectDescription,
+  status,
   onManage,
   opening = false,
   children,
@@ -216,8 +216,8 @@ export function ChannelBotCard({
   title: string
   description: ReactNode
   state: ChannelBotState
-  /** The description while the bot needs reconnecting. */
-  reconnectDescription: string
+  /** Replaces the state's own status; notices own any reconnect action. */
+  status?: ReactNode
   onManage: () => void
   opening?: boolean
   /** Provider notices and the provider's dialog. */
@@ -226,36 +226,23 @@ export function ChannelBotCard({
   const { installed } = CHANNEL_BOT_STATES[state]
   // Every channel bot request needs agent:update.
   const canUpdateAgent = useScopeCheck("agent:update") === true
-  const reconnecting = state === "needs_reconnect"
-  let action = "Connect"
-  if (reconnecting) {
-    action = "Reconnect"
-  } else if (installed) {
-    action = "Manage"
-  }
-  let shownDescription = description
-  if (reconnecting) {
-    shownDescription = canUpdateAgent
-      ? reconnectDescription
-      : ASK_AN_AGENT_EDITOR
-  }
   return (
     <div role="group" aria-label={title}>
       <ChannelBotHeader
         providerId={providerId}
         title={title}
-        description={shownDescription}
-        status={<ChannelBotStatus state={state} />}
+        description={description}
+        status={status ?? <ChannelBotStatus state={state} />}
       >
         <Button
           type="button"
           size="sm"
-          variant={reconnecting ? "default" : "outline"}
+          variant="outline"
           onClick={onManage}
           disabled={opening || !canUpdateAgent}
         >
           {opening ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-          {action}
+          {installed ? "Manage" : "Connect"}
         </Button>
       </ChannelBotHeader>
       {/* The dialog portals out, so a row with no notices stays empty. */}

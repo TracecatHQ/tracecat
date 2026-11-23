@@ -18,18 +18,24 @@ import { cn } from "@/lib/utils"
 export function StatusLabel({
   icon: Icon,
   destructive = false,
+  warning = false,
   children,
 }: {
   icon: LucideIcon
   destructive?: boolean
+  /** Stale but not broken. */
+  warning?: boolean
   children: ReactNode
 }) {
+  let tone = "text-muted-foreground"
+  if (destructive) {
+    tone = "text-destructive"
+  } else if (warning) {
+    tone = "text-amber-600 dark:text-amber-400"
+  }
   return (
     <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 text-xs",
-        destructive ? "text-destructive" : "text-muted-foreground"
-      )}
+      className={cn("inline-flex shrink-0 items-center gap-1.5 text-xs", tone)}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden />
       {children}

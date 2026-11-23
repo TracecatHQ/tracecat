@@ -168,8 +168,9 @@ describe.each(PROVIDERS)(
         )
       ).toBeInTheDocument()
       expect(
-        within(row).getByRole("button", { name: "Reconnect" })
-      ).toBeDisabled()
+        within(row).queryByRole("button", { name: "Reconnect" })
+      ).toBeNull()
+      expect(within(row).getByRole("button", { name: "Manage" })).toBeDisabled()
     })
 
     it("flags a bot that needs reconnecting", async () => {
@@ -177,15 +178,18 @@ describe.each(PROVIDERS)(
       renderPanel()
       const row = await screen.findByRole("group", { name: title })
 
-      expect(within(row).getByText("Needs reconnect")).toBeInTheDocument()
+      expect(within(row).getByText("Disconnected")).toBeInTheDocument()
       expect(
-        within(row).getByText("Not answering in Slack until you reconnect.")
+        within(row).getByText("Disconnected from Slack.")
       ).toBeInTheDocument()
-      // One status and one action; no separate notice repeats it.
-      expect(within(row).queryByRole("alert")).toBeNull()
+      // One notice owns the reconnect; Manage stays secondary.
+      expect(within(row).getAllByRole("status")).toHaveLength(1)
       expect(
         within(row).getByRole("button", { name: "Reconnect" })
       ).toBeEnabled()
+      expect(
+        within(row).queryByRole("button", { name: "Copy app manifest" })
+      ).toBeNull()
     })
   }
 )
