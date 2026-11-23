@@ -17,16 +17,38 @@ Use the `Push` tab to push the full workspace configuration.
     On the `Push` tab, use the branch picker beside `Into` to choose an existing branch or enter a new branch name and click `Create`. Enter a commit message. New branches start from the base branch. Tracecat blocks direct pushes to both the base branch and the repository default branch.
 
     <Frame>
-      ![Git sync Push tab with grouped resource changes, target branch, and commit message](/img/manage-platform/git-sync-workspace-push.jpg)
+      ![Git sync Push tab with grouped resource changes, target branch, and commit message](/img/manage-platform/git-sync-workspace-push.png)
     </Frame>
   </Step>
   <Step title="Preview changes">
     Click `Preview` to compare with the target branch, or the base branch when creating a branch. Expand a resource group to review its file changes. Use `Preview again` after making more edits.
   </Step>
   <Step title="Push">
-    Click `Push and open PR` (`Push and open MR` on GitLab); the button includes the change count after a preview. Use the adjacent menu to choose `Push only` when you want a commit without a pull request. Tracecat commits only changed files, deletes stale files, and reuses an open pull request on the same branch.
+    Click `Push and open PR` (`Push and open MR` on GitLab); the button includes the change count after a preview. Use the adjacent menu to choose `Push only` for a commit without a pull request.
 
-    The pull request body names the workspace and the publishing user's email.
+    - Tracecat commits only changed files and deletes stale files.
+    - Tracecat reuses an open pull request on the same branch.
+    - The pull request body names the workspace and the publishing user's email.
+
+    <Frame>
+      ![Git sync push complete with a link to the new merge request](/img/manage-platform/git-sync-push-complete.png)
+    </Frame>
+  </Step>
+  <Step title="Review the pull request">
+    Open the link to review the change in your provider. Each resource is a readable file, so reviewers see workflow definitions, scripts, and schemas as ordinary diffs. See [What an export contains](/gitops/workspace-git-sync#what-an-export-contains) for the folder layout.
+
+    <Tabs>
+      <Tab title="Overview">
+        <Frame>
+          ![GitLab merge request opened by Tracecat Git sync from a sync branch into main](/img/manage-platform/git-sync-merge-request.png)
+        </Frame>
+      </Tab>
+      <Tab title="Changes">
+        <Frame>
+          ![GitLab merge request changes with workflow definitions, scripts, and table schemas](/img/manage-platform/git-sync-merge-request-changes.png)
+        </Frame>
+      </Tab>
+    </Tabs>
   </Step>
 </Steps>
 
@@ -69,7 +91,7 @@ A merged pull request changes nothing in a workspace until you or your pipeline 
     On the `Pull` tab, use the commit picker beside `From` to choose a commit from the base branch.
 
     <Frame>
-      ![Git sync Pull tab with grouped changes, commit selector, and schedule-overwrite control](/img/manage-platform/git-sync-workspace-pull.jpg)
+      ![Git sync Pull tab with grouped changes, commit selector, and schedule-overwrite control](/img/manage-platform/git-sync-workspace-pull.png)
     </Frame>
   </Step>
   <Step title="Preview changes">
@@ -85,7 +107,10 @@ A merged pull request changes nothing in a workspace until you or your pipeline 
 </Steps>
 
 <Warning>
-  A pull can overwrite local edits made after the preview. Coordinate workspace edits, run one push or pull at a time, and wait for it to finish before starting another. Leaving the page does not cancel an in-flight sync. A push exports the workspace state when you submit it, so preview again after editing resources.
+  A pull can overwrite local edits made after the preview.
+
+  - Run one push or pull at a time, and wait for it to finish before starting another. Leaving the page does not cancel an in-flight sync.
+  - A push exports the workspace state when you submit it, so preview again after editing resources.
 </Warning>
 
 Until you publish a pulled workflow, its runs resolve actions against the workspace's current registry versions. Publishing it records the registry lock.
@@ -109,7 +134,9 @@ Until you publish a pulled workflow, its runs resolve actions against the worksp
 
 ## API reference
 
-Pushing requires `workspace_sync:push` and pulling requires `workspace_sync:pull`. Reading branches and commits accepts either, so a service account holding only `workspace_sync:pull` can pull from CI. Pulling also requires write access to every resource type in the commit, such as `workflow:create` and `workflow:update`.
+- Pushing requires `workspace_sync:push`; pulling requires `workspace_sync:pull`.
+- Reading branches and commits accepts either, so a service account with only `workspace_sync:pull` can pull from CI.
+- Pulling also requires write access to every resource type in the commit, such as `workflow:create` and `workflow:update`.
 
 | Action | Endpoint | Scopes |
 | --- | --- | --- |
