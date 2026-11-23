@@ -46,7 +46,6 @@ def upgrade() -> None:
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("preset_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("tool", sa.String(length=255), nullable=True),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("role_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -111,9 +110,9 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        "uq_agent_preset_approver_preset_tool_principal",
+        "uq_agent_preset_approver_preset_principal",
         "agent_preset_approver",
-        ["preset_id", "tool", "user_id", "group_id", "role_id"],
+        ["preset_id", "user_id", "group_id", "role_id"],
         unique=True,
         postgresql_nulls_not_distinct=True,
     )
@@ -130,9 +129,18 @@ def upgrade() -> None:
         "FOREIGN KEY (agent_preset_id) REFERENCES agent_preset (id) "
         "ON DELETE SET NULL NOT VALID"
     )
+    # Deleting a preset nulls its approvals; without this each delete scans the table.
+    op.create_index(
+        "ix_approval_agent_preset_id",
+        "approval",
+        ["agent_preset_id"],
+        unique=False,
+        postgresql_where=sa.text("agent_preset_id IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_approval_agent_preset_id", table_name="approval")
     op.drop_constraint(
         op.f("fk_approval_agent_preset_id_agent_preset"),
         "approval",
@@ -141,7 +149,7 @@ def downgrade() -> None:
     op.drop_column("approval", "agent_preset_id")
     op.execute(disable_workspace_table_rls("agent_preset_approver"))
     op.drop_index(
-        "uq_agent_preset_approver_preset_tool_principal",
+        "uq_agent_preset_approver_preset_principal",
         table_name="agent_preset_approver",
         postgresql_nulls_not_distinct=True,
     )

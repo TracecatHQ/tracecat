@@ -33,14 +33,13 @@ class ApproverNotAllowedError(TracecatAuthorizationError):
     """The decider is outside the preset's approver policy."""
 
 
-def preset_wide_approvers(
+def preset_approvers(
     workspace_id: WorkspaceID, preset_id: uuid.UUID
 ) -> ColumnElement[bool]:
-    """Match the approvers that apply to every tool of the preset."""
+    """Match the preset's listed approvers."""
     return and_(
         AgentPresetApprover.workspace_id == workspace_id,
         AgentPresetApprover.preset_id == preset_id,
-        AgentPresetApprover.tool.is_(None),
     )
 
 
@@ -50,7 +49,7 @@ async def has_listed_approvers(
     """Return whether the preset lists any approvers; none means the legacy rule."""
     if preset_id is None:
         return False
-    listed = exists().where(preset_wide_approvers(workspace_id, preset_id))
+    listed = exists().where(preset_approvers(workspace_id, preset_id))
     return bool(await session.scalar(select(listed)))
 
 
@@ -65,6 +64,7 @@ async def ensure_approver_allowed(
     """Refuse a decider outside the preset's approvers; none listed = legacy rule.
 
     Listed approvers need ``agent:execute``; ``workspace:update`` always decides.
+    The legacy rule adds no scope check, so linking a channel sender never narrows it.
 
     Raises:
         ApproverNotAllowedError: If the policy does not allow the decider.
@@ -72,10 +72,10 @@ async def ensure_approver_allowed(
     restricted = await has_listed_approvers(
         session, workspace_id=workspace_id, preset_id=preset_id
     )
-    if approved_by is None:
-        if restricted:
-            raise ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
+    if not restricted or preset_id is None:
         return
+    if approved_by is None:
+        raise ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
 
     scopes = await query_effective_scopes(
         session, approved_by, organization_id, workspace_id
@@ -87,14 +87,12 @@ async def ensure_approver_allowed(
             "You need permission to run agents in this workspace to decide "
             "its tool calls."
         )
-    if not restricted or preset_id is None:
-        return
     held_roles = effective_role_ids(approved_by, organization_id, workspace_id)
     user_groups = select(effective_group_members.c.group_id).where(
         effective_group_members.c.user_id == approved_by
     )
     listed = exists().where(
-        preset_wide_approvers(workspace_id, preset_id),
+        preset_approvers(workspace_id, preset_id),
         or_(
             AgentPresetApprover.user_id == approved_by,
             AgentPresetApprover.group_id.in_(user_groups),

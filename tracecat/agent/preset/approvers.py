@@ -10,7 +10,7 @@ from typing import Any, cast
 from sqlalchemy import CompoundSelect, Select, delete, select, union
 from sqlalchemy.orm import raiseload
 
-from tracecat.agent.approvals.policy import preset_wide_approvers
+from tracecat.agent.approvals.policy import preset_approvers
 from tracecat.agent.preset.schemas import (
     AgentPresetApproverKind,
     AgentPresetApproverRead,
@@ -120,7 +120,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
             )
         await self.session.execute(
             delete(AgentPresetApprover).where(
-                preset_wide_approvers(self.workspace_id, preset_id)
+                preset_approvers(self.workspace_id, preset_id)
             )
         )
         self.session.add_all(
@@ -137,7 +137,7 @@ class AgentPresetApproverService(BaseWorkspaceService):
         return valid
 
     def _listed(self, preset_id: uuid.UUID) -> _Principals:
-        listed = preset_wide_approvers(self.workspace_id, preset_id)
+        listed = preset_approvers(self.workspace_id, preset_id)
         return _Principals(
             users=select(AgentPresetApprover.user_id).where(listed),
             groups=select(AgentPresetApprover.group_id).where(listed),

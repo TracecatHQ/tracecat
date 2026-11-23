@@ -161,7 +161,8 @@ async def test_empty_policy_keeps_the_legacy_rule(
 
     assert await _allowed(session, svc_role, preset, None)
     assert await _allowed(session, svc_role, preset, editor)
-    assert not await _allowed(session, svc_role, preset, viewer)
+    # Route scopes gate the legacy rule, so a linked channel clicker is not narrowed.
+    assert await _allowed(session, svc_role, preset, viewer)
 
 
 async def test_listed_user_group_and_role_may_decide(

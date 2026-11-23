@@ -3814,6 +3814,11 @@ class Approval(WorkspaceModel):
             "tool_call_id",
             name="uq_approval_workspace_session_tool",
         ),
+        Index(
+            "ix_approval_agent_preset_id",
+            "agent_preset_id",
+            postgresql_where=text("agent_preset_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -5980,11 +5985,10 @@ class AgentPresetApprover(WorkspaceModel):
         CheckConstraint(
             "num_nonnulls(user_id, group_id, role_id) = 1", name="one_principal"
         ),
-        # NULL tool is the preset-wide set; NULLS NOT DISTINCT keeps it unique too.
+        # The unset principal columns are NULL; NULLS NOT DISTINCT keeps rows unique.
         Index(
-            "uq_agent_preset_approver_preset_tool_principal",
+            "uq_agent_preset_approver_preset_principal",
             "preset_id",
-            "tool",
             "user_id",
             "group_id",
             "role_id",
@@ -6003,11 +6007,6 @@ class AgentPresetApprover(WorkspaceModel):
         UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
     preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
-    tool: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-        doc="Tool this approver is scoped to; NULL applies to every tool",
-    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True
     )
