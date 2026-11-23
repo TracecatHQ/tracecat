@@ -726,7 +726,9 @@ describe("message authors", () => {
             text: "triage this",
             sender: { provider_user_id: "U1", name: "dana.slack" },
             quoted: [],
-            people: [{ provider_user_id: "U1", name: "Dana Scully" }],
+            people: [
+              { provider_user_id: "U1", name: "Dana Scully", linked: true },
+            ],
           },
         },
       ],
@@ -735,6 +737,37 @@ describe("message authors", () => {
 
     expect(screen.getByText("Dana Scully")).toBeInTheDocument()
     expect(screen.queryByText("dana.slack")).not.toBeInTheDocument()
+  })
+
+  it("labels a nameless channel sender as a Slack user, not the turn's author", () => {
+    const message: UIMessage = {
+      id: "u2-nameless",
+      role: "user",
+      metadata: ALICE_AUTHOR,
+      parts: [
+        {
+          type: "data-channel-message",
+          data: {
+            provider: "slack",
+            text: "triage this",
+            sender: { provider_user_id: "U9" },
+            quoted: [],
+          },
+        },
+      ],
+    }
+    render(
+      <MessageParts
+        message={message}
+        status="ready"
+        isLastMessage
+        showAuthor
+        currentUserId="user-2"
+      />
+    )
+
+    expect(screen.getByText("Slack user")).toBeInTheDocument()
+    expect(screen.queryByText("Alice Doe")).not.toBeInTheDocument()
   })
 
   it("draws no label when no author was recorded", () => {

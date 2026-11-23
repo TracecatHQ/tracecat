@@ -47,7 +47,7 @@ export function UserBubble({
   )
   // An unlinked channel sender is never the viewer, whatever the turn's author.
   const viewerWrote =
-    own && (!channelMessage || channelSender(channelMessage)?.linked === true)
+    own && (!channelMessage || channelSender(channelMessage).linked)
   if (viewerWrote) {
     // No channel name reaches the chat yet, so the line names the provider.
     const fromSlack = channelMessage?.provider === "slack"
@@ -92,9 +92,8 @@ export function UserBubble({
 }
 
 /** A channel message's sender, labelled by where they wrote from. */
-function channelActor(message: ChannelMessageData): MessageActor | null {
+function channelActor(message: ChannelMessageData): MessageActor {
   const sender = channelSender(message)
-  if (!sender) return null
   return {
     name: sender.name,
     fromSlack: message.provider === "slack",

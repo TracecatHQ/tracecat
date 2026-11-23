@@ -64,22 +64,14 @@ function quotedAuthor(
 }
 
 /** Who sent the message: their linked Tracecat name, else their provider display name. */
-export function channelSender(
-  message: ChannelMessageData
-): ChannelPersonLabel | null {
+export function channelSender(message: ChannelMessageData): ChannelPersonLabel {
   const person = (message.people ?? []).find(
     (candidate) =>
       candidate.provider_user_id === message.sender.provider_user_id
   )
   if (person) return { name: person.name, linked: person.linked ?? false }
-  return message.sender.name
-    ? { name: message.sender.name, linked: false }
-    : null
-}
-
-/** The sender's linked Tracecat name, else their provider display name. */
-export function channelSenderName(message: ChannelMessageData): string | null {
-  return channelSender(message)?.name ?? null
+  // A nameless sender still reads as a channel person, never the turn's web author.
+  return { name: message.sender.name || UNKNOWN_CHANNEL_PERSON, linked: false }
 }
 
 /** The text with Slack user mentions shown by name instead of ID. */
