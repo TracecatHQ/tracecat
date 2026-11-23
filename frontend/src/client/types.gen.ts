@@ -4087,6 +4087,7 @@ export type ChannelMessageSender = {
 export type ChannelPerson = {
   provider_user_id: string
   name: string
+  linked?: boolean
 }
 
 /**

@@ -134,7 +134,7 @@ def test_people_round_trip_beside_the_raw_ids() -> None:
         people=[
             ChannelPerson(provider_user_id="U2", name='Bo "B"'),
             ChannelPerson(provider_user_id="U3", name="Cy"),
-            ChannelPerson(provider_user_id="U4", name="Sam Doe"),
+            ChannelPerson(provider_user_id="U4", name="Sam Doe", linked=True),
         ],
     )
 
@@ -142,6 +142,7 @@ def test_people_round_trip_beside_the_raw_ids() -> None:
 
     # The agent keeps the IDs it needs to mention or DM someone.
     assert '"provider_user_id": "U2",\n      "name": "Bo \\"B\\""' in rendered
+    assert '"name": "Sam Doe",\n      "linked": true' in rendered
     assert '"author": "U3"' in rendered
     assert '"author_id": "U4"' in rendered
     assert ChannelMessage.parse(rendered) == original

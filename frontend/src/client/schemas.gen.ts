@@ -15110,6 +15110,11 @@ export const $ChannelPerson = {
       type: "string",
       title: "Name",
     },
+    linked: {
+      type: "boolean",
+      title: "Linked",
+      default: false,
+    },
   },
   type: "object",
   required: ["provider_user_id", "name"],
