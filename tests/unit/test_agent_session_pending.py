@@ -102,6 +102,7 @@ def _get_pending(
     session_id: uuid.UUID | None = None,
     role: Role | None = None,
     get_session: AsyncMock | None = None,
+    participated: bool = False,
 ):
     workspace_id = agent_session.workspace_id if agent_session else uuid.uuid4()
     actor = role or _role(workspace_id)
@@ -120,7 +121,11 @@ def _get_pending(
         patch.object(
             AgentSessionService,
             "participated_session_ids",
-            AsyncMock(return_value=set()),
+            AsyncMock(
+                return_value={agent_session.id}
+                if participated and agent_session
+                else set()
+            ),
         ),
         patch.object(registry, "get_agent_backends", return_value=backends),
         TestClient(app) as client,
@@ -201,23 +206,30 @@ def test_pending_route_lets_the_owner_read_their_pending_messages() -> None:
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "scopes", "visible"),
+    ("entity_type", "scopes", "participated", "visible"),
     [
         # A teammate's unread messages stay theirs until the model reads them.
-        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, False),
+        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, False, False),
+        # Once they sent a message there, the session is theirs too.
+        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, True, True),
         # A workflow session is shared with members who may act on it.
-        (AgentSessionEntity.WORKFLOW, EXECUTE, True),
-        (AgentSessionEntity.WORKFLOW, frozenset({"agent:read"}), False),
+        (AgentSessionEntity.WORKFLOW, EXECUTE, False, True),
+        (AgentSessionEntity.WORKFLOW, frozenset({"agent:read"}), False, False),
     ],
 )
 def test_pending_route_shows_pending_messages_only_on_shared_sessions(
-    entity_type: AgentSessionEntity, scopes: frozenset[str], visible: bool
+    entity_type: AgentSessionEntity,
+    scopes: frozenset[str],
+    participated: bool,
+    visible: bool,
 ) -> None:
     agent_session = _session(created_by=uuid.uuid4(), entity_type=entity_type)
     backend = PendingBackend()
     role = _role(agent_session.workspace_id, user_id=uuid.uuid4(), scopes=scopes)
 
-    response = _get_pending(agent_session, {"external": backend}, role=role)
+    response = _get_pending(
+        agent_session, {"external": backend}, role=role, participated=participated
+    )
 
     if visible:
         assert response.status_code == 200
