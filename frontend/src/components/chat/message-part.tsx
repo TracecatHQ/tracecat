@@ -63,6 +63,7 @@ import {
   collectInterruptedToolCallIds,
   getChannelMessageData,
   getCompactionData,
+  getMessageAuthorId,
   getMessageAuthorName,
   getToolDenial,
   getUserMessageData,
@@ -104,6 +105,8 @@ type MessagePartProps = {
   reasoningSeconds?: number
   /** Who sent a user message, when recorded. */
   author?: MessageActor | null
+  /** The viewer wrote this user message. */
+  own?: boolean
 }
 
 type DerivedToolState = {
@@ -168,6 +171,7 @@ export function MessagePart({
   onSubmitApprovals,
   reasoningSeconds,
   author = null,
+  own = false,
 }: MessagePartProps) {
   const { expandSteps } = useChatVerbosityPolicy()
   // Steps remount on a level change, since defaultOpen applies only on mount.
@@ -227,6 +231,7 @@ export function MessagePart({
         text={message.text}
         channelMessage={message.channelMessage}
         author={author}
+        own={own}
       />
     )
   }
@@ -240,6 +245,7 @@ export function MessagePart({
         text={channelMessage.text}
         channelMessage={channelMessage}
         author={author}
+        own={own}
       />
     )
   }
@@ -251,6 +257,7 @@ export function MessagePart({
         text={part.text}
         channelMessage={null}
         author={author}
+        own={own}
       />
     )
   }
@@ -355,11 +362,13 @@ export function MessagePart({
 
 type MessagePartsProps = Omit<
   MessagePartProps,
-  "part" | "partIdx" | "id" | "role" | "author"
+  "part" | "partIdx" | "id" | "role" | "author" | "own"
 > & {
   message: Pick<UIMessage, "id" | "role" | "parts" | "metadata">
   /** Label web prompts with their author; only shared sessions need it. */
   showAuthor?: boolean
+  /** The viewer's user ID, so their own messages drop the avatar. */
+  currentUserId?: string | null
 }
 
 type IndexedPart = { part: UIMessage["parts"][number]; partIdx: number }
@@ -466,6 +475,7 @@ export function MessageParts({
   onSubmitApprovals,
   reasoningSeconds,
   showAuthor = false,
+  currentUserId = null,
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
@@ -473,6 +483,11 @@ export function MessageParts({
     () => (showAuthor && message.role === "user" ? webActor(message) : null),
     [showAuthor, message]
   )
+  const own =
+    showAuthor &&
+    message.role === "user" &&
+    currentUserId !== null &&
+    getMessageAuthorId(message.metadata) === currentUserId
 
   function renderPart({ part, partIdx }: IndexedPart) {
     return (
@@ -489,6 +504,7 @@ export function MessageParts({
         onSubmitApprovals={onSubmitApprovals}
         reasoningSeconds={reasoningSeconds}
         author={author}
+        own={own}
       />
     )
   }
@@ -944,7 +960,8 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals ||
     prev.reasoningSeconds !== next.reasoningSeconds ||
-    !sameActor(prev.author, next.author)
+    !sameActor(prev.author, next.author) ||
+    prev.own !== next.own
   ) {
     return false
   }

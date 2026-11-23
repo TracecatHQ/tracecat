@@ -21,10 +21,13 @@ export function UserBubble({
   text,
   channelMessage,
   author,
+  own = false,
 }: {
   text: string
   channelMessage: ChannelMessageData | null
   author: MessageActor | null
+  /** The viewer wrote this message. */
+  own?: boolean
 }) {
   const actor = (channelMessage && channelActor(channelMessage)) ?? author
   const content = (
@@ -42,28 +45,47 @@ export function UserBubble({
       {channelMessage && <ChannelMessageContext message={channelMessage} />}
     </MessageContent>
   )
+  // An unlinked channel sender is never the viewer, whatever the turn's author.
+  const viewerWrote =
+    own && (!channelMessage || channelSender(channelMessage)?.linked === true)
+  if (viewerWrote) {
+    // No channel name reaches the chat yet, so the line names the provider.
+    const fromSlack = channelMessage?.provider === "slack"
+    return (
+      <Message from="user" className="flex-col items-end gap-1">
+        {fromSlack && (
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <SlackIcon className="size-3.5" aria-hidden="true" />
+            From Slack
+          </span>
+        )}
+        {content}
+      </Message>
+    )
+  }
   if (!actor) {
     return <Message from="user">{content}</Message>
   }
   return (
-    <Message from="user" className="flex-col items-end gap-1">
-      <span className="text-xs text-muted-foreground">
-        <span className={channelPersonClassName(actor.linked)}>
-          {actor.name}
-        </span>
-        {actor.fromSlack ? " · from Slack" : null}
-      </span>
-      <div className="flex w-full items-start justify-end gap-2.5">
-        {content}
+    <Message from="user" className="justify-start">
+      <div className="flex min-w-0 flex-1 items-start gap-2.5">
         <MessageAvatar
           name={actor.name}
-          aria-label={`${actor.name}, from ${actor.fromSlack ? "Slack" : "Tracecat"}`}
+          aria-label={actor.name}
           badge={
             actor.fromSlack ? (
               <SlackIcon className="size-2.5" aria-hidden="true" />
             ) : undefined
           }
         />
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <span className="pt-1.5 text-xs text-muted-foreground">
+            <span className={channelPersonClassName(actor.linked)}>
+              {actor.name}
+            </span>
+          </span>
+          {content}
+        </div>
       </div>
     </Message>
   )

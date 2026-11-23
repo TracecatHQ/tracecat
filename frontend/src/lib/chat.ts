@@ -631,6 +631,14 @@ export type MessageActor = {
   linked: boolean
 }
 
+/** The Tracecat user ID of a user message's author, or null if none was recorded. */
+export function getMessageAuthorId(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null
+  const author = "author" in metadata ? metadata.author : undefined
+  if (!author || typeof author !== "object") return null
+  return "id" in author && typeof author.id === "string" ? author.id : null
+}
+
 /** The display name of a user message's author, or null if none was recorded. */
 export function getMessageAuthorName(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null

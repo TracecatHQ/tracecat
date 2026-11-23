@@ -497,60 +497,66 @@ describe("channel messages", () => {
 })
 
 describe("message authors", () => {
-  it("puts a Slack badge on the avatar of a message sent from Slack only", () => {
-    const fromSlack: UIMessage = {
-      id: "u-slack",
+  const ALICE_AUTHOR = {
+    author: {
+      id: "user-1",
+      email: "alice@example.com",
+      first_name: "Alice",
+      last_name: "Doe",
+    },
+  }
+  function slackMessage(
+    id: string,
+    linked: boolean,
+    metadata?: UIMessage["metadata"]
+  ): UIMessage {
+    return {
+      id,
       role: "user",
+      metadata,
       parts: [
         {
           type: "data-channel-message",
           data: {
             provider: "slack",
-            text: "from slack",
+            text: `${id} text`,
             sender: { provider_user_id: "U1", name: "alice.slack" },
             quoted: [],
-            people: [
-              { provider_user_id: "U1", name: "Alice Doe", linked: true },
-            ],
+            people: [{ provider_user_id: "U1", name: "Alice Doe", linked }],
           },
         },
       ],
     }
-    const fromWeb: UIMessage = {
-      id: "u-web",
-      role: "user",
-      metadata: {
-        author: {
-          id: "user-1",
-          email: "alice@example.com",
-          first_name: "Alice",
-          last_name: "Doe",
-        },
-      },
-      parts: [{ type: "text", text: "from web" }],
-    }
+  }
+  const webMessage: UIMessage = {
+    id: "u-web",
+    role: "user",
+    metadata: ALICE_AUTHOR,
+    parts: [{ type: "text", text: "web text" }],
+  }
+
+  it("marks another person's Slack message only by the badge on their avatar", () => {
     render(
       <>
         <MessageParts
-          message={fromSlack}
+          message={slackMessage("u-slack", true, ALICE_AUTHOR)}
           status="ready"
           isLastMessage
           showAuthor
+          currentUserId="user-2"
         />
         <MessageParts
-          message={fromWeb}
+          message={webMessage}
           status="ready"
           isLastMessage
           showAuthor
+          currentUserId="user-2"
         />
       </>
     )
 
-    const slackAvatar = screen.getByRole("img", {
-      name: "Alice Doe, from Slack",
-    })
-    const webAvatar = screen.getByRole("img", {
-      name: "Alice Doe, from Tracecat",
+    const [slackAvatar, webAvatar] = screen.getAllByRole("img", {
+      name: "Alice Doe",
     })
     expect(slackAvatar.parentElement).toContainElement(
       screen.getByTestId("slack-icon")
@@ -558,8 +564,58 @@ describe("message authors", () => {
     expect(
       webAvatar.parentElement?.querySelector("[data-testid=slack-icon]")
     ).toBeNull()
-    expect(screen.getAllByText("AD")).toHaveLength(2)
-    expect(screen.getByText(/from Slack$/)).toBeInTheDocument()
+    expect(screen.getAllByText("Alice Doe")).toHaveLength(2)
+    expect(screen.queryByText(/from slack/i)).not.toBeInTheDocument()
+  })
+
+  it("draws the viewer's own web message with no avatar or label", () => {
+    const { container } = render(
+      <MessageParts
+        message={webMessage}
+        status="ready"
+        isLastMessage
+        showAuthor
+        currentUserId="user-1"
+      />
+    )
+
+    expect(screen.getByText("web text")).toBeInTheDocument()
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
+    expect(screen.queryByText("Alice Doe")).not.toBeInTheDocument()
+    expect(screen.queryByText(/from/i)).not.toBeInTheDocument()
+    expect(container.querySelector(".is-user > span")).toBeNull()
+  })
+
+  it("puts a From line with the Slack icon above the viewer's own Slack message", () => {
+    render(
+      <MessageParts
+        message={slackMessage("u-own-slack", true, ALICE_AUTHOR)}
+        status="ready"
+        isLastMessage
+        showAuthor
+        currentUserId="user-1"
+      />
+    )
+
+    const fromLine = screen.getByText("From Slack")
+    expect(fromLine).toContainElement(screen.getByTestId("slack-icon"))
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
+    expect(screen.queryByText("Alice Doe")).not.toBeInTheDocument()
+  })
+
+  it("never treats an unlinked Slack sender as the viewer", () => {
+    render(
+      <MessageParts
+        message={slackMessage("u-unlinked", false, ALICE_AUTHOR)}
+        status="ready"
+        isLastMessage
+        showAuthor
+        currentUserId="user-1"
+      />
+    )
+
+    expect(screen.getByRole("img", { name: "Alice Doe" })).toBeInTheDocument()
+    expect(screen.queryByText("From Slack")).not.toBeInTheDocument()
   })
 
   it("mutes an unlinked Slack sender's name and highlights a linked one", () => {

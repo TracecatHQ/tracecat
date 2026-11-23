@@ -1677,6 +1677,7 @@ export function ChatSessionPane({
                         turnCancelled={cancelledTurnMessageIds.has(message.id)}
                         interruptedToolCallIds={interruptedToolCallIds}
                         showAuthor={showMessageAuthors}
+                        currentUserId={user?.id ?? null}
                       />
                     </div>
                   )

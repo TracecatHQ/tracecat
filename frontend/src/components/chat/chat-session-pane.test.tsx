@@ -1389,9 +1389,7 @@ describe("ChatSessionPane author labels", () => {
         screen.getByRole("img", { name: "Triage bot" })
       ).toBeInTheDocument()
       expect(screen.getByText("Triage bot")).toBeInTheDocument()
-      expect(
-        screen.getByRole("img", { name: "Sam, from Tracecat" })
-      ).toBeInTheDocument()
+      expect(screen.getByRole("img", { name: "Sam" })).toBeInTheDocument()
     } finally {
       preset.mockReturnValue({ preset: undefined } as ReturnType<
         typeof useAgentPreset
