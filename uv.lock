@@ -556,6 +556,20 @@ wheels = [
 ]
 
 [[package]]
+name = "azure-keyvault-secrets"
+version = "4.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "isodate" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/39/24/ef81175436814f088cb1b9c4252f580f1c29e8ae1ca7d01cce7f9f6c3b7a/azure_keyvault_secrets-4.12.0.tar.gz", hash = "sha256:435ea0abb5280baaad9553da7a19e73e1b581048783b852210352bfcb0316aff", size = 142105, upload-time = "2026-10-28T00:53:16.932Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2f/32/48509a0e574485003e7dc22aaebcb985555c69bdf730761427077cd6b854/azure_keyvault_secrets-4.12.0-py3-none-any.whl", hash = "sha256:ec5ff84ee0a045094e62d38e9b962769003e60fe7396d8dcf1ac4c78e7d010c6", size = 111784, upload-time = "2026-10-28T00:53:18.371Z" },
+]
+
+[[package]]
 name = "azure-storage-blob"
 version = "12.30.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5984,11 +5998,15 @@ requires-dist = [
 name = "tracecat-ee"
 source = { editable = "packages/tracecat-ee" }
 dependencies = [
+    { name = "azure-keyvault-secrets" },
     { name = "bitwarden-sdk" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "bitwarden-sdk", specifier = "==2.1.0" }]
+requires-dist = [
+    { name = "azure-keyvault-secrets", specifier = "==4.12.0" },
+    { name = "bitwarden-sdk", specifier = "==2.1.0" },
+]
 
 [[package]]
 name = "tracecat-registry"

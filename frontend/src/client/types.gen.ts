@@ -1998,6 +1998,39 @@ export type AzureAICatalogUpdate = {
 }
 
 /**
+ * Persisted provider configuration for an Azure Key Vault store.
+ *
+ * The service principal's client secret is not part of the config; it is
+ * stored encrypted in the store's ``encrypted_access_token`` column.
+ */
+export type AzureKeyVaultStoreConfig = {
+  provider?: "azure_key_vault"
+  vault_url: string
+  tenant_id: string
+  client_id: string
+}
+
+/**
+ * Client-supplied fields when creating an Azure Key Vault store.
+ */
+export type AzureKeyVaultStoreCreate = {
+  provider: "azure_key_vault"
+  vault_url: string
+  tenant_id: string
+  client_id: string
+}
+
+/**
+ * Client-supplied fields when updating an Azure Key Vault store.
+ */
+export type AzureKeyVaultStoreUpdate = {
+  provider: "azure_key_vault"
+  vault_url?: string | null
+  tenant_id?: string | null
+  client_id?: string | null
+}
+
+/**
  * Azure OpenAI catalog entry.
  */
 export type AzureOpenAICatalogCreate = {
@@ -11111,6 +11144,7 @@ export type SecretSource =
   | "local"
   | "aws_secrets_manager"
   | "bitwarden_secrets_manager"
+  | "azure_key_vault"
 
 /**
  * Authorize a workspace to reference a store.
@@ -11133,7 +11167,10 @@ export type SecretStoreCreate = {
   name: string
   description?: string | null
   provider?: SecretStoreProvider
-  config: AwsSecretsManagerStoreCreate | BitwardenSecretsManagerStoreCreate
+  config:
+    | AwsSecretsManagerStoreCreate
+    | BitwardenSecretsManagerStoreCreate
+    | AzureKeyVaultStoreCreate
   enabled?: boolean
   /**
    * Allow all current and future workspaces.
@@ -11190,6 +11227,7 @@ export type SecretStoreMappingSelection = {
 export type SecretStoreProvider =
   | "aws_secrets_manager"
   | "bitwarden_secrets_manager"
+  | "azure_key_vault"
 
 /**
  * Organization view of a secret store, including trust-policy inputs.
@@ -11200,7 +11238,10 @@ export type SecretStoreRead = {
   name: string
   description?: string | null
   provider: SecretStoreProvider
-  config: AwsSecretsManagerStoreConfig | BitwardenSecretsManagerStoreConfig
+  config:
+    | AwsSecretsManagerStoreConfig
+    | BitwardenSecretsManagerStoreConfig
+    | AzureKeyVaultStoreConfig
   enabled: boolean
   all_workspaces: boolean
   /**
@@ -11245,6 +11286,7 @@ export type SecretStoreUpdate = {
   config?:
     | AwsSecretsManagerStoreUpdate
     | BitwardenSecretsManagerStoreUpdate
+    | AzureKeyVaultStoreUpdate
     | null
   enabled?: boolean | null
   /**

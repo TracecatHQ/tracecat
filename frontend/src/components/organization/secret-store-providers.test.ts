@@ -1,6 +1,8 @@
 import type { SecretStoreRead } from "@/client"
 import {
   SECRET_STORE_PROVIDERS,
+  validateAzureSecretName,
+  validateAzureVaultUrl,
   validateBitwardenOrganizationId,
   validateBitwardenSecretId,
   validateBitwardenServer,
@@ -95,5 +97,81 @@ describe("Bitwarden provider entry", () => {
       },
       access_token: "new",
     })
+  })
+})
+
+describe("Azure Key Vault provider entry", () => {
+  const VAULT = "https://my-vault.vault.azure.net"
+  const store = {
+    provider: "azure_key_vault",
+    config: {
+      provider: "azure_key_vault",
+      vault_url: VAULT,
+      tenant_id: ID,
+      client_id: ID,
+    },
+    access_token_set: true,
+  } as SecretStoreRead
+
+  it("accepts only Key Vault URIs", () => {
+    for (const good of [
+      VAULT,
+      `${VAULT}/`,
+      "https://My-Vault.vault.azure.net",
+      "https://abc.vault.usgovcloudapi.net",
+      "https://abc.vault.azure.cn:443",
+    ]) {
+      expect(validateAzureVaultUrl(good)).toBeNull()
+    }
+    for (const bad of [
+      "http://my-vault.vault.azure.net",
+      "https://my-vault.vault.azure.net.example.com",
+      "https://my-vault.vault.azure.net/secrets/x",
+      "https://ab.vault.azure.net",
+      "https://a--b.vault.azure.net",
+      `https://${"a".repeat(25)}.vault.azure.net`,
+      "https://my-vault.managedhsm.azure.net",
+      "my-vault",
+    ]) {
+      expect(validateAzureVaultUrl(bad)).not.toBeNull()
+    }
+  })
+
+  it("accepts secret names, not IDs or versions", () => {
+    expect(validateAzureSecretName("api-key-2")).toBeNull()
+    expect(validateAzureSecretName("api_key")).not.toBeNull()
+    expect(validateAzureSecretName("api-key/0123abcd")).not.toBeNull()
+    expect(validateAzureSecretName("x".repeat(128))).not.toBeNull()
+  })
+
+  it("sends the trimmed config, and the client secret only when replaced", () => {
+    const entry = SECRET_STORE_PROVIDERS.azure_key_vault
+    const config = {
+      provider: "azure_key_vault",
+      vault_url: VAULT,
+      tenant_id: ID,
+      client_id: ID,
+    }
+    expect(
+      entry.validateCreate({ vault_url: VAULT, tenant_id: ID, client_id: "x" })
+    ).toHaveProperty("client_id")
+    expect(
+      entry.toCreateConfig({
+        vault_url: ` ${VAULT} `,
+        tenant_id: ID,
+        client_id: ID,
+      })
+    ).toEqual(config)
+    expect(entry.toSetupUpdate({ access_token: " s3cret " })).toEqual({
+      access_token: "s3cret",
+    })
+    const draft = entry.editState(store)
+    expect(draft).toMatchObject({ access_token: "", access_token_set: "true" })
+    expect(entry.toUpdate(draft)).toEqual({ config })
+    expect(entry.toUpdate({ ...draft, access_token: "new" })).toEqual({
+      config,
+      access_token: "new",
+    })
+    expect(entry.summary(store)).toBe("my-vault.vault.azure.net")
   })
 })

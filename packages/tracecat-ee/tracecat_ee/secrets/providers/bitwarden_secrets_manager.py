@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import sys
 import time
 from collections import defaultdict
@@ -41,6 +40,11 @@ from tracecat.secrets.schemas import (
 )
 from tracecat.secrets.types import Failure, FetchOutcome, StoreContext
 from tracecat_ee.secrets.errors import SecretResolutionError
+from tracecat_ee.secrets.providers.backend_helpers import (
+    VENDOR_CODE,
+    apply_config_update,
+    fail_all,
+)
 
 FETCH_TIMEOUT_SECONDS = 20.0
 """One deadline for waiting for a slot, starting the child, and its work."""
@@ -72,7 +76,6 @@ _CHILD_ENV_ALLOWLIST = (
     "ALL_PROXY",
     "all_proxy",
 )
-_VENDOR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 _CHILD_CODES = frozenset(
     {
         SecretResolutionErrorCode.AUTH_FAILED,
@@ -106,13 +109,9 @@ def _child_env() -> dict[str, str]:
     return {key: os.environ[key] for key in _CHILD_ENV_ALLOWLIST if key in os.environ}
 
 
-def _all(references: Sequence[str], failure: Failure) -> dict[str, FetchOutcome]:
-    return dict.fromkeys(references, failure)
-
-
 def _vendor_code(value: object) -> str | None:
     """Accept only a short identifier from the child, never free text."""
-    if isinstance(value, str) and _VENDOR_CODE.fullmatch(value):
+    if isinstance(value, str) and VENDOR_CODE.fullmatch(value):
         return value
     return None if value is None else "invalid"
 
@@ -125,7 +124,7 @@ def _parse_child_output(
 ) -> dict[str, FetchOutcome]:
     """Turn the child's JSON result into outcomes. Never logs or raises."""
     if returncode != 0:
-        return _all(
+        return fail_all(
             references,
             Failure(SecretResolutionErrorCode.UNAVAILABLE, f"exit_{returncode}"),
         )
@@ -134,11 +133,13 @@ def _parse_child_output(
         results: Any = document["results"]
         fatal: Any = document.get("fatal")
     except (orjson.JSONDecodeError, KeyError, TypeError, AttributeError):
-        return _all(
+        return fail_all(
             references, Failure(SecretResolutionErrorCode.UNAVAILABLE, "unparseable")
         )
     if fatal or not isinstance(results, dict):
-        return _all(references, Failure(SecretResolutionErrorCode.UNAVAILABLE, "fatal"))
+        return fail_all(
+            references, Failure(SecretResolutionErrorCode.UNAVAILABLE, "fatal")
+        )
 
     outcomes: dict[str, FetchOutcome] = {}
     for reference in references:
@@ -217,7 +218,7 @@ async def fetch_with_child(
             # the rebinding window rather than closing it.
             if not await server_resolves_public(config.server):
                 logger.warning("Bitwarden server did not resolve to a public address")
-                return _all(
+                return fail_all(
                     references,
                     Failure(SecretResolutionErrorCode.UNAVAILABLE, "server_not_public"),
                 )
@@ -242,10 +243,12 @@ async def fetch_with_child(
             references=len(references),
             timeout_seconds=FETCH_TIMEOUT_SECONDS,
         )
-        return _all(references, Failure(SecretResolutionErrorCode.TIMEOUT, "deadline"))
+        return fail_all(
+            references, Failure(SecretResolutionErrorCode.TIMEOUT, "deadline")
+        )
     except OSError as e:
         logger.warning("Bitwarden child could not start", error_type=type(e).__name__)
-        return _all(
+        return fail_all(
             references,
             Failure(SecretResolutionErrorCode.UNAVAILABLE, "spawn_failed"),
         )
@@ -279,11 +282,7 @@ class BitwardenSecretsManagerBackend:
         params: BitwardenSecretsManagerStoreUpdate,
     ) -> BitwardenSecretsManagerStoreConfig:
         """Apply server/organization updates."""
-        return config.model_copy(
-            update=params.model_dump(
-                exclude_unset=True, exclude_none=True, exclude={"provider"}
-            )
-        )
+        return apply_config_update(config, params)
 
     def check_change(
         self,
@@ -358,7 +357,7 @@ class BitwardenSecretsManagerBackend:
         if store.access_token is None:
             # The store was enabled with a token, but it may no longer
             # decrypt (for example after a failed key rotation).
-            return _all(
+            return fail_all(
                 references, Failure(SecretResolutionErrorCode.CREDENTIAL_MISSING)
             )
         return await fetch_with_child(

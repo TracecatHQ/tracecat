@@ -1141,8 +1141,8 @@ class OrganizationSecretStore(OrganizationModel):
     """Organization-owned external secret store.
 
     ``encrypted_access_token`` holds the store's access token, for providers
-    that need one (Bitwarden Secrets Manager). It is write-only: the API only
-    reports whether it is set.
+    that need one (Bitwarden Secrets Manager, Azure Key Vault's client
+    secret). It is write-only: the API only reports whether it is set.
     """
 
     __tablename__ = "organization_secret_store"

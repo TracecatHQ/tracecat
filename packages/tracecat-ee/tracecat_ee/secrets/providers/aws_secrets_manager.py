@@ -43,6 +43,7 @@ from tracecat.secrets.types import (
     StoreContext,
 )
 from tracecat_ee.secrets.errors import SecretResolutionError
+from tracecat_ee.secrets.providers.backend_helpers import apply_config_update
 
 _CONNECT_TIMEOUT_SECONDS = 5
 _READ_TIMEOUT_SECONDS = 10
@@ -235,11 +236,7 @@ class AwsSecretsManagerBackend:
         params: AwsSecretsManagerStoreUpdate,
     ) -> AwsSecretsManagerStoreConfig:
         """Apply role/region updates. The external ID is never changed."""
-        updated = config.model_copy(
-            update=params.model_dump(
-                exclude_unset=True, exclude_none=True, exclude={"provider"}
-            )
-        )
+        updated = apply_config_update(config, params)
         if updated.role_arn is not None:
             check_aws_partition(updated.role_arn, updated.region)
         return updated

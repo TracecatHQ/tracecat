@@ -4,6 +4,7 @@ import { CheckCheckIcon, CopyIcon } from "lucide-react"
 import React from "react"
 import type {
   AwsSecretsManagerStoreConfig,
+  AzureKeyVaultStoreConfig,
   BitwardenSecretsManagerStoreConfig,
   SecretResolutionErrorCode,
   SecretSource,
@@ -14,7 +15,7 @@ import type {
   WorkspaceSecretStoreRead,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
-import { AwsIcon, BitwardenIcon } from "@/components/icons"
+import { AwsIcon, AzureManagementIcon, BitwardenIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -126,6 +127,14 @@ function bitwardenConfig(
     throw new Error("Expected a Bitwarden Secrets Manager store")
   }
   return store.config as BitwardenSecretsManagerStoreConfig
+}
+
+/** The store's config, which must be an Azure Key Vault config. */
+function azureConfig(store: SecretStoreRead): AzureKeyVaultStoreConfig {
+  if (store.provider !== "azure_key_vault") {
+    throw new Error("Expected an Azure Key Vault store")
+  }
+  return store.config as AzureKeyVaultStoreConfig
 }
 
 /**
@@ -520,7 +529,7 @@ const SELF_HOSTED = "self_hosted"
 // by it. Organization IDs are normalized by the backend, so any case is fine.
 const SECRET_ID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const ORGANIZATION_ID_REGEX =
+const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EXAMPLE_UUID = "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
 
@@ -533,7 +542,7 @@ export function validateBitwardenSecretId(value: string): string | null {
 
 /** Explain why a value is not a Bitwarden organization ID. */
 export function validateBitwardenOrganizationId(value: string): string | null {
-  return ORGANIZATION_ID_REGEX.test(value.trim())
+  return UUID_REGEX.test(value.trim())
     ? null
     : `Enter the organization ID, e.g. ${EXAMPLE_UUID}`
 }
@@ -660,40 +669,53 @@ function BitwardenServerFields({
   )
 }
 
-function AccessTokenField({ config, onChange, errors }: ConfigFieldsProps) {
+/** A store credential held in the write-only access token column. */
+type AccessTokenCredential = {
+  id: string
+  label: string
+  /** Lowercase name, e.g. "client secret". */
+  name: string
+}
+
+const BITWARDEN_ACCESS_TOKEN: AccessTokenCredential = {
+  id: "bitwarden-access-token",
+  label: "Access token",
+  name: "access token",
+}
+
+const AZURE_CLIENT_SECRET: AccessTokenCredential = {
+  id: "azure-client-secret",
+  label: "Client secret",
+  name: "client secret",
+}
+
+function AccessTokenField({
+  config,
+  onChange,
+  errors,
+  credential: { id, label, name },
+}: ConfigFieldsProps & { credential: AccessTokenCredential }) {
   // Set by editState: a token is stored, and an empty field keeps it.
   const replacing = config.access_token_set === "true"
   return (
     <div className="space-y-2">
-      <Label htmlFor="bitwarden-access-token">
-        {replacing ? "Replace access token" : "Access token"}
-      </Label>
+      <Label htmlFor={id}>{replacing ? `Replace ${name}` : label}</Label>
       <Input
-        id="bitwarden-access-token"
+        id={id}
         type="password"
         autoComplete="off"
         value={config.access_token ?? ""}
         onChange={(e) => onChange({ ...config, access_token: e.target.value })}
-        placeholder={replacing ? "Leave empty to keep the current token" : ""}
+        placeholder={replacing ? `Leave empty to keep the current ${name}` : ""}
         aria-invalid={Boolean(errors.access_token)}
-        aria-describedby={
-          errors.access_token
-            ? "bitwarden-access-token-error"
-            : "bitwarden-access-token-hint"
-        }
+        aria-describedby={errors.access_token ? `${id}-error` : `${id}-hint`}
       />
-      <p
-        id="bitwarden-access-token-hint"
-        className="text-xs text-muted-foreground"
-      >
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
         Stored encrypted in Tracecat and never shown again. It is only read when
         a workflow resolves a secret.
       </p>
       {errors.access_token && (
-        <p
-          id="bitwarden-access-token-error"
-          className="text-xs text-destructive"
-        >
+        <p id={`${id}-error`} className="text-xs text-destructive">
           {errors.access_token}
         </p>
       )}
@@ -701,35 +723,107 @@ function AccessTokenField({ config, onChange, errors }: ConfigFieldsProps) {
   )
 }
 
-function BitwardenSecretsManagerSetupFields({
+function AccessTokenSetupFields({
   config,
   onChange,
   errors,
   canEdit,
+  credential,
+  steps,
 }: ConfigFieldsProps & {
-  store: SecretStoreRead
   canEdit: boolean | undefined
+  credential: AccessTokenCredential
+  steps: React.ReactNode
 }) {
   return (
     <>
       <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-        <li>
-          In Bitwarden Secrets Manager, create a machine account and give it
-          read access to the projects whose secrets Tracecat should use.
-        </li>
-        <li>Create an access token for the machine account.</li>
-        <li>Paste the token below.</li>
+        {steps}
       </ol>
       {canEdit === true && (
-        <AccessTokenField config={config} onChange={onChange} errors={errors} />
+        <AccessTokenField
+          config={config}
+          onChange={onChange}
+          errors={errors}
+          credential={credential}
+        />
       )}
       {canEdit === false && (
         <p className="text-xs text-muted-foreground">
-          You need permission to update secret stores to set the access token.
-          Share these steps with an organization admin to finish setup.
+          You need the <code>org:secret:update</code> permission to set the{" "}
+          {credential.name}. Share these steps with an organization admin to
+          finish setup.
         </p>
       )}
     </>
+  )
+}
+
+function AccessTokenDetail({
+  store,
+  credential,
+}: {
+  store: SecretStoreRead
+  credential: AccessTokenCredential
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <dt className="text-xs font-medium">{credential.label}</dt>
+      <dd className="text-xs text-muted-foreground">
+        {store.access_token_set ? "Set" : "Not set"}
+      </dd>
+    </div>
+  )
+}
+
+/** Entry fields shared by providers whose setup step sets the access token. */
+function accessTokenEntryFields(missing: string) {
+  return {
+    isSetupComplete: (store: SecretStoreRead) =>
+      Boolean(store.access_token_set),
+    validateSetup: (config: CreateConfigState) =>
+      compactErrors({
+        access_token: config.access_token?.trim() ? null : missing,
+      }),
+    toSetupUpdate: (config: CreateConfigState): SecretStoreUpdate => ({
+      access_token: (config.access_token ?? "").trim(),
+    }),
+  }
+}
+
+/** Edit state for the token: the field starts empty, and empty keeps it. */
+function accessTokenEditState(store: SecretStoreRead): CreateConfigState {
+  return {
+    access_token: "",
+    access_token_set: store.access_token_set ? "true" : "",
+  }
+}
+
+function accessTokenUpdate(
+  config: CreateConfigState
+): Pick<SecretStoreUpdate, "access_token"> {
+  const token = config.access_token?.trim()
+  return token ? { access_token: token } : {}
+}
+
+function BitwardenSecretsManagerSetupFields(
+  props: ConfigFieldsProps & { canEdit: boolean | undefined }
+) {
+  return (
+    <AccessTokenSetupFields
+      {...props}
+      credential={BITWARDEN_ACCESS_TOKEN}
+      steps={
+        <>
+          <li>
+            In Bitwarden Secrets Manager, create a machine account and give it
+            read access to the projects whose secrets Tracecat should use.
+          </li>
+          <li>Create an access token for the machine account.</li>
+          <li>Paste the token below.</li>
+        </>
+      }
+    />
   )
 }
 
@@ -737,7 +831,7 @@ function BitwardenSecretsManagerEditFields(props: ConfigFieldsProps) {
   return (
     <>
       <BitwardenServerFields {...props} />
-      <AccessTokenField {...props} />
+      <AccessTokenField {...props} credential={BITWARDEN_ACCESS_TOKEN} />
     </>
   )
 }
@@ -763,12 +857,7 @@ function BitwardenSecretsManagerDetails({
         value={config.organization_id}
         copyLabel="organization ID"
       />
-      <div className="min-w-0 space-y-1">
-        <dt className="text-xs font-medium">Access token</dt>
-        <dd className="text-xs text-muted-foreground">
-          {store.access_token_set ? "Set" : "Not set"}
-        </dd>
-      </div>
+      <AccessTokenDetail store={store} credential={BITWARDEN_ACCESS_TOKEN} />
       <div className="min-w-0 space-y-1">
         <dt className="text-xs font-medium">Used by</dt>
         <dd>{usage}</dd>
@@ -784,6 +873,171 @@ function bitwardenServerErrors(config: CreateConfigState): CreateConfigErrors {
       config.organization_id ?? ""
     ),
   })
+}
+
+// Mirrors AZURE_KEY_VAULT_AUTHORITY_BY_SUFFIX in tracecat/secrets/schemas.py.
+const AZURE_VAULT_URL_REGEX =
+  /^https:\/\/(?=[a-z0-9-]{3,24}\.)[a-z](?:-?[a-z0-9])*\.(?:vault\.azure\.net|vault\.usgovcloudapi\.net|vault\.azure\.cn)(?::443)?\/?$/i
+const AZURE_SECRET_NAME_REGEX = /^[0-9A-Za-z-]{1,127}$/
+const EXAMPLE_VAULT_URL = "https://my-vault.vault.azure.net"
+
+/** Explain why a value is not a Key Vault URI. */
+export function validateAzureVaultUrl(value: string): string | null {
+  return AZURE_VAULT_URL_REGEX.test(value.trim())
+    ? null
+    : `Enter the vault URI from the vault's overview page, e.g. ${EXAMPLE_VAULT_URL}`
+}
+
+/** Explain why a value is not a Key Vault secret name. */
+export function validateAzureSecretName(value: string): string | null {
+  return AZURE_SECRET_NAME_REGEX.test(value.trim())
+    ? null
+    : "Enter the secret's name: 1 to 127 letters, digits and hyphens."
+}
+
+function validateAzureId(value: string, what: string): string | null {
+  return UUID_REGEX.test(value.trim())
+    ? null
+    : `Enter the ${what}, e.g. ${EXAMPLE_UUID}`
+}
+
+function azureConfigErrors(config: CreateConfigState): CreateConfigErrors {
+  return compactErrors({
+    vault_url: validateAzureVaultUrl(config.vault_url ?? ""),
+    tenant_id: validateAzureId(config.tenant_id ?? "", "directory (tenant) ID"),
+    client_id: validateAzureId(
+      config.client_id ?? "",
+      "application (client) ID"
+    ),
+  })
+}
+
+function azureConfigFromState(config: CreateConfigState) {
+  return {
+    provider: "azure_key_vault" as const,
+    vault_url: (config.vault_url ?? "").trim(),
+    tenant_id: (config.tenant_id ?? "").trim(),
+    client_id: (config.client_id ?? "").trim(),
+  }
+}
+
+const AZURE_FIELDS = [
+  {
+    key: "vault_url",
+    label: "Vault URI",
+    placeholder: EXAMPLE_VAULT_URL,
+    hint: "Shown on the vault's overview page in the Azure portal.",
+  },
+  {
+    key: "tenant_id",
+    label: "Directory (tenant) ID",
+    placeholder: EXAMPLE_UUID,
+    hint: "Shown on the app registration's overview page.",
+  },
+  {
+    key: "client_id",
+    label: "Application (client) ID",
+    placeholder: EXAMPLE_UUID,
+    hint: "The app registration Tracecat signs in as.",
+  },
+] as const
+
+function AzureKeyVaultFields({ config, onChange, errors }: ConfigFieldsProps) {
+  return (
+    <>
+      {AZURE_FIELDS.map(({ key, label, placeholder, hint }) => {
+        const id = `azure-${key.replaceAll("_", "-")}`
+        return (
+          <div key={key} className="space-y-2">
+            <Label htmlFor={id}>{label}</Label>
+            <Input
+              id={id}
+              value={config[key] ?? ""}
+              onChange={(e) => onChange({ ...config, [key]: e.target.value })}
+              placeholder={placeholder}
+              aria-invalid={Boolean(errors[key])}
+              aria-describedby={errors[key] ? `${id}-error` : `${id}-hint`}
+            />
+            <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+              {hint}
+            </p>
+            {errors[key] && (
+              <p id={`${id}-error`} className="text-xs text-destructive">
+                {errors[key]}
+              </p>
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+function AzureKeyVaultSetupFields(
+  props: ConfigFieldsProps & { canEdit: boolean | undefined }
+) {
+  return (
+    <AccessTokenSetupFields
+      {...props}
+      credential={AZURE_CLIENT_SECRET}
+      steps={
+        <>
+          <li>
+            In Microsoft Entra ID, open the app registration and create a client
+            secret under Certificates &amp; secrets.
+          </li>
+          <li>
+            On the vault, assign the app the Key Vault Secrets User role, or an
+            access policy with Get on secrets.
+          </li>
+          <li>Paste the client secret's value below.</li>
+        </>
+      }
+    />
+  )
+}
+
+function AzureKeyVaultEditFields(props: ConfigFieldsProps) {
+  return (
+    <>
+      <AzureKeyVaultFields {...props} />
+      <AccessTokenField {...props} credential={AZURE_CLIENT_SECRET} />
+    </>
+  )
+}
+
+function AzureKeyVaultDetails({
+  store,
+  usage,
+}: {
+  store: SecretStoreRead
+  usage: React.ReactNode
+}) {
+  const config = azureConfig(store)
+  return (
+    <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-3">
+      <DetailItem
+        label="Vault URI"
+        value={config.vault_url}
+        copyLabel="vault URI"
+      />
+      <DetailItem
+        label="Directory (tenant) ID"
+        value={config.tenant_id}
+        copyLabel="tenant ID"
+      />
+      <DetailItem
+        label="Application (client) ID"
+        value={config.client_id}
+        copyLabel="client ID"
+      />
+      <AccessTokenDetail store={store} credential={AZURE_CLIENT_SECRET} />
+      <div className="min-w-0 space-y-1">
+        <dt className="text-xs font-medium">Used by</dt>
+        <dd>{usage}</dd>
+      </div>
+    </dl>
+  )
 }
 
 /** Provider-specific rendering and payload building, keyed by provider. */
@@ -890,17 +1144,8 @@ export const SECRET_STORE_PROVIDERS: Record<
     setupTitle: "Add the access token",
     setupDescription:
       "Tracecat reads secrets with a Bitwarden machine account. Paste its access token here.",
-    isSetupComplete: (store) => Boolean(store.access_token_set),
+    ...accessTokenEntryFields("Paste the machine account's access token."),
     SetupFields: BitwardenSecretsManagerSetupFields,
-    validateSetup: (config) =>
-      compactErrors({
-        access_token: config.access_token?.trim()
-          ? null
-          : "Paste the machine account's access token.",
-      }),
-    toSetupUpdate: (config) => ({
-      access_token: (config.access_token ?? "").trim(),
-    }),
     editDescription:
       "Update the store connection. The server and organization cannot change while secrets reference this store.",
     editState: (store) => {
@@ -910,8 +1155,7 @@ export const SECRET_STORE_PROVIDERS: Record<
         server_choice: cloud ? server : SELF_HOSTED,
         server_url: cloud ? "" : server,
         organization_id,
-        access_token: "",
-        access_token_set: store.access_token_set ? "true" : "",
+        ...accessTokenEditState(store),
       }
     },
     EditFields: BitwardenSecretsManagerEditFields,
@@ -922,10 +1166,7 @@ export const SECRET_STORE_PROVIDERS: Record<
         server: bitwardenServer(config),
         organization_id: (config.organization_id ?? "").trim(),
       },
-      // An empty field keeps the stored token.
-      ...(config.access_token?.trim()
-        ? { access_token: config.access_token.trim() }
-        : {}),
+      ...accessTokenUpdate(config),
     }),
     Details: BitwardenSecretsManagerDetails,
     reference: {
@@ -952,6 +1193,61 @@ export const SECRET_STORE_PROVIDERS: Record<
           "The store has no usable access token. Ask an organization admin to add or replace it.",
         unknown:
           "Bitwarden returned an error Tracecat does not recognize. Try again; if it persists, check the Bitwarden server's status.",
+      },
+    },
+  },
+  azure_key_vault: {
+    label: "Azure Key Vault",
+    method: "Entra ID app with a client secret",
+    locationLabel: "Vault",
+    Icon: ({ className }) => <AzureManagementIcon className={className} />,
+    summary: (store) => azureConfig(store).vault_url.replace(/^https:\/\//, ""),
+    createTitle: "Add Azure Key Vault store",
+    createDescription:
+      "Enter a name, the vault, and the Entra ID app registration Tracecat signs in as. You add the client secret next.",
+    CreateFields: AzureKeyVaultFields,
+    validateCreate: azureConfigErrors,
+    toCreateConfig: azureConfigFromState,
+    setupTitle: "Add the client secret",
+    setupDescription:
+      "Tracecat reads secrets as an Entra ID app registration. Paste one of its client secrets here.",
+    ...accessTokenEntryFields("Paste the app registration's client secret."),
+    SetupFields: AzureKeyVaultSetupFields,
+    editDescription:
+      "Update the store connection. The vault cannot change while secrets reference this store.",
+    editState: (store) => {
+      const { vault_url, tenant_id, client_id } = azureConfig(store)
+      return { vault_url, tenant_id, client_id, ...accessTokenEditState(store) }
+    },
+    EditFields: AzureKeyVaultEditFields,
+    validateEdit: azureConfigErrors,
+    toUpdate: (config) => ({
+      config: azureConfigFromState(config),
+      ...accessTokenUpdate(config),
+    }),
+    Details: AzureKeyVaultDetails,
+    reference: {
+      label: "Secret name",
+      description:
+        "The secret's name in the vault. Tracecat always reads its current version.",
+      placeholder: "api-key",
+      validate: validateAzureSecretName,
+      storeHint: () => null,
+      checkHints: {
+        auth_failed:
+          "Microsoft Entra ID rejected the app's sign-in. Check the tenant ID, client ID and that the client secret has not expired; replace it in the store if needed.",
+        not_found:
+          "The vault has no secret with this name. Check the spelling.",
+        access_denied:
+          "The vault denied the read. Give the app the Key Vault Secrets User role (or a Get access policy), check the vault's firewall allows Tracecat, and that the secret is enabled.",
+        unavailable:
+          "Azure Key Vault could not be reached. Check the vault URI and try again in a moment.",
+        throttled: "Azure throttled the request. Try again in a moment.",
+        timeout: "Azure did not respond in time. Try again in a moment.",
+        credential_missing:
+          "The store has no usable client secret. Ask an organization admin to add or replace it.",
+        unknown:
+          "Azure returned an error Tracecat does not recognize. Try again; if it persists, check the vault in the Azure portal.",
       },
     },
   },
