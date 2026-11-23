@@ -18,6 +18,7 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import AgentControlRejected, PendingMessage
 from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.router import router
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -326,21 +327,34 @@ def test_discovery_accepts_a_backend_that_lists_pending_messages() -> None:
 
 
 def test_pending_route_shows_a_channel_message_as_what_its_sender_asked() -> None:
-    """A queued channel message lists its text, not the rendered envelope."""
+    """A queued channel message lists its text; the same text sent from Tracecat
+    lists as typed, whatever the session."""
     rendered = ChannelMessage(
         provider=ChannelBotProvider.SLACK,
         text="and check db-2",
         sender=ChannelMessageSender(provider_user_id="U1"),
     ).render()
     sent = datetime.now(UTC)
-    pending = [
-        PendingMessage(id=uuid.uuid4(), type="steer", text=rendered, created_at=sent)
-    ]
-    channel = _session(entity_type=AgentSessionEntity.EXTERNAL_CHANNEL)
+
+    def pending(origin: UserMessageOrigin) -> list[PendingMessage]:
+        return [
+            PendingMessage(
+                id=uuid.uuid4(),
+                type="steer",
+                text=rendered,
+                created_at=sent,
+                origin=origin,
+            )
+        ]
+
     workspace = _session()
 
-    channel_response = _get_pending(channel, {"external": PendingBackend(pending)})
-    workspace_response = _get_pending(workspace, {"external": PendingBackend(pending)})
+    from_channel = _get_pending(
+        workspace, {"external": PendingBackend(pending(UserMessageOrigin.CHANNEL))}
+    )
+    typed = _get_pending(
+        workspace, {"external": PendingBackend(pending(UserMessageOrigin.TRACECAT))}
+    )
 
-    assert channel_response.json()["items"][0]["text"] == "and check db-2"
-    assert workspace_response.json()["items"][0]["text"] == rendered
+    assert from_channel.json()["items"][0]["text"] == "and check db-2"
+    assert typed.json()["items"][0]["text"] == rendered
