@@ -145,13 +145,12 @@ class ChannelMessage(BaseModel):
         )
 
     def _capped(self) -> ChannelMessage:
-        """A copy within every per-part cap; the sender's text is only made storable."""
+        """A copy within every per-part cap; the sender's text is only made storable.
+        Copies update only capped fields, so a new field passes through unclipped."""
         thread = None
         if self.thread is not None and self.thread.messages:
             messages = [
-                EarlierThreadMessage(
-                    author=_label(m.author), is_bot=m.is_bot, text=_body(m.text)
-                )
+                m.model_copy(update={"author": _label(m.author), "text": _body(m.text)})
                 for m in self.thread.messages
             ]
             older_omitted = self.thread.older_omitted
@@ -163,40 +162,45 @@ class ChannelMessage(BaseModel):
             ):
                 del messages[1]
                 older_omitted = True
-            thread = EarlierThread(
-                messages=messages,
-                older_omitted=older_omitted,
-                later_omitted=self.thread.later_omitted,
+            thread = self.thread.model_copy(
+                update={"messages": messages, "older_omitted": older_omitted}
             )
-        return ChannelMessage(
-            provider=self.provider,
-            text=_storable(self.text),
-            sender=ChannelMessageSender(
-                provider_user_id=_label(self.sender.provider_user_id),
-                provider_team_id=_optional_label(self.sender.provider_team_id),
-                name=_optional_label(self.sender.name),
-            ),
-            thread=thread,
-            quoted=[
-                QuotedMessage(
-                    kind=q.kind,
-                    author=_label(q.author),
-                    author_id=_optional_label(q.author_id),
-                    text=_body(q.text),
-                    is_preview=q.is_preview,
-                    where=_optional_label(q.where),
-                    link=_optional_label(q.link),
-                )
-                for q in self.quoted[:QUOTED_MAX_MESSAGES]
-            ],
-            quoted_omitted=max(self.quoted_omitted, 0)
-            + max(len(self.quoted) - QUOTED_MAX_MESSAGES, 0),
-            people=[
-                ChannelPerson(
-                    provider_user_id=_label(p.provider_user_id), name=_label(p.name)
-                )
-                for p in self.people[:PEOPLE_MAX]
-            ],
+        sender = self.sender
+        return self.model_copy(
+            update={
+                "text": _storable(self.text),
+                "sender": sender.model_copy(
+                    update={
+                        "provider_user_id": _label(sender.provider_user_id),
+                        "provider_team_id": _optional_label(sender.provider_team_id),
+                        "name": _optional_label(sender.name),
+                    }
+                ),
+                "thread": thread,
+                "quoted": [
+                    q.model_copy(
+                        update={
+                            "author": _label(q.author),
+                            "author_id": _optional_label(q.author_id),
+                            "text": _body(q.text),
+                            "where": _optional_label(q.where),
+                            "link": _optional_label(q.link),
+                        }
+                    )
+                    for q in self.quoted[:QUOTED_MAX_MESSAGES]
+                ],
+                "quoted_omitted": max(self.quoted_omitted, 0)
+                + max(len(self.quoted) - QUOTED_MAX_MESSAGES, 0),
+                "people": [
+                    p.model_copy(
+                        update={
+                            "provider_user_id": _label(p.provider_user_id),
+                            "name": _label(p.name),
+                        }
+                    )
+                    for p in self.people[:PEOPLE_MAX]
+                ],
+            }
         )
 
 
