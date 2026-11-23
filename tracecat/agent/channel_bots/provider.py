@@ -15,7 +15,7 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
-    AgentChannelWorkspaceRouteRead,
+    AgentChannelWorkspaceRoutesPage,
     ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
@@ -135,13 +135,14 @@ class ChannelBotAdmin(Protocol):
         *,
         q: str | None,
         page: PageParams,
-    ) -> CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]:
+    ) -> AgentChannelWorkspaceRoutesPage:
         """A page of every channel the workspace's bots answer in: each platform install's
-        routes and each workspace app's channels, named by the provider at read time.
+        routes, and the channels each bot is in without one, named by the provider at read
+        time.
 
         `q` matches the channel name or ID, ignoring case and a leading `#`. A bot whose
-        lookup fails keeps its routes, marked `name_unavailable`. Raise
-        ``PaginationError`` for a malformed cursor.
+        lookup fails keeps its routes, marked `name_unavailable`, and is named in
+        `listing_failures` when running. Raise ``PaginationError`` for a malformed cursor.
         """
         ...
 

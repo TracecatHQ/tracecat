@@ -12,8 +12,22 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { SlackPlacement } from "@/lib/agent-slack-placements"
 import { cn } from "@/lib/utils"
+
+/**
+ * Where an agent answers in Slack: one channel its bot is in or routes to it,
+ * or, when a bot's channels cannot be listed, every channel of its own Slack
+ * app or the platform install's channels without a route.
+ */
+export type SlackPlacement =
+  | {
+      kind: "workspace_bot"
+      botId: string
+      /** The app lacks the scopes to list its channels until reinstalled. */
+      needsReinstall: boolean
+    }
+  | { kind: "default" }
+  | { kind: "channel"; channel: ChannelBotChannel }
 
 const SLACK_BADGE_CAP = 2
 const REINSTALL_NOTE = "Reinstall to show channels"

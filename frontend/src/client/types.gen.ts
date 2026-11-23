@@ -599,7 +599,7 @@ export type AgentChannelWorkspaceRouteRead = {
   app_owner: ChannelBotAppOwner
   provider_channel_id: string
   /**
-   * A platform install's route; False for a channel a workspace app is in, answered by its one agent.
+   * A platform install's route; False for a channel the bot is in without one, answered by its default agent.
    */
   routed: boolean
   agent_preset_id: string
@@ -617,6 +617,34 @@ export type AgentChannelWorkspaceRouteRead = {
    * The bot's channels were not looked up: it is not running, or the provider call failed.
    */
   name_unavailable: boolean
+}
+
+export type AgentChannelWorkspaceRoutesPage = {
+  items: Array<AgentChannelWorkspaceRouteRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+  /**
+   * Running bots whose channels could not be listed; the same on every page.
+   */
+  listing_failures?: Array<ChannelBotListingFailure>
 }
 
 /**
@@ -4037,6 +4065,17 @@ export type ChannelBotInstallResult = {
 }
 
 /**
+ * A running bot whose channels the provider would not list, so it has no channel rows.
+ */
+export type ChannelBotListingFailure = {
+  bot_id: string
+  /**
+   * The bot's app lacks the scopes to list channels until it is reinstalled.
+   */
+  needs_reinstall: boolean
+}
+
+/**
  * A provider app the deployment owns, which a workspace installs in one step.
  */
 export type ChannelBotPlatformApp = {
@@ -4755,30 +4794,6 @@ export type CursorPaginatedResponse_AgentChannelRouteRead_ = {
 
 export type CursorPaginatedResponse_AgentChannelUserRead_ = {
   items: Array<AgentChannelUserRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_ = {
-  items: Array<AgentChannelWorkspaceRouteRead>
   /**
    * Cursor for next page
    */
@@ -17537,7 +17552,7 @@ export type AgentChannelBotsListWorkspaceRoutesData = {
 }
 
 export type AgentChannelBotsListWorkspaceRoutesResponse =
-  CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_
+  AgentChannelWorkspaceRoutesPage
 
 export type AgentChannelBotsListBotRoutesData = {
   agentPresetId?: string | null
@@ -24756,7 +24771,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_
+        200: AgentChannelWorkspaceRoutesPage
         /**
          * Validation Error
          */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AgentChannelBotCreate,
   type AgentChannelBotRead,
@@ -6,6 +6,7 @@ import {
   type AgentChannelRouteRead,
   type AgentChannelRouteSet,
   type AgentChannelWorkspaceRouteRead,
+  type AgentChannelWorkspaceRoutesPage,
   agentChannelBotsAddBotRoute,
   agentChannelBotsCreateBot,
   agentChannelBotsDeleteBotRoute,
@@ -30,10 +31,11 @@ import {
   type ChannelBotPlatformInstall,
   type ChannelBotProvider,
   type CursorPaginatedResponse_AgentChannelRouteRead_,
-  type CursorPaginatedResponse_ChannelBotChannel_,
   type InboxChannelThread,
 } from "@/client"
+import type { SlackPlacement } from "@/components/agents/agent-slack-badges"
 import {
+  byChannelName,
   CHANNEL_BOT_ERROR_PARAM,
   CHANNEL_BOT_INSTALL_PARAM,
   CHANNEL_BOT_MESSAGE_PARAM,
@@ -47,22 +49,15 @@ import { toast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
-  type BotChannels,
-  type SlackPlacement,
-  slackPlacementsByPreset,
-} from "@/lib/agent-slack-placements"
-import {
   getApiErrorDetail,
   retryHandler,
   type TracecatApiError,
 } from "@/lib/errors"
 import {
   type MutateOptions,
-  type UseQueryResult,
   useInfiniteQuery,
   useIsMutating,
   useMutation,
-  useQueries,
   useQuery,
   useQueryClient,
 } from "@/lib/query"
@@ -73,9 +68,9 @@ const INSTALL_MESSAGE_LIMIT = 200
 const BOT_CHANNEL_LIMIT = 100
 // The API's cap; a tenant's channels are paged in for the route picker.
 const ROUTABLE_CHANNEL_PAGE_LIMIT = 200
-// The API's cap; every route of an install is read for the Agents list.
+// The API's cap; every workspace route is read for the Agents list.
 const ROUTE_PAGE_LIMIT = 200
-// Defensive bound on route pages followed for one install.
+// Defensive bound on workspace route pages followed for the Agents list.
 const MAX_ROUTE_PAGES = 50
 // Channel listings call Slack per bot, so mounts and focus reuse them briefly.
 const CHANNEL_LIST_STALE_TIME = 60_000
@@ -367,38 +362,6 @@ export function useChannelBotRoutes(
   }
 }
 
-/** Every route of a platform install, following the cursor to the end. */
-function useAllChannelBotRoutes(
-  workspaceId: string,
-  botId: string,
-  { enabled = true }: { enabled?: boolean } = {}
-) {
-  const query = useQuery<AgentChannelRouteRead[], TracecatApiError>({
-    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, botId, "routes", "all"],
-    queryFn: async () => {
-      const routes: AgentChannelRouteRead[] = []
-      let cursor: string | null = null
-      for (let page = 0; page < MAX_ROUTE_PAGES; page++) {
-        const result = await agentChannelBotsListBotRoutes({
-          workspaceId,
-          botId,
-          limit: ROUTE_PAGE_LIMIT,
-          cursor,
-        })
-        routes.push(...result.items)
-        if (!result.has_more || !result.next_cursor) break
-        cursor = result.next_cursor
-      }
-      return routes
-    },
-    enabled,
-    staleTime: CHANNEL_LIST_STALE_TIME,
-    retry: retryHandler,
-    meta: { suppressErrorToast: true },
-  })
-  return { routes: query.data, routesError: query.error }
-}
-
 /** The first page of a platform install's routes to the agent, asked of the server. */
 export function useChannelRoutesToAgent(
   workspaceId: string,
@@ -537,18 +500,140 @@ export function useChannelBotRoutableChannels(
   }
 }
 
-function combineBotChannels(
-  results: UseQueryResult<CursorPaginatedResponse_ChannelBotChannel_>[]
-): BotChannels[] {
-  return results.map(({ data, error }) => ({ channels: data?.items, error }))
+/** Every page of the workspace's channel routes, unfiltered, with its listing failures. */
+function useAllWorkspaceChannelRoutes(workspaceId: string, enabled: boolean) {
+  return useQuery<AgentChannelWorkspaceRoutesPage, TracecatApiError>({
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "workspace-routes", "all"],
+    queryFn: async () => {
+      const items: AgentChannelWorkspaceRouteRead[] = []
+      let cursor: string | null = null
+      for (let n = 0; n < MAX_ROUTE_PAGES; n++) {
+        const page: AgentChannelWorkspaceRoutesPage =
+          await agentChannelBotsListWorkspaceRoutes({
+            workspaceId,
+            limit: ROUTE_PAGE_LIMIT,
+            cursor,
+          })
+        items.push(...page.items)
+        if (!page.has_more || !page.next_cursor) {
+          return { ...page, items }
+        }
+        cursor = page.next_cursor
+      }
+      return { items, listing_failures: [] }
+    },
+    enabled,
+    staleTime: CHANNEL_LIST_STALE_TIME,
+    retry: retryHandler,
+    meta: { suppressErrorToast: true },
+  })
+}
+
+function rowChannel(
+  row: AgentChannelWorkspaceRouteRead
+): ChannelBotChannel | null {
+  // A routed channel the bot is not in has no name to show, so it shows nothing.
+  if (row.channel_name === null) return null
+  return {
+    id: row.provider_channel_id,
+    name: row.channel_name,
+    is_private: row.is_private === true,
+    is_member: true,
+  }
 }
 
 /**
- * Where each agent answers in Slack, by preset ID: the channels each running
- * bot is in, from the first page of each. A platform install's routed channels
- * go to their agents and the rest to its default agent. A bot whose channels
- * cannot be listed falls back to answering everywhere. Never requests without
- * the preview entitlement and `agent:read`.
+ * Where each agent answers in Slack, by preset ID, from the workspace's
+ * routes. A bot whose channels cannot be listed falls back to answering
+ * everywhere: every channel of its own app, or the install's unrouted ones.
+ */
+function slackPlacementsByPreset({
+  ownBots,
+  install,
+  routes,
+  routesError,
+}: {
+  /** The workspace's running custom-app bots. */
+  ownBots: AgentChannelBotRead[]
+  /** The running platform install, if any. */
+  install: AgentChannelBotRead | null
+  routes: AgentChannelWorkspaceRoutesPage | undefined
+  routesError: Error | null
+}): Map<string, SlackPlacement[]> {
+  const byPreset = new Map<string, SlackPlacement[]>()
+  const failures = new Map(
+    (routes?.listing_failures ?? []).map((f) => [f.bot_id, f])
+  )
+  function add(presetId: string, placement: SlackPlacement): void {
+    const placements = byPreset.get(presetId) ?? []
+    // The same channel can reach one agent through two bots.
+    if (
+      placement.kind === "channel" &&
+      placements.some(
+        (p) => p.kind === "channel" && p.channel.id === placement.channel.id
+      )
+    ) {
+      return
+    }
+    byPreset.set(presetId, [...placements, placement])
+  }
+  function addRows(botId: string, routed: boolean | null): void {
+    for (const row of routes?.items ?? []) {
+      const channel = rowChannel(row)
+      if (
+        channel &&
+        row.bot_id === botId &&
+        (routed === null || row.routed === routed)
+      ) {
+        add(row.agent_preset_id, { kind: "channel", channel })
+      }
+    }
+  }
+
+  for (const bot of ownBots) {
+    const failure = failures.get(bot.id)
+    if (routes && !failure) {
+      addRows(bot.id, null)
+    } else if (failure || routesError) {
+      add(bot.agent_preset_id, {
+        kind: "workspace_bot",
+        botId: bot.id,
+        needsReinstall: failure?.needs_reinstall === true,
+      })
+    }
+  }
+  if (install) {
+    if (routes && !failures.has(install.id)) {
+      addRows(install.id, false)
+    } else if (failures.has(install.id) || routesError) {
+      add(install.agent_preset_id, { kind: "default" })
+    }
+    addRows(install.id, true)
+  }
+  return sortChannels(byPreset)
+}
+
+/** Each agent's channels in name order; other placements keep their slots. */
+function sortChannels(
+  byPreset: Map<string, SlackPlacement[]>
+): Map<string, SlackPlacement[]> {
+  for (const [presetId, placements] of byPreset) {
+    const channels = placements
+      .flatMap((p) => (p.kind === "channel" ? [p] : []))
+      .sort((a, b) => byChannelName(a.channel, b.channel))
+    let next = 0
+    byPreset.set(
+      presetId,
+      placements.map((p) => (p.kind === "channel" ? channels[next++] : p))
+    )
+  }
+  return byPreset
+}
+
+/**
+ * Where each agent answers in Slack, by preset ID, from the workspace's
+ * channel routes. Never requests without the preview entitlement and
+ * `agent:read`.
  */
 export function useAgentSlackPlacements(
   workspaceId: string
@@ -573,11 +658,6 @@ export function useAgentSlackPlacements(
     slackPlatformAvailable ? installs : undefined
   )
   const activeInstall = state === "active" ? install : null
-  const botId = activeInstall?.id ?? ""
-  const { routes, routesError } = useAllChannelBotRoutes(workspaceId, botId, {
-    enabled: activeInstall !== null,
-  })
-
   const ownBots = useMemo(
     () =>
       (enabled ? (workspaceBots ?? []) : []).filter(
@@ -585,29 +665,20 @@ export function useAgentSlackPlacements(
       ),
     [enabled, workspaceBots]
   )
-  const listedBots = useMemo(
-    () => (activeInstall ? [activeInstall, ...ownBots] : ownBots),
-    [activeInstall, ownBots]
+  const { data: routes, error: routesError } = useAllWorkspaceChannelRoutes(
+    workspaceId,
+    enabled && (activeInstall !== null || ownBots.length > 0)
   )
-  const botChannels = useQueries({
-    queries: listedBots.map((bot) =>
-      channelBotChannelsQuery(workspaceId, bot.id)
-    ),
-    combine: useCallback(combineBotChannels, []),
-  })
 
   return useMemo(
     () =>
       slackPlacementsByPreset({
         ownBots,
         install: activeInstall,
-        channelsByBot: new Map(
-          listedBots.map((bot, index) => [bot.id, botChannels[index]])
-        ),
-        routes: activeInstall ? routes : undefined,
+        routes: enabled ? routes : undefined,
         routesError,
       }),
-    [activeInstall, botChannels, listedBots, ownBots, routes, routesError]
+    [activeInstall, enabled, ownBots, routes, routesError]
   )
 }
 

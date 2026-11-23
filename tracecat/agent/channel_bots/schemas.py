@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat.agent.channel_users.enums import ChannelAccessPolicy
+from tracecat.pagination import CursorPaginatedResponse
 
 CHANNEL_BOTS_PREFIX = "/agent/channel-bots"
 OAUTH_CALLBACK_ROUTE = f"{CHANNEL_BOTS_PREFIX}/{{provider}}/oauth/callback"
@@ -294,7 +295,7 @@ class AgentChannelWorkspaceRouteRead(BaseModel):
     app_owner: ChannelBotAppOwner
     provider_channel_id: str
     routed: bool = Field(
-        description="A platform install's route; False for a channel a workspace app is in, answered by its one agent."
+        description="A platform install's route; False for a channel the bot is in without one, answered by its default agent."
     )
     agent_preset_id: uuid.UUID
     agent_name: str
@@ -307,6 +308,24 @@ class AgentChannelWorkspaceRouteRead(BaseModel):
     )
     name_unavailable: bool = Field(
         description="The bot's channels were not looked up: it is not running, or the provider call failed."
+    )
+
+
+class ChannelBotListingFailure(BaseModel):
+    """A running bot whose channels the provider would not list, so it has no channel rows."""
+
+    bot_id: uuid.UUID
+    needs_reinstall: bool = Field(
+        description="The bot's app lacks the scopes to list channels until it is reinstalled."
+    )
+
+
+class AgentChannelWorkspaceRoutesPage(
+    CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]
+):
+    listing_failures: list[ChannelBotListingFailure] = Field(
+        default_factory=list,
+        description="Running bots whose channels could not be listed; the same on every page.",
     )
 
 

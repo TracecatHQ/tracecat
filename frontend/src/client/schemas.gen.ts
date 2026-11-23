@@ -1943,7 +1943,7 @@ export const $AgentChannelWorkspaceRouteRead = {
       type: "boolean",
       title: "Routed",
       description:
-        "A platform install's route; False for a channel a workspace app is in, answered by its one agent.",
+        "A platform install's route; False for a channel the bot is in without one, answered by its default agent.",
     },
     agent_preset_id: {
       type: "string",
@@ -2015,6 +2015,78 @@ export const $AgentChannelWorkspaceRouteRead = {
   title: "AgentChannelWorkspaceRouteRead",
   description:
     "A channel a workspace bot answers in, and the agent that answers there.",
+} as const
+
+export const $AgentChannelWorkspaceRoutesPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentChannelWorkspaceRouteRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+    listing_failures: {
+      items: {
+        $ref: "#/components/schemas/ChannelBotListingFailure",
+      },
+      type: "array",
+      title: "Listing Failures",
+      description:
+        "Running bots whose channels could not be listed; the same on every page.",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentChannelWorkspaceRoutesPage",
 } as const
 
 export const $AgentControlReceipt = {
@@ -14981,6 +15053,27 @@ export const $ChannelBotInstallResult = {
   title: "ChannelBotInstallResult",
 } as const
 
+export const $ChannelBotListingFailure = {
+  properties: {
+    bot_id: {
+      type: "string",
+      format: "uuid",
+      title: "Bot Id",
+    },
+    needs_reinstall: {
+      type: "boolean",
+      title: "Needs Reinstall",
+      description:
+        "The bot's app lacks the scopes to list channels until it is reinstalled.",
+    },
+  },
+  type: "object",
+  required: ["bot_id", "needs_reinstall"],
+  title: "ChannelBotListingFailure",
+  description:
+    "A running bot whose channels the provider would not list, so it has no channel rows.",
+} as const
+
 export const $ChannelBotPlatformApp = {
   properties: {
     provider: {
@@ -16844,69 +16937,6 @@ export const $CursorPaginatedResponse_AgentChannelUserRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentChannelUserRead]",
-} as const
-
-export const $CursorPaginatedResponse_AgentChannelWorkspaceRouteRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/AgentChannelWorkspaceRouteRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentFolderRead_ = {
