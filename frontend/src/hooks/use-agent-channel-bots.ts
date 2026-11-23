@@ -299,8 +299,15 @@ export function useWorkspaceChannelRoutes(
   })
   const routes: AgentChannelWorkspaceRouteRead[] | undefined =
     query.data?.pages.flatMap((page) => page.items)
+  // Running bots Slack would not list, keyed by bot ID.
+  const listingFailures = new Map(
+    (query.data?.pages ?? []).flatMap((page) =>
+      (page.listing_failures ?? []).map((f) => [f.bot_id, f] as const)
+    )
+  )
   return {
     routes,
+    listingFailures,
     routesIsLoading: query.isLoading,
     routesError: query.error as TracecatApiError | null,
     // The shown rows are for an earlier search until this one settles.
@@ -503,7 +510,8 @@ export function useChannelBotRoutableChannels(
 /** Every page of the workspace's channel routes, unfiltered, with its listing failures. */
 function useAllWorkspaceChannelRoutes(workspaceId: string, enabled: boolean) {
   return useQuery<AgentChannelWorkspaceRoutesPage, TracecatApiError>({
-    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "workspace-routes", "all"],
+    // Apart from the searched key, which a search for "all" would otherwise hit.
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "workspace-routes-all"],
     queryFn: async () => {
       const items: AgentChannelWorkspaceRouteRead[] = []
       let cursor: string | null = null

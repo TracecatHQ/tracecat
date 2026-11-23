@@ -165,6 +165,33 @@ describe("Workspace channels table", () => {
     expect(rowOf(grid, "Everywhere else")).toHaveTextContent("Triage")
   })
 
+  it("says Slack would not list a bot's channels instead of asking to invite it", async () => {
+    api.listWorkspaceRoutes.mockResolvedValue({
+      ...routePage([workspaceRoute()]),
+      listing_failures: [{ bot_id: CUSTOM.id, needs_reinstall: true }],
+    })
+    renderChannelsPage()
+    const grid = await table()
+
+    expect(
+      await within(grid).findByText(
+        "Slack won't list this bot's channels until its app is reinstalled."
+      )
+    ).toBeInTheDocument()
+    expect(within(grid).queryByText(/Not in any channel yet/)).toBeNull()
+  })
+
+  it("waits for every page before saying a bot is in no channel", async () => {
+    api.listWorkspaceRoutes.mockResolvedValue(
+      routePage([workspaceRoute()], "next")
+    )
+    renderChannelsPage()
+    const grid = await table()
+    await within(grid).findByText("soc-alerts")
+
+    expect(within(grid).queryByText(/Not in any channel yet/)).toBeNull()
+  })
+
   it("pages in more channels", async () => {
     api.listWorkspaceRoutes
       .mockResolvedValueOnce(routePage([workspaceRoute()], "next"))

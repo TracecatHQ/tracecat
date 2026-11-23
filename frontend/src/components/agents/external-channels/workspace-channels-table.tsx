@@ -5,6 +5,7 @@ import { type ReactNode, useState } from "react"
 import type {
   AgentChannelBotRead,
   AgentChannelWorkspaceRouteRead,
+  ChannelBotListingFailure,
 } from "@/client"
 import { ChannelBotStatus } from "@/components/agents/external-channels/channel-bot-card"
 import { StatusLabel } from "@/components/agents/external-channels/channel-bot-fields"
@@ -64,6 +65,7 @@ export function WorkspaceChannelsTable({
   const { presets } = useAgentPresets(workspaceId, { enabled })
   const {
     routes,
+    listingFailures,
     routesIsLoading,
     routesError,
     searching,
@@ -139,6 +141,9 @@ export function WorkspaceChannelsTable({
                 showDefault={!filtering}
                 loading={routesIsLoading}
                 unavailable={routesError !== null && !routes}
+                listingFailure={listingFailures.get(bot.id) ?? null}
+                // Rows come grouped by bot, so a later page may hold this bot's.
+                complete={!hasMoreRoutes}
               />
             ))}
             {routes && groups.length === 0 ? (
@@ -185,6 +190,8 @@ function BotGroup({
   showDefault,
   loading,
   unavailable,
+  listingFailure,
+  complete,
 }: {
   bot: AgentChannelBotRead
   rows: AgentChannelWorkspaceRouteRead[]
@@ -192,6 +199,10 @@ function BotGroup({
   showDefault: boolean
   loading: boolean
   unavailable: boolean
+  /** Slack would not list this bot's channels. */
+  listingFailure: ChannelBotListingFailure | null
+  /** Every page is loaded, so no rows means none. */
+  complete: boolean
 }) {
   const platform = bot.app_owner === "platform"
   const running = bot.status === "active"
@@ -207,6 +218,12 @@ function BotGroup({
     empty = "Loading channels…"
   } else if (unavailable) {
     empty = "Channels unavailable"
+  } else if (listingFailure) {
+    empty = listingFailure.needs_reinstall
+      ? "Slack won't list this bot's channels until its app is reinstalled."
+      : "Slack couldn't list this bot's channels."
+  } else if (!complete) {
+    empty = null
   } else if (!platform && rows.length === 0) {
     empty = running
       ? "Not in any channel yet. Invite it to one in Slack."
