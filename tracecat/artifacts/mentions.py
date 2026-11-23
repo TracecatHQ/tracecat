@@ -1,4 +1,4 @@
-"""Resolve artifact mentions in agent replies for the viewer who reads them."""
+"""Resolve an artifact mention to what a role may see of it."""
 
 from __future__ import annotations
 
@@ -42,10 +42,10 @@ def _case_url(workspace_id: uuid.UUID, case_id: uuid.UUID) -> str:
 
 
 class ArtifactResolver:
-    """Turn an artifact mention into what one viewer may see of it.
+    """Turn an artifact mention into what one role may see of it.
 
-    Authorizes mentions for renderers outside the web app. They get a
-    label-only result for anything else and must never show an error for it.
+    For renderers outside the web app. None for anything the role may not see:
+    callers fall back to the label and never show an error.
     """
 
     def __init__(self, session: AsyncSession) -> None:
