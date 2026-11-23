@@ -11,7 +11,7 @@ from typing import Any
 
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
@@ -33,7 +33,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, AgentSessionThread
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatNotFoundError,
@@ -46,6 +46,9 @@ SLACK_EVENT_DEDUP_TTL_SECONDS = 600
 SLACK_APPROVAL_REDIS_PREFIX = "slack-approval"
 SLACK_APPROVAL_TTL_SECONDS = 24 * 60 * 60
 SLACK_MENTION_PATTERN = re.compile(r"<@[^>]+>")
+BOT_LINKED_THREAD_MESSAGE = (
+    "This thread is handled by the channel bot now. Mention it instead."
+)
 
 
 @dataclass(frozen=True)
@@ -249,6 +252,12 @@ class SlackChannelHandler:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def _is_bot_linked(self, session_id: uuid.UUID) -> bool:
+        result = await self.session.execute(
+            select(exists().where(AgentSessionThread.session_id == session_id))
+        )
+        return bool(result.scalar())
+
     async def _persist_session_channel_context(
         self,
         *,
@@ -280,7 +289,8 @@ class SlackChannelHandler:
         token: ValidatedChannelToken,
         context: SlackAppMentionContext,
         slack_client: AsyncWebClient,
-    ) -> uuid.UUID:
+    ) -> uuid.UUID | None:
+        """The thread's session, or None when a channel bot took the thread over."""
         session_service = AgentSessionService(self.session, role=self.role)
 
         session_id = await self._resolve_session_id_from_thread_metadata(
@@ -288,6 +298,8 @@ class SlackChannelHandler:
             channel_id=context.channel_id,
             thread_ts=context.thread_ts,
         )
+        if session_id is not None and await self._is_bot_linked(session_id):
+            return None
         if session_id is not None and await self._persist_session_channel_context(
             token=token,
             context=context,
@@ -299,6 +311,8 @@ class SlackChannelHandler:
             token=token,
             context=context,
         )
+        if session_id is not None and await self._is_bot_linked(session_id):
+            return None
         if session_id is not None and await self._persist_session_channel_context(
             token=token,
             context=context,
@@ -910,6 +924,22 @@ class SlackChannelHandler:
                 context=context,
                 slack_client=slack_client,
             )
+            if session_id is None:
+                # Old-app mentions must not bypass the bot's thread access rules.
+                logger.info(
+                    "Slack thread is handled by a channel bot; ignoring legacy app mention",
+                    workspace_id=str(token.workspace_id),
+                    channel_id=context.channel_id,
+                    thread_ts=context.thread_ts,
+                )
+                await self._post_ephemeral_notice(
+                    slack_client,
+                    channel_id=context.channel_id,
+                    user_id=context.user_id,
+                    text=BOT_LINKED_THREAD_MESSAGE,
+                    thread_ts=context.thread_ts,
+                )
+                return
             session_service = AgentSessionService(self.session, role=self.role)
             if await session_service.has_pending_approvals(session_id):
                 await slack_client.api_call(

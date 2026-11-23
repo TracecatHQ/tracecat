@@ -17,6 +17,7 @@ from tracecat.agent.channels.schemas import SlackChannelTokenConfig
 from tracecat.agent.channels.sinks.session import (
     AgentStreamSink,
     FanoutStreamSink,
+    _build_external_channel_sink,
     open_session_event_sink,
 )
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
@@ -432,9 +433,12 @@ class _FakeLookupResult:
     def scalar_one_or_none(self) -> object:
         return self._value
 
+    def scalar(self) -> object:
+        return self._value
+
 
 class _FakeLookupSession:
-    """Answers the session lookup, then the channel token lookup, in order."""
+    """Answers the session, bot link, then channel token lookups, in order."""
 
     def __init__(self, *rows: object) -> None:
         self._rows = list(rows)
@@ -537,7 +541,7 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
             slack_signing_secret="signing-secret",
         ),
     )
-    lookup = _FakeLookupSession(agent_session, channel_token)
+    lookup = _FakeLookupSession(agent_session, False, channel_token)
 
     session_scopes: list[dict[str, object]] = []
 
@@ -582,3 +586,39 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
     else:
         assert isinstance(sink, AgentStreamSink)
         assert sink.stream is redis_stream
+
+
+@pytest.mark.anyio
+async def test_external_channel_sink_skips_sessions_a_channel_bot_took_over(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bot-linked session never streams through the legacy Slack app."""
+    preset_id = uuid.uuid4()
+    agent_session = SimpleNamespace(
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        channel_context={
+            "channel_type": "slack",
+            "channel_id": "C1",
+            "thread_ts": "1700000000.100",
+        },
+        agent_preset_id=preset_id,
+        entity_id=preset_id,
+    )
+    lookup = _FakeLookupSession(agent_session, True)
+
+    @asynccontextmanager
+    async def _session_context(**_scope: object) -> AsyncIterator[_FakeLookupSession]:
+        yield lookup
+
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.session.get_async_session_tenant_context_manager",
+        _session_context,
+    )
+
+    sink = await _build_external_channel_sink(
+        session_id=uuid.uuid4(), workspace_id=uuid.uuid4()
+    )
+
+    assert sink is None
+    # The token lookup never ran.
+    assert lookup._rows == []
