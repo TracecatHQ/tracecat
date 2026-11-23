@@ -1,0 +1,14 @@
+tests/unit/test_release_workflows.py
+  h_5f9670feebc95f 81,83-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a85ee598f688bfb0971cf79e5748ad951f9b8375",
+  "prompts": {},
+  "humans": {
+    "h_5f9670feebc95f": {
+      "author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
