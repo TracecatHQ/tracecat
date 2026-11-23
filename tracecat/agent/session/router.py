@@ -28,6 +28,7 @@ from tracecat.agent.backends.types import (
     AgentControlUncertain,
     SessionDispatchUncertain,
 )
+from tracecat.agent.channel_notifier import list_channel_destinations
 from tracecat.agent.control.schemas import AgentControlReceipt, AgentControlRequest
 from tracecat.agent.session.channel_sync import (
     ChannelThreadUnavailable,
@@ -40,6 +41,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
     AgentSessionCancelResponse,
+    AgentSessionChannelDestinationsRead,
     AgentSessionChannelSyncRead,
     AgentSessionChannelSyncUpdate,
     AgentSessionCreate,
@@ -1006,8 +1008,33 @@ async def get_session_channel_sync(
         )
     if not (await svc.session_access(agent_session)).act:
         enabled = await get_channel_sync_enabled(svc, session_id)
-        return AgentSessionChannelSyncRead(available=False, enabled=bool(enabled))
+        return AgentSessionChannelSyncRead(
+            available=False, enabled=bool(enabled), linked=enabled is not None
+        )
     return await get_channel_sync(svc, session_id)
+
+
+@router.get("/{session_id}/channel-sync/destinations")
+@require_scope("agent:execute")
+async def list_session_channel_destinations(
+    session_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionChannelDestinationsRead:
+    """Where the actor can open the thread of a session that has none. One bounded
+    list, not paged: the picker filters it in the browser."""
+    svc = AgentSessionService(session, role)
+    agent_session = await svc.get_session(session_id)
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    _require_session_access((await svc.session_access(agent_session)).act)
+    if await get_channel_sync_enabled(svc, session_id) is not None:
+        return AgentSessionChannelDestinationsRead(items=[])
+    return AgentSessionChannelDestinationsRead(
+        items=await list_channel_destinations(role, session_id)
+    )
 
 
 @router.put("/{session_id}/channel-sync")
@@ -1034,7 +1061,9 @@ async def update_session_channel_sync(
         agent_session=agent_session,
     )
     try:
-        return await set_channel_sync(svc, session_id, enabled=params.enabled)
+        return await set_channel_sync(
+            svc, session_id, enabled=params.enabled, destination=params.destination
+        )
     except ChannelThreadUnavailable as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 

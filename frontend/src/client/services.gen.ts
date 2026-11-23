@@ -299,6 +299,8 @@ import type {
   AgentSessionsListAgentBackendsResponse,
   AgentSessionsListPendingMessagesData,
   AgentSessionsListPendingMessagesResponse,
+  AgentSessionsListSessionChannelDestinationsData,
+  AgentSessionsListSessionChannelDestinationsResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
   AgentSessionsRemoveSessionArtifactData,
@@ -9746,6 +9748,32 @@ export const agentSessionsUpdateSessionChannelSync = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Session Channel Destinations
+ * Where the actor can open the thread of a session that has none. One bounded
+ * list, not paged: the picker filters it in the browser.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns AgentSessionChannelDestinationsRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsListSessionChannelDestinations = (
+  data: AgentSessionsListSessionChannelDestinationsData
+): CancelablePromise<AgentSessionsListSessionChannelDestinationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/channel-sync/destinations",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

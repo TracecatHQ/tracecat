@@ -147,6 +147,7 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
     session.execute.side_effect = [
         _mock_scalar_result([teammate_session]),
         _mock_scalar_result([]),
+        _mock_scalar_result([]),
     ]
 
     results = await service.list_sessions(
@@ -181,6 +182,7 @@ async def test_list_sessions_derives_readonly_from_parent_and_backend_state(
     db.execute.side_effect = [
         _mock_scalar_result([row]),
         _mock_scalar_result([]),
+        _mock_scalar_result([]),
     ]
     provider = DefaultBackend()
     with (
@@ -197,3 +199,31 @@ async def test_list_sessions_derives_readonly_from_parent_and_backend_state(
     assert len(results) == 1
     assert isinstance(results[0], AgentSessionRead)
     assert results[0].is_readonly is (is_child or backend_state != "enabled")
+
+
+@pytest.mark.anyio
+async def test_list_sessions_flags_sessions_linked_to_a_channel_thread() -> None:
+    service, db, role = _build_service()
+    assert role.workspace_id is not None
+    linked, unlinked = (
+        _agent_session_row(
+            workspace_id=role.workspace_id,
+            user_id=role.user_id,
+            spawned_by_session_id=None,
+        )
+        for _ in range(2)
+    )
+    db.execute.side_effect = [
+        _mock_scalar_result([linked, unlinked]),
+        _mock_scalar_result([]),
+        _mock_scalar_result([linked.id]),
+    ]
+
+    results = await service.list_sessions(limit=2)
+
+    flags = {
+        item.id: item.channel_linked
+        for item in results
+        if isinstance(item, AgentSessionRead)
+    }
+    assert flags == {linked.id: True, unlinked.id: False}

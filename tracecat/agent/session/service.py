@@ -181,6 +181,7 @@ from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
+    AgentSessionThread,
     Approval,
     Case,
     Chat,
@@ -759,6 +760,20 @@ class AgentSessionService(BaseWorkspaceService):
             AgentSessionHistory.author_id == user_id
         )
 
+    async def channel_linked_session_ids(
+        self, session_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """The sessions among ``session_ids`` linked to a channel thread."""
+        if not session_ids:
+            return set()
+        result = await self.session.execute(
+            select(AgentSessionThread.session_id).where(
+                AgentSessionThread.workspace_id == self.workspace_id,
+                AgentSessionThread.session_id.in_(session_ids),
+            )
+        )
+        return set(result.scalars().all())
+
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]
     ) -> set[uuid.UUID]:
@@ -1096,12 +1111,14 @@ class AgentSessionService(BaseWorkspaceService):
                 [s.id for s in sessions]
             )
         access = await self.sessions_access(sessions)
+        linked_ids = await self.channel_linked_session_ids([s.id for s in sessions])
         items: list[AgentSessionRead | ChatReadMinimal] = [
             build_session_read(
                 s,
                 self.role,
                 readonly=s.id in readonly_ids,
                 access=access[s.id],
+                channel_linked=s.id in linked_ids,
             )
             for s in sessions
         ]

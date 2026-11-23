@@ -11,6 +11,7 @@ import uuid
 from sqlalchemy import select, update
 
 from tracecat.agent.channel_notifier import (
+    ChannelDestinationRef,
     can_open_channel_thread,
     notify_sync_stopped,
     open_channel_thread,
@@ -31,25 +32,31 @@ async def get_channel_sync(
     """The session's sync state; a session without a thread asks the notifier."""
     enabled = await get_channel_sync_enabled(svc, session_id)
     if enabled is not None:
-        return AgentSessionChannelSyncRead(available=True, enabled=enabled)
+        return AgentSessionChannelSyncRead(available=True, enabled=enabled, linked=True)
     available = await can_open_channel_thread(svc.role, session_id)
     return AgentSessionChannelSyncRead(available=available, enabled=False)
 
 
 async def set_channel_sync(
-    svc: AgentSessionService, session_id: uuid.UUID, *, enabled: bool
+    svc: AgentSessionService,
+    session_id: uuid.UUID,
+    *,
+    enabled: bool,
+    destination: ChannelDestinationRef | None = None,
 ) -> AgentSessionChannelSyncRead:
     """Turn sync on or off as ``svc.role``; forward only, nothing earlier is replayed.
+
+    ``destination`` picks where a session without a thread opens one.
 
     Raises:
         ChannelThreadUnavailable: Turning on a session no thread can be opened for.
     """
     if enabled and await get_channel_sync_enabled(svc, session_id) is None:
-        if not await open_channel_thread(svc.role, session_id):
+        if not await open_channel_thread(svc.role, session_id, destination):
             raise ChannelThreadUnavailable(
                 "No channel thread can be opened for this session"
             )
-        return AgentSessionChannelSyncRead(available=True, enabled=True)
+        return AgentSessionChannelSyncRead(available=True, enabled=True, linked=True)
     changed = await svc.session.scalar(
         update(AgentSessionThread)
         .where(
@@ -66,7 +73,9 @@ async def set_channel_sync(
         await notify_sync_stopped(svc.role, session_id)
     current = await get_channel_sync_enabled(svc, session_id)
     return AgentSessionChannelSyncRead(
-        available=current is not None, enabled=bool(current)
+        available=current is not None,
+        enabled=bool(current),
+        linked=current is not None,
     )
 
 

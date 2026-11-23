@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends.types import PendingMessageType
+from tracecat.agent.channel_notifier import ChannelDestination, ChannelDestinationRef
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact
@@ -174,6 +175,10 @@ class AgentSessionRead(BaseModel):
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID
     channel_context: dict[str, Any] | None
+    channel_linked: bool = Field(
+        default=False,
+        description="The session is linked to a channel thread; set by the list",
+    )
     tools: list[str] | None
     mcp_integrations: list[str] | None
     agent_preset_id: uuid.UUID | None
@@ -255,12 +260,25 @@ class AgentSessionChannelSyncRead(BaseModel):
     enabled: bool = Field(
         description="Messages sent in Tracecat post to the thread, and its replies"
     )
+    linked: bool = Field(
+        default=False, description="The session has a channel thread already"
+    )
 
 
 class AgentSessionChannelSyncUpdate(BaseModel):
     """Turn channel sync on or off; turning it on never replays earlier turns."""
 
     enabled: bool
+    destination: ChannelDestinationRef | None = Field(
+        default=None,
+        description="Where to open the thread of a session that has none",
+    )
+
+
+class AgentSessionChannelDestinationsRead(BaseModel):
+    """Where the session's thread can open: a DM, recent channels, then the rest."""
+
+    items: list[ChannelDestination]
 
 
 class AgentSessionForkRequest(BaseModel):

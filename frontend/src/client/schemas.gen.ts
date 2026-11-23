@@ -4849,6 +4849,23 @@ export const $AgentSessionCapabilities = {
   description: "Optional controls the session's backend supports.",
 } as const
 
+export const $AgentSessionChannelDestinationsRead = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ChannelDestination",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentSessionChannelDestinationsRead",
+  description:
+    "Where the session's thread can open: a DM, recent channels, then the rest.",
+} as const
+
 export const $AgentSessionChannelSyncRead = {
   properties: {
     available: {
@@ -4863,6 +4880,12 @@ export const $AgentSessionChannelSyncRead = {
       description:
         "Messages sent in Tracecat post to the thread, and its replies",
     },
+    linked: {
+      type: "boolean",
+      title: "Linked",
+      description: "The session has a channel thread already",
+      default: false,
+    },
   },
   type: "object",
   required: ["available", "enabled"],
@@ -4875,6 +4898,17 @@ export const $AgentSessionChannelSyncUpdate = {
     enabled: {
       type: "boolean",
       title: "Enabled",
+    },
+    destination: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChannelDestinationRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Where to open the thread of a session that has none",
     },
   },
   type: "object",
@@ -5174,6 +5208,12 @@ export const $AgentSessionRead = {
       ],
       title: "Channel Context",
     },
+    channel_linked: {
+      type: "boolean",
+      title: "Channel Linked",
+      description: "The session is linked to a channel thread; set by the list",
+      default: false,
+    },
     tools: {
       anyOf: [
         {
@@ -5412,6 +5452,12 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Channel Context",
+    },
+    channel_linked: {
+      type: "boolean",
+      title: "Channel Linked",
+      description: "The session is linked to a channel thread; set by the list",
+      default: false,
     },
     tools: {
       anyOf: [
@@ -5659,6 +5705,12 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Channel Context",
+    },
+    channel_linked: {
+      type: "boolean",
+      title: "Channel Linked",
+      description: "The session is linked to a channel thread; set by the list",
+      default: false,
     },
     tools: {
       anyOf: [
@@ -15037,6 +15089,74 @@ export const $ChannelBotTransport = {
   title: "ChannelBotTransport",
   description:
     "How a bot's events arrive: posted to our endpoint, or read from a provider socket.",
+} as const
+
+export const $ChannelDestination = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["direct_message", "channel"],
+      title: "Kind",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+      description: "The channel's id; None for a DM",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The channel's name, without its prefix",
+    },
+    recent: {
+      type: "boolean",
+      title: "Recent",
+      description: "The user's sessions synced here lately",
+      default: false,
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["kind", "name"],
+  title: "ChannelDestination",
+  description: "A place the session's bot can open its thread, for the picker.",
+} as const
+
+export const $ChannelDestinationRef = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["direct_message", "channel"],
+      title: "Kind",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+      description: "The channel's id; None for a DM",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["kind"],
+  title: "ChannelDestinationRef",
+  description:
+    "Where to open a session's thread: a channel by id, or a DM to the opting-in user.",
 } as const
 
 export const $ChannelLinkSignInRead = {

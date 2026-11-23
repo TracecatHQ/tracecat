@@ -18,10 +18,13 @@ from tracecat.agent import channel_notifier
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import SessionWorkflowContext
 from tracecat.agent.channel_notifier import (
+    ChannelDestination,
+    ChannelDestinationRef,
     MessageSent,
     RunUpdate,
     TurnStarted,
     can_open_channel_thread,
+    list_channel_destinations,
     notify_sync_stopped,
     open_channel_thread,
     turn_started_updates,
@@ -54,6 +57,7 @@ SESSION_ID = uuid.UUID("00000000-0000-4000-8000-00000000005e")
 RUN_ID = uuid.UUID("00000000-0000-4000-8000-0000000000a1")
 USER_ID = uuid.UUID("00000000-0000-4000-8000-0000000000c1")
 THREAD = {"provider": "slack", "team_id": "T1", "channel_id": "C1", "thread_ts": "1.2"}
+TEST_CHANNEL = ChannelDestination(kind="channel", id="C1", name="test", recent=True)
 
 
 def _user_role(workspace_id: uuid.UUID | None = None) -> Role:
@@ -79,6 +83,7 @@ class FakeNotifier:
         self.opens = opens
         self.link = link
         self.opened: list[uuid.UUID] = []
+        self.destinations: list[ChannelDestinationRef | None] = []
         self.stopped: list[tuple[uuid.UUID | None, uuid.UUID]] = []
 
     async def is_linked(self, role: Role, session_id: uuid.UUID) -> bool:
@@ -93,11 +98,23 @@ class FakeNotifier:
         del role, session_id
         return self.opens
 
-    async def open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
+    async def list_destinations(
+        self, role: Role, session_id: uuid.UUID
+    ) -> list[ChannelDestination]:
+        del role, session_id
+        return [TEST_CHANNEL] if self.opens else []
+
+    async def open_thread(
+        self,
+        role: Role,
+        session_id: uuid.UUID,
+        destination: ChannelDestinationRef | None = None,
+    ) -> bool:
         del role
         if not self.opens:
             return False
         self.opened.append(session_id)
+        self.destinations.append(destination)
         if self.link is not None:
             await self.link(session_id)
         return True
@@ -110,7 +127,17 @@ class BrokenNotifier(FakeNotifier):
     async def can_open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
         raise RuntimeError("provider down")
 
-    async def open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
+    async def list_destinations(
+        self, role: Role, session_id: uuid.UUID
+    ) -> list[ChannelDestination]:
+        raise RuntimeError("provider down")
+
+    async def open_thread(
+        self,
+        role: Role,
+        session_id: uuid.UUID,
+        destination: ChannelDestinationRef | None = None,
+    ) -> bool:
         raise RuntimeError("provider down")
 
     async def sync_stopped(self, role: Role, session_id: uuid.UUID) -> None:
@@ -181,6 +208,7 @@ async def test_hooks_fail_closed_without_a_notifier(
     role = _user_role()
 
     assert await can_open_channel_thread(role, SESSION_ID) is False
+    assert await list_channel_destinations(role, SESSION_ID) == []
     assert await open_channel_thread(role, SESSION_ID) is False
     await notify_sync_stopped(role, SESSION_ID)
 
@@ -193,6 +221,7 @@ async def test_hooks_fail_closed_on_a_broken_notifier(
     role = _user_role()
 
     assert await can_open_channel_thread(role, SESSION_ID) is False
+    assert await list_channel_destinations(role, SESSION_ID) == []
     assert await open_channel_thread(role, SESSION_ID) is False
     await notify_sync_stopped(role, SESSION_ID)
 
@@ -343,11 +372,16 @@ async def test_opting_a_web_session_in_opens_and_links_a_thread(
     _install(monkeypatch, notifier)
     svc = AgentSessionService(session, svc_role)
 
-    result = await set_channel_sync(svc, web.id, enabled=True)
+    picked = ChannelDestinationRef(kind="channel", id="C1")
+    result = await set_channel_sync(svc, web.id, enabled=True, destination=picked)
 
-    assert result == AgentSessionChannelSyncRead(available=True, enabled=True)
+    assert result == AgentSessionChannelSyncRead(
+        available=True, enabled=True, linked=True
+    )
     assert notifier.opened == [web.id]
+    assert notifier.destinations == [picked]
     assert await _flag(session, web.id) is True
+    assert await svc.channel_linked_session_ids([web.id, uuid.uuid4()]) == {web.id}
 
 
 @pytest.mark.anyio
@@ -381,7 +415,11 @@ async def test_turning_sync_off_tells_the_thread_once(
     first = await set_channel_sync(svc, started.id, enabled=False)
     again = await set_channel_sync(svc, started.id, enabled=False)
 
-    assert first == again == AgentSessionChannelSyncRead(available=True, enabled=False)
+    assert (
+        first
+        == again
+        == AgentSessionChannelSyncRead(available=True, enabled=False, linked=True)
+    )
     assert notifier.stopped == [(svc_role.user_id, started.id)]
     assert await _flag(session, started.id) is False
 
@@ -402,7 +440,9 @@ async def test_turning_sync_back_on_reuses_the_thread(
 
     result = await set_channel_sync(svc, started.id, enabled=True)
 
-    assert result == AgentSessionChannelSyncRead(available=True, enabled=True)
+    assert result == AgentSessionChannelSyncRead(
+        available=True, enabled=True, linked=True
+    )
     assert notifier.opened == [] and notifier.stopped == []
     assert await _flag(session, started.id) is True
 
@@ -505,7 +545,7 @@ def test_reading_a_session_the_actor_cannot_toggle_hides_the_toggle() -> None:
         response = client.get(f"/agent/sessions/{agent_session.id}/channel-sync")
 
     assert response.status_code == 200
-    assert response.json() == {"available": False, "enabled": True}
+    assert response.json() == {"available": False, "enabled": True, "linked": True}
 
 
 def test_opting_in_without_a_channel_is_a_conflict() -> None:
@@ -535,3 +575,82 @@ def test_opting_in_without_a_channel_is_a_conflict() -> None:
         )
 
     assert response.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("created_by", "linked", "status_code", "items"),
+    [
+        pytest.param(USER_ID, False, 200, [TEST_CHANNEL], id="own-unlinked"),
+        pytest.param(USER_ID, True, 200, [], id="own-linked"),
+        pytest.param(uuid.uuid4(), False, 403, None, id="teammate-session"),
+    ],
+)
+def test_listing_destinations_follows_the_toggle_rule(
+    monkeypatch: pytest.MonkeyPatch,
+    created_by: uuid.UUID,
+    linked: bool,
+    status_code: int,
+    items: list[ChannelDestination] | None,
+) -> None:
+    _install(monkeypatch, FakeNotifier())
+    role = _user_role()
+    assert role.workspace_id is not None
+    agent_session = _agent_session(
+        role.workspace_id, created_by=created_by, entity_type="agent_preset"
+    )
+    app, get_session = _client(role, agent_session)
+    with (
+        get_session,
+        patch.object(
+            AgentSessionService,
+            "participated_session_ids",
+            AsyncMock(return_value=set()),
+        ),
+        patch.object(
+            session_router,
+            "get_channel_sync_enabled",
+            AsyncMock(return_value=True if linked else None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.get(
+            f"/agent/sessions/{agent_session.id}/channel-sync/destinations"
+        )
+
+    assert response.status_code == status_code
+    if items is not None:
+        assert response.json() == {
+            "items": [item.model_dump(mode="json") for item in items]
+        }
+
+
+def test_opting_in_passes_the_picked_destination() -> None:
+    role = _user_role()
+    assert role.workspace_id is not None
+    agent_session = _agent_session(
+        role.workspace_id, created_by=USER_ID, entity_type="agent_preset"
+    )
+    app, get_session = _client(role, agent_session)
+    toggled = AgentSessionChannelSyncRead(available=True, enabled=True, linked=True)
+    with (
+        get_session,
+        patch.object(
+            session_router,
+            "_require_workspace_chat_entitlement_for_session_tree",
+            AsyncMock(),
+        ),
+        patch.object(
+            session_router, "set_channel_sync", AsyncMock(return_value=toggled)
+        ) as set_sync,
+        TestClient(app) as client,
+    ):
+        response = client.put(
+            f"/agent/sessions/{agent_session.id}/channel-sync",
+            json={"enabled": True, "destination": {"kind": "direct_message"}},
+        )
+
+    assert response.status_code == 200
+    assert set_sync.await_args is not None
+    assert set_sync.await_args.kwargs["destination"] == ChannelDestinationRef(
+        kind="direct_message"
+    )

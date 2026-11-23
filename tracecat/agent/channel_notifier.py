@@ -19,7 +19,7 @@ from functools import lru_cache
 from importlib.metadata import entry_points
 from typing import Annotated, Literal, Protocol
 
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
@@ -137,6 +137,26 @@ def turn_started_updates(
     return [sent, started]
 
 
+class ChannelDestinationRef(BaseModel):
+    """Where to open a session's thread: a channel by id, or a DM to the opting-in user."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["direct_message", "channel"]
+    id: str | None = Field(
+        default=None, max_length=255, description="The channel's id; None for a DM"
+    )
+
+
+class ChannelDestination(ChannelDestinationRef):
+    """A place the session's bot can open its thread, for the picker."""
+
+    name: str = Field(description="The channel's name, without its prefix")
+    recent: bool = Field(
+        default=False, description="The user's sessions synced here lately"
+    )
+
+
 class ChannelPushRetryAfter(Exception):
     """Raised by a notifier when the provider asks the caller to wait."""
 
@@ -167,13 +187,25 @@ class ChannelNotifier(Protocol):
         ...
 
     async def can_open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
-        """Return whether ``open_thread`` has a channel to open the session's thread in."""
+        """Return whether the session's agent has a bot that can open its thread."""
         ...
 
-    async def open_thread(self, role: Role, session_id: uuid.UUID) -> bool:
+    async def list_destinations(
+        self, role: Role, session_id: uuid.UUID
+    ) -> list[ChannelDestination]:
+        """Where ``role.user_id`` can open the session's thread; empty when nowhere."""
+        ...
+
+    async def open_thread(
+        self,
+        role: Role,
+        session_id: uuid.UUID,
+        destination: ChannelDestinationRef | None = None,
+    ) -> bool:
         """Open a thread for an unlinked session and link it, synced; False when none can be.
 
-        ``role.user_id`` is the Tracecat user who opted the session in.
+        ``role.user_id`` is the Tracecat user who opted the session in. Without a
+        ``destination`` the agent's one routed channel is used.
         """
         ...
 
@@ -247,14 +279,37 @@ async def can_open_channel_thread(role: Role, session_id: uuid.UUID) -> bool:
         return False
 
 
-async def open_channel_thread(role: Role, session_id: uuid.UUID) -> bool:
+async def list_channel_destinations(
+    role: Role, session_id: uuid.UUID
+) -> list[ChannelDestination]:
+    """Ask the notifier where the session's thread can open, failing closed."""
+    try:
+        notifier = get_channel_notifier()
+        if notifier is None:
+            return []
+        async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
+            return await notifier.list_destinations(role, session_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to list where the session's channel thread can open",
+            session_id=session_id,
+            error=repr(e),
+        )
+        return []
+
+
+async def open_channel_thread(
+    role: Role,
+    session_id: uuid.UUID,
+    destination: ChannelDestinationRef | None = None,
+) -> bool:
     """Open and link the session's thread; False when there is none or opening failed."""
     try:
         notifier = get_channel_notifier()
         if notifier is None:
             return False
         async with asyncio.timeout(PUSH_BUDGET.total_seconds()):
-            return await notifier.open_thread(role, session_id)
+            return await notifier.open_thread(role, session_id, destination)
     except Exception as e:
         logger.warning(
             "Failed to open a channel thread for the session",
