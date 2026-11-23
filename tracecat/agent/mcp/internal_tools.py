@@ -473,8 +473,7 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
             return AgentSessionReadWithMessages(
                 **build_session_read(session, role, participated=False).model_dump(),
                 messages=messages,
-                # Authors' names and emails stay out of the model's context.
-            ).model_dump(mode="json", exclude={"messages": {"__all__": {"author"}}})
+            ).model_dump(mode="json")
     except InternalToolError:
         raise
     except Exception as e:

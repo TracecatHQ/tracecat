@@ -14,7 +14,7 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.mcp import internal_tools
 from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
-from tracecat.chat.schemas import ChatMessage, MessageAuthor
+from tracecat.chat.schemas import ChatMessage
 from tracecat.db.models import AgentSession
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -218,11 +218,7 @@ async def test_get_session_keeps_message_authors_out_of_the_models_context():
         created_at=now,
         updated_at=now,
     )
-    message = ChatMessage(
-        id="m1",
-        message=UserMessage(content="hi"),
-        author=MessageAuthor(id=uuid.uuid4(), email="sam@example.com"),
-    )
+    message = ChatMessage(id="m1", message=UserMessage(content="hi"))
     service = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
         list_messages=AsyncMock(return_value=[message]),
@@ -234,8 +230,10 @@ async def test_get_session_keeps_message_authors_out_of_the_models_context():
         response = await internal_tools.get_session(
             {"session_id": str(session.id)}, claims
         )
+    # Authors are opt-in for web reads; the model's read never asks.
+    service.list_messages.assert_awaited_once_with(session.id)
     [listed] = response["messages"]
-    assert "author" not in listed
+    assert listed["author"] is None
 
 
 @pytest.mark.anyio

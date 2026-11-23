@@ -389,7 +389,7 @@ async def get_session(
             role=role,
             agent_session=agent_session,
         )
-        messages = await svc.list_messages(session_id)
+        messages = await svc.list_messages(session_id, with_authors=True)
         logger.info("Session read", session_id=agent_session.id, messages=len(messages))
         return AgentSessionReadWithMessages(
             **session_read.model_dump(),
@@ -446,7 +446,7 @@ async def get_session_vercel(
             role=role,
             agent_session=agent_session,
         )
-        messages = await svc.list_messages(session_id)
+        messages = await svc.list_messages(session_id, with_authors=True)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
         return AgentSessionReadVercel(
             **session_read.model_dump(),

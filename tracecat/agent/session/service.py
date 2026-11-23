@@ -3163,6 +3163,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         kinds: Sequence[MessageKind] | None = None,
         include_active: bool = False,
+        with_authors: bool = False,
     ) -> list[ChatMessage]:
         """Retrieve session messages, optionally filtered by message kind.
 
@@ -3177,6 +3178,8 @@ class AgentSessionService(BaseWorkspaceService):
                 this True: they run before ``finalize_turn`` clears
                 ``curr_run_id``, so the default filter would otherwise omit the
                 just-completed turn from the returned ``message_history``.
+            with_authors: Name each prompt's sender (name, email). Only web reads
+                ask: agent and workflow outputs must not carry them.
 
         Returns:
             List of ChatMessage objects (parent messages + current if forked).
@@ -3240,7 +3243,7 @@ class AgentSessionService(BaseWorkspaceService):
             entries,
             history=history,
             approvals_by_tool_id=approval_by_tool_id,
-            authors_by_id=await self._message_authors(entries),
+            authors_by_id=await self._message_authors(entries) if with_authors else {},
             kinds=kinds,
             channel_session=await self.is_channel_session(agent_session),
         )
@@ -3284,7 +3287,7 @@ class AgentSessionService(BaseWorkspaceService):
         approvals_by_tool_id: dict[str, Approval],
         kinds: Sequence[MessageKind] | None,
         history: SessionHistoryAdapter | None = None,
-        authors_by_id: Mapping[uuid.UUID, MessageAuthor] | None = None,
+        authors_by_id: Mapping[uuid.UUID, MessageAuthor],
         channel_session: bool = False,
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
@@ -3370,7 +3373,7 @@ class AgentSessionService(BaseWorkspaceService):
                     channel_message=_channel_message_of(message)
                     if channel_session
                     else None,
-                    author=(authors_by_id or {}).get(entry.author_id)
+                    author=authors_by_id.get(entry.author_id)
                     if entry.author_id
                     else None,
                 )

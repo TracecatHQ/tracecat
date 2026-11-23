@@ -450,7 +450,7 @@ async def test_session_history_remains_readable_without_entitlement(
             session=AsyncMock(),
         )
     assert response.is_readonly is True
-    fake_svc.list_messages.assert_awaited_once_with(session_stub.id)
+    fake_svc.list_messages.assert_awaited_once_with(session_stub.id, with_authors=True)
     fake_svc.get_workspace_chat_session_ids.assert_awaited_once_with([session_stub.id])
 
 

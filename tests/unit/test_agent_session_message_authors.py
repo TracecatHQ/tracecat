@@ -75,12 +75,15 @@ async def test_list_messages_names_each_prompt_author(
     await session.commit()
 
     service = AgentSessionService(session=session, role=svc_role)
-    messages = await service.list_messages(agent_session.id)
+    messages = await service.list_messages(agent_session.id, with_authors=True)
 
     assert [message.author and message.author.id for message in messages] == [
         author.id,
         None,
     ]
+    # Only web reads ask for authors; agent and workflow reads never carry them.
+    default_read = await service.list_messages(agent_session.id)
+    assert [message.author for message in default_read] == [None, None]
     attributed, unattributed = convert_chat_messages_to_ui(messages)
     assert attributed.metadata is not None
     assert attributed.metadata["author"] == {

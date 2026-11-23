@@ -407,12 +407,7 @@ async def load_session_messages_activity(
             messages = await service.list_messages(
                 input.session_id, include_active=True
             )
-        # Workflow outputs can reach later prompts; authors' emails stay out.
-        return LoadSessionMessagesResult(
-            messages=[
-                message.model_copy(update={"author": None}) for message in messages
-            ]
-        )
+        return LoadSessionMessagesResult(messages=messages)
 
     except Exception as e:
         logger.warning(
