@@ -6,8 +6,8 @@ Create Date: 2026-11-22 12:00:00.000000
 
 Adds nullable ``agent_session_history.author_id``, the Tracecat user who sent a
 user prompt. Additive: the previous app ignores the column and existing rows
-stay null. A partial index serves the ON DELETE SET NULL lookup on user
-delete.
+stay null. The partial index for the ON DELETE SET NULL lookup is built
+concurrently in the next revision.
 
 """
 
@@ -38,21 +38,9 @@ def upgrade() -> None:
         'FOREIGN KEY (author_id) REFERENCES "user" (id) '
         "ON DELETE SET NULL NOT VALID"
     )
-    op.create_index(
-        "ix_agent_session_history_author_id",
-        "agent_session_history",
-        ["author_id"],
-        unique=False,
-        postgresql_where=sa.text("author_id IS NOT NULL"),
-    )
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_agent_session_history_author_id",
-        table_name="agent_session_history",
-        postgresql_where=sa.text("author_id IS NOT NULL"),
-    )
     op.drop_constraint(
         op.f("fk_agent_session_history_author_id_user"),
         "agent_session_history",
