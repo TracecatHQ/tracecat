@@ -185,8 +185,9 @@ async def test_a_turn_records_where_its_prompt_came_from(
     assert start.await_args.kwargs["origin"] is origin
 
 
+@pytest.mark.parametrize("in_fork", [False, True])
 async def test_a_retry_keeps_the_linked_sender_as_its_author(
-    session: AsyncSession, svc_role: Role
+    session: AsyncSession, svc_role: Role, in_fork: bool
 ) -> None:
     sender = User(
         id=uuid.uuid4(),
@@ -207,28 +208,41 @@ async def test_a_retry_keeps_the_linked_sender_as_its_author(
     )
     session.add_all([sender, agent_session])
     await session.flush()
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            origin=UserMessageOrigin.CHANNEL.value,
-            author_id=sender.id,
-            content={
-                "type": "user",
-                "message": {"role": "user", "content": HELD.render()},
-            },
-        )
+    held_row = AgentSessionHistory(
+        session_id=agent_session.id,
+        workspace_id=svc_role.workspace_id,
+        kind=MessageKind.CHAT_MESSAGE.value,
+        origin=UserMessageOrigin.CHANNEL.value,
+        author_id=sender.id,
+        content={
+            "type": "user",
+            "message": {"role": "user", "content": HELD.render()},
+        },
     )
+    session.add(held_row)
+    await session.flush()
+    retried_in = agent_session
+    if in_fork:
+        retried_in = AgentSession(
+            id=uuid.uuid4(),
+            title="Fork",
+            workspace_id=svc_role.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=uuid.uuid4(),
+            forked_from_session_id=agent_session.id,
+            forked_from_history_id=held_row.surrogate_id,
+        )
+        session.add(retried_in)
     await session.commit()
     service = AgentSessionService(session=session, role=_as(svc_role, "user"))
     with (
         patch.object(
-            service, "validate_turn_request", AsyncMock(return_value=agent_session)
+            service, "validate_turn_request", AsyncMock(return_value=retried_in)
         ),
         patch.object(service, "_start_new_turn", AsyncMock()) as start,
     ):
-        await service.run_turn(agent_session.id, _retry(HELD))
+        await service.run_turn(retried_in.id, _retry(HELD))
 
     assert start.await_args is not None
-    assert start.await_args.kwargs["author_id"] == sender.id
+    # A fork reads the parent's row; its sender never becomes the fork's author.
+    assert start.await_args.kwargs["author_id"] == (None if in_fork else sender.id)

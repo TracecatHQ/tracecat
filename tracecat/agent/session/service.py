@@ -2098,7 +2098,12 @@ class AgentSessionService(BaseWorkspaceService):
                     received = await self._received_channel_message(
                         agent_session, retried
                     )
-                    if received is not None and received.author is not None:
+                    # A fork reads its parent's rows: never credit that sender here.
+                    if (
+                        received is not None
+                        and received.author is not None
+                        and agent_session.forked_from_session_id is None
+                    ):
                         author_id = received.author.id
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
@@ -2658,8 +2663,8 @@ class AgentSessionService(BaseWorkspaceService):
                 curr_run_id,
                 message_run,
                 text,
-                author_id=author_id
-                or (self.role.user_id if self.role.type == "user" else None),
+                # A channel message never falls back to the role: its sender may be unlinked.
+                author_id=author_id,
                 origin=UserMessageOrigin.CHANNEL,
             )
         except AgentControlRejected:
