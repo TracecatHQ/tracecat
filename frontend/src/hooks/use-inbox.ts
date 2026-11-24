@@ -48,6 +48,9 @@ export interface UseInboxFilters {
 }
 
 /** Display order of inbox status groups, most urgent first. */
+/** How often the inbox, and the chats list, poll for sessions started elsewhere. */
+export const INBOX_POLL_MS = 3000
+
 export const INBOX_GROUP_ORDER: InboxGroup[] = [
   "review_required",
   "running",
@@ -375,7 +378,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     sort,
     enabled: baseEnabled,
     autoRefresh,
-    pollMs: 3000,
+    pollMs: INBOX_POLL_MS,
   })
   const runningQuery = useInboxGroupQuery({
     workspaceId,
@@ -390,7 +393,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     sort,
     enabled: baseEnabled,
     autoRefresh,
-    pollMs: 3000,
+    pollMs: INBOX_POLL_MS,
   })
   const errorQuery = useInboxGroupQuery({
     workspaceId,

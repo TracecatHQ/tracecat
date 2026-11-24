@@ -281,7 +281,11 @@ export function useListChats(
     participating?: boolean
     limit?: number
   },
-  options?: { enabled?: boolean }
+  options?: {
+    enabled?: boolean
+    /** Poll while the page is visible, so sessions started elsewhere appear. */
+    pollMs?: number
+  }
 ): {
   chats: AgentSessionsListSessionsResponse | undefined
   chatsLoading: boolean
@@ -318,6 +322,10 @@ export function useListChats(
     enabled: options?.enabled ?? true,
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: () =>
+      options?.pollMs !== undefined && document.visibilityState !== "hidden"
+        ? options.pollMs
+        : false,
   })
 
   return { chats, chatsLoading, chatsError, refetchChats: refetch }

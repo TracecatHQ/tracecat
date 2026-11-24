@@ -68,6 +68,7 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { INBOX_POLL_MS } from "@/hooks/use-inbox"
 import {
   type ChatModelNotice,
   getModelUnavailableMessage,
@@ -181,14 +182,17 @@ export function ChatInterface({
   // "Mine" in workspace chat also lists channel sessions the viewer sent in.
   const mineAcrossChannels =
     historyScope === "mine" && surface === "workspace-chat"
-  const { chats, chatsLoading, chatsError } = useListChats({
-    workspaceId: workspaceId,
-    entityType: mineAcrossChannels ? undefined : entityType,
-    entityId: mineAcrossChannels ? undefined : entityId,
-    createdBy:
-      historyScope === "mine" && !mineAcrossChannels ? user?.id : undefined,
-    participating: mineAcrossChannels,
-  })
+  const { chats, chatsLoading, chatsError } = useListChats(
+    {
+      workspaceId: workspaceId,
+      entityType: mineAcrossChannels ? undefined : entityType,
+      entityId: mineAcrossChannels ? undefined : entityId,
+      createdBy:
+        historyScope === "mine" && !mineAcrossChannels ? user?.id : undefined,
+      participating: mineAcrossChannels,
+    },
+    { pollMs: INBOX_POLL_MS }
+  )
 
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
