@@ -745,12 +745,6 @@
   Each approver is `{kind, id}`. Approvers not listed are ignored. Removing the last approver restores the default rule: anyone who may run the agent decides.
 </ResponseField>
 
-<ResponseField name="list_agent_sessions" type="tool">
-  List the workspace's agent sessions and chats, newest first.
-
-  Set `participating` to list only your chats: copilot sessions you created, and copilot or Slack channel sessions you sent a message in.
-</ResponseField>
-
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 

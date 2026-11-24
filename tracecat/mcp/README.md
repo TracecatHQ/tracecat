@@ -306,7 +306,6 @@ Notes:
 - `delete_agent_folder(workspace_id, path, recursive=False)`
 - `move_agent_presets(workspace_id, preset_slugs, destination_path="/", dry_run=False)`
 - `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`
-- `list_agent_sessions(workspace_id, participating=False, limit=20, cursor=None)`
 
 `list_integrations` and `get_agent_preset_authoring_context` keep object
 responses but cap embedded collections and expose `truncation.collections`.
