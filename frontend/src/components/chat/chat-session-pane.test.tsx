@@ -1417,6 +1417,13 @@ describe("ChatSessionPane author labels", () => {
       changeSync: jest.fn(),
       isPending: false,
     })
+    // No author id, so only the sync makes the session shared.
+    mockUseVercelChatResult.messages = [
+      {
+        ...AUTHORED,
+        metadata: { author: { email: "sam@example.com", first_name: "Sam" } },
+      },
+    ]
     try {
       renderChatSessionPane({ chat: webChat })
 
