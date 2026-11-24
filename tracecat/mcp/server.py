@@ -1497,6 +1497,16 @@ class AgentPresetListItem(BaseModel):
     name: str
 
 
+class AgentSessionListItem(BaseModel):
+    """Compact agent session listing item."""
+
+    id: uuid.UUID
+    title: str
+    entity_type: AgentSessionEntity
+    created_at: datetime
+    is_readonly: bool
+
+
 class IntegrationMCPItem(BaseModel):
     """MCP integration item used by authoring context."""
 
@@ -12578,6 +12588,55 @@ async def remove_agent_preset_approvers(
             preset_slug=preset_slug,
         )
         raise ToolError(f"Failed to remove agent preset approvers: {e}") from None
+
+
+@mcp.tool()
+async def list_agent_sessions(
+    workspace_id: uuid.UUID,
+    participating: bool = False,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[AgentSessionListItem]:
+    """List the workspace's agent sessions and chats, newest first.
+
+    Set `participating` to list only your chats: copilot sessions you created,
+    and copilot or Slack channel sessions you sent a message in.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read")
+        async with AgentSessionService.with_session(role=role) as svc:
+            sessions = await svc.list_sessions(
+                participating=participating,
+                limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            )
+        return _paginate_items(
+            [
+                AgentSessionListItem(
+                    id=item.id,
+                    title=item.title,
+                    entity_type=item.entity_type,
+                    created_at=item.created_at,
+                    is_readonly=item.is_readonly,
+                )
+                for item in sessions
+            ],
+            tool_name="list_agent_sessions",
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error("Failed to list agent sessions", error=str(e))
+        raise ToolError(f"Failed to list agent sessions: {e}") from None
 
 
 @mcp.tool()

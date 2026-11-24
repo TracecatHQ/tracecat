@@ -10508,3 +10508,42 @@ async def test_get_concurrency_limits_requires_organization_context(monkeypatch)
 
     with pytest.raises(ToolError, match="organization context"):
         await _tool(mcp_server.get_concurrency_limits)()
+
+
+@pytest.mark.anyio
+async def test_list_agent_sessions_passes_participating_to_the_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=frozenset({"agent:read"}))
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    item = SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Slack thread",
+        entity_type="external_channel",
+        created_at=datetime.now(UTC),
+        is_readonly=False,
+    )
+    service = SimpleNamespace(list_sessions=AsyncMock(return_value=[item]))
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentSessionService,
+        "with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    page = await _tool(mcp_server.list_agent_sessions)(
+        workspace_id=str(workspace_id), participating=True
+    )
+
+    assert [(s.id, s.entity_type) for s in page.items] == [
+        (item.id, "external_channel")
+    ]
+    assert service.list_sessions.await_args.kwargs["participating"] is True
+
+    role.scopes = frozenset()
+    with pytest.raises(ToolError, match="Missing required scope: agent:read"):
+        await _tool(mcp_server.list_agent_sessions)(workspace_id=str(workspace_id))
