@@ -96,12 +96,13 @@ const COLUMNS: ColumnDef<ChannelTableRow>[] = [
     accessorFn: (row) => row.botTitle,
     enableHiding: false,
   },
-  // Facets match any picked value; Provider and App only filter.
+  // Facets match any picked value exactly; Provider and App only filter.
   ...FACETS.map(
     ({ column, value }): ColumnDef<ChannelTableRow> => ({
       id: column,
       accessorFn: value,
-      filterFn: "arrIncludesSome",
+      filterFn: (row, id, picked: string[]) =>
+        picked.includes(row.getValue<string>(id)),
       enableSorting: column === "agent" || column === "status",
       enableHiding: false,
     })
