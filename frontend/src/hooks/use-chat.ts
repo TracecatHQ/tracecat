@@ -284,7 +284,7 @@ export function useListChats(
   },
   options?: {
     enabled?: boolean
-    /** Poll while the page is focused, so sessions started elsewhere appear. */
+    /** Poll while the page is visible, so sessions started elsewhere appear. */
     pollMs?: number
   }
 ): {
