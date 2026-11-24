@@ -464,6 +464,8 @@ export function useAllWorkspaceChannelRoutes(
     queryFn: async () => {
       const items: AgentChannelWorkspaceRouteRead[] = []
       let cursor: string | null = null
+      let listingFailures: AgentChannelWorkspaceRoutesPage["listing_failures"] =
+        []
       for (let n = 0; n < MAX_ROUTE_PAGES; n++) {
         const page: AgentChannelWorkspaceRoutesPage =
           await agentChannelBotsListWorkspaceRoutes({
@@ -472,12 +474,13 @@ export function useAllWorkspaceChannelRoutes(
             cursor,
           })
         items.push(...page.items)
+        listingFailures = page.listing_failures
         if (!page.has_more || !page.next_cursor) {
           return { ...page, items }
         }
         cursor = page.next_cursor
       }
-      return { items, listing_failures: [] }
+      return { items, listing_failures: listingFailures }
     },
     enabled,
     staleTime: CHANNEL_LIST_STALE_TIME,

@@ -14,7 +14,10 @@ import {
 } from "lucide-react"
 import { type ReactNode, useId, useState } from "react"
 import type { AgentChannelBotRead, ChannelBotProvider } from "@/client"
-import { StatusLabel } from "@/components/agents/external-channels/channel-bot-fields"
+import {
+  StatusDot,
+  StatusLabel,
+} from "@/components/agents/external-channels/channel-bot-fields"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
   CHANNEL_BOT_STATES,
@@ -145,6 +148,28 @@ export function ChannelBotStatus({
     >
       {label}
     </StatusLabel>
+  )
+}
+
+/** A bot's status as a dot, for the Channels table and its sheet. */
+export function ChannelBotStatusDot({
+  state,
+  updateNeeded = false,
+}: {
+  state: ChannelBotState
+  updateNeeded?: boolean
+}) {
+  if (updateNeeded) {
+    return <StatusDot tone="attention">Update needed</StatusDot>
+  }
+  const { label } = CHANNEL_BOT_STATES[state]
+  if (!label) {
+    return null
+  }
+  return (
+    <StatusDot tone={state === "active" ? "ok" : "attention"}>
+      {label}
+    </StatusDot>
   )
 }
 

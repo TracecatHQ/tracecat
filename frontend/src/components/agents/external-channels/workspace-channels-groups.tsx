@@ -1,26 +1,18 @@
 "use client"
 
-import {
-  ChevronDown,
-  CircleCheck,
-  CircleDashed,
-  CirclePause,
-  type LucideIcon,
-  MousePointerClickIcon,
-  Plus,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react"
+import { ChevronDown, MousePointerClickIcon, Plus, Trash2 } from "lucide-react"
 import { type ReactNode, useState } from "react"
 import type {
   AgentChannelBotRead,
   AgentPresetReadMinimal,
   ChannelBotListingFailure,
 } from "@/client"
-import { ChannelBotStatus } from "@/components/agents/external-channels/channel-bot-card"
+import { ChannelBotStatusDot } from "@/components/agents/external-channels/channel-bot-card"
 import {
   AgentSelect,
   CustomBadge,
+  StatusDot,
+  type StatusTone,
   withCurrentAgent,
 } from "@/components/agents/external-channels/channel-bot-fields"
 import {
@@ -55,14 +47,6 @@ import {
   useUpdateAgentChannelBot,
 } from "@/hooks/use-agent-channel-bots"
 import { cn } from "@/lib/utils"
-
-const STATUS_ICONS: Partial<Record<ChannelRowStatus, LucideIcon>> = {
-  Active: CircleCheck,
-  "Not in channel": CircleDashed,
-  Unknown: CircleDashed,
-  Paused: CirclePause,
-  "Needs reconnect": TriangleAlert,
-}
 
 /** What every row of the table needs from the page. */
 export type ChannelsRowContext = {
@@ -236,7 +220,7 @@ export function BotGroup({
           </TruncatedText>
         </TableCell>
         <TableCell className="py-2">
-          <ChannelBotStatus state={state} updateNeeded={updateNeeded} />
+          <ChannelBotStatusDot state={state} updateNeeded={updateNeeded} />
         </TableCell>
         <TableCell className="py-2 text-right">
           <ManageButton botId={bot.id} context={context} />
@@ -428,28 +412,25 @@ function ChannelName({ row }: { row: ChannelTableRow }) {
   )
 }
 
+const STATUS_TONES: Record<ChannelRowStatus, StatusTone> = {
+  Active: "ok",
+  "Not in channel": "attention",
+  Paused: "attention",
+  "Needs reconnect": "attention",
+  Unknown: "neutral",
+  Default: "neutral",
+}
+
 function RowStatus({ row }: { row: ChannelTableRow }) {
-  const Icon = STATUS_ICONS[row.status]
-  if (!Icon) {
-    return <span className="text-muted-foreground">{row.status}</span>
-  }
   const invite = channelConventions(row.bot.provider).inviteCommand
   const label =
     row.status === "Not in channel" && isPlatformRow(row) && invite
       ? `Not in channel · ${invite}`
       : row.status
   return (
-    <span
-      className={cn(
-        "flex min-w-0 items-center gap-1.5",
-        row.status === "Needs reconnect"
-          ? "text-destructive"
-          : "text-muted-foreground"
-      )}
-    >
-      <Icon className="size-3.5 shrink-0" aria-hidden />
+    <StatusDot tone={STATUS_TONES[row.status]}>
       <TruncatedText text={label}>{label}</TruncatedText>
-    </span>
+    </StatusDot>
   )
 }
 

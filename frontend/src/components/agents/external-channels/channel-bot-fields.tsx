@@ -27,6 +27,34 @@ import {
 import { cn } from "@/lib/utils"
 
 /** A setup state as an icon and a short label; red only when it needs action. */
+const DOT_TONES = {
+  ok: "bg-green-600",
+  attention: "bg-amber-600",
+  neutral: "bg-zinc-400",
+} as const
+
+/** How a status dot reads: running, needs someone, or nothing to report. */
+export type StatusTone = keyof typeof DOT_TONES
+
+/** A status as a small coloured dot before neutral text. */
+export function StatusDot({
+  tone,
+  children,
+}: {
+  tone: StatusTone
+  children: ReactNode
+}) {
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-foreground/80">
+      <span
+        aria-hidden
+        className={cn("size-1.5 shrink-0 rounded-full", DOT_TONES[tone])}
+      />
+      {children}
+    </span>
+  )
+}
+
 export function StatusLabel({
   icon: Icon,
   destructive = false,

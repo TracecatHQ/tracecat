@@ -13,7 +13,7 @@ import { LogoTile } from "@/components/agents/agent-preset-rail-primitives"
 import { ChannelAccessSelect } from "@/components/agents/external-channels/channel-access-select"
 import {
   ChannelBotLifecycleActions,
-  ChannelBotStatus,
+  ChannelBotStatusDot,
 } from "@/components/agents/external-channels/channel-bot-card"
 import {
   type AgentOption,
@@ -419,7 +419,7 @@ function ConnectionSection({
       <dl className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5 text-xs">
         <dt className="text-muted-foreground">Status</dt>
         <dd>
-          <ChannelBotStatus state={state} updateNeeded={updateNeeded} />
+          <ChannelBotStatusDot state={state} updateNeeded={updateNeeded} />
         </dd>
         <dt className="text-muted-foreground">Workspace</dt>
         <dd className="truncate font-mono">{bot.provider_tenant_id ?? "—"}</dd>
