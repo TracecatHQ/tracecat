@@ -7714,31 +7714,6 @@ export const agentPresetsDeleteAgentPreset = (
 }
 
 /**
- * List Agent Preset Channel Tools
- * List the tools the agent's channel connections grant; approvals live in `tool_approvals`.
- * @param data The data for the request.
- * @param data.presetId
- * @param data.workspaceId
- * @returns AgentPresetChannelToolsRead Successful Response
- * @throws ApiError
- */
-export const agentPresetsListAgentPresetChannelTools = (
-  data: AgentPresetsListAgentPresetChannelToolsData
-): CancelablePromise<AgentPresetsListAgentPresetChannelToolsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-tools",
-    path: {
-      preset_id: data.presetId,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Get Agent Preset By Slug
  * Retrieve an agent preset by slug.
  * @param data The data for the request.
@@ -7755,6 +7730,31 @@ export const agentPresetsGetAgentPresetBySlug = (
     url: "/workspaces/{workspace_id}/agent/presets/by-slug/{slug}",
     path: {
       slug: data.slug,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Channel Tools
+ * List the tools the agent's channel connections grant; approvals live in `tool_approvals`.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @returns AgentPresetChannelToolsRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetChannelTools = (
+  data: AgentPresetsListAgentPresetChannelToolsData
+): CancelablePromise<AgentPresetsListAgentPresetChannelToolsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-tools",
+    path: {
+      preset_id: data.presetId,
       workspace_id: data.workspaceId,
     },
     errors: {

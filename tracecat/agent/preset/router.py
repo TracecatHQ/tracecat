@@ -288,24 +288,6 @@ async def get_agent_preset(
     return await service.build_preset_read(preset)
 
 
-@router.get("/{preset_id}/channel-tools", response_model=AgentPresetChannelToolsRead)
-@require_scope("agent:read")
-async def list_agent_preset_channel_tools(
-    *,
-    preset_id: uuid.UUID,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-) -> AgentPresetChannelToolsRead:
-    """List the tools the agent's channel connections grant; approvals live in `tool_approvals`."""
-    service = AgentPresetService(session, role=role)
-    try:
-        return await service.list_channel_tools(preset_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
-
-
 @router.get("/by-slug/{slug}", response_model=AgentPresetRead)
 @require_scope("agent:read")
 async def get_agent_preset_by_slug(
@@ -322,6 +304,24 @@ async def get_agent_preset_by_slug(
             detail=f"Agent preset with slug '{slug}' not found",
         )
     return await service.build_preset_read(preset)
+
+
+@router.get("/{preset_id}/channel-tools", response_model=AgentPresetChannelToolsRead)
+@require_scope("agent:read")
+async def list_agent_preset_channel_tools(
+    *,
+    preset_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentPresetChannelToolsRead:
+    """List the tools the agent's channel connections grant; approvals live in `tool_approvals`."""
+    service = AgentPresetService(session, role=role)
+    try:
+        return await service.list_channel_tools(preset_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
 @router.patch(

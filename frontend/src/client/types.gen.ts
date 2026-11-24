@@ -17663,6 +17663,13 @@ export type AgentPresetsDeleteAgentPresetData = {
 
 export type AgentPresetsDeleteAgentPresetResponse = void
 
+export type AgentPresetsGetAgentPresetBySlugData = {
+  slug: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
 export type AgentPresetsListAgentPresetChannelToolsData = {
   presetId: string
   workspaceId: string
@@ -17670,13 +17677,6 @@ export type AgentPresetsListAgentPresetChannelToolsData = {
 
 export type AgentPresetsListAgentPresetChannelToolsResponse =
   AgentPresetChannelToolsRead
-
-export type AgentPresetsGetAgentPresetBySlugData = {
-  slug: string
-  workspaceId: string
-}
-
-export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
 
 export type AgentPresetsListAgentPresetVersionsData = {
   cursor?: string | null
@@ -25040,21 +25040,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-tools": {
-    get: {
-      req: AgentPresetsListAgentPresetChannelToolsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AgentPresetChannelToolsRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/workspaces/{workspace_id}/agent/presets/by-slug/{slug}": {
     get: {
       req: AgentPresetsGetAgentPresetBySlugData
@@ -25063,6 +25048,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/channel-tools": {
+    get: {
+      req: AgentPresetsListAgentPresetChannelToolsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetChannelToolsRead
         /**
          * Validation Error
          */
