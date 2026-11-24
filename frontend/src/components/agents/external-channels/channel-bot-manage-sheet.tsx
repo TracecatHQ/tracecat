@@ -283,7 +283,8 @@ function ApproversSection({
   let body: ReactNode = (
     <p className="text-xs text-muted-foreground">{DEFAULT_APPROVER_RULE}</p>
   )
-  if (isError) {
+  // A failed later page keeps the loaded approvers and its Load more retry.
+  if (isError && approvers.length === 0) {
     body = (
       <p className="text-xs text-muted-foreground">
         Approvers could not be loaded.
