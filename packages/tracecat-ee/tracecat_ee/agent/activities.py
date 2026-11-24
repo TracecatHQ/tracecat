@@ -439,6 +439,7 @@ class AgentActivities:
                 if action not in actions_to_build:
                     actions_to_build.append(action)
 
+        tool_tunnels = dict(args.tool_tunnels or {})
         if args.session_id is not None and (
             superseded := await session_superseded_namespaces(role, args.session_id)
         ):
@@ -448,6 +449,11 @@ class AgentActivities:
                 for action in actions_to_build
                 if not is_superseded(action, superseded)
             ]
+            tool_tunnels = {
+                tool: tunnel
+                for tool, tunnel in tool_tunnels.items()
+                if not is_superseded(tool, superseded)
+            }
 
         try:
             result = await build_agent_tools(
@@ -828,9 +834,7 @@ class AgentActivities:
                 e.detail,
             )
 
-        if unknown_tunnel_tools := sorted(
-            set(args.tool_tunnels or {}) - registry_tool_names
-        ):
+        if unknown_tunnel_tools := sorted(set(tool_tunnels) - registry_tool_names):
             raise_application_error_from_classification(
                 RuntimeErrorClassification.user(
                     kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
@@ -849,7 +853,7 @@ class AgentActivities:
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             tool_approvals=effective_tool_approvals or None,
-            tool_tunnels=args.tool_tunnels or None,
+            tool_tunnels=tool_tunnels or None,
         )
 
     @activity.defn

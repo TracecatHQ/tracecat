@@ -64,7 +64,7 @@ import {
   useQueryClient,
 } from "@/lib/query"
 
-const CHANNEL_BOTS_QUERY_KEY = "agent-channel-bots"
+export const CHANNEL_BOTS_QUERY_KEY = "agent-channel-bots"
 const INSTALL_MESSAGE_LIMIT = 200
 // Only the first 100 channels a bot is in are read; the accepted bound per bot.
 const BOT_CHANNEL_LIMIT = 100

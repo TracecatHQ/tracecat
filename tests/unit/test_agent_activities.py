@@ -277,24 +277,28 @@ REGISTRY_APPROVAL_DEFAULTS = {
 }
 
 
+def _indexed_action(name: str, requires_approval: bool = False) -> IndexedActionResult:
+    manifest_action = SimpleNamespace(
+        description=f"Synthetic {name}",
+        interface={"expects": {"type": "object"}},
+    )
+    return cast(
+        IndexedActionResult,
+        SimpleNamespace(
+            index_entry=SimpleNamespace(
+                options={"requires_approval": requires_approval}
+            ),
+            manifest=SimpleNamespace(actions={name: manifest_action}),
+        ),
+    )
+
+
 @pytest.fixture
 def registry_default_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Build tools from REGISTRY_APPROVAL_DEFAULTS through the real tool factory."""
 
     def indexed(name: str) -> IndexedActionResult:
-        manifest_action = SimpleNamespace(
-            description=f"Synthetic {name}",
-            interface={"expects": {"type": "object"}},
-        )
-        return cast(
-            IndexedActionResult,
-            SimpleNamespace(
-                index_entry=SimpleNamespace(
-                    options={"requires_approval": REGISTRY_APPROVAL_DEFAULTS[name]}
-                ),
-                manifest=SimpleNamespace(actions={name: manifest_action}),
-            ),
-        )
+        return _indexed_action(name, REGISTRY_APPROVAL_DEFAULTS[name])
 
     async def mock_build_agent_tools(
         *,
@@ -446,7 +450,15 @@ class TestBuildToolDefinitionsActivity:
             *, actions: list[str] | None, **_kwargs: Any
         ) -> BuildToolsResult:
             built.extend(actions or [])
-            return BuildToolsResult(tools=[], collected_secrets=set())
+            return BuildToolsResult(
+                tools=[
+                    await create_tool_from_registry(
+                        name, _indexed_action(name), tool_approvals=None
+                    )
+                    for name in actions or []
+                ],
+                collected_secrets=set(),
+            )
 
         superseded = frozenset({"tools.slack"} if connected else ())
         _patch_registry(monkeypatch, build_tools=build_tools)
@@ -465,17 +477,24 @@ class TestBuildToolDefinitionsActivity:
             "tools.slack_bot.post",
             "core.http_request",
         ]
+        tunnels = {"tools.slack.post_message": "t1", "core.http_request": "t2"}
         args = BuildToolDefsArgs(
             role=Role(type="service", service_id="tracecat-api"),
             tool_filters=ToolFilters(actions=selected),
+            tool_tunnels=tunnels,
             session_id=uuid.uuid4(),
         )
 
-        await AgentActivities().build_tool_definitions(args)
+        result = await AgentActivities().build_tool_definitions(args)
 
         assert built == (selected[1:] if connected else selected)
+        # A superseded tool's tunnel goes with it instead of failing the turn.
+        assert result.tool_tunnels == (
+            {"core.http_request": "t2"} if connected else tunnels
+        )
         # The compile never rewrites the selection it was given.
         assert args.tool_filters.actions == selected
+        assert args.tool_tunnels == tunnels
 
     @pytest.mark.anyio
     async def test_records_registry_default_approvals_per_agent_scope(

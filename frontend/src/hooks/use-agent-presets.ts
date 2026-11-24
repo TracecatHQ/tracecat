@@ -43,6 +43,7 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { CHANNEL_BOTS_QUERY_KEY } from "@/hooks/use-agent-channel-bots"
 import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import {
   getApiErrorDetail,
@@ -59,7 +60,8 @@ export function useAgentPresetChannelTools(
   presetId: string | undefined
 ): AgentPresetChannelToolGroup[] {
   const { data } = useQuery({
-    queryKey: ["agent-preset-channel-tools", workspaceId, presetId],
+    // Under the bots key, so any bot or route change refetches it.
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "preset-tools", presetId],
     queryFn: () =>
       agentPresetsListAgentPresetChannelTools({
         workspaceId,
