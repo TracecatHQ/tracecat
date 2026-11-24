@@ -239,6 +239,7 @@ async def agent_plugin_tools(
                 plugin=type(plugin).__name__,
                 preset_id=str(preset_id),
                 error_type=type(e).__name__,
+                error=str(e),
             )
             continue
         groups.extend(resolved)

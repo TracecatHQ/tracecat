@@ -389,8 +389,13 @@ export function AgentPresetRailTools({
     (rule) =>
       rule.allow && !selected.has(rule.tool) && !grantedKeys.has(rule.tool)
   )
+  // Superseded groups cannot run while connected, so their asks do not count.
+  const supersededApprovals = groups
+    .filter((group) => supersededBy(group.namespace, channelTools))
+    .reduce((total, group) => total + group.approvals, 0)
   const approvalCount =
-    groupApprovalCount +
+    groupApprovalCount -
+    supersededApprovals +
     skillOnly.filter((key) => getToolApproval(value.toolApprovals, key, index))
       .length +
     channelToolList.filter((tool) => channelApproval(value.toolApprovals, tool))

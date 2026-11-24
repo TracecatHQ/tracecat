@@ -3,6 +3,7 @@ import {
   buildToolIndex,
   getBlockedActions,
   getToolApproval,
+  isInNamespaces,
   removeTools,
   searchTools,
   setToolApproval,
@@ -216,5 +217,18 @@ it("keeps approval rules for removed tools still granted by another source", () 
   ).toEqual({
     actions: [],
     toolApprovals: fields.toolApprovals.slice(0, 2),
+  })
+})
+
+describe("isInNamespaces", () => {
+  it("matches whole namespace segments only", () => {
+    expect(isInNamespaces("tools.slack.post_message", ["tools.slack"])).toBe(
+      true
+    )
+    expect(isInNamespaces("tools.slack", ["tools.slack"])).toBe(true)
+    expect(isInNamespaces("tools.slackbot.post_message", ["tools.slack"])).toBe(
+      false
+    )
+    expect(isInNamespaces("core.http_request", [])).toBe(false)
   })
 })

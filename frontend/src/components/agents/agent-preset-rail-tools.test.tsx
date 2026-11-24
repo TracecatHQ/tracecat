@@ -93,10 +93,11 @@ function Form({
 
 function renderTools(
   channelTools: AgentPresetChannelToolGroup[],
-  onOpenGroup = jest.fn()
+  onOpenGroup = jest.fn(),
+  toolApprovals: PresetToolFields["toolApprovals"] = []
 ) {
   render(
-    <Form>
+    <Form toolApprovals={toolApprovals}>
       <AgentPresetRailTools
         registryActions={REGISTRY}
         mcpIntegrations={[]}
@@ -147,6 +148,20 @@ describe("AgentPresetRailTools channel tools", () => {
     expect(
       screen.getByRole("button", { name: /^Core core/ })
     ).not.toHaveAttribute("aria-describedby")
+  })
+})
+
+describe("AgentPresetRailTools approval count", () => {
+  const rules = [{ tool: "tools.slack.post_message", allow: true }]
+
+  it("counts a superseded group's asks only while not connected", () => {
+    renderTools([], jest.fn(), rules)
+    expect(screen.getByText("1 needs approval")).toBeInTheDocument()
+  })
+
+  it("drops a superseded group's asks while connected", () => {
+    renderTools([SLACK_TOOLS], jest.fn(), rules)
+    expect(screen.queryByText(/needs? approval/)).toBeNull()
   })
 })
 

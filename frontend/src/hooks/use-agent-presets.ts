@@ -44,6 +44,7 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { CHANNEL_BOTS_QUERY_KEY } from "@/hooks/use-agent-channel-bots"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import {
   getApiErrorDetail,
@@ -59,6 +60,7 @@ export function useAgentPresetChannelTools(
   workspaceId: string,
   presetId: string | undefined
 ): AgentPresetChannelToolGroup[] {
+  const { hasEntitlement } = useEntitlements()
   const { data } = useQuery({
     // Under the bots key, so any bot or route change refetches it.
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "preset-tools", presetId],
@@ -67,7 +69,9 @@ export function useAgentPresetChannelTools(
         workspaceId,
         presetId: presetId as string,
       }),
-    enabled: Boolean(workspaceId && presetId),
+    enabled:
+      Boolean(workspaceId && presetId) &&
+      hasEntitlement("agent_channels_preview"),
     meta: { suppressErrorToast: true },
   })
   return data?.groups ?? NO_CHANNEL_TOOLS
