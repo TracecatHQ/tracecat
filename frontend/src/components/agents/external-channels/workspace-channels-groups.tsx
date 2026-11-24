@@ -11,7 +11,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import type {
   AgentChannelBotRead,
   AgentPresetReadMinimal,
@@ -21,7 +21,6 @@ import { ChannelBotStatus } from "@/components/agents/external-channels/channel-
 import {
   AgentSelect,
   CustomBadge,
-  StatusLabel,
   withCurrentAgent,
 } from "@/components/agents/external-channels/channel-bot-fields"
 import {
@@ -44,6 +43,11 @@ import {
 import { ProviderIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { TableCell, TableRow } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   useChannelBotsBusy,
   useDeleteChannelBotRoute,
@@ -208,6 +212,7 @@ export function BotGroup({
     ? null
     : emptyNote(bot, allRows, { loading, unavailable, listingFailure })
   const span = columnSpan("bot")
+  const summary = botSummary(bot, allRows, defaultAgentName)
   return (
     <>
       <TableRow className="bg-muted/40 hover:bg-muted/40" aria-label={title}>
@@ -219,12 +224,16 @@ export function BotGroup({
               onToggle={onToggle}
             />
             <ProviderIcon providerId={bot.provider} className="size-4 p-0" />
-            <span className="font-semibold">{title}</span>
+            <TruncatedText text={title} className="font-semibold">
+              {title}
+            </TruncatedText>
             {platform ? null : <CustomBadge />}
           </div>
         </TableCell>
         <TableCell className="py-2 text-muted-foreground">
-          {botSummary(bot, allRows, defaultAgentName)}
+          <TruncatedText text={summary} className="block">
+            {summary}
+          </TruncatedText>
         </TableCell>
         <TableCell className="py-2">
           <ChannelBotStatus state={state} updateNeeded={updateNeeded} />
@@ -376,7 +385,7 @@ function BotName({ row }: { row: ChannelTableRow }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       <ProviderIcon providerId={row.bot.provider} className="size-3.5 p-0" />
-      <span className="truncate">{row.botTitle}</span>
+      <TruncatedText text={row.botTitle}>{row.botTitle}</TruncatedText>
       {isPlatformRow(row) ? null : <CustomBadge />}
     </div>
   )
@@ -385,10 +394,13 @@ function BotName({ row }: { row: ChannelTableRow }) {
 function ChannelName({ row }: { row: ChannelTableRow }) {
   if (row.kind === "default") {
     return (
-      <span>
+      <TruncatedText
+        text={`${row.label}: DMs and unlisted channels`}
+        className="block"
+      >
         <span className="italic">{row.label}</span>{" "}
         <span className="text-muted-foreground">DMs and unlisted channels</span>
-      </span>
+      </TruncatedText>
     )
   }
   const { channel } = row
@@ -403,9 +415,12 @@ function ChannelName({ row }: { row: ChannelTableRow }) {
         }}
         conventions={channelConventions(channel.provider)}
       />
-      <span className={cn("truncate", !channel.channel_name && "font-mono")}>
+      <TruncatedText
+        text={row.label}
+        className={cn(!channel.channel_name && "font-mono")}
+      >
         {row.label}
-      </span>
+      </TruncatedText>
       {channel.name_unavailable ? (
         <span className="shrink-0 text-muted-foreground">Name unavailable</span>
       ) : null}
@@ -424,9 +439,47 @@ function RowStatus({ row }: { row: ChannelTableRow }) {
       ? `Not in channel · ${invite}`
       : row.status
   return (
-    <StatusLabel icon={Icon} destructive={row.status === "Needs reconnect"}>
-      {label}
-    </StatusLabel>
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-1.5",
+        row.status === "Needs reconnect"
+          ? "text-destructive"
+          : "text-muted-foreground"
+      )}
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      <TruncatedText text={label}>{label}</TruncatedText>
+    </span>
+  )
+}
+
+/** One line, cut with an ellipsis; the full text shows on hover when cut. */
+function TruncatedText({
+  text,
+  className,
+  children,
+}: {
+  text: string
+  className?: string
+  children: ReactNode
+}) {
+  const [cut, setCut] = useState(false)
+  return (
+    <Tooltip open={cut ? undefined : false}>
+      <TooltipTrigger asChild>
+        <span
+          className={cn("min-w-0 truncate", className)}
+          onPointerEnter={(event) =>
+            setCut(
+              event.currentTarget.scrollWidth > event.currentTarget.clientWidth
+            )
+          }
+        >
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{text}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -474,7 +527,7 @@ function AgentCell({
       })}
       disabled={busy}
       onChange={change}
-      className="h-7 w-[150px]"
+      className="h-7 w-full max-w-[150px]"
     />
   )
 }

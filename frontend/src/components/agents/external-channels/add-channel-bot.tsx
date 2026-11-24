@@ -17,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -29,6 +30,7 @@ import {
   useInstallPlatformChannelBot,
 } from "@/hooks/use-agent-channel-bots"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
+import { cn } from "@/lib/utils"
 
 /** Which way in the Add bot menu or the empty table opened. */
 export type ChannelBotChoice = "tracecat" | "custom"
@@ -42,13 +44,16 @@ export type PlatformOption =
   | "failed"
 
 const PLATFORM_HELP: Record<PlatformOption, string> = {
-  ready: "One click. Answers as @Tracecat; pick agents per channel.",
+  ready: "Quickest setup. One shared bot; pick the agent for each channel.",
   missing:
-    "Not set up on this Tracecat. A platform admin sets it up in Admin › Slack app.",
+    "Not set up on this instance. A platform admin sets it up in Admin\u00a0›\u00a0Slack\u00a0app.",
   installed: "Already added to this workspace's Slack.",
   checking: "Checking whether Tracecat is already added…",
   failed: "Couldn't check whether Tracecat is set up here.",
 }
+
+const CUSTOM_BOT_HELP =
+  "Its own name and icon, for one agent. Add several to run more than one agent in a channel."
 
 const USE_IN_CHAT_TIP =
   "Don't see an agent? Turn on Use in chat in its settings."
@@ -92,7 +97,7 @@ function MenuOption({
           {title}
           {badge}
         </div>
-        <p className="text-muted-foreground">{help}</p>
+        <p className="text-balance text-muted-foreground">{help}</p>
       </div>
     </DropdownMenuItem>
   )
@@ -124,12 +129,14 @@ export function AddChannelBotMenu({
           disabled={platform !== "ready"}
           onSelect={() => onChoose("tracecat")}
         />
+        <DropdownMenuSeparator />
         <MenuOption
           icon={slackIcon}
-          title="Custom Slack app"
-          help="Your own name and icon. You create the app in Slack from a manifest we give you."
+          title="Custom bot"
+          help={CUSTOM_BOT_HELP}
           onSelect={() => onChoose("custom")}
         />
+        <DropdownMenuSeparator />
         <MenuOption
           icon={
             <ProviderIcon providerId="microsoft_teams" className="size-4 p-0" />
@@ -143,7 +150,7 @@ export function AddChannelBotMenu({
   )
 }
 
-/** The table before any bot: the common ways in, or who to ask. */
+/** The table before any bot: Tracecat or a custom bot, side by side. */
 export function NoChannelBots({
   platform,
   canUpdateAgent,
@@ -154,47 +161,78 @@ export function NoChannelBots({
   onChoose: (choice: ChannelBotChoice) => void
 }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-md border px-6 py-14 text-center">
-      <ProviderIcon providerId="slack" className="size-7 bg-transparent p-0" />
-      <h3 className="text-sm font-semibold">No bots yet</h3>
-      <p className="max-w-md text-xs text-muted-foreground">
-        Add Tracecat to Slack so people can talk to your agents in DMs and
-        channels.
-      </p>
-      {canUpdateAgent ? (
-        <div className="mt-2 flex flex-wrap justify-center gap-2">
-          {platform === "ready" ? (
-            <div className="flex items-center gap-1.5">
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <ChoiceCard
+          title="Tracecat"
+          badge={<RecommendedBadge />}
+          help={PLATFORM_HELP[platform]}
+          highlighted={platform === "ready"}
+          action={
+            canUpdateAgent ? (
               <Button
                 type="button"
                 size="sm"
+                disabled={platform !== "ready"}
                 onClick={() => onChoose("tracecat")}
               >
                 Add Tracecat
               </Button>
-              <RecommendedBadge />
-            </div>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => onChoose("custom")}
-          >
-            Use a custom Slack app
-          </Button>
-        </div>
-      ) : (
-        <p className="text-xs">
-          Ask someone who can edit agents to add Tracecat to Slack.
+            ) : null
+          }
+        />
+        <ChoiceCard
+          title="Custom bot"
+          help={CUSTOM_BOT_HELP}
+          action={
+            canUpdateAgent ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onChoose("custom")}
+              >
+                Create custom bot
+              </Button>
+            ) : null
+          }
+        />
+      </div>
+      {canUpdateAgent ? null : (
+        <p className="text-xs text-muted-foreground">
+          Ask someone who can edit agents to add a bot.
         </p>
       )}
-      {platform === "missing" ? (
-        <p className="mt-1 max-w-md text-xs text-muted-foreground">
-          Tracecat for Slack isn&apos;t set up on this instance yet. A platform
-          admin sets it up in Admin › Slack app.
-        </p>
-      ) : null}
+    </div>
+  )
+}
+
+function ChoiceCard({
+  title,
+  badge,
+  help,
+  highlighted = false,
+  action,
+}: {
+  title: string
+  badge?: ReactNode
+  help: string
+  highlighted?: boolean
+  action: ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-start gap-2 rounded-lg border p-3.5",
+        highlighted && "border-primary/60"
+      )}
+    >
+      <div className="flex items-center gap-2 text-[13px] font-semibold">
+        {title}
+        {badge}
+      </div>
+      <p className="text-balance text-xs text-muted-foreground">{help}</p>
+      {action}
     </div>
   )
 }
@@ -266,7 +304,9 @@ function PickAgentSheet({
       }
     >
       <div className="space-y-5">
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <p className="text-pretty text-xs text-muted-foreground">
+          {description}
+        </p>
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
             <p className="text-xs font-medium">{label}</p>
@@ -375,7 +415,7 @@ export function CustomSlackAppSheet({
   const { presets } = useAgentPresets(workspaceId)
   return (
     <PickAgentSheet
-      title="Custom Slack app"
+      title="Custom bot"
       description="The app gets its own name and icon, and answers only for one agent. You create it in Slack from that agent's Channels tab."
       label="Agent"
       hint="The app answers for this agent in every channel it is in."

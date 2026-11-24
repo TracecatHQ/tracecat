@@ -1,6 +1,6 @@
 "use client"
 
-import { Cross2Icon } from "@radix-ui/react-icons"
+import { Cross2Icon, PlusCircledIcon } from "@radix-ui/react-icons"
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -14,7 +14,13 @@ import {
   useReactTable,
 } from "@tanstack/react-table"
 import { Check, ChevronDown, SlidersHorizontalIcon } from "lucide-react"
-import { type ReactNode, useState } from "react"
+import {
+  type ReactNode,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import type {
   AgentChannelBotRead,
   AgentPresetReadMinimal,
@@ -66,6 +72,9 @@ const GROUP_BY_OPTIONS: ReadonlyArray<[ChannelsGroupBy, string]> = [
   ["agent", "Agent"],
   ["none", "None"],
 ]
+
+/** The search box never shrinks below this. */
+const SEARCH_MIN_WIDTH = 160
 
 const COLUMN_TITLES: Record<ChannelsColumn, string> = {
   channel: "Channel",
@@ -151,6 +160,34 @@ export function WorkspaceChannelsTable({
   const shown = table.getRowModel().rows.map((row) => row.original)
   const filtering = columnFilters.length > 0
   const search = (table.getColumn("channel")?.getFilterValue() as string) ?? ""
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const facetsRef = useRef<HTMLDivElement>(null)
+  const trailingRef = useRef<HTMLDivElement>(null)
+  const compact = useFacetsOverflow(toolbarRef, facetsRef, trailingRef)
+  const facetFilters = (
+    <>
+      {FACETS.map(({ column, title, value }) => (
+        <DataTableFacetedFilter
+          key={column}
+          column={table.getColumn(column)}
+          title={title}
+          options={[...new Set(rows.map(value))]
+            .sort()
+            .map((option) => ({ label: option, value: option }))}
+        />
+      ))}
+      {filtering ? (
+        <Button
+          variant="ghost"
+          onClick={() => table.resetColumnFilters()}
+          className="h-8 px-2 text-xs text-foreground/80 lg:px-3"
+        >
+          Reset
+          <Cross2Icon className="ml-2 size-4" />
+        </Button>
+      ) : null}
+    </>
+  )
   const context: ChannelsRowContext = {
     workspaceId,
     chatAgents,
@@ -211,8 +248,20 @@ export function WorkspaceChannelsTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-1 flex-wrap items-center gap-2">
+      <div
+        ref={toolbarRef}
+        className="relative flex items-center justify-between gap-2"
+      >
+        {/* Off-screen copy of the facets, measured to decide whether they fit. */}
+        <div
+          ref={facetsRef}
+          aria-hidden
+          inert
+          className="invisible absolute left-0 top-0 flex items-center gap-2"
+        >
+          {facetFilters}
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Input
             type="search"
             placeholder="Search channels..."
@@ -221,38 +270,28 @@ export function WorkspaceChannelsTable({
             onChange={(event) =>
               table.getColumn("channel")?.setFilterValue(event.target.value)
             }
-            className="h-8 w-[150px] text-xs lg:w-[250px]"
+            style={{ minWidth: SEARCH_MIN_WIDTH }}
+            className="h-8 w-[250px] shrink text-xs"
           />
-          {FACETS.map(({ column, title, value }) => (
-            <DataTableFacetedFilter
-              key={column}
-              column={table.getColumn(column)}
-              title={title}
-              options={[...new Set(rows.map(value))]
-                .sort()
-                .map((option) => ({ label: option, value: option }))}
-            />
-          ))}
-          {filtering ? (
-            <Button
-              variant="ghost"
-              onClick={() => table.resetColumnFilters()}
-              className="h-8 px-2 text-xs text-foreground/80 lg:px-3"
+          {compact ? (
+            <FiltersMenu
+              active={columnFilters.filter((f) => f.id !== "channel").length}
             >
-              Reset
-              <Cross2Icon className="ml-2 size-4" />
-            </Button>
-          ) : null}
+              {facetFilters}
+            </FiltersMenu>
+          ) : (
+            facetFilters
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
+        <div ref={trailingRef} className="flex shrink-0 items-center gap-2">
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {channelCount(shown.filter((row) => row.kind !== "default").length)}
           </span>
           <DisplayMenu groupBy={groupBy} onChange={setGroupBy} />
         </div>
       </div>
       <div className="rounded-md border">
-        <Table className="text-xs" aria-label="Channels">
+        <Table className="table-fixed text-xs" aria-label="Channels">
           <TableHeader>
             <HeaderRow table={table} groupBy={groupBy} />
           </TableHeader>
@@ -299,6 +338,74 @@ export function WorkspaceChannelsTable({
         />
       ) : null}
     </div>
+  )
+}
+
+/**
+ * Whether the facets must fold into one Filters button to keep the toolbar on
+ * one row: the search box at its minimum, the facets and the trailing controls.
+ */
+function useFacetsOverflow(
+  toolbarRef: RefObject<HTMLDivElement | null>,
+  facetsRef: RefObject<HTMLDivElement | null>,
+  trailingRef: RefObject<HTMLDivElement | null>
+): boolean {
+  const [compact, setCompact] = useState(false)
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current
+    const facets = facetsRef.current
+    const trailing = trailingRef.current
+    if (!toolbar || !facets || !trailing) {
+      return
+    }
+    const gaps = 3 * 8
+    const measure = () =>
+      setCompact(
+        SEARCH_MIN_WIDTH + facets.offsetWidth + trailing.offsetWidth + gaps >
+          toolbar.clientWidth
+      )
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(toolbar)
+    observer.observe(facets)
+    observer.observe(trailing)
+    return () => observer.disconnect()
+  }, [toolbarRef, facetsRef, trailingRef])
+  return compact
+}
+
+/** The facets behind one dashed button, when the toolbar has no room for them. */
+function FiltersMenu({
+  active,
+  children,
+}: {
+  active: number
+  children: ReactNode
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 border-dashed"
+        >
+          <PlusCircledIcon className="mr-2 size-4" />
+          Filters
+          {active > 0 ? (
+            <span className="ml-2 rounded-sm bg-secondary px-1 font-normal">
+              {active}
+            </span>
+          ) : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="flex w-auto flex-col items-start gap-2 p-2"
+      >
+        {children}
+      </PopoverContent>
+    </Popover>
   )
 }
 
