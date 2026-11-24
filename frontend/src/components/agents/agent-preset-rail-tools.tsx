@@ -391,7 +391,8 @@ export function AgentPresetRailTools({
           })}
         </div>
       ) : null}
-      {ready && (channelTools.length > 0 || failedChannelPlugins.length > 0) ? (
+      {!loading &&
+      (channelTools.length > 0 || failedChannelPlugins.length > 0) ? (
         <ChannelToolsSection
           channelTools={channelTools}
           failedPlugins={failedChannelPlugins}
