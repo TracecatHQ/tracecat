@@ -1035,7 +1035,8 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.forked_from_session_id == forked_from_session_id
             )
-        if participating and viewer_id is not None:
+        if participating:
+            assert viewer_id is not None
             authored = self._authored_session_ids(viewer_id)
             session_stmt = session_stmt.where(
                 or_(
@@ -1074,7 +1075,7 @@ class AgentSessionService(BaseWorkspaceService):
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
             if participating:
                 chat_stmt = chat_stmt.where(
-                    Chat.user_id == self.role.user_id,
+                    Chat.user_id == viewer_id,
                     Chat.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value,
                 )
             if entity_type is not None:
@@ -2097,17 +2098,9 @@ class AgentSessionService(BaseWorkspaceService):
                 # the session received from its channel.
                 if (retried := _retried_channel_message(ui_message)) is not None:
                     origin = UserMessageOrigin.CHANNEL
-                    # The retry keeps the original sender, never the retrying user.
-                    received = await self._received_channel_message(
+                    author_id = await self._retried_channel_message_author(
                         agent_session, retried
                     )
-                    # A fork reads its parent's rows: never credit that sender here.
-                    if (
-                        received is not None
-                        and received.author is not None
-                        and agent_session.forked_from_session_id is None
-                    ):
-                        author_id = received.author.id
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
                     raise ValueError(
@@ -3378,6 +3371,18 @@ class AgentSessionService(BaseWorkspaceService):
         return next(
             (entry for entry in history if entry.channel_message == message), None
         )
+
+    async def _retried_channel_message_author(
+        self, agent_session: AgentSession, message: ChannelMessage
+    ) -> uuid.UUID | None:
+        """Who a Retry of ``message`` credits: its original sender, never the retrier.
+
+        A fork reads its parent's rows, so a Retry there credits nobody.
+        """
+        if agent_session.forked_from_session_id is not None:
+            return None
+        received = await self._received_channel_message(agent_session, message)
+        return received.author.id if received and received.author else None
 
     async def _message_authors(
         self, entries: Sequence[AgentSessionHistory]
