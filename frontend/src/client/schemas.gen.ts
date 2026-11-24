@@ -19731,8 +19731,8 @@ export const $EarlierThread = {
   type: "object",
   required: ["messages"],
   title: "EarlierThread",
-  description:
-    "Thread messages before this mention that the session has not seen.",
+  description: `Thread messages before this mention that the session has not seen, or a
+forward's source thread.`,
 } as const
 
 export const $EarlierThreadMessage = {
@@ -19749,6 +19749,11 @@ export const $EarlierThreadMessage = {
     text: {
       type: "string",
       title: "Text",
+    },
+    forwarded: {
+      type: "boolean",
+      title: "Forwarded",
+      default: false,
     },
   },
   type: "object",
@@ -32353,6 +32358,21 @@ export const $QuotedMessage = {
         },
       ],
       title: "Link",
+    },
+    thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EarlierThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    thread_available: {
+      type: "boolean",
+      title: "Thread Available",
+      default: false,
     },
   },
   type: "object",

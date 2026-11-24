@@ -5865,7 +5865,8 @@ export type DynamicToolUIPartOutputError = {
 }
 
 /**
- * Thread messages before this mention that the session has not seen.
+ * Thread messages before this mention that the session has not seen, or a
+ * forward's source thread.
  */
 export type EarlierThread = {
   messages: Array<EarlierThreadMessage>
@@ -5878,6 +5879,7 @@ export type EarlierThreadMessage = {
   author: string
   is_bot?: boolean
   text: string
+  forwarded?: boolean
 }
 
 export type EditorActionRead = {
@@ -9907,6 +9909,8 @@ export type QuotedMessage = {
   is_preview?: boolean
   where?: string | null
   link?: string | null
+  thread?: EarlierThread | null
+  thread_available?: boolean
 }
 
 export type QuotedMessageKind = "forwarded" | "quoted_reply"

@@ -362,3 +362,67 @@ def test_summary_text_names_mentions_instead_of_ids() -> None:
     )
 
     assert named.summary_text() == "ask @Ada and @Slack user"
+
+
+def test_a_forwards_source_thread_keeps_its_parent_the_forward_and_the_latest() -> None:
+    lines = [
+        EarlierThreadMessage(author=f"user{index}", text=f"reply {index}")
+        for index in range(60)
+    ]
+    lines[3] = lines[3].model_copy(update={"forwarded": True})
+    forward = QuotedMessage(
+        kind=QuotedMessageKind.FORWARDED,
+        author="alice",
+        text="reply 3",
+        thread=EarlierThread(messages=lines),
+    )
+
+    parsed = ChannelMessage.parse(message(quoted=[forward]).render())
+
+    assert parsed is not None
+    thread = parsed.quoted[0].thread
+    assert thread is not None and thread.older_omitted
+    authors = [line.author for line in thread.messages]
+    assert authors == ["user0", "user3", *(f"user{index}" for index in range(12, 60))]
+    assert [line.forwarded for line in thread.messages][:2] == [False, True]
+
+
+def test_forwarded_threads_share_one_character_budget() -> None:
+    def forward(index: int) -> QuotedMessage:
+        lines = [
+            EarlierThreadMessage(author="bob", text="x" * 1_000) for _ in range(20)
+        ]
+        return QuotedMessage(
+            kind=QuotedMessageKind.FORWARDED,
+            author="alice",
+            text=f"forward {index}",
+            thread=EarlierThread(messages=lines, has_parent=False),
+        )
+
+    rendered = message(quoted=[forward(index) for index in range(3)]).render()
+    parsed = ChannelMessage.parse(rendered)
+
+    assert parsed is not None
+    for quoted in parsed.quoted:
+        assert quoted.thread is not None and quoted.thread.older_omitted
+        size = sum(
+            len(orjson.dumps(m.model_dump(mode="json", exclude_defaults=True)))
+            for m in quoted.thread.messages
+        )
+        assert size <= 10_000
+
+
+def test_a_left_out_source_thread_is_only_noted() -> None:
+    forward = QuotedMessage(
+        kind=QuotedMessageKind.FORWARDED,
+        author="alice",
+        text="private",
+        thread_available=True,
+    )
+
+    rendered = message(quoted=[forward]).render()
+    parsed = ChannelMessage.parse(rendered)
+
+    assert parsed is not None
+    assert parsed.quoted[0].thread is None and parsed.quoted[0].thread_available
+    assert '"thread_available": true' in rendered

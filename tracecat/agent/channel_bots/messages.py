@@ -18,6 +18,9 @@ CHANNEL_MESSAGE_VERSION = "1"
 CHANNEL_MESSAGE_MAX_CHARACTERS = 90_000
 EARLIER_THREAD_MAX_MESSAGES = 20
 EARLIER_THREAD_MAX_CHARACTERS = 8_000
+FORWARDED_THREAD_MAX_MESSAGES = 50
+# Shared by every forward's source thread.
+FORWARDED_THREADS_MAX_CHARACTERS = 30_000
 QUOTED_MAX_MESSAGES = 5
 PEOPLE_MAX = 50
 MESSAGE_MAX_CHARACTERS = 2_000
@@ -59,10 +62,13 @@ class EarlierThreadMessage(BaseModel):
     author: str
     is_bot: bool = False
     text: str
+    forwarded: bool = False
+    """The forwarded message itself, in its source thread."""
 
 
 class EarlierThread(BaseModel):
-    """Thread messages before this mention that the session has not seen."""
+    """Thread messages before this mention that the session has not seen, or a
+    forward's source thread."""
 
     messages: list[EarlierThreadMessage]
     has_parent: bool = True
@@ -81,6 +87,10 @@ class QuotedMessage(BaseModel):
     is_preview: bool = False
     where: str | None = None
     link: str | None = None
+    thread: EarlierThread | None = None
+    """A forward's source thread, oldest first, the forwarded message included."""
+    thread_available: bool = False
+    """The source has a thread that was left out, such as a private channel's."""
 
 
 class ChannelMessage(BaseModel):
@@ -151,28 +161,11 @@ class ChannelMessage(BaseModel):
     def _capped(self) -> ChannelMessage:
         """A copy within every per-part cap; the sender's text is only made storable.
         Copies update only capped fields, so a new field passes through unclipped."""
-        thread = None
-        if self.thread is not None and self.thread.messages:
-            messages = [
-                m.model_copy(update={"author": _label(m.author), "text": _body(m.text)})
-                for m in self.thread.messages
-            ]
-            older_omitted = self.thread.older_omitted
-            # Count whole dumped messages, authors and keys included.
-            sizes = [
-                len(_dump(m.model_dump(mode="json", exclude_defaults=True)))
-                for m in messages
-            ]
-            # Keep the parent, if any, and the latest replies.
-            oldest = 1 if self.thread.has_parent else 0
-            while len(messages) > EARLIER_THREAD_MAX_MESSAGES or (
-                len(messages) > 1 and sum(sizes) > EARLIER_THREAD_MAX_CHARACTERS
-            ):
-                del messages[oldest], sizes[oldest]
-                older_omitted = True
-            thread = self.thread.model_copy(
-                update={"messages": messages, "older_omitted": older_omitted}
-            )
+        quoted = self.quoted[:QUOTED_MAX_MESSAGES]
+        forwarded_threads = sum(1 for q in quoted if q.thread is not None)
+        forwarded_characters = FORWARDED_THREADS_MAX_CHARACTERS // max(
+            forwarded_threads, 1
+        )
         sender = self.sender
         return self.model_copy(
             update={
@@ -184,7 +177,11 @@ class ChannelMessage(BaseModel):
                         "name": _optional_label(sender.name),
                     }
                 ),
-                "thread": thread,
+                "thread": _capped_thread(
+                    self.thread,
+                    EARLIER_THREAD_MAX_MESSAGES,
+                    EARLIER_THREAD_MAX_CHARACTERS,
+                ),
                 "quoted": [
                     q.model_copy(
                         update={
@@ -193,9 +190,14 @@ class ChannelMessage(BaseModel):
                             "text": _body(q.text),
                             "where": _optional_label(q.where),
                             "link": _optional_label(q.link),
+                            "thread": _capped_thread(
+                                q.thread,
+                                FORWARDED_THREAD_MAX_MESSAGES,
+                                forwarded_characters,
+                            ),
                         }
                     )
-                    for q in self.quoted[:QUOTED_MAX_MESSAGES]
+                    for q in quoted
                 ],
                 "quoted_omitted": max(self.quoted_omitted, 0)
                 + max(len(self.quoted) - QUOTED_MAX_MESSAGES, 0),
@@ -210,6 +212,39 @@ class ChannelMessage(BaseModel):
                 ],
             }
         )
+
+
+def _capped_thread(
+    thread: EarlierThread | None, max_messages: int, max_characters: int
+) -> EarlierThread | None:
+    """The parent, if any, the forwarded message, and the latest messages that fit."""
+    if thread is None or not thread.messages:
+        return None
+    messages = [
+        m.model_copy(update={"author": _label(m.author), "text": _body(m.text)})
+        for m in thread.messages
+    ]
+    # Count whole dumped messages, authors and keys included.
+    sizes = [
+        len(_dump(m.model_dump(mode="json", exclude_defaults=True))) for m in messages
+    ]
+    kept = {0} if thread.has_parent else set()
+    kept |= {index for index, m in enumerate(messages) if m.forwarded}
+    older_omitted = thread.older_omitted
+    while len(messages) > max_messages or (
+        len(messages) > 1 and sum(sizes) > max_characters
+    ):
+        oldest = next(
+            (index for index in range(len(messages)) if index not in kept), None
+        )
+        if oldest is None:
+            break
+        del messages[oldest], sizes[oldest]
+        kept = {index - 1 if index > oldest else index for index in kept}
+        older_omitted = True
+    return thread.model_copy(
+        update={"messages": messages, "older_omitted": older_omitted}
+    )
 
 
 def _dump(value: object) -> str:
