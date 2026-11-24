@@ -279,6 +279,7 @@ function ApproversSection({
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
   } = useAgentPresetApprovers(workspaceId, presetId)
   let body: ReactNode = (
     <p className="text-xs text-muted-foreground">{DEFAULT_APPROVER_RULE}</p>
@@ -322,7 +323,9 @@ function ApproversSection({
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
             >
-              Load more
+              {isFetchNextPageError
+                ? "More approvers could not be loaded. Retry"
+                : "Load more"}
             </Button>
           </li>
         ) : null}
