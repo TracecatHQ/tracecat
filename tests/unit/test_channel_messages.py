@@ -13,6 +13,8 @@ from tracecat.agent.channel_bots.messages import (
     EarlierThreadMessage,
     QuotedMessage,
     QuotedMessageKind,
+    _capped_thread,
+    _dump,
 )
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 
@@ -406,10 +408,21 @@ def test_forwarded_threads_share_one_character_budget() -> None:
     for quoted in parsed.quoted:
         assert quoted.thread is not None and quoted.thread.older_omitted
         size = sum(
-            len(orjson.dumps(m.model_dump(mode="json", exclude_defaults=True)))
+            len(_dump(m.model_dump(mode="json", exclude_defaults=True)))
             for m in quoted.thread.messages
         )
         assert size <= 10_000
+
+
+def test_an_all_forwarded_thread_still_keeps_the_message_cap() -> None:
+    lines = [
+        EarlierThreadMessage(author="bob", text="hi", forwarded=True) for _ in range(5)
+    ]
+    thread = EarlierThread(messages=lines, has_parent=False)
+
+    capped = _capped_thread(thread, max_messages=2, max_characters=10_000)
+
+    assert capped is not None and len(capped.messages) == 2
 
 
 def test_a_left_out_source_thread_is_only_noted() -> None:

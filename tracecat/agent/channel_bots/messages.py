@@ -229,7 +229,10 @@ def _capped_thread(
         len(_dump(m.model_dump(mode="json", exclude_defaults=True))) for m in messages
     ]
     kept = {0} if thread.has_parent else set()
-    kept |= {index for index, m in enumerate(messages) if m.forwarded}
+    # Only the first forwarded entry is kept, so the cap always holds.
+    forwarded = next((index for index, m in enumerate(messages) if m.forwarded), None)
+    if forwarded is not None:
+        kept.add(forwarded)
     older_omitted = thread.older_omitted
     while len(messages) > max_messages or (
         len(messages) > 1 and sum(sizes) > max_characters
