@@ -47,10 +47,10 @@ export interface UseInboxFilters {
   createdAfter: DateFilterValue
 }
 
-/** Display order of inbox status groups, most urgent first. */
 /** How often the inbox, and the chats list, poll for sessions started elsewhere. */
 export const INBOX_POLL_MS = 3000
 
+/** Display order of inbox status groups, most urgent first. */
 export const INBOX_GROUP_ORDER: InboxGroup[] = [
   "review_required",
   "running",

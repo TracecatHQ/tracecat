@@ -270,20 +270,21 @@ export function useListChats(
     entityType,
     entityId,
     createdBy,
-    participating = false,
+    participantId,
     limit = 50,
   }: {
     workspaceId: string
     entityType?: AgentSessionEntity
     entityId?: string
     createdBy?: string
-    /** Only the viewer's chats: created by them or sent a message in. */
-    participating?: boolean
+    /** Only the viewer's chats: created by them or sent a message in. The
+     * server reads the viewer from the session; the id keys the cache per user. */
+    participantId?: string
     limit?: number
   },
   options?: {
     enabled?: boolean
-    /** Poll while the page is visible, so sessions started elsewhere appear. */
+    /** Poll while the page is focused, so sessions started elsewhere appear. */
     pollMs?: number
   }
 ): {
@@ -307,7 +308,7 @@ export function useListChats(
       entityType,
       entityId,
       createdBy,
-      participating,
+      participantId,
       limit,
     ],
     queryFn: () =>
@@ -316,16 +317,13 @@ export function useListChats(
         entityType: entityType || null,
         entityId: entityId || null,
         createdBy: createdBy || null,
-        participating,
+        participating: participantId !== undefined,
         limit,
       }),
     enabled: options?.enabled ?? true,
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchInterval: () =>
-      options?.pollMs !== undefined && document.visibilityState !== "hidden"
-        ? options.pollMs
-        : false,
+    refetchInterval: options?.pollMs ?? false,
   })
 
   return { chats, chatsLoading, chatsError, refetchChats: refetch }
