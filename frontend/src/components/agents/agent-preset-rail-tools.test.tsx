@@ -95,7 +95,8 @@ function renderTools(
   channelTools: AgentPresetChannelToolGroup[],
   onOpenGroup = jest.fn(),
   toolApprovals: PresetToolFields["toolApprovals"] = [],
-  skillActions?: string[]
+  skillActions?: string[],
+  failedChannelPlugins?: string[]
 ) {
   render(
     <Form toolApprovals={toolApprovals}>
@@ -108,6 +109,7 @@ function renderTools(
         isSaving={false}
         skillActions={skillActions}
         channelTools={channelTools}
+        failedChannelPlugins={failedChannelPlugins}
         onOpenGroup={onOpenGroup}
       />
     </Form>
@@ -116,6 +118,15 @@ function renderTools(
 }
 
 describe("AgentPresetRailTools channel tools", () => {
+  it("names a plugin whose channel tools failed to load", () => {
+    renderTools([], undefined, [], undefined, ["channels"])
+
+    expect(screen.getByText("From channels")).toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't load channel tools from channels."
+    )
+  })
+
   it("hides From channels and keeps tools.slack usable when not connected", () => {
     renderTools([])
 

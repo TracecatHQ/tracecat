@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils"
 const EMPTY_ACTIONS: RegistryActionReadMinimal[] = []
 const EMPTY_TOOL_TUNNELS: Record<string, string> = {}
 const NO_CHANNEL_TOOLS: AgentPresetChannelToolGroup[] = []
+const NO_FAILED_PLUGINS: string[] = []
 /** MCP tools take their tunnel from the MCP integration, not per tool. */
 function isRegistryToolKey(key: string): boolean {
   return !key.startsWith("mcp.") && !key.startsWith("mcp__")
@@ -170,6 +171,7 @@ export function AgentPresetRailTools({
   maxTools,
   skillActions,
   channelTools = NO_CHANNEL_TOOLS,
+  failedChannelPlugins = NO_FAILED_PLUGINS,
   onOpenGroup,
 }: {
   registryActions?: RegistryActionReadMinimal[]
@@ -182,6 +184,8 @@ export function AgentPresetRailTools({
   skillActions?: string[] | null
   /** Granted by the agent's channel connections; empty when not connected. */
   channelTools?: AgentPresetChannelToolGroup[]
+  /** Plugins whose channel tools could not be read. */
+  failedChannelPlugins?: string[]
   onOpenGroup: (groupKey: string, title: string) => void
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -387,9 +391,10 @@ export function AgentPresetRailTools({
           })}
         </div>
       ) : null}
-      {ready && channelTools.length > 0 ? (
+      {ready && (channelTools.length > 0 || failedChannelPlugins.length > 0) ? (
         <ChannelToolsSection
           channelTools={channelTools}
+          failedPlugins={failedChannelPlugins}
           toolApprovals={value.toolApprovals}
           index={index}
           onOpenGroup={onOpenGroup}

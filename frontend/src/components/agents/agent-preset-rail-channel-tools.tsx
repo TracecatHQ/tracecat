@@ -116,11 +116,13 @@ export function SupersededGroupRow({
 /** "From channels": one row per connected provider, opening its drill-in. */
 export function ChannelToolsSection({
   channelTools,
+  failedPlugins = [],
   toolApprovals,
   index,
   onOpenGroup,
 }: {
   channelTools: AgentPresetChannelToolGroup[]
+  failedPlugins?: string[]
   toolApprovals: PresetToolFields["toolApprovals"]
   index: ToolIndex
   onOpenGroup: (groupKey: string, title: string) => void
@@ -171,6 +173,11 @@ export function ChannelToolsSection({
           </button>
         )
       })}
+      {failedPlugins.length > 0 ? (
+        <p role="alert" className="px-2 py-1 text-xs text-destructive">
+          Couldn't load channel tools from {failedPlugins.join(", ")}.
+        </p>
+      ) : null}
     </div>
   )
 }

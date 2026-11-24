@@ -54,12 +54,13 @@ import {
 import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
 
 const NO_CHANNEL_TOOLS: AgentPresetChannelToolGroup[] = []
+const NO_FAILED_PLUGINS: string[] = []
 
 /** Tools the agent's channel connections grant; empty until it is connected. */
 export function useAgentPresetChannelTools(
   workspaceId: string,
   presetId: string | undefined
-): AgentPresetChannelToolGroup[] {
+): { groups: AgentPresetChannelToolGroup[]; failedPlugins: string[] } {
   const { hasEntitlement } = useEntitlements()
   const entitled = hasEntitlement("agent_channels_preview")
   const { data } = useQuery({
@@ -74,7 +75,10 @@ export function useAgentPresetChannelTools(
     meta: { suppressErrorToast: true },
   })
   // A disabled query keeps its cached groups; without the entitlement, none show.
-  return (entitled && data?.groups) || NO_CHANNEL_TOOLS
+  return {
+    groups: (entitled && data?.groups) || NO_CHANNEL_TOOLS,
+    failedPlugins: (entitled && data?.failed_plugins) || NO_FAILED_PLUGINS,
+  }
 }
 
 /** Preview unsaved skill tools without surfacing validation failures as toasts. */

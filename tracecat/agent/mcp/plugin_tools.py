@@ -90,17 +90,33 @@ class AgentPluginTools:
     supersedes: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AgentPluginToolGroups:
+    """An agent's plugin tool groups, and the plugins that could not describe theirs."""
+
+    groups: tuple[AgentPluginTools, ...] = ()
+    failed_plugins: tuple[str, ...] = ()
+    """Entry point names of plugins that failed to load or answer."""
+
+
 class InternalToolPlugin(Protocol):
     """Registers internal tools and grants them per session.
 
-    `tools` is read once per process. `session_tools` runs once per scope compile and
-    `agent_tool_groups` per builder read; both run under the caller's role and
-    must not block the event loop. A session's superseded namespaces must match
-    the `supersedes` of its agent's groups.
+    `tools` and `superseded_namespaces` are read once per process. `session_tools`
+    runs once per scope compile and `agent_tool_groups` per builder read; both run
+    under the caller's role and must not block the event loop. A session's
+    superseded namespaces must match the `supersedes` of its agent's groups.
     """
 
     def tools(self) -> Sequence[PluginInternalTool]:
         """Every tool this plugin serves."""
+        ...
+
+    def superseded_namespaces(self) -> Sequence[str]:
+        """Every registry namespace a session's answer may supersede.
+
+        A session whose answer fails supersedes all of them.
+        """
         ...
 
     async def session_tools(
@@ -117,29 +133,42 @@ class InternalToolPlugin(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class _LoadedPlugin:
+    # Read once at load.
+    name: str
+    plugin: InternalToolPlugin
+    tool_names: frozenset[str]
+    superseded_namespaces: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
 class _LoadedPlugins:
-    # Each plugin with its tool names, read once at load.
-    plugins: tuple[tuple[InternalToolPlugin, frozenset[str]], ...]
+    plugins: tuple[_LoadedPlugin, ...]
     tools: Mapping[str, PluginInternalTool]
+    failed: tuple[str, ...]
+    """Entry point names of plugins that failed to load."""
 
 
 @lru_cache(maxsize=1)
 def _loaded_plugins() -> _LoadedPlugins:
     """Build each installed plugin from its zero-argument entry point.
 
-    A plugin that fails to load or names a tool badly is skipped, so one broken
-    plugin never fails every turn; its tools are simply absent.
+    A plugin that fails to load, names a tool badly or declares an internal
+    namespace is skipped, so one broken plugin never fails every turn; its tools
+    are simply absent.
     """
     installed = sorted(
         entry_points(group=INTERNAL_TOOL_PLUGIN_ENTRY_POINT_GROUP),
         key=lambda ep: ep.name,
     )
-    plugins: list[tuple[InternalToolPlugin, frozenset[str]]] = []
+    plugins: list[_LoadedPlugin] = []
     tools: dict[str, PluginInternalTool] = {}
+    failed: list[str] = []
     for entry_point in installed:
         try:
             plugin: InternalToolPlugin = entry_point.load()()
             own = _validated_tools(plugin, taken=tools.keys())
+            namespaces = _checked_namespaces(plugin.superseded_namespaces())
         except Exception as e:
             logger.error(
                 "Internal tool plugin failed to load; skipping it",
@@ -147,10 +176,33 @@ def _loaded_plugins() -> _LoadedPlugins:
                 error_type=type(e).__name__,
                 error=str(e),
             )
+            failed.append(entry_point.name)
             continue
-        plugins.append((plugin, frozenset(own)))
+        plugins.append(
+            _LoadedPlugin(
+                name=entry_point.name,
+                plugin=plugin,
+                tool_names=frozenset(own),
+                superseded_namespaces=namespaces,
+            )
+        )
         tools.update(own)
-    return _LoadedPlugins(plugins=tuple(plugins), tools=MappingProxyType(tools))
+    return _LoadedPlugins(
+        plugins=tuple(plugins), tools=MappingProxyType(tools), failed=tuple(failed)
+    )
+
+
+def log_loaded_internal_tool_plugins() -> None:
+    """Load the installed plugins and log each one's tool count, once at startup."""
+    loaded = _loaded_plugins()
+    logger.info(
+        "Internal tool plugins loaded",
+        plugins={
+            loaded_plugin.name: len(loaded_plugin.tool_names)
+            for loaded_plugin in loaded.plugins
+        },
+        failed=list(loaded.failed),
+    )
 
 
 def _validated_tools(
@@ -198,35 +250,39 @@ def plugin_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
 async def session_plugin_grant(role: Role, session_id: uuid.UUID) -> SessionPluginGrant:
     """Every plugin's answer for a session's turn, one call per plugin.
 
-    A plugin that fails to answer gives nothing: its tools are omitted and its
-    namespaces stay usable, rather than failing the turn.
+    A plugin that fails to answer grants no tools and supersedes every namespace
+    it declares, so the turn neither fails nor falls back to the registry tools.
     """
     loaded = _loaded_plugins()
     tools: list[PluginInternalTool] = []
     namespaces: set[str] = set()
-    for plugin, own in loaded.plugins:
+    for loaded_plugin in loaded.plugins:
         try:
             answered = await asyncio.wait_for(
-                plugin.session_tools(role, session_id),
+                loaded_plugin.plugin.session_tools(role, session_id),
                 timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
             )
             names = frozenset(answered.tool_names)
             superseded = _checked_namespaces(answered.superseded_namespaces)
+            if undeclared := sorted(superseded - loaded_plugin.superseded_namespaces):
+                raise ValueError(f"Supersedes undeclared namespaces: {undeclared}")
         except Exception as e:
             logger.warning(
-                "Internal tool plugin failed to grant tools; omitting them",
-                plugin=type(plugin).__name__,
+                "Internal tool plugin failed to grant tools; omitting them and"
+                " superseding its namespaces",
+                plugin=loaded_plugin.name,
                 session_id=str(session_id),
                 error_type=type(e).__name__,
             )
+            namespaces.update(loaded_plugin.superseded_namespaces)
             continue
-        if foreign := sorted(map(str, names - own)):
+        if foreign := sorted(map(str, names - loaded_plugin.tool_names)):
             logger.warning(
                 "Internal tool plugin granted tools it does not serve; ignoring them",
-                plugin=type(plugin).__name__,
+                plugin=loaded_plugin.name,
                 tools=foreign,
             )
-        tools.extend(loaded.tools[name] for name in names & own)
+        tools.extend(loaded.tools[name] for name in names & loaded_plugin.tool_names)
         namespaces.update(superseded)
     return SessionPluginGrant(
         tools=tuple(sorted(tools, key=lambda tool: tool.name)),
@@ -238,33 +294,40 @@ def is_superseded(action: str, namespaces: Collection[str]) -> bool:
     return any(action == ns or action.startswith(f"{ns}.") for ns in namespaces)
 
 
-async def agent_plugin_tools(
-    role: Role, preset_id: uuid.UUID
-) -> list[AgentPluginTools]:
+async def agent_plugin_tools(role: Role, preset_id: uuid.UUID) -> AgentPluginToolGroups:
     """The plugin tool groups an agent's connections grant, for its builder.
 
-    A plugin that fails to answer contributes no groups.
+    A plugin that fails to load or answer contributes no groups and is named in
+    `failed_plugins`.
     """
     loaded = _loaded_plugins()
     groups: list[AgentPluginTools] = []
-    for plugin, own in loaded.plugins:
+    failed = list(loaded.failed)
+    for loaded_plugin in loaded.plugins:
         try:
             answered = await asyncio.wait_for(
-                plugin.agent_tool_groups(role, preset_id),
+                loaded_plugin.plugin.agent_tool_groups(role, preset_id),
                 timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
             )
-            resolved = [_resolved_group(group, own, loaded.tools) for group in answered]
+            resolved = [
+                _resolved_group(group, loaded_plugin.tool_names, loaded.tools)
+                for group in answered
+            ]
         except Exception as e:
             logger.warning(
                 "Internal tool plugin failed to describe an agent's tools; omitting them",
-                plugin=type(plugin).__name__,
+                plugin=loaded_plugin.name,
                 preset_id=str(preset_id),
                 error_type=type(e).__name__,
                 error=str(e),
             )
+            failed.append(loaded_plugin.name)
             continue
         groups.extend(resolved)
-    return sorted(groups, key=lambda group: (group.title, group.label))
+    return AgentPluginToolGroups(
+        groups=tuple(sorted(groups, key=lambda group: (group.title, group.label))),
+        failed_plugins=tuple(sorted(failed)),
+    )
 
 
 def _resolved_group(

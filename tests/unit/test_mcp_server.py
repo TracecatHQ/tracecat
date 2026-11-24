@@ -7715,7 +7715,7 @@ async def test_get_agent_preset_lists_channel_tools(
             self, preset_id: uuid.UUID
         ) -> AgentPresetChannelToolsRead:
             assert preset_id == preset.id
-            return AgentPresetChannelToolsRead(groups=[group])
+            return AgentPresetChannelToolsRead(groups=[group], failed_plugins=["p1"])
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
@@ -7733,6 +7733,7 @@ async def test_get_agent_preset_lists_channel_tools(
     assert payload["slug"] == "triage"
     assert payload["tool_approvals"] == {"internal.slack.post_message": True}
     assert payload["channel_tools"] == [group.model_dump(mode="json")]
+    assert payload["channel_tools_failed_plugins"] == ["p1"]
 
 
 @pytest.mark.anyio

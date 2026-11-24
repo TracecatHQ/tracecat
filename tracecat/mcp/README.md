@@ -315,3 +315,4 @@ connections grant (for example Slack), grouped by provider. They are not
 selected in `actions`; set their approvals per tool name through
 `update_agent_preset`'s `tool_approvals`. While connected, registry actions
 under a group's `supersedes` namespaces are left out at run time.
+`channel_tools_failed_plugins` names plugins whose groups could not be read.

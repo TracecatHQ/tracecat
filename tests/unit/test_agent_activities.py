@@ -473,6 +473,9 @@ class TestBuildToolDefinitionsActivity:
             def tools(self) -> list[PluginInternalTool]:
                 return []
 
+            def superseded_namespaces(self) -> list[str]:
+                return ["tools.slack"]
+
             async def session_tools(
                 self, role: Role, session_id: uuid.UUID
             ) -> SessionPluginTools:

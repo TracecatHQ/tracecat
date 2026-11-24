@@ -428,6 +428,10 @@ class AgentPresetChannelToolsRead(Schema):
     """Tools granted by the agent's channel connections; empty when it has none."""
 
     groups: list[AgentPresetChannelToolGroup] = Field(default_factory=list)
+    failed_plugins: list[str] = Field(
+        default_factory=list,
+        description="Plugins that failed to load or answer; their groups are missing.",
+    )
 
 
 class AgentPresetToolPolicyPreview(Schema):

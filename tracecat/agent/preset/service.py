@@ -467,7 +467,7 @@ class AgentPresetService(BaseWorkspaceService):
         """
         if await self.get_preset(preset_id) is None:
             raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
-        groups = await agent_plugin_tools(self.role, preset_id)
+        plugin_groups = await agent_plugin_tools(self.role, preset_id)
         return AgentPresetChannelToolsRead(
             groups=[
                 AgentPresetChannelToolGroup(
@@ -485,8 +485,9 @@ class AgentPresetService(BaseWorkspaceService):
                     ],
                     supersedes=list(group.supersedes),
                 )
-                for group in groups
-            ]
+                for group in plugin_groups.groups
+            ],
+            failed_plugins=list(plugin_groups.failed_plugins),
         )
 
     async def build_preset_list_reads(

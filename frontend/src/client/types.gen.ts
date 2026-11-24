@@ -929,6 +929,10 @@ export type AgentPresetChannelToolGroup = {
  */
 export type AgentPresetChannelToolsRead = {
   groups?: Array<AgentPresetChannelToolGroup>
+  /**
+   * Plugins that failed to load or answer; their groups are missing.
+   */
+  failed_plugins?: Array<string>
 }
 
 /**

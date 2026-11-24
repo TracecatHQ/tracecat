@@ -1561,6 +1561,10 @@ class AgentPresetWithChannelToolsRead(AgentPresetRead):
             "the default. Registry actions under `supersedes` go unused while connected."
         ),
     )
+    channel_tools_failed_plugins: list[str] = Field(
+        default_factory=list,
+        description="Plugins that failed to describe their tools; `channel_tools` may miss them.",
+    )
 
 
 class TemplateUploadPreparedResponse(BaseModel):
@@ -12386,7 +12390,9 @@ async def get_agent_preset(
             preset_read = await svc.build_preset_read(preset)
             channel_tools = await svc.list_channel_tools(preset.id)
         return AgentPresetWithChannelToolsRead(
-            **preset_read.model_dump(), channel_tools=channel_tools.groups
+            **preset_read.model_dump(),
+            channel_tools=channel_tools.groups,
+            channel_tools_failed_plugins=channel_tools.failed_plugins,
         )
     except ToolError:
         raise

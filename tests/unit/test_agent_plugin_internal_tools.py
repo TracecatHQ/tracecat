@@ -63,17 +63,22 @@ class _Plugin:
         granted: Collection[str] = (),
         *,
         supersedes: tuple[str, ...] = (),
+        declares: tuple[str, ...] | None = None,
         fails: bool = False,
         groups: dict[uuid.UUID, Sequence[PluginToolGroup]] | None = None,
     ) -> None:
         self._tools = tools
         self._granted = granted
         self._supersedes = supersedes
+        self._declares = supersedes if declares is None else declares
         self._fails = fails
         self._groups = groups or {}
 
     def tools(self) -> Sequence[PluginInternalTool]:
         return self._tools
+
+    def superseded_namespaces(self) -> Sequence[str]:
+        return self._declares
 
     async def session_tools(
         self, role: Role, session_id: uuid.UUID
@@ -149,10 +154,12 @@ def test_a_plugin_that_fails_to_load_or_misnames_a_tool_is_skipped(
         _Plugin([_tool("internal.builder.update_preset")]),
         _Plugin([_tool("internal.bad__name.tool")]),
         None,
+        _Plugin([_tool("internal.claims.tool")], declares=("internal",)),
         _Plugin([_tool(WRITE)]),
     )
 
     assert sorted(plugin_internal_tools()) == [READ, WRITE]
+    assert plugin_tools._loaded_plugins().failed == ("p0", "p2", "p3", "p4", "p5", "p6")
 
 
 @pytest.mark.anyio
@@ -184,9 +191,10 @@ class _StuckPlugin(_Plugin):
 
 
 @pytest.mark.anyio
-async def test_a_stuck_grant_gives_up_and_grants_nothing(
+async def test_a_stuck_grant_grants_no_tools_and_supersedes_its_namespaces(
     install: InstallPlugins, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Fail closed: a stuck plugin must not hand the agent its registry fallback.
     monkeypatch.setattr(plugin_tools, "PLUGIN_GRANT_TIMEOUT_SECONDS", 0.01)
     install(
         _StuckPlugin([_tool(READ)], granted=[READ], supersedes=("tools.stuck",)),
@@ -196,7 +204,27 @@ async def test_a_stuck_grant_gives_up_and_grants_nothing(
     grant = await session_plugin_grant(_role(), uuid.uuid4())
 
     assert [tool.name for tool in grant.tools] == [WRITE]
-    assert grant.superseded_namespaces == frozenset()
+    assert grant.superseded_namespaces == {"tools.stuck"}
+
+
+@pytest.mark.anyio
+async def test_a_failing_grant_supersedes_every_namespace_its_plugin_declares(
+    install: InstallPlugins,
+) -> None:
+    install(
+        _Plugin([_tool(READ)], [READ], supersedes=("tools.x",), fails=True),
+        # Answering an undeclared namespace fails the answer the same way.
+        _Plugin(
+            [_tool(WRITE)], [WRITE], supersedes=("tools.y",), declares=("tools.z",)
+        ),
+        # Not connected: an answer naming no namespace keeps the registry tools.
+        _Plugin([_tool("internal.idle.tool")], declares=("tools.idle",)),
+    )
+
+    grant = await session_plugin_grant(_role(), uuid.uuid4())
+
+    assert grant.tools == ()
+    assert grant.superseded_namespaces == {"tools.x", "tools.z"}
 
 
 @pytest.mark.anyio
@@ -299,9 +327,13 @@ async def test_an_agent_lists_only_its_connections_tool_groups(
             },
         ),
         _Plugin([_tool("internal.broken.tool")], fails=True),
+        None,
     )
 
-    [group] = await agent_plugin_tools(_role(), connected)
+    read = await agent_plugin_tools(_role(), connected)
+
+    [group] = read.groups
+    assert read.failed_plugins == ("p1", "p2", "p3", "p4")
 
     assert (group.provider, group.title, group.label) == ("demo", "Demo", "as @Demo")
     assert [(t.name, t.title, t.requires_approval) for t in group.tools] == [
@@ -309,7 +341,7 @@ async def test_an_agent_lists_only_its_connections_tool_groups(
         (WRITE, "Write", True),
     ]
     assert group.supersedes == ("tools.demo",)
-    assert await agent_plugin_tools(_role(), other) == []
+    assert (await agent_plugin_tools(_role(), other)).groups == ()
 
 
 def test_a_superseded_namespace_matches_whole_segments() -> None:
@@ -326,9 +358,8 @@ async def test_a_session_supersedes_the_namespaces_its_plugins_name(
     install(
         _Plugin([_tool(READ)], [READ], supersedes=("tools.demo",)),
         _Plugin([_tool(WRITE)], supersedes=("tools.other", "tools.demo")),
-        # An internal namespace or a failing plugin keeps its namespaces usable.
+        # A plugin declaring an internal namespace never loads.
         _Plugin([_tool("internal.claims.tool")], supersedes=("internal",)),
-        _Plugin([_tool("internal.broken.tool")], supersedes=("tools.x",), fails=True),
     )
 
     grant = await session_plugin_grant(_role(), uuid.uuid4())
@@ -369,5 +400,6 @@ async def test_the_preset_service_describes_channel_tools_for_its_own_presets(
         (WRITE, "Write", True),
     ]
     assert group.supersedes == ["tools.demo"]
+    assert read.failed_plugins == []
     with pytest.raises(TracecatNotFoundError):
         await service.list_channel_tools(uuid.uuid4())

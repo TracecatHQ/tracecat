@@ -2950,6 +2950,15 @@ export const $AgentPresetChannelToolsRead = {
       type: "array",
       title: "Groups",
     },
+    failed_plugins: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Failed Plugins",
+      description:
+        "Plugins that failed to load or answer; their groups are missing.",
+    },
   },
   type: "object",
   title: "AgentPresetChannelToolsRead",

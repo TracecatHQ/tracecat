@@ -23,7 +23,7 @@ describe("useAgentPresetChannelTools", () => {
     serveEntitlements()
     jest
       .mocked(agentPresetsListAgentPresetChannelTools)
-      .mockResolvedValue({ groups: [SLACK] })
+      .mockResolvedValue({ groups: [SLACK], failed_plugins: ["channels"] })
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
@@ -34,13 +34,20 @@ describe("useAgentPresetChannelTools", () => {
       () => useAgentPresetChannelTools("workspace-1", "preset-1"),
       { wrapper }
     )
-    await waitFor(() => expect(result.current).toEqual([SLACK]))
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        groups: [SLACK],
+        failedPlugins: ["channels"],
+      })
+    )
 
     serveEntitlements({ agent_channels: true })
     await act(async () => {
       await client.invalidateQueries()
     })
 
-    await waitFor(() => expect(result.current).toEqual([]))
+    await waitFor(() =>
+      expect(result.current).toEqual({ groups: [], failedPlugins: [] })
+    )
   })
 })
