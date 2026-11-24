@@ -56,7 +56,7 @@ function InlineCaseBadge({
   icon: LucideIcon
 }) {
   return (
-    <span className="inline-flex items-center gap-0.5 text-[0.85em] font-normal text-muted-foreground">
+    <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[0.85em] font-normal text-muted-foreground">
       <Icon className="size-[0.9em] shrink-0" strokeWidth={3} />
       {label}
     </span>
@@ -64,7 +64,7 @@ function InlineCaseBadge({
 }
 
 const CHIP_CLASS =
-  "inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/40 px-1.5 align-baseline text-[0.9em] font-medium leading-snug no-underline hover:bg-muted"
+  "inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-md border bg-muted/40 px-1.5 align-baseline text-[0.9em] font-medium leading-snug no-underline hover:bg-muted"
 
 /** A case chip with its live status and severity; label only until the viewer may see it. */
 function CaseMentionChip({
@@ -84,9 +84,12 @@ function CaseMentionChip({
     <>
       <LayersIcon className="size-3.5 shrink-0 text-muted-foreground" />
       {/* The case's own ID, so the chip never shows one case's label on another. */}
-      <span className="truncate">{mentioned.short_id}</span>
-      <InlineCaseBadge {...STATUSES[mentioned.status]} />
-      <InlineCaseBadge {...SEVERITIES[mentioned.severity]} />
+      <span className="shrink-0">{mentioned.short_id}</span>
+      {/* One line: a badge that does not fit wraps out of sight; the ID never truncates. */}
+      <span className="flex h-[1lh] min-w-0 flex-wrap items-center gap-x-1 overflow-hidden">
+        <InlineCaseBadge {...STATUSES[mentioned.status]} />
+        <InlineCaseBadge {...SEVERITIES[mentioned.severity]} />
+      </span>
     </>
   )
   if (!openArtifact) {
