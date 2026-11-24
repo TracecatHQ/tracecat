@@ -87,7 +87,8 @@ async def _turn_backend(
             and session.created_by != service.role.user_id
         )
         if backend_id != DEFAULT_AGENT_BACKEND and (
-            session.entity_type != AgentSessionEntity.WORKFLOW.value
+            # A channel-reply action's session is its own; a retry must adopt it.
+            session.entity_type != args.entity_type.value
             or session.entity_id != args.entity_id
             or session.forked_from_session_id is not None
             or started_by_teammate

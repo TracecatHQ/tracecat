@@ -434,6 +434,22 @@ async def test_action_continues_only_its_own_workflow_sessions_on_a_backend(
 
 
 @pytest.mark.anyio
+async def test_channel_reply_action_retry_adopts_its_own_session() -> None:
+    """A preset action posting to a channel runs as an ownerless channel session."""
+    preset_id = uuid.uuid4()
+    existing = _existing(
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value, entity_id=preset_id
+    )
+    service = _service(existing=existing)
+    args = _args(session_id=existing.id, entity_id=preset_id).model_copy(
+        update={"entity_type": AgentSessionEntity.EXTERNAL_CHANNEL}
+    )
+    with _activity_env(service, selected="external"):
+        assert (await _prepare(args)).session_id == existing.id
+    service.get_or_create_session.assert_not_awaited()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("actor", "creator", "refused"),
     [
