@@ -6,7 +6,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import get_args
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -545,12 +545,17 @@ def _agent_session(
     )
 
 
-def _client(role: Role, agent_session: AgentSession):
+def _client(
+    role: Role, agent_session: AgentSession, authored: list[uuid.UUID] | None = None
+):
     app = FastAPI()
     app.include_router(router)
     role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
     app.dependency_overrides[role_dependency] = lambda: role
-    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    # The access rule's participation read finds ``authored`` sessions.
+    db = AsyncMock()
+    db.scalars.return_value = Mock(all=Mock(return_value=authored or []))
+    app.dependency_overrides[get_async_session] = lambda: db
     return app, patch.object(
         AgentSessionService, "get_session", AsyncMock(return_value=agent_session)
     )
@@ -573,16 +578,12 @@ def test_toggling_needs_the_right_to_talk_to_the_agent(
     agent_session = _agent_session(
         role.workspace_id, created_by=created_by, entity_type=entity_type
     )
-    app, get_session = _client(role, agent_session)
+    app, get_session = _client(
+        role, agent_session, [agent_session.id] if participated else None
+    )
     toggled = AgentSessionChannelSyncRead(available=True, enabled=False)
-    sent_in = {agent_session.id} if participated else set()
     with (
         get_session,
-        patch.object(
-            AgentSessionService,
-            "participated_session_ids",
-            AsyncMock(return_value=sent_in),
-        ),
         patch.object(
             session_router,
             "_require_workspace_chat_entitlement_for_session_tree",
@@ -611,11 +612,6 @@ def test_reading_a_session_the_actor_cannot_toggle_hides_the_toggle() -> None:
     app, get_session = _client(role, agent_session)
     with (
         get_session,
-        patch.object(
-            AgentSessionService,
-            "participated_session_ids",
-            AsyncMock(return_value=set()),
-        ),
         patch.object(
             session_router, "get_channel_sync_enabled", AsyncMock(return_value=True)
         ),
@@ -680,11 +676,6 @@ def test_listing_destinations_follows_the_toggle_rule(
     app, get_session = _client(role, agent_session)
     with (
         get_session,
-        patch.object(
-            AgentSessionService,
-            "participated_session_ids",
-            AsyncMock(return_value=set()),
-        ),
         patch.object(
             session_router,
             "get_channel_sync_enabled",
