@@ -377,6 +377,7 @@
             "icon": "plug",
             "pages": [
               "cheatsheets/connection-guides/connect-to-aws",
+              "cheatsheets/connection-guides/connect-to-google-workspace",
               "cheatsheets/connection-guides/connect-to-slack",
               "cheatsheets/connection-guides/connect-to-teams"
             ]

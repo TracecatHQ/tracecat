@@ -1,0 +1,214 @@
+---
+title: "Connect to Google Workspace"
+description: "Connect Tracecat to Google Workspace audit logs, reports, Alert Center, and Directory with a service account, domain-wide delegation, and a dedicated admin user."
+---
+
+## Overview
+
+Tracecat calls the Google Workspace Admin APIs with a Google Cloud service account that impersonates a Workspace admin user through domain-wide delegation. Setup spans three places:
+
+| Where | What you set up |
+| --- | --- |
+| [Google Cloud console](https://console.cloud.google.com) | Project, enabled APIs, service account, JSON key |
+| [Google Admin console](https://admin.google.com) | Dedicated admin user, custom admin role, domain-wide delegation |
+| Tracecat | `Google Workspace Admin (Service account)` integration or the `google_api` credential |
+
+This setup covers these integrations:
+
+- [Google Workspace Reports](/tools/google_reports): audit logs (activities) for `login`, `admin`, `token`, `drive`, `gmail`, `saml`, `user_accounts`, and other applications, plus usage reports.
+- [Google Workspace Alert Center](/tools/google_alert_center): phishing, suspicious login, malware, government-backed attack, DLP, and other Alert Center alerts.
+- [Google Workspace Directory](/tools/google_directory): users, groups, devices, third-party OAuth tokens, app passwords, and sign-in sessions.
+
+## How domain-wide delegation works
+
+Domain-wide delegation lets a service account mint tokens as any user in your Workspace domain without that user's consent. You authorize it in the Admin console by pairing the service account's client ID with a list of OAuth scopes.
+
+Each token Tracecat requests names a subject (the user to impersonate) and a list of scopes:
+
+- Scopes decide which APIs the token can call. Every requested scope must be on the delegated list, or Google rejects the token request with `unauthorized_client`.
+- The subject's admin privileges decide what those calls return. Admin SDK calls run as the subject, so the subject must hold the matching admin privilege.
+
+Because delegation reaches every user in the domain, keep the scope list short and treat the service account key like a super admin credential.
+
+## Before you begin
+
+- A Google Workspace super admin. Only super admins can create admin roles and authorize domain-wide delegation.
+- A Google Cloud user who can create a project, enable APIs, create a service account, and create a service account key.
+
+## Choose scopes
+
+Start with the read-only scopes a security bot needs for triage, then add response scopes only for the actions your workflows run.
+
+### Triage scopes
+
+| Scope | Grants | Actions | Admin privilege for the bot user |
+| --- | --- | --- | --- |
+| `https://www.googleapis.com/auth/admin.reports.audit.readonly` | Audit logs for every Reports application, including `token` (third-party app grants and revocations) and `login` | `tools.google_reports.list_activities` | `Reports` |
+| `https://www.googleapis.com/auth/admin.reports.usage.readonly` | Customer, user, and entity usage reports | `tools.google_reports.get_*_usage_report` | `Reports` |
+| `https://www.googleapis.com/auth/apps.alerts` | Alert Center alerts, metadata, and feedback | `tools.google_alert_center.*` | `Services` > `Alert Center` |
+| `https://www.googleapis.com/auth/admin.directory.user.readonly` | User profiles, admin status, 2-Step Verification enrollment, last login | `tools.google_directory.get_user`, `list_users` | `Users` > `Read` |
+
+The Alert Center API exposes a single `apps.alerts` scope for both reading and updating alerts.
+
+### Optional scopes
+
+| Scope | Use it for | Actions |
+| --- | --- | --- |
+| `https://www.googleapis.com/auth/admin.directory.user.security` | List or revoke third-party OAuth tokens and app passwords, sign out users, turn off 2-Step Verification | `tools.google_directory.list_tokens`, `delete_token`, `list_asps`, `sign_out_user`, `turn_off_two_step_verification` |
+| `https://www.googleapis.com/auth/admin.directory.user` | Suspend users, reset passwords, update user fields | `tools.google_directory.patch_user` |
+| `https://www.googleapis.com/auth/admin.directory.group.readonly` | Read groups for blast-radius checks | `tools.google_directory.get_group`, `list_groups` |
+| `https://www.googleapis.com/auth/admin.directory.group.member` | Remove a compromised user from groups | `tools.google_directory.delete_member` |
+| `https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly` | Review admin role assignments for privilege escalation | `tools.google_directory.list_role_assignments` |
+| `https://www.googleapis.com/auth/admin.directory.device.mobile.action` | Block or wipe a managed mobile device | `tools.google_directory.action_mobile_device` |
+| `https://www.googleapis.com/auth/admin.directory.device.chromeos` | Disable or move ChromeOS devices | `tools.google_directory.batch_change_chromeos_device_status`, `move_chromeos_devices_to_ou` |
+| `https://www.googleapis.com/auth/admin.directory.orgunit.readonly` | Read organizational units | `tools.google_directory.get_orgunit`, `list_orgunits` |
+
+`admin.directory.user.security` has no read-only variant: the same scope that lists tokens also revokes them, signs users out, and turns off 2-Step Verification. Add it, and the `Security` > `User Security Management` privilege, only when your workflows run these actions. Use `tools.google_reports.list_activities` with `application_name: token` to audit third-party app grants without it.
+
+Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing email use the separate `google_gmail` integration and the `gmail.readonly` or `gmail.modify` scope. Gmail delegation impersonates the mailbox owner, not the bot user, and gives the service account access to every mailbox in the domain. Authorize those scopes on a separate service account only if your workflows remediate mailboxes.
+
+## Set up Google Cloud
+
+<Steps>
+  <Step title="Create a dedicated project">
+    Open [Create a project](https://console.cloud.google.com/projectcreate) and create a project used only for the Tracecat service account, such as `tracecat-workspace`. Limit who has `Owner`, `Editor`, `Service Account Admin`, `Service Account Key Admin`, or `Service Account Token Creator` on it: anyone with these roles can use the delegation.
+  </Step>
+  <Step title="Enable the APIs">
+    In the new project, enable:
+
+    - [Admin SDK API](https://console.cloud.google.com/apis/library/admin.googleapis.com) for Directory and Reports.
+    - [Google Workspace Alert Center API](https://console.cloud.google.com/apis/library/alertcenter.googleapis.com) for Alert Center.
+    - [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com), only if you use Gmail actions.
+  </Step>
+  <Step title="Create the service account">
+    Open [Create service account](https://console.cloud.google.com/iam-admin/serviceaccounts/create), enter a name such as `tracecat-workspace`, and click `Create and continue`. Skip the project roles: domain-wide delegation does not use Google Cloud IAM roles. Click `Done`.
+  </Step>
+  <Step title="Create a JSON key">
+    Open [Service accounts](https://console.cloud.google.com/iam-admin/serviceaccounts), select the service account, then go to `Keys` > `Add key` > `Create new key` > `JSON` > `Create`. Google downloads the only copy of the key.
+
+    If key creation is blocked by the `iam.disableServiceAccountKeyCreation` organization policy, ask your Google Cloud organization policy admin for an exception on this project.
+  </Step>
+  <Step title="Copy the client ID">
+    On the service account's `Details` tab, expand `Advanced settings` and copy the `Client ID` under `Domain-wide delegation`. It is a 21-digit number and matches `client_id` in the JSON key.
+  </Step>
+</Steps>
+
+## Set up the Google Admin console
+
+<Steps>
+  <Step title="Create a dedicated bot user">
+    Open [Users](https://admin.google.com/ac/users) and click `Add new user`, for example `tracecat-bot@example.com`. Use a dedicated account rather than a person's account so that offboarding a person does not break your workflows and audit logs attribute Tracecat's actions to the bot.
+
+    Give the account a long random password, enforce 2-Step Verification with a security key, and keep it out of day-to-day sign-in. Tracecat never signs in as this user; it only impersonates it.
+  </Step>
+  <Step title="Create a custom admin role">
+    Open [Admin roles](https://admin.google.com/ac/roles), click `Create new role`, and name it, for example `Tracecat security automation`. Select the privileges that match your scopes from [Choose scopes](#choose-scopes):
+
+    - `Reports`
+    - `Services` > `Alert Center` (full access to update or delete alerts, view access for read-only)
+    - `Security` > `User Security Management`, only if you delegate `admin.directory.user.security`
+    - `Users` > `Read`, or `Users` > `Update` to suspend users or reset passwords
+
+    Avoid the `Super Admin` role. `User Security Management` and `Users` privileges only apply to users who are not admins; only a super admin can sign out or revoke tokens for another admin.
+  </Step>
+  <Step title="Assign the role to the bot user">
+    In [Admin roles](https://admin.google.com/ac/roles), open the role, click `Admins assigned` > `Assign users`, and add the bot user.
+  </Step>
+  <Step title="Authorize domain-wide delegation">
+    Sign in as a super admin and open [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) (`Security` > `Access and data control` > `API controls` > `Manage Domain Wide Delegation`). Click `Add new`, paste the client ID, and enter your scopes as a comma-separated list:
+
+    ```text
+    https://www.googleapis.com/auth/admin.reports.audit.readonly,https://www.googleapis.com/auth/admin.reports.usage.readonly,https://www.googleapis.com/auth/apps.alerts,https://www.googleapis.com/auth/admin.directory.user.readonly
+    ```
+
+    Click `Authorize`, then hover over the client, click `View details`, and confirm every scope is listed. Changes usually apply within minutes and can take up to 24 hours. If your organization uses multi-party approval, a second super admin must approve the change.
+  </Step>
+</Steps>
+
+## Connect Tracecat
+
+Choose one credential. The `google_admin` integration is the default for workflows and agents; use the `google_api` credential when an action needs a different subject per call.
+
+| | `Google Workspace Admin (Service account)` integration | `google_api` credential |
+| --- | --- | --- |
+| Where | `Integrations` | `Credentials` |
+| Subject | One `Assume User` email per integration | `GOOGLE_API_SUBJECT`, or `subject` per call on `tools.google_api.call_api` |
+| Scopes | The integration's `OAuth scopes`, used for every action | Each action requests its own scope |
+| Secret expression | `${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}` | `${{ SECRETS.google_api.GOOGLE_API_CREDENTIALS }}` |
+
+The `Google Cloud (Service account)` integration (`google`) defaults to the `cloud-platform` scope with no subject and is for Google Cloud APIs such as [Cloud Logging](/tools/google_cloud_logging) and [Security Command Center](/tools/google_scc). Do not use it for Workspace Admin APIs.
+
+### Google Workspace Admin integration
+
+<Steps>
+  <Step title="Open the integration">
+    Go to `Integrations`, search for `Google Workspace Admin`, and open `Google Workspace Admin (Service account)`.
+
+    ![Google Workspace Admin integrations](/img/connection-guides/google-workspace/integrations-search.png)
+  </Step>
+  <Step title="Upload the key and set the subject">
+    Under `Service account JSON key`, click `Choose JSON` and select the key from [Create a JSON key](#set-up-google-cloud). Tracecat fills `Service account email (optional)` from the key's `client_email`. Turn on `Assume User` and enter the bot user's email in `User Email`.
+
+    ![Service account key and Assume User](/img/connection-guides/google-workspace/service-account-config.png)
+  </Step>
+  <Step title="Match the scopes">
+    Under `Scopes`, edit `OAuth scopes` until it lists exactly the scopes you delegated. It starts with every default Directory, Reports, and Alert Center scope; if any of them is not delegated, Google rejects the token with `unauthorized_client`.
+
+    Click the `x` on each scope you did not delegate. To add a scope that is not in the defaults, such as `admin.directory.user.readonly`, type the full scope URL and select `Add "<scope>"`.
+
+    ![OAuth scopes](/img/connection-guides/google-workspace/service-account-scopes.png)
+  </Step>
+  <Step title="Connect">
+    Click `Connect`. Tracecat mints a token as the bot user and refreshes it before it expires.
+  </Step>
+</Steps>
+
+### google_api credential
+
+Go to `Credentials`, search for `google_api`, and click `Configure`. Under `Keys`, enter:
+
+- `GOOGLE_API_CREDENTIALS`: the full contents of the JSON key.
+- `GOOGLE_API_SUBJECT`: the bot user's email.
+
+Click `Create credential`.
+
+![google_api credential](/img/connection-guides/google-workspace/google-api-credential.png)
+
+Every scope an action requests must be delegated. Directory and Reports actions try the `google_admin` integration first; see [Google credentials](/automations/core-concepts/secrets#google-credentials) for the full resolution order.
+
+## Test the connection
+
+Run these actions in a workflow:
+
+```yaml
+- ref: list_token_events
+  action: tools.google_reports.list_activities
+  args:
+    application_name: token
+    user_key: all
+    max_results: 10
+
+- ref: list_alerts
+  action: tools.google_alert_center.list_alerts
+  args:
+    page_size: 10
+```
+
+| Error | Fix |
+| --- | --- |
+| `unauthorized_client` | Make the integration's `OAuth scopes` match the delegated scopes, check the client ID, and allow time for delegation to apply. |
+| `403` `Not Authorized to access this resource/api` | Add the missing privilege to the bot user's admin role. |
+| `403` `... API has not been used in project ...` | Enable the API in the service account's Google Cloud project. |
+
+## Maintain the connection
+
+- Rotate the JSON key on a schedule: create a new key, update Tracecat, then delete the old key in `Keys`.
+- Review [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) regularly and remove scopes your workflows no longer use.
+- Keep the key only in Tracecat; delete the downloaded file after you upload it.
+
+## Related pages
+
+- See [Google credentials](/automations/core-concepts/secrets#google-credentials) for the order in which Google actions resolve credentials.
+- See [OAuth](/automations/integrations/oauth-integrations) for how Tracecat stores and refreshes OAuth tokens.
+- See [Google Workspace Reports](/tools/google_reports), [Google Workspace Alert Center](/tools/google_alert_center), and [Google Workspace Directory](/tools/google_directory) for action inputs.
+- See Google's [Control API access with domain-wide delegation](https://support.google.com/a/answer/162106) and [Domain-wide delegation best practices](https://support.google.com/a/answer/14437356) for the Admin console reference.
