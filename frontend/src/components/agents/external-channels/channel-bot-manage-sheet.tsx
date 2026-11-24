@@ -272,10 +272,14 @@ function ApproversSection({
   presetId: string
   agentName: string
 }) {
-  const { approvers, isError, isPending } = useAgentPresetApprovers(
-    workspaceId,
-    presetId
-  )
+  const {
+    approvers,
+    isError,
+    isPending,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useAgentPresetApprovers(workspaceId, presetId)
   let body: ReactNode = (
     <p className="text-xs text-muted-foreground">{DEFAULT_APPROVER_RULE}</p>
   )
@@ -307,6 +311,20 @@ function ApproversSection({
             </li>
           )
         })}
+        {hasNextPage ? (
+          <li>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full text-xs text-muted-foreground"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              Load more
+            </Button>
+          </li>
+        ) : null}
       </ul>
     )
   }
