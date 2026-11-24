@@ -213,16 +213,10 @@ function CustomAppNotice({
   }
   return (
     <div role="status" className="space-y-2.5 text-xs">
-      <div className="flex items-start gap-2">
-        <TriangleAlert
-          className="mt-px size-4 shrink-0 text-amber-600 dark:text-amber-400"
-          aria-hidden
-        />
-        <p className="text-muted-foreground">
-          <span className="font-medium text-foreground">{title}</span> {body}
-        </p>
-      </div>
-      <div className="ml-6 space-y-2.5">
+      <p className="text-muted-foreground">
+        <span className="font-semibold text-foreground">{title}</span> {body}
+      </p>
+      <div className="space-y-2.5">
         {canUpdate ? (
           <div className="flex flex-wrap items-center gap-2">
             {outdated ? (

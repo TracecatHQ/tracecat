@@ -97,7 +97,7 @@ function MenuOption({
           {title}
           {badge}
         </div>
-        <p className="text-balance text-muted-foreground">{help}</p>
+        <p className="text-pretty text-muted-foreground">{help}</p>
       </div>
     </DropdownMenuItem>
   )
@@ -231,8 +231,8 @@ function ChoiceCard({
         {title}
         {badge}
       </div>
-      <p className="text-balance text-xs text-muted-foreground">{help}</p>
-      {action}
+      <p className="text-pretty text-xs text-muted-foreground">{help}</p>
+      <div className="mt-auto pt-1">{action}</div>
     </div>
   )
 }
