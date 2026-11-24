@@ -125,10 +125,9 @@ export function AddChannelRouteDialog({
   const pickable = channels ? [...channelsById.values()] : []
   const unrouted = pickable.filter((c) => !routedIds.has(c.id))
   const failure = listingFailure(providerName, running, channels, channelsError)
-  // Channel IDs carry no whitespace; the API refuses them otherwise.
+  // A typed ID must look like one of the provider's, or the route never matches.
   const canAdd =
-    newChannel !== "" &&
-    !/\s/.test(newChannel) &&
+    conventions.isChannelId(newChannel) &&
     !routedIds.has(newChannel) &&
     !!agentPresetId
 
