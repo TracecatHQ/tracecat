@@ -489,8 +489,8 @@ export function useAllWorkspaceChannelRoutes(
 function rowChannel(
   row: AgentChannelWorkspaceRouteRead
 ): ChannelBotChannel | null {
-  // A routed channel the bot is not in has no name to show, so it shows nothing.
-  if (row.channel_name === null) return null
+  // The bot answers only in channels it has joined; an unnamed one shows nothing.
+  if (row.channel_name === null || row.is_member === false) return null
   return {
     id: row.provider_channel_id,
     name: row.channel_name,

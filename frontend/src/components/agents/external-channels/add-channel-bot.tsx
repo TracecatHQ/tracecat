@@ -88,10 +88,10 @@ function MenuOption({
     >
       {icon}
       <div className="space-y-0.5">
-        <p className="flex items-center gap-1.5 font-medium">
+        <div className="flex items-center gap-1.5 font-medium">
           {title}
           {badge}
-        </p>
+        </div>
         <p className="text-muted-foreground">{help}</p>
       </div>
     </DropdownMenuItem>
