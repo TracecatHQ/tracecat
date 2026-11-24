@@ -34,5 +34,8 @@ definition:
         base_url: ${{ inputs.base_url }}
         params:
           repository: ${{ inputs.repository }}
+          # FalconPy's Uber class reads both keys for this operation and raises
+          # KeyError: 'search_id' when only `id` is passed.
           id: ${{ inputs.id }}
+          search_id: ${{ inputs.id }}
   returns: ${{ steps.get_ngsiem_search_status.result }}
