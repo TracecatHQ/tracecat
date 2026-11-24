@@ -184,6 +184,14 @@ CASE_VIEW_VISIBILITY_ENUM = Enum(
     values_callable=lambda enum: [member.value for member in enum],
     validate_strings=True,
 )
+USER_MESSAGE_ORIGIN_ENUM = Enum(
+    UserMessageOrigin,
+    name="usermessageorigin",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
 # Naming convention for constraints so Alembic can generate deterministic names
 # See: https://alembic.sqlalchemy.org/en/latest/naming.html
 NAMING_CONVENTION: dict[str, str] = {
@@ -4288,9 +4296,6 @@ class CaseAgentSessionInteraction(WorkspaceModel):
     )
 
 
-_MESSAGE_ORIGINS_SQL = ", ".join(f"'{value}'" for value in UserMessageOrigin)
-
-
 class AgentSessionHistory(WorkspaceModel):
     """Harness-agnostic history storage for agent sessions.
 
@@ -4305,7 +4310,6 @@ class AgentSessionHistory(WorkspaceModel):
             "author_id",
             postgresql_where=text("author_id IS NOT NULL"),
         ),
-        CheckConstraint(f"origin IN ({_MESSAGE_ORIGINS_SQL})", name="origin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -4350,8 +4354,8 @@ class AgentSessionHistory(WorkspaceModel):
         nullable=True,
         doc="Tracecat user who sent this user prompt; null for every other row",
     )
-    origin: Mapped[str | None] = mapped_column(
-        String(32),
+    origin: Mapped[UserMessageOrigin | None] = mapped_column(
+        USER_MESSAGE_ORIGIN_ENUM,
         nullable=True,
         doc="UserMessageOrigin of this user prompt; null for every other row",
     )

@@ -43,20 +43,9 @@ def upgrade() -> None:
         "agent_session_history",
         sa.Column("origin", sa.String(length=32), nullable=True),
     )
-    # NOT VALID for the same reason; the new column is NULL on every row.
-    op.execute(
-        "ALTER TABLE agent_session_history "
-        "ADD CONSTRAINT ck_agent_session_history_origin "
-        "CHECK (origin IN ('tracecat', 'channel')) NOT VALID"
-    )
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        op.f("ck_agent_session_history_origin"),
-        "agent_session_history",
-        type_="check",
-    )
     op.drop_column("agent_session_history", "origin")
     op.drop_constraint(
         op.f("fk_agent_session_history_author_id_user"),
