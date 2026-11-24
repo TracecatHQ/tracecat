@@ -1577,10 +1577,7 @@ export function ChatSessionPane({
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
                 />
               )}
-              {isWorkspaceChat &&
-              chat &&
-              "channel_context" in chat &&
-              !isReadonly ? (
+              {isWorkspaceChat && chat && !isReadonly ? (
                 <SlackSyncButton
                   workspaceId={workspaceId}
                   sessionId={chat.id}
