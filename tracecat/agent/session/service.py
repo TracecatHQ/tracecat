@@ -16,6 +16,7 @@ from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from claude_agent_sdk.types import TextBlock, UserMessage
 from pydantic import ValidationError
 from sqlalchemy import (
+    Select,
     and_,
     case,
     column,
@@ -741,11 +742,8 @@ class AgentSessionService(BaseWorkspaceService):
         rest = [s.id for s in sessions if s.id not in acting]
         if execute and self.role.user_id is not None and rest:
             result = await self.session.scalars(
-                select(AgentSessionHistory.session_id)
-                .where(
-                    AgentSessionHistory.author_id == self.role.user_id,
-                    AgentSessionHistory.session_id.in_(rest),
-                )
+                self._authored_session_ids(self.role.user_id)
+                .where(AgentSessionHistory.session_id.in_(rest))
                 .distinct()
             )
             acting.update(result.all())
@@ -753,6 +751,13 @@ class AgentSessionService(BaseWorkspaceService):
             s.id: SessionAccess(act=s.id in acting, decide=s.id in acting and execute)
             for s in sessions
         }
+
+    @staticmethod
+    def _authored_session_ids(user_id: UserID) -> Select[tuple[uuid.UUID]]:
+        """Sessions this user sent a message in: what participation means."""
+        return select(AgentSessionHistory.session_id).where(
+            AgentSessionHistory.author_id == user_id
+        )
 
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]
@@ -995,7 +1000,8 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             Agent sessions and legacy chat metadata sorted by creation time.
         """
-        if participating and self.role.user_id is None:
+        viewer_id = self.role.user_id
+        if participating and viewer_id is None:
             return []
         # Query AgentSession table
         session_stmt = select(AgentSession).where(
@@ -1029,17 +1035,14 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.forked_from_session_id == forked_from_session_id
             )
-        if participating:
-            # Same author rows sessions_access reads for participation.
-            authored = select(AgentSessionHistory.session_id).where(
-                AgentSessionHistory.author_id == self.role.user_id
-            )
+        if participating and viewer_id is not None:
+            authored = self._authored_session_ids(viewer_id)
             session_stmt = session_stmt.where(
                 or_(
                     and_(
                         AgentSession.entity_type
                         == AgentSessionEntity.WORKSPACE_CHAT.value,
-                        AgentSession.created_by == self.role.user_id,
+                        AgentSession.created_by == viewer_id,
                     ),
                     and_(
                         AgentSession.entity_type.in_(
