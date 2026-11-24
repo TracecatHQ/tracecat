@@ -711,7 +711,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def sessions_access(
         self, sessions: Sequence[AgentSession]
     ) -> dict[uuid.UUID, SessionAccess]:
-        """What the role may do in each session, in one query.
+        """What the role may do in each session, in at most one query.
 
         A user may act on a session they own; with ``agent:execute`` they may also
         act on a workflow session, an ownerless channel session, or one they sent
@@ -720,30 +720,37 @@ class AgentSessionService(BaseWorkspaceService):
         execute = self.role.scopes is not None and has_scope(
             self.role.scopes, "agent:execute"
         )
-        authored: set[uuid.UUID] = set()
-        if execute and self.role.user_id is not None and sessions:
+        acting = {
+            s.id
+            for s in sessions
+            if is_session_owner(self.role, s.created_by)
+            or (
+                execute
+                and (
+                    s.entity_type == AgentSessionEntity.WORKFLOW
+                    or (
+                        s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
+                        and s.created_by is None
+                    )
+                )
+            )
+        }
+        # Only participation can still grant the rest.
+        rest = [s.id for s in sessions if s.id not in acting]
+        if execute and self.role.user_id is not None and rest:
             result = await self.session.scalars(
                 select(AgentSessionHistory.session_id)
                 .where(
                     AgentSessionHistory.author_id == self.role.user_id,
-                    AgentSessionHistory.session_id.in_([s.id for s in sessions]),
+                    AgentSessionHistory.session_id.in_(rest),
                 )
                 .distinct()
             )
-            authored = set(result.all())
-        access: dict[uuid.UUID, SessionAccess] = {}
-        for s in sessions:
-            shared = (
-                s.entity_type == AgentSessionEntity.WORKFLOW
-                or (
-                    s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
-                    and s.created_by is None
-                )
-                or s.id in authored
-            )
-            act = is_session_owner(self.role, s.created_by) or (execute and shared)
-            access[s.id] = SessionAccess(act=act, decide=act and execute)
-        return access
+            acting.update(result.all())
+        return {
+            s.id: SessionAccess(act=s.id in acting, decide=s.id in acting and execute)
+            for s in sessions
+        }
 
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]

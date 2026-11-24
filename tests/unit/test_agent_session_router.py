@@ -2110,6 +2110,32 @@ def test_a_teammate_may_act_only_on_shared_sessions(
     assert read.created_by == session_stub.created_by
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity_type", "ownerless", "queried"),
+    [
+        (AgentSessionEntity.WORKFLOW, False, False),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False),
+        (AgentSessionEntity.AGENT_PRESET, False, True),
+    ],
+)
+async def test_participation_is_read_only_when_it_can_change_the_answer(
+    entity_type: AgentSessionEntity, ownerless: bool, queried: bool
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        entity_type=entity_type,
+        created_by=None if ownerless else uuid.uuid4(),
+    )
+    role = _teammate_role(session_stub.workspace_id, EXECUTE_ONLY)
+    db = AsyncMock()
+    db.scalars.return_value = Mock(all=Mock(return_value=[]))
+    await AgentSessionService(cast(Any, db), role).session_access(
+        cast(Any, session_stub)
+    )
+    assert db.scalars.await_count == (1 if queried else 0)
+
+
 @pytest.mark.parametrize(
     ("scopes", "readonly"),
     [(frozenset({"agent:execute"}), False), (frozenset({"agent:read"}), True)],
