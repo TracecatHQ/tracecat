@@ -26,14 +26,15 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-/** A setup state as an icon and a short label; red only when it needs action. */
+/** Red only when someone must act. */
 const DOT_TONES = {
   ok: "bg-green-600",
   attention: "bg-amber-600",
+  action: "bg-destructive",
   neutral: "bg-zinc-400",
 } as const
 
-/** How a status dot reads: running, needs someone, or nothing to report. */
+/** How a status dot reads: running, worth a look, must act, or nothing to report. */
 export type StatusTone = keyof typeof DOT_TONES
 
 /** A status as a small coloured dot before neutral text. */
@@ -55,6 +56,7 @@ export function StatusDot({
   )
 }
 
+/** A setup state as an icon and a short label; red only when it needs action. */
 export function StatusLabel({
   icon: Icon,
   destructive = false,

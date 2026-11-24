@@ -416,7 +416,7 @@ const STATUS_TONES: Record<ChannelRowStatus, StatusTone> = {
   Active: "ok",
   "Not in channel": "attention",
   Paused: "attention",
-  "Needs reconnect": "attention",
+  "Needs reconnect": "action",
   Unknown: "neutral",
   Default: "neutral",
 }
