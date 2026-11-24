@@ -16,6 +16,7 @@ import {
   withCurrentAgent,
 } from "@/components/agents/external-channels/channel-bot-fields"
 import {
+  CHANNEL_BOT_STATES,
   channelBotDetails,
   channelBotState,
   channelConventions,
@@ -415,8 +416,8 @@ function ChannelName({ row }: { row: ChannelTableRow }) {
 const STATUS_TONES: Record<ChannelRowStatus, StatusTone> = {
   Active: "ok",
   "Not in channel": "attention",
-  Paused: "attention",
-  "Needs reconnect": "action",
+  Paused: CHANNEL_BOT_STATES.paused.tone,
+  "Needs reconnect": CHANNEL_BOT_STATES.needs_reconnect.tone,
   Unknown: "neutral",
   Default: "neutral",
 }

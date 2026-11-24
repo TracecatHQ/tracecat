@@ -16,7 +16,6 @@ import type { AgentChannelBotRead, ChannelBotProvider } from "@/client"
 import {
   StatusDot,
   StatusLabel,
-  type StatusTone,
 } from "@/components/agents/external-channels/channel-bot-fields"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
@@ -145,14 +144,6 @@ export function ChannelBotStatus({
   )
 }
 
-const STATE_TONES: Record<ChannelBotState, StatusTone> = {
-  not_connected: "attention",
-  not_installed: "attention",
-  active: "ok",
-  paused: "attention",
-  needs_reconnect: "action",
-}
-
 /** A bot's status as a dot, for the Channels table and its sheet. */
 export function ChannelBotStatusDot({
   state,
@@ -168,7 +159,7 @@ export function ChannelBotStatusDot({
   if (!label) {
     return null
   }
-  return <StatusDot tone={STATE_TONES[state]}>{label}</StatusDot>
+  return <StatusDot tone={CHANNEL_BOT_STATES[state].tone}>{label}</StatusDot>
 }
 
 /** A provider row's icon, title, status and actions; wraps on narrow panels. */

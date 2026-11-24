@@ -5,6 +5,7 @@ import type {
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
+import type { StatusTone } from "@/components/agents/external-channels/channel-bot-fields"
 import { downloadBlob } from "@/lib/download"
 import { getErrorStatus } from "@/lib/errors"
 import { copyToClipboard } from "@/lib/utils"
@@ -106,13 +107,22 @@ export const CHANNEL_BOT_STATES: Record<
     label: string | null
     /** Installed, so it can be managed and disconnected. */
     installed: boolean
+    tone: StatusTone
   }
 > = {
-  not_connected: { label: null, installed: false },
-  not_installed: { label: "Not installed", installed: false },
-  active: { label: "Active", installed: true },
-  paused: { label: "Paused", installed: true },
-  needs_reconnect: { label: "Needs reconnect", installed: true },
+  not_connected: { label: null, installed: false, tone: "attention" },
+  not_installed: {
+    label: "Not installed",
+    installed: false,
+    tone: "attention",
+  },
+  active: { label: "Active", installed: true, tone: "ok" },
+  paused: { label: "Paused", installed: true, tone: "attention" },
+  needs_reconnect: {
+    label: "Needs reconnect",
+    installed: true,
+    tone: "action",
+  },
 }
 
 /** The card state; `installed` is false until a provider's browser step ends. */
