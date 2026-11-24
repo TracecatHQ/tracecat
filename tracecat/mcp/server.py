@@ -12383,6 +12383,7 @@ async def get_agent_preset(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read")
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
@@ -12396,6 +12397,9 @@ async def get_agent_preset(
         )
     except ToolError:
         raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
     except Exception as e:
         logger.error(
             "Failed to get agent preset", error=str(e), preset_slug=preset_slug

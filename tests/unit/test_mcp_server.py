@@ -7676,7 +7676,7 @@ async def test_get_agent_preset_lists_channel_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=frozenset({"agent:read"}))
     preset = SimpleNamespace(
         id=uuid.uuid4(),
         workspace_id=workspace_id,
@@ -7734,6 +7734,32 @@ async def test_get_agent_preset_lists_channel_tools(
     assert payload["tool_approvals"] == {"internal.slack.post_message": True}
     assert payload["channel_tools"] == [group.model_dump(mode="json")]
     assert payload["channel_tools_failed_plugins"] == ["p1"]
+
+
+@pytest.mark.anyio
+async def test_get_agent_preset_requires_agent_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace(
+            workspace_id=workspace_id, scopes=frozenset()
+        )
+
+    service = MagicMock()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(service),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: agent:read"):
+        await _tool(mcp_server.get_agent_preset)(
+            workspace_id=str(workspace_id), preset_slug="triage"
+        )
+    assert not service.mock_calls
 
 
 @pytest.mark.anyio
