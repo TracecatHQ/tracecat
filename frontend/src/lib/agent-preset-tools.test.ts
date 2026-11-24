@@ -14,6 +14,8 @@ import {
   registryTool,
 } from "../../tests/fixtures/agent-preset-tools"
 
+const NO_TOOLS = buildToolIndex([], [], { filterAgentTools: false })
+
 it("keeps stored order, unknown keys, and appends additions in registry order", () => {
   const current = ["b", "unknown", "a"]
   expect(
@@ -41,11 +43,11 @@ it("removes active approvals on deselect but preserves false and unrelated rules
       { tool: "skill.test", allow: true },
     ],
   }
-  expect(removeTools(fields, new Set(["b"]))).toEqual({
+  expect(removeTools(fields, new Set(["b"]), NO_TOOLS)).toEqual({
     actions: ["unknown", "a"],
     toolApprovals: fields.toolApprovals.slice(1),
   })
-  const same = removeTools(fields, new Set(["absent"]))
+  const same = removeTools(fields, new Set(["absent"]), NO_TOOLS)
   expect(same.actions).toBe(fields.actions)
   expect(same.toolApprovals).toBe(fields.toolApprovals)
 })
@@ -55,15 +57,15 @@ it("updates approvals in place and reuses arrays for no-ops", () => {
     { tool: "first", allow: false },
     { tool: "second", allow: true },
   ]
-  expect(setToolApproval(rules, "second", true)).toBe(rules)
-  expect(setToolApproval(rules, "first", false)).toBe(rules)
-  expect(setToolApproval(rules, "missing", false)).toBe(rules)
-  expect(setToolApproval(rules, "first", true)).toEqual([
+  expect(setToolApproval(rules, "second", true, NO_TOOLS)).toBe(rules)
+  expect(setToolApproval(rules, "first", false, NO_TOOLS)).toBe(rules)
+  expect(setToolApproval(rules, "missing", false, NO_TOOLS)).toBe(rules)
+  expect(setToolApproval(rules, "first", true, NO_TOOLS)).toEqual([
     { tool: "first", allow: true },
     rules[1],
   ])
-  expect(setToolApproval(rules, "second", false)).toEqual([rules[0]])
-  expect(setToolApproval(rules, "third", true)).toEqual([
+  expect(setToolApproval(rules, "second", false, NO_TOOLS)).toEqual([rules[0]])
+  expect(setToolApproval(rules, "third", true, NO_TOOLS)).toEqual([
     ...rules,
     { tool: "third", allow: true },
   ])
@@ -158,22 +160,29 @@ it("resolves explicit approvals before registry defaults, including unknown keys
 })
 
 it("sets default-ask overrides in order and reuses unchanged approval arrays", () => {
+  const index = buildToolIndex(
+    ["first", "second", "missing", "third"].map((key) =>
+      registryTool(key, { requires_approval: true })
+    ),
+    [],
+    { filterAgentTools: false }
+  )
   const rules = [
     { tool: "first", allow: true },
     { tool: "second", allow: false },
   ]
-  expect(setToolApproval(rules, "first", true, true)).toBe(rules)
-  expect(setToolApproval(rules, "second", false, true)).toBe(rules)
-  expect(setToolApproval(rules, "missing", true, true)).toBe(rules)
-  expect(setToolApproval(rules, "first", false, true)).toEqual([
+  expect(setToolApproval(rules, "first", true, index)).toBe(rules)
+  expect(setToolApproval(rules, "second", false, index)).toBe(rules)
+  expect(setToolApproval(rules, "missing", true, index)).toBe(rules)
+  expect(setToolApproval(rules, "first", false, index)).toEqual([
     { tool: "first", allow: false },
     rules[1],
   ])
-  expect(setToolApproval(rules, "third", false, true)).toEqual([
+  expect(setToolApproval(rules, "third", false, index)).toEqual([
     ...rules,
     { tool: "third", allow: false },
   ])
-  expect(setToolApproval(rules, "second", true, true)).toEqual([rules[0]])
+  expect(setToolApproval(rules, "second", true, index)).toEqual([rules[0]])
 })
 
 it("removes a removed tool's rules, retaining false rules on default-auto tools", () => {

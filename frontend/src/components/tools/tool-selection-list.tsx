@@ -250,9 +250,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   }
 
   function changeApproval(key: string, ask: boolean) {
-    writeRules(
-      setToolApproval(rules, key, ask, index.byKey.get(key)?.defaultAsk)
-    )
+    writeRules(setToolApproval(rules, key, ask, index))
   }
 
   function remove(keys: string[]) {
@@ -270,8 +268,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
 
   function groupApproval(keys: string[], ask: boolean) {
     let next = rules
-    for (const key of keys)
-      next = setToolApproval(next, key, ask, index.byKey.get(key)?.defaultAsk)
+    for (const key of keys) next = setToolApproval(next, key, ask, index)
     writeRules(next)
   }
 

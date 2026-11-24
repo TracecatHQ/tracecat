@@ -216,7 +216,7 @@ function ChannelToolList({
   function setApprovals(keys: string[], ask: boolean) {
     let rules = value.toolApprovals
     for (const key of keys) {
-      rules = setToolApproval(rules, key, ask, index.byKey.get(key)?.defaultAsk)
+      rules = setToolApproval(rules, key, ask, index)
     }
     if (rules !== value.toolApprovals)
       onChange({ ...value, toolApprovals: rules })

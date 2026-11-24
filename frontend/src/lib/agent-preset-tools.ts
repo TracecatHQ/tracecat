@@ -231,25 +231,28 @@ export function setToolApproval(
   rules: PresetToolFields["toolApprovals"],
   key: string,
   ask: boolean,
-  defaultAsk = false
+  index: ToolIndex
 ): PresetToolFields["toolApprovals"] {
-  const index = rules.findIndex((rule) => rule.tool === key)
+  const defaultAsk = index.byKey.get(key)?.defaultAsk ?? false
+  const position = rules.findIndex((rule) => rule.tool === key)
   if (ask === defaultAsk) {
     const next = rules.filter(
       (rule) => rule.tool !== key || rule.allow === defaultAsk
     )
     return next.length === rules.length ? rules : next
   }
-  if (index < 0) return [...rules, { tool: key, allow: ask }]
-  if (rules[index].allow === ask) return rules
-  return rules.map((rule, i) => (i === index ? { ...rule, allow: ask } : rule))
+  if (position < 0) return [...rules, { tool: key, allow: ask }]
+  if (rules[position].allow === ask) return rules
+  return rules.map((rule, i) =>
+    i === position ? { ...rule, allow: ask } : rule
+  )
 }
 
 /** Remove tools, keeping rules for retained grants or false rules that restate an auto default. */
 export function removeTools(
   fields: Pick<PresetToolFields, "actions" | "toolApprovals">,
   removed: ReadonlySet<string>,
-  index?: ToolIndex,
+  index: ToolIndex,
   retainedKeys: ReadonlySet<string> = new Set()
 ): Pick<PresetToolFields, "actions" | "toolApprovals"> {
   const actions = fields.actions.filter((key) => !removed.has(key))
@@ -257,7 +260,7 @@ export function removeTools(
     (rule) =>
       !removed.has(rule.tool) ||
       retainedKeys.has(rule.tool) ||
-      (!rule.allow && !index?.byKey.get(rule.tool)?.defaultAsk)
+      (!rule.allow && !index.byKey.get(rule.tool)?.defaultAsk)
   )
   return {
     actions:

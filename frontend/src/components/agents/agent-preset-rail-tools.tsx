@@ -221,12 +221,7 @@ export function AgentPresetRailTools({
   const blocked = getBlockedActions(value.actions, value.namespaces)
 
   function toggleApproval(key: string, ask: boolean) {
-    const next = setToolApproval(
-      value.toolApprovals,
-      key,
-      !ask,
-      index.byKey.get(key)?.defaultAsk
-    )
+    const next = setToolApproval(value.toolApprovals, key, !ask, index)
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
   }
@@ -550,12 +545,7 @@ function RegistryToolGroupDetail({
         }))
 
   function toggleApproval(key: string, ask: boolean) {
-    const next = setToolApproval(
-      value.toolApprovals,
-      key,
-      !ask,
-      index.byKey.get(key)?.defaultAsk
-    )
+    const next = setToolApproval(value.toolApprovals, key, !ask, index)
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
   }
@@ -580,12 +570,7 @@ function RegistryToolGroupDetail({
   function setAllApprovals(ask: boolean) {
     let next = value.toolApprovals
     for (const row of rows) {
-      next = setToolApproval(
-        next,
-        row.key,
-        ask,
-        index.byKey.get(row.key)?.defaultAsk
-      )
+      next = setToolApproval(next, row.key, ask, index)
     }
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
