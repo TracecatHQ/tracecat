@@ -446,6 +446,10 @@ async def test_channel_reply_action_retry_adopts_its_own_session() -> None:
     )
     with _activity_env(service, selected="external"):
         assert (await _prepare(args)).session_id == existing.id
+        # Another preset run's or a Slack-started session is never continued.
+        with pytest.raises(ApplicationError) as exc_info:
+            await _prepare(args.model_copy(update={"continue_existing_session": True}))
+        assert exc_info.value.non_retryable
     service.get_or_create_session.assert_not_awaited()
 
 

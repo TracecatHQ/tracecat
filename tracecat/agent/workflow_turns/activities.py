@@ -78,7 +78,8 @@ async def _turn_backend(
 
     On another backend, a workflow action continues only its own workflow's
     sessions, never a reviewer fork, and a user's session only under that
-    user's runs, so no other surface, workflow or run writes into them.
+    user's runs, so no other surface, workflow or run writes into them. A
+    channel-reply action only adopts the session its own first attempt created.
     """
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
@@ -87,8 +88,12 @@ async def _turn_backend(
             and session.created_by != service.role.user_id
         )
         if backend_id != DEFAULT_AGENT_BACKEND and (
-            # A channel-reply action's session is its own; a retry must adopt it.
             session.entity_type != args.entity_type.value
+            # Channel sessions of one preset share an entity; never continue one.
+            or (
+                args.entity_type is AgentSessionEntity.EXTERNAL_CHANNEL
+                and args.continue_existing_session
+            )
             or session.entity_id != args.entity_id
             or session.forked_from_session_id is not None
             or started_by_teammate
