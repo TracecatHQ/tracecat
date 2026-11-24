@@ -15,8 +15,12 @@ def build_session_read(
     *,
     readonly: bool = False,
     access: SessionAccess,
+    channel_linked: bool = False,
 ) -> AgentSessionRead:
-    """Project persisted session data and live backend state for an actor."""
+    """Project persisted session data and live backend state for an actor.
+
+    ``channel_linked``: the session has a channel thread.
+    """
     available = agent_backend_available(session.backend_id, session.harness_type)
     backend = find_agent_backend(session.backend_id) if available else None
     blocked = readonly or session.spawned_by_session_id is not None or not available
@@ -36,6 +40,7 @@ def build_session_read(
         entity_type=AgentSessionEntity(session.entity_type),
         entity_id=session.entity_id,
         channel_context=session.channel_context,
+        channel_linked=channel_linked,
         tools=session.tools,
         mcp_integrations=session.mcp_integrations,
         agent_preset_id=session.agent_preset_id,

@@ -1,17 +1,11 @@
 "use client"
 
-import { ChevronRightIcon } from "lucide-react"
 import type { ReactNode } from "react"
 import type {
   EarlierThreadMessage,
   QuotedMessage as QuotedMessageData,
   QuotedMessageKind,
 } from "@/client"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import type { ChannelMessageData } from "@/lib/chat"
 
 const QUOTED_LABELS: Record<QuotedMessageKind, string> = {
@@ -117,13 +111,24 @@ export function ChannelMentionText({
   return <>{nodes}</>
 }
 
-/** The forwards and earlier thread a channel message carried. */
+/** The earlier-thread lines that mention the bot; each reads as its own message. */
+export function botMentions(
+  message: ChannelMessageData,
+  botUserId: string
+): EarlierThreadMessage[] {
+  return (message.thread?.messages ?? []).filter((line) =>
+    Array.from(line.text.matchAll(SLACK_MENTION)).some(
+      (match) => match[1] === botUserId
+    )
+  )
+}
+
+/** The forwards a channel message carried; its earlier thread is agent context only. */
 export function ChannelMessageContext({
   message,
 }: {
   message: ChannelMessageData
 }) {
-  const thread = message.thread
   return (
     <div className="flex flex-col gap-2">
       {(message.quoted ?? []).map((quoted, index) => (
@@ -133,14 +138,6 @@ export function ChannelMessageContext({
         <p className="text-xs text-muted-foreground">
           {message.quoted_omitted} more not shown
         </p>
-      )}
-      {thread && thread.messages.length > 0 && (
-        <EarlierThread
-          message={message}
-          messages={thread.messages}
-          olderOmitted={thread.older_omitted ?? false}
-          laterOmitted={thread.later_omitted ?? false}
-        />
       )}
     </div>
   )
@@ -189,74 +186,5 @@ function QuotedMessage({
         <p className="text-xs text-muted-foreground">Preview only</p>
       )}
     </blockquote>
-  )
-}
-
-function EarlierThread({
-  message: channelMessage,
-  messages,
-  olderOmitted,
-  laterOmitted,
-}: {
-  message: ChannelMessageData
-  messages: EarlierThreadMessage[]
-  olderOmitted: boolean
-  laterOmitted: boolean
-}) {
-  return (
-    <Collapsible>
-      <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground">
-        <ChevronRightIcon className="size-3 transition-transform group-data-[state=open]:rotate-90" />
-        Earlier thread · {messages.length}{" "}
-        {messages.length === 1 ? "message" : "messages"}
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-1 flex flex-col gap-1 border-l-2 pl-3 text-sm">
-          {messages.map((message, index) => (
-            <p key={index} className="whitespace-pre-wrap break-words">
-              <EarlierThreadAuthor
-                message={channelMessage}
-                author={message.author}
-                isBot={message.is_bot ?? false}
-              />{" "}
-              <ChannelMentionText
-                text={message.text}
-                message={channelMessage}
-              />
-            </p>
-          ))}
-          {olderOmitted && (
-            <p className="text-xs text-muted-foreground">
-              Older replies not shown
-            </p>
-          )}
-          {laterOmitted && (
-            <p className="text-xs text-muted-foreground">
-              Later replies not shown
-            </p>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
-
-function EarlierThreadAuthor({
-  message,
-  author,
-  isBot,
-}: {
-  message: ChannelMessageData
-  author: string
-  isBot: boolean
-}) {
-  if (isBot) {
-    return <span className="font-medium">{author} (bot):</span>
-  }
-  const person = channelPerson(message, author)
-  return (
-    <span className={channelPersonClassName(person.linked)}>
-      {person.name}:
-    </span>
   )
 }

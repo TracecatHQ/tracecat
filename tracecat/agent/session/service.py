@@ -103,6 +103,7 @@ from tracecat.agent.session.history import (
     decode_raw_session_line,
     prepare_session_history,
 )
+from tracecat.agent.session.prompt_origin import resolve_prompt_origin
 from tracecat.agent.session.results import (
     DecisionRecorded,
     DecisionRejected,
@@ -181,6 +182,7 @@ from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
+    AgentSessionThread,
     Approval,
     Case,
     Chat,
@@ -759,6 +761,20 @@ class AgentSessionService(BaseWorkspaceService):
             AgentSessionHistory.author_id == user_id
         )
 
+    async def channel_linked_session_ids(
+        self, session_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """The sessions among ``session_ids`` linked to a channel thread."""
+        if not session_ids:
+            return set()
+        result = await self.session.execute(
+            select(AgentSessionThread.session_id).where(
+                AgentSessionThread.workspace_id == self.workspace_id,
+                AgentSessionThread.session_id.in_(session_ids),
+            )
+        )
+        return set(result.scalars().all())
+
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]
     ) -> set[uuid.UUID]:
@@ -1096,12 +1112,14 @@ class AgentSessionService(BaseWorkspaceService):
                 [s.id for s in sessions]
             )
         access = await self.sessions_access(sessions)
+        linked_ids = await self.channel_linked_session_ids([s.id for s in sessions])
         items: list[AgentSessionRead | ChatReadMinimal] = [
             build_session_read(
                 s,
                 self.role,
                 readonly=s.id in readonly_ids,
                 access=access[s.id],
+                channel_linked=s.id in linked_ids,
             )
             for s in sessions
         ]
@@ -2085,6 +2103,7 @@ class AgentSessionService(BaseWorkspaceService):
         user_prompt: str | None = None
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
+        prompt_message_id: str | None = None
         is_continuation = False
         origin = UserMessageOrigin.TRACECAT
         author_id: uuid.UUID | None = None
@@ -2106,6 +2125,7 @@ class AgentSessionService(BaseWorkspaceService):
                     raise ValueError(
                         "VercelChatRequest contained no supported text parts"
                     )
+                prompt_message_id = ui_message.id
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
                 request_instructions = instructions
@@ -2120,6 +2140,11 @@ class AgentSessionService(BaseWorkspaceService):
             return await self._continue_with_approvals(session_id, request)
 
         run_id = uuid.uuid4()
+        prompt_run_id = (
+            await self._prompt_origin_run_id(session_id, prompt_message_id, run_id)
+            if prompt_message_id is not None
+            else None
+        )
         await self._start_new_turn(
             agent_session,
             user_prompt=user_prompt,
@@ -2129,6 +2154,7 @@ class AgentSessionService(BaseWorkspaceService):
             run_id=run_id,
             origin=origin,
             author_id=author_id,
+            prompt_run_id=prompt_run_id,
             # Per-turn stream id: use the HTTP-minted id when provided, else mint
             # one. Pinned into the workflow input so the worker producer writes to
             # the same per-turn Redis key the reader joins (immune to the
@@ -2157,8 +2183,12 @@ class AgentSessionService(BaseWorkspaceService):
         stream_id: uuid.UUID,
         origin: UserMessageOrigin,
         author_id: uuid.UUID | None = None,
+        prompt_run_id: uuid.UUID | None = None,
     ) -> None:
-        """Build the turn's config and start it as ``run_id`` on a validated session."""
+        """Build the turn's config and start it as ``run_id`` on a validated session.
+
+        ``prompt_run_id``: the run that first sent a retried prompt.
+        """
         session_id = agent_session.id
         # Titling eligibility must be decided before the workflow spawns: the
         # executor streams history rows mid-turn, so checking afterwards would
@@ -2204,6 +2234,7 @@ class AgentSessionService(BaseWorkspaceService):
                     stream_id=stream_id,
                     origin=origin,
                     author_id=author_id,
+                    prompt_run_id=prompt_run_id,
                 )
             )
 
@@ -2222,6 +2253,34 @@ class AgentSessionService(BaseWorkspaceService):
                 task.add_done_callback(
                     partial(_finalize_auto_title_task, session_id=session_id)
                 )
+
+    async def _prompt_origin_run_id(
+        self, session_id: uuid.UUID, message_id: str, run_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        """The run that first sent web message ``message_id``; None when ``run_id`` is it.
+
+        Retry resends a client id before a reload and a history row id after one.
+        """
+        try:
+            row_id = uuid.UUID(message_id)
+        except ValueError:
+            row_id = None
+        row_run_id = None
+        # History stamps only a user role's prompts; others never relay a prompt.
+        author_id = self.role.user_id if self.role.type == "user" else None
+        if row_id is not None and author_id is not None:
+            row_run_id = await self.session.scalar(
+                select(AgentSessionHistory.curr_run_id).where(
+                    AgentSessionHistory.id == row_id,
+                    AgentSessionHistory.session_id == session_id,
+                    AgentSessionHistory.workspace_id == self.workspace_id,
+                    # Only the sender's own prompt: another row's id must not hide a post.
+                    AgentSessionHistory.author_id == author_id,
+                )
+            )
+        return await resolve_prompt_origin(
+            session_id, message_id, run_id, row_run_id=row_run_id
+        )
 
     async def get_turn_lifecycle(
         self, agent_session: AgentSession

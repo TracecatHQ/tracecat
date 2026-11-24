@@ -26,11 +26,20 @@ async def channel_threads_by_session(
     role: Role,
     sessions: Sequence[AgentSession],
 ) -> dict[uuid.UUID, InboxChannelThread]:
-    """The linked thread's channel by session ID, in one query; empty without the
-    channel bots preview or `agent:read`, which the channel bot API requires."""
+    """The linked thread's channel by external-channel session ID, in one query."""
     session_ids = [
         s.id for s in sessions if s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
     ]
+    return await channel_threads(session, role, session_ids)
+
+
+async def channel_threads(
+    session: AsyncSession,
+    role: Role,
+    session_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, InboxChannelThread]:
+    """The linked thread's channel by session ID, for any session type; empty without
+    the channel bots preview or `agent:read`, which the channel bot API requires."""
     if (
         not session_ids
         or role.workspace_id is None
@@ -48,6 +57,7 @@ async def channel_threads_by_session(
             AgentSessionThread.bot_id,
             AgentSessionThread.provider_thread_id,
             AgentChannelBot.provider,
+            AgentChannelBot.provider_bot_user_id,
         )
         .join(AgentChannelBot, AgentChannelBot.id == AgentSessionThread.bot_id)
         .where(
@@ -57,11 +67,14 @@ async def channel_threads_by_session(
     )
     result = await session.execute(stmt)
     threads: dict[uuid.UUID, InboxChannelThread] = {}
-    for session_id, bot_id, provider_thread_id, provider_name in result.tuples():
+    for session_id, bot_id, thread_id, provider_name, bot_user in result.tuples():
         provider = ChannelBotProvider(provider_name)
-        channel_id = admin.thread_channel_id(provider, provider_thread_id)
+        channel_id = admin.thread_channel_id(provider, thread_id)
         if channel_id is not None:
             threads[session_id] = InboxChannelThread(
-                bot_id=bot_id, provider=provider, provider_channel_id=channel_id
+                bot_id=bot_id,
+                provider=provider,
+                provider_channel_id=channel_id,
+                provider_bot_user_id=bot_user,
             )
     return threads

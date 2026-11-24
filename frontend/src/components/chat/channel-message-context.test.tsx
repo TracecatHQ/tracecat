@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
 import {
   ChannelMessageContext,
   withChannelMentionNames,
@@ -58,14 +58,10 @@ describe("ChannelMessageContext", () => {
     expect(screen.getByText("1 more not shown")).toBeInTheDocument()
   })
 
-  it("collapses the earlier thread until opened", () => {
-    render(<ChannelMessageContext message={MESSAGE} />)
+  it("never renders the earlier thread", () => {
+    const { container } = render(<ChannelMessageContext message={MESSAGE} />)
 
-    expect(screen.queryByText("Triggered: db-1 disk")).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText(/Earlier thread · 2 messages/))
-    expect(screen.getByText("Triggered: db-1 disk")).toBeInTheDocument()
-    expect(screen.getByText("Older replies not shown")).toBeInTheDocument()
-    expect(screen.getByText("Later replies not shown")).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/Earlier thread|db-1 disk|on it/)
   })
 })
 
@@ -95,13 +91,9 @@ describe("ChannelMessageContext names", () => {
     ],
   }
 
-  it("names earlier-thread and quoted authors, never their IDs", () => {
+  it("names quoted authors, never their IDs", () => {
     const { container } = render(<ChannelMessageContext message={NAMED} />)
-    fireEvent.click(screen.getByText(/Earlier thread · 2 messages/))
 
-    expect(screen.getByText("Ada Lovelace:")).toBeInTheDocument()
-    expect(screen.getByText("Slack user:")).toBeInTheDocument()
-    expect(container.textContent).toContain("cc @Sam Doe")
     expect(container.textContent).toContain("Forwarded from Sam Doe")
     expect(container.textContent).not.toMatch(/U0C9F646K8B|U0UNKNOWN1/)
   })
@@ -124,7 +116,7 @@ describe("ChannelMessageContext names", () => {
     expect(container.textContent).not.toMatch(/U0BBBBBBB1/)
   })
 
-  it("highlights linked members and mutes unlinked Slack names", () => {
+  it("mutes unlinked Slack names", () => {
     const linked: ChannelMessageData = {
       ...NAMED,
       people: [
@@ -133,13 +125,7 @@ describe("ChannelMessageContext names", () => {
       ],
     }
     render(<ChannelMessageContext message={linked} />)
-    fireEvent.click(screen.getByText(/Earlier thread · 2 messages/))
 
-    expect(screen.getByText("Ada Lovelace:")).toHaveClass(
-      "font-medium",
-      "text-foreground"
-    )
-    expect(screen.getByText("@Sam Doe")).toHaveClass("text-muted-foreground")
     expect(screen.getByText("Sam Doe")).toHaveClass("text-muted-foreground")
   })
 

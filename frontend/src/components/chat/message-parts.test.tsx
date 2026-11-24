@@ -8,12 +8,19 @@ import {
   getRunningLineLabel,
   MessageParts,
 } from "@/components/chat/message-part"
+import { SessionChannelThreadContext } from "@/components/chat/user-bubble"
+import { useChannelThreadChannel } from "@/hooks/use-agent-channel-bots"
 import {
   type ChatVerbosity,
   ChatVerbosityContext,
   getChatVerbosityPolicy,
 } from "@/hooks/use-chat-verbosity"
 import { transformMessages } from "@/lib/chat"
+import { WorkspaceIdProvider } from "@/providers/workspace-id"
+
+jest.mock("@/hooks/use-agent-channel-bots", () => ({
+  useChannelThreadChannel: jest.fn(),
+}))
 
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
@@ -868,6 +875,87 @@ describe("a message that joined the turn", () => {
 
     expect(screen.getByText("From Slack")).toBeInTheDocument()
     expect(screen.queryByRole("img")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [{ id: "C1", name: "general" }, "From #general"],
+    [undefined, "From Slack"],
+  ])(
+    "names the thread's channel above the viewer's own Slack message",
+    (channel, line) => {
+      const thread = {
+        bot_id: "bot-1",
+        provider: "slack" as const,
+        provider_channel_id: "C1",
+      }
+      jest
+        .mocked(useChannelThreadChannel)
+        .mockReturnValue(
+          channel && { ...channel, is_private: false, is_member: true }
+        )
+      render(
+        <WorkspaceIdProvider workspaceId="ws-1">
+          <SessionChannelThreadContext.Provider value={thread}>
+            <MessageParts
+              message={joined(slackSteer)}
+              status="streaming"
+              isLastMessage
+              showAuthor
+              currentUserId="user-1"
+            />
+          </SessionChannelThreadContext.Provider>
+        </WorkspaceIdProvider>
+      )
+
+      expect(screen.getByText(line)).toBeInTheDocument()
+      expect(useChannelThreadChannel).toHaveBeenCalledWith("ws-1", thread)
+    }
+  )
+
+  it("lifts earlier-thread lines that mention the bot into their own messages", () => {
+    const thread = {
+      bot_id: "bot-1",
+      provider: "slack" as const,
+      provider_channel_id: "C1",
+      provider_bot_user_id: "UBOT0000",
+    }
+    const caughtUp = {
+      ...slackSteer,
+      channel_message: {
+        ...slackSteer.channel_message,
+        thread: {
+          messages: [
+            { author: "U2BOB000", text: "@UBOT0000 check db-3" },
+            { author: "U2BOB000", text: "lunch?" },
+          ],
+        },
+        people: [
+          ...slackSteer.channel_message.people,
+          { provider_user_id: "U2BOB000", name: "Bob Lee" },
+          { provider_user_id: "UBOT0000", name: "Tracecat" },
+        ],
+      },
+    }
+    render(
+      <SessionChannelThreadContext.Provider value={thread}>
+        <MessageParts
+          message={joined(caughtUp)}
+          status="streaming"
+          isLastMessage
+          showAuthor
+          currentUserId="user-2"
+        />
+      </SessionChannelThreadContext.Provider>
+    )
+
+    const lifted = screen.getByText("@Tracecat check db-3")
+    expect(screen.getByRole("img", { name: "Bob Lee" })).toBeInTheDocument()
+    expect(
+      lifted.compareDocumentPosition(screen.getByText("and db-2")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(screen.queryByText("lunch?")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Earlier thread/)).not.toBeInTheDocument()
   })
 
   it("marks another person's Slack message by the badge on their avatar", () => {

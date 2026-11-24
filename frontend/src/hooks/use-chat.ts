@@ -33,6 +33,7 @@ import {
   type VercelChatRequest,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { sessionChannelSyncQueryKey } from "@/hooks/use-session-channel-sync"
 import { useSessionFeed } from "@/hooks/use-session-feed"
 import { getBaseUrl } from "@/lib/api"
 import {
@@ -692,6 +693,12 @@ export function invalidateChatTurnQueries(
     queryKey: ["chat", chatId, workspaceId, "vercel"],
   })
   queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+  // Another participant may have toggled Slack sync since this view loaded.
+  if (chatId) {
+    queryClient.invalidateQueries({
+      queryKey: sessionChannelSyncQueryKey(workspaceId, chatId),
+    })
+  }
   // A completed turn can change a session's inbox status (e.g. an approval
   // continuation moves a row from "Review required" to "Completed"). The inbox
   // detail pane derives its status/approval state from these queries, so refresh

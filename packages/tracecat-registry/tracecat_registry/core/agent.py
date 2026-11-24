@@ -190,6 +190,14 @@ async def preset_agent(
         int | None,
         Doc("Maximum number of requests for the agent. Unlimited by default."),
     ] = None,
+    channel: Annotated[
+        str | None,
+        Doc(
+            "Optional. Posts the agent's reply as a new synced thread: a Slack "
+            "channel ID, or the email of a user who linked Slack for a DM. Replies "
+            "in the thread continue the session. Needs the preset's channel bot."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     raise ActionIsInterfaceError()
 

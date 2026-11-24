@@ -19,12 +19,18 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.agent.backends.access import require_session_backend_entitlement
 from tracecat.agent.backends.base import claim_unstarted_workflow_id
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
 from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
 from tracecat.agent.backends.selection import select_backend_id
 from tracecat.agent.backends.turns import build_child_agent_turn
 from tracecat.agent.backends.types import SessionTurnContext
+from tracecat.agent.channel_notifier import (
+    ChannelReplyError,
+    check_channel_reply_thread,
+    open_channel_reply_thread,
+)
 from tracecat.agent.error_policy import (
     agent_provider_credentials_missing,
     invalid_agent_configuration,
@@ -44,6 +50,7 @@ from tracecat.agent.types import (
     clamp_agent_timeout_seconds,
 )
 from tracecat.agent.workflow_turns.schemas import (
+    ChannelReplyThreadInput,
     ReadWorkflowAgentTurnInput,
     ReadWorkflowAgentTurnResult,
     SelectWorkflowAgentBackendResult,
@@ -72,8 +79,15 @@ async def _turn_backend(
 
     On another backend, a workflow action continues only its own workflow's
     sessions, never a reviewer fork, and a user's session only under that
-    user's runs, so no other surface, workflow or run writes into them.
+    user's runs, so no other surface, workflow or run writes into them. A
+    channel-reply action only adopts the session its own first attempt created.
     """
+    # Channel sessions of one preset share an entity; never continue one.
+    if (
+        args.entity_type is AgentSessionEntity.EXTERNAL_CHANNEL
+        and args.continue_existing_session
+    ):
+        raise_application_error_from_classification(invalid_agent_configuration())
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
         started_by_teammate = (
@@ -81,12 +95,28 @@ async def _turn_backend(
             and session.created_by != service.role.user_id
         )
         if backend_id != DEFAULT_AGENT_BACKEND and (
-            session.entity_type != AgentSessionEntity.WORKFLOW.value
+            session.entity_type != args.entity_type.value
             or session.entity_id != args.entity_id
             or session.forked_from_session_id is not None
             or started_by_teammate
         ):
             raise_application_error_from_classification(invalid_agent_configuration())
+        if (
+            backend_id != DEFAULT_AGENT_BACKEND
+            and args.entity_type is AgentSessionEntity.EXTERNAL_CHANNEL
+        ):
+            # The turn gate checks the session's surface; an action also needs workflows.
+            try:
+                await require_session_backend_entitlement(
+                    service.session,
+                    service.organization_id,
+                    backend_id,
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                )
+            except EntitlementRequired as e:
+                raise ApplicationError(
+                    str(e), e.detail, type=type(e).__name__, non_retryable=True
+                ) from e
         return backend_id, session
     if args.continue_existing_session:
         # The built-in workflow reports the missing session, as before.
@@ -250,6 +280,24 @@ async def select_workflow_agent_backend_activity(
     if backend_id == DEFAULT_AGENT_BACKEND:
         return SelectWorkflowAgentBackendResult()
     return SelectWorkflowAgentBackendResult(backend_id=backend_id)
+
+
+@activity.defn
+async def check_channel_reply_thread_activity(input: ChannelReplyThreadInput) -> None:
+    """Refuse a preset action's channel before its turn runs."""
+    try:
+        await check_channel_reply_thread(input.role, input.preset_id, input.destination)
+    except ChannelReplyError as e:
+        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
+
+
+@activity.defn
+async def open_channel_reply_thread_activity(input: ChannelReplyThreadInput) -> None:
+    """Root the action's synced thread at its destination with the turn's reply."""
+    try:
+        await open_channel_reply_thread(input.role, input.session_id, input.destination)
+    except ChannelReplyError as e:
+        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
 
 
 @activity.defn

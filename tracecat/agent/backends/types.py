@@ -155,6 +155,8 @@ class SessionWorkflowContext:
     origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
     # The prompt's author when it is not the role's user: a linked channel sender.
     author_id: UUID | None = None
+    # The run that first sent a retried prompt; None for a new message.
+    prompt_run_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +173,8 @@ class SessionTurnContext:
     origin: UserMessageOrigin = UserMessageOrigin.TRACECAT
     # The prompt's author when it is not the role's user: a linked channel sender.
     author_id: UUID | None = None
+    # The run that first sent a retried prompt; None for a new message.
+    prompt_run_id: UUID | None = None
 
 
 @runtime_checkable

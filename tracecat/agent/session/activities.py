@@ -18,9 +18,9 @@ from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND
 from tracecat.agent.channel_notifier import (
     TURN_STARTED_PUSH_BUDGET,
     RunUpdate,
-    TurnStarted,
     is_channel_linked,
     push_updates,
+    turn_started_updates,
 )
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.error_policy import invalid_agent_configuration
@@ -70,6 +70,8 @@ class CreateSessionInput(BaseModel):
     curr_run_id: uuid.UUID | None = None
     # First user prompt for best-effort auto-title
     initial_user_prompt: str | None = None
+    # The run that first sent a retried prompt; its channel mirror keeps that id.
+    prompt_run_id: uuid.UUID | None = None
 
 
 class CreateSessionResult(BaseModel):
@@ -309,9 +311,17 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
         linked = await is_channel_linked(input.role, input.session_id)
         if linked and input.curr_run_id is not None:
+            # A workflow continuing an existing session relays no prompt; a new message does.
+            prompt = None if input.require_existing else input.initial_user_prompt
             await push_updates(
                 input.role,
-                [TurnStarted(session_id=input.session_id, run_id=input.curr_run_id)],
+                turn_started_updates(
+                    input.role,
+                    input.session_id,
+                    input.curr_run_id,
+                    prompt,
+                    prompt_run_id=input.prompt_run_id,
+                ),
                 budget=TURN_STARTED_PUSH_BUDGET,
             )
         return CreateSessionResult(

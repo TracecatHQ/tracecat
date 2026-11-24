@@ -45,6 +45,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.admission.types import ADMISSION_ACK_SIGNAL, ConcurrencyResource
     from tracecat.admission.waiting import RunAdmission
     from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.channel_notifier import ChannelDestinationRef
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
@@ -53,9 +54,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_turns.activities import (
+        check_channel_reply_thread_activity,
+        open_channel_reply_thread_activity,
         select_workflow_agent_backend_activity,
     )
     from tracecat.agent.workflow_turns.schemas import (
+        ChannelReplyThreadInput,
         WorkflowAgentTurnInput,
         workflow_agent_turn_workflow_id,
     )
@@ -1138,8 +1142,34 @@ class DSLWorkflow:
                         )
 
                     session_id = preset_action_args.session_id or workflow.uuid4()
+                    agent_role = self.role
+                    entity_type = AgentSessionEntity.WORKFLOW
+                    entity_id = self.run_context.wf_id
+                    reply_thread = None
+                    if preset_action_args.channel is not None and workflow.patched(
+                        WorkflowPatch.PRESET_AGENT_CHANNEL_REPLY
+                    ):
+                        # An ownerless channel session, as if the channel had started it.
+                        agent_role = self.role.model_copy(update={"user_id": None})
+                        entity_type = AgentSessionEntity.EXTERNAL_CHANNEL
+                        entity_id = preset_ref.preset_id
+                        reply_thread = ChannelReplyThreadInput(
+                            role=agent_role,
+                            preset_id=preset_ref.preset_id,
+                            session_id=session_id,
+                            destination=ChannelDestinationRef.from_input(
+                                preset_action_args.channel
+                            ),
+                        )
+                        await workflow.execute_activity(
+                            check_channel_reply_thread_activity,
+                            reply_thread,
+                            task_queue=config.TRACECAT__AGENT_QUEUE,
+                            start_to_close_timeout=timedelta(seconds=60),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
                     arg = AgentWorkflowArgs(
-                        role=self.role,
+                        role=agent_role,
                         agent_args=RunAgentArgs(
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
@@ -1151,14 +1181,22 @@ class DSLWorkflow:
                             timeout_seconds=task.retry_policy.timeout,
                         ),
                         title=self.dsl.title,
-                        entity_type=AgentSessionEntity.WORKFLOW,
-                        entity_id=self.run_context.wf_id,
+                        entity_type=entity_type,
+                        entity_id=entity_id,
                         agent_preset_id=preset_ref.preset_id,
                         agent_preset_version_id=preset_ref.preset_version_id,
                         continue_existing_session=preset_action_args.session_id
                         is not None,
                     )
                     action_result = await self._run_agent_turn(task, arg, stream_id)
+                    if reply_thread is not None:
+                        await workflow.execute_activity(
+                            open_channel_reply_thread_activity,
+                            reply_thread,
+                            task_queue=config.TRACECAT__AGENT_QUEUE,
+                            start_to_close_timeout=timedelta(seconds=60),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
                 case _:
                     # Below this point, we're executing the task
                     self.logger.trace(

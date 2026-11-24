@@ -6,6 +6,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
+from tracecat.agent.channel_notifier import ChannelDestinationRef
+from tracecat.auth.types import Role
 
 
 def workflow_agent_turn_workflow_id(run_id: uuid.UUID) -> str:
@@ -47,3 +49,12 @@ class ReadWorkflowAgentTurnResult(BaseModel):
     # The turn ended without a usable output, for example when it failed or
     # was cancelled.
     error: str | None = Field(default=None)
+
+
+class ChannelReplyThreadInput(BaseModel):
+    """A preset action's reply thread: checked before its turn, opened after."""
+
+    role: Role
+    preset_id: uuid.UUID
+    session_id: uuid.UUID
+    destination: ChannelDestinationRef

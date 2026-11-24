@@ -13,6 +13,8 @@ from tracecat.agent.channel_bots.messages import (
     EarlierThreadMessage,
     QuotedMessage,
     QuotedMessageKind,
+    _capped_thread,
+    _dump,
 )
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 
@@ -276,6 +278,25 @@ def test_caps_clip_forwards_and_the_earlier_thread() -> None:
     assert all(len(quoted.text) == 2_000 for quoted in parsed.quoted)
 
 
+def test_a_thread_without_its_parent_keeps_only_the_latest_replies() -> None:
+    original = message(
+        thread=EarlierThread(
+            messages=[
+                EarlierThreadMessage(author=f"user{index}", text=f"reply {index}")
+                for index in range(25)
+            ],
+            has_parent=False,
+        )
+    )
+
+    parsed = ChannelMessage.parse(original.render())
+
+    assert parsed is not None and parsed.thread is not None
+    assert not parsed.thread.has_parent and parsed.thread.older_omitted
+    authors = [reply.author for reply in parsed.thread.messages]
+    assert authors == [f"user{index}" for index in range(5, 25)]
+
+
 def test_long_authors_count_toward_the_earlier_thread_cap() -> None:
     # Texts alone fit in 8,000 characters; with 200-character authors they do not.
     replies = [
@@ -343,3 +364,78 @@ def test_summary_text_names_mentions_instead_of_ids() -> None:
     )
 
     assert named.summary_text() == "ask @Ada and @Slack user"
+
+
+def test_a_forwards_source_thread_keeps_its_parent_the_forward_and_the_latest() -> None:
+    lines = [
+        EarlierThreadMessage(author=f"user{index}", text=f"reply {index}")
+        for index in range(60)
+    ]
+    lines[3] = lines[3].model_copy(update={"forwarded": True})
+    forward = QuotedMessage(
+        kind=QuotedMessageKind.FORWARDED,
+        author="alice",
+        text="reply 3",
+        thread=EarlierThread(messages=lines),
+    )
+
+    parsed = ChannelMessage.parse(message(quoted=[forward]).render())
+
+    assert parsed is not None
+    thread = parsed.quoted[0].thread
+    assert thread is not None and thread.older_omitted
+    authors = [line.author for line in thread.messages]
+    assert authors == ["user0", "user3", *(f"user{index}" for index in range(12, 60))]
+    assert [line.forwarded for line in thread.messages][:2] == [False, True]
+
+
+def test_forwarded_threads_share_one_character_budget() -> None:
+    def forward(index: int) -> QuotedMessage:
+        lines = [
+            EarlierThreadMessage(author="bob", text="x" * 1_000) for _ in range(20)
+        ]
+        return QuotedMessage(
+            kind=QuotedMessageKind.FORWARDED,
+            author="alice",
+            text=f"forward {index}",
+            thread=EarlierThread(messages=lines, has_parent=False),
+        )
+
+    rendered = message(quoted=[forward(index) for index in range(3)]).render()
+    parsed = ChannelMessage.parse(rendered)
+
+    assert parsed is not None
+    for quoted in parsed.quoted:
+        assert quoted.thread is not None and quoted.thread.older_omitted
+        size = sum(
+            len(_dump(m.model_dump(mode="json", exclude_defaults=True)))
+            for m in quoted.thread.messages
+        )
+        assert size <= 10_000
+
+
+def test_an_all_forwarded_thread_still_keeps_the_message_cap() -> None:
+    lines = [
+        EarlierThreadMessage(author="bob", text="hi", forwarded=True) for _ in range(5)
+    ]
+    thread = EarlierThread(messages=lines, has_parent=False)
+
+    capped = _capped_thread(thread, max_messages=2, max_characters=10_000)
+
+    assert capped is not None and len(capped.messages) == 2
+
+
+def test_a_left_out_source_thread_is_only_noted() -> None:
+    forward = QuotedMessage(
+        kind=QuotedMessageKind.FORWARDED,
+        author="alice",
+        text="private",
+        thread_available=True,
+    )
+
+    rendered = message(quoted=[forward]).render()
+    parsed = ChannelMessage.parse(rendered)
+
+    assert parsed is not None
+    assert parsed.quoted[0].thread is None and parsed.quoted[0].thread_available
+    assert '"thread_available": true' in rendered

@@ -22,6 +22,7 @@ class WorkflowPatch(StrEnum):
     RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR = "runtime-error-attribution-interceptor-v1"
     AGENT_ACTIONS_ON_SESSION_BACKEND = "dsl-agent-actions-on-session-backend-v1"
     ADMISSION_RUN_LIMITS = "dsl-admission-run-limits-v1"
+    PRESET_AGENT_CHANNEL_REPLY = "dsl-preset-agent-channel-reply-v1"
 
 
 @unique

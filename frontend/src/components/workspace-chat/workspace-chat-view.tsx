@@ -251,24 +251,26 @@ export function WorkspaceChatView({ chatId }: { chatId?: string }) {
               onStatusChange={setChatStatus}
               onChatChange={setChat}
               headerActions={
-                showExpandButton ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="size-6 p-0"
-                        onClick={expandPanel}
-                        aria-label="Show artifacts"
-                      >
-                        <PanelLeftIcon className="size-4 -scale-x-100" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      Show artifacts
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null
+                <>
+                  {showExpandButton ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="size-6 p-0"
+                          onClick={expandPanel}
+                          aria-label="Show artifacts"
+                        >
+                          <PanelLeftIcon className="size-4 -scale-x-100" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        Show artifacts
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </>
               }
             />
           </ArtifactPanelContext.Provider>

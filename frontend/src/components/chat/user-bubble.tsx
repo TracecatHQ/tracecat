@@ -1,23 +1,61 @@
+import { createContext, useContext } from "react"
+import type { InboxChannelThread } from "@/client"
 import {
   Message,
   MessageAvatar,
   MessageContent,
 } from "@/components/ai-elements/message"
 import {
+  botMentions,
   ChannelMessageContext,
+  channelPerson,
   channelPersonClassName,
   channelSender,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import { SlackIcon } from "@/components/icons"
+import { useChannelThreadChannel } from "@/hooks/use-agent-channel-bots"
 import type { ChannelMessageData, MessageActor } from "@/lib/chat"
+import { useOptionalWorkspaceId } from "@/providers/workspace-id"
+
+/** The session's linked channel thread, which names where Slack messages came from. */
+export const SessionChannelThreadContext =
+  createContext<InboxChannelThread | null>(null)
 
 /**
  * A user's message: its author, text, and a channel message's forwards and thread.
- * The recorded author names it; else a channel message's envelope sender.
+ * Earlier-thread lines that mention the bot come first, each as its own message;
+ * the rest of the thread is agent context only.
  */
-export function UserBubble({
+export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
+  const { channelMessage } = props
+  const botUserId = useContext(
+    SessionChannelThreadContext
+  )?.provider_bot_user_id
+  if (!channelMessage || !botUserId) return <MessageBubble {...props} />
+  return (
+    <>
+      {botMentions(channelMessage, botUserId).map((line, index) => (
+        <MessageBubble
+          key={index}
+          text={withChannelMentionNames(line.text, channelMessage)}
+          channelMessage={null}
+          author={{
+            ...(line.is_bot
+              ? { name: line.author, linked: false }
+              : channelPerson(channelMessage, line.author)),
+            fromSlack: channelMessage.provider === "slack",
+          }}
+        />
+      ))}
+      <MessageBubble {...props} />
+    </>
+  )
+}
+
+/** One message: the recorded author names it; else a channel message's envelope sender. */
+function MessageBubble({
   text,
   channelMessage,
   author,
@@ -51,16 +89,10 @@ export function UserBubble({
     </MessageContent>
   )
   if (own) {
-    // No channel name reaches the chat yet, so the line names the provider.
     const fromSlack = channelMessage?.provider === "slack"
     return (
       <Message from="user" className="flex-col items-end gap-1">
-        {fromSlack && (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <SlackIcon className="size-3.5" aria-hidden="true" />
-            From Slack
-          </span>
-        )}
+        {fromSlack && <FromSlackLine />}
         {content}
       </Message>
     )
@@ -101,4 +133,31 @@ function channelActor(message: ChannelMessageData): MessageActor {
     fromSlack: message.provider === "slack",
     linked: sender.linked,
   }
+}
+
+/** "From #channel" above the viewer's own Slack message; "From Slack" when unnamed. */
+function FromSlackLine() {
+  const thread = useContext(SessionChannelThreadContext)
+  const workspaceId = useOptionalWorkspaceId()
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <SlackIcon className="size-3.5" aria-hidden="true" />
+      {thread?.provider === "slack" && workspaceId ? (
+        <ChannelName workspaceId={workspaceId} thread={thread} />
+      ) : (
+        "From Slack"
+      )}
+    </span>
+  )
+}
+
+function ChannelName({
+  workspaceId,
+  thread,
+}: {
+  workspaceId: string
+  thread: InboxChannelThread
+}) {
+  const channel = useChannelThreadChannel(workspaceId, thread)
+  return channel ? `From #${channel.name}` : "From Slack"
 }

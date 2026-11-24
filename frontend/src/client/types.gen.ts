@@ -1336,6 +1336,46 @@ export type AgentSessionCapabilities = {
 }
 
 /**
+ * Where the session's thread can open: a DM, recent channels, then the rest.
+ */
+export type AgentSessionChannelDestinationsRead = {
+  items: Array<ChannelDestination>
+}
+
+/**
+ * Whether the session's messages sync with a channel thread.
+ */
+export type AgentSessionChannelSyncRead = {
+  /**
+   * The session has a channel thread, or can open one when synced
+   */
+  available: boolean
+  /**
+   * Messages sent in Tracecat post to the thread, and its replies
+   */
+  enabled: boolean
+  /**
+   * The session has a channel thread already
+   */
+  linked?: boolean
+  /**
+   * The linked thread's channel; None without a thread or channel bot reads
+   */
+  thread?: InboxChannelThread | null
+}
+
+/**
+ * Turn channel sync on or off; turning it on never replays earlier turns.
+ */
+export type AgentSessionChannelSyncUpdate = {
+  enabled: boolean
+  /**
+   * Where to open the thread of a session that has none
+   */
+  destination?: ChannelDestinationRef | null
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -1453,6 +1493,10 @@ export type AgentSessionRead = {
   channel_context: {
     [key: string]: unknown
   } | null
+  /**
+   * The session is linked to a channel thread; set by the list
+   */
+  channel_linked?: boolean
   tools: Array<string> | null
   mcp_integrations: Array<string> | null
   agent_preset_id: string | null
@@ -1492,6 +1536,10 @@ export type AgentSessionReadVercel = {
   channel_context: {
     [key: string]: unknown
   } | null
+  /**
+   * The session is linked to a channel thread; set by the list
+   */
+  channel_linked?: boolean
   tools: Array<string> | null
   mcp_integrations: Array<string> | null
   agent_preset_id: string | null
@@ -1535,6 +1583,10 @@ export type AgentSessionReadWithMessages = {
   channel_context: {
     [key: string]: unknown
   } | null
+  /**
+   * The session is linked to a channel thread; set by the list
+   */
+  channel_linked?: boolean
   tools: Array<string> | null
   mcp_integrations: Array<string> | null
   agent_preset_id: string | null
@@ -4127,6 +4179,38 @@ export type ChannelBotStatus =
 export type ChannelBotTransport = "http" | "socket"
 
 /**
+ * A place the session's bot can open its thread, for the picker.
+ */
+export type ChannelDestination = {
+  kind: "direct_message" | "channel"
+  /**
+   * The channel's id; None for a DM
+   */
+  id?: string | null
+  /**
+   * The channel's name, without its prefix
+   */
+  name: string
+  /**
+   * The user's sessions synced here lately
+   */
+  recent?: boolean
+}
+
+export type kind2 = "direct_message" | "channel"
+
+/**
+ * Where to open a session's thread: a channel by id, or a DM to the opting-in user.
+ */
+export type ChannelDestinationRef = {
+  kind: "direct_message" | "channel"
+  /**
+   * The channel's id; None for a DM
+   */
+  id?: string | null
+}
+
+/**
  * Where to send the browser to prove the provider identity.
  */
 export type ChannelLinkSignInRead = {
@@ -5849,10 +5933,12 @@ export type DynamicToolUIPartOutputError = {
 }
 
 /**
- * The thread before the bot was summoned, parent first.
+ * Thread messages before this mention that the session has not seen, or a
+ * forward's source thread.
  */
 export type EarlierThread = {
   messages: Array<EarlierThreadMessage>
+  has_parent?: boolean
   older_omitted?: boolean
   later_omitted?: boolean
 }
@@ -5861,6 +5947,7 @@ export type EarlierThreadMessage = {
   author: string
   is_bot?: boolean
   text: string
+  forwarded?: boolean
 }
 
 export type EditorActionRead = {
@@ -7462,6 +7549,10 @@ export type InboxChannelThread = {
    * The provider's channel ID
    */
   provider_channel_id: string
+  /**
+   * The bot's own provider user ID, as mentions name it
+   */
+  provider_bot_user_id?: string | null
 }
 
 /**
@@ -7907,7 +7998,7 @@ export type LibrarySkillSourceRead = {
   kind: "upstream" | "local"
 }
 
-export type kind2 = "upstream" | "local"
+export type kind3 = "upstream" | "local"
 
 /**
  * Authentication type for MCP integrations.
@@ -8827,7 +8918,7 @@ export type MessageOrigin = {
   subkind?: "scheduled-trigger" | "peer-send-message"
 }
 
-export type kind3 =
+export type kind4 =
   | "human"
   | "channel"
   | "peer"
@@ -9886,6 +9977,8 @@ export type QuotedMessage = {
   is_preview?: boolean
   where?: string | null
   link?: string | null
+  thread?: EarlierThread | null
+  thread_available?: boolean
 }
 
 export type QuotedMessageKind = "forwarded" | "quoted_reply"
@@ -11854,7 +11947,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind4 = "inline" | "download"
+export type kind5 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -14274,7 +14367,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind5 = "download_file" | "download_export"
+export type kind6 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -18353,6 +18446,31 @@ export type AgentSessionsListPendingMessagesData = {
 }
 
 export type AgentSessionsListPendingMessagesResponse = AgentSessionPendingRead
+
+export type AgentSessionsGetSessionChannelSyncData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsGetSessionChannelSyncResponse =
+  AgentSessionChannelSyncRead
+
+export type AgentSessionsUpdateSessionChannelSyncData = {
+  requestBody: AgentSessionChannelSyncUpdate
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsUpdateSessionChannelSyncResponse =
+  AgentSessionChannelSyncRead
+
+export type AgentSessionsListSessionChannelDestinationsData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsListSessionChannelDestinationsResponse =
+  AgentSessionChannelDestinationsRead
 
 export type AgentSessionsForkSessionData = {
   requestBody?: AgentSessionForkRequest | null
@@ -26179,6 +26297,49 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionPendingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/channel-sync": {
+    get: {
+      req: AgentSessionsGetSessionChannelSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionChannelSyncRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentSessionsUpdateSessionChannelSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionChannelSyncRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/channel-sync/destinations": {
+    get: {
+      req: AgentSessionsListSessionChannelDestinationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionChannelDestinationsRead
         /**
          * Validation Error
          */

@@ -29,8 +29,10 @@ import {
   AGENT_EXECUTE_REQUIRED_MESSAGE,
   ChatSessionPane,
 } from "@/components/chat/chat-session-pane"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
+import { useSessionChannelSync } from "@/hooks/use-session-channel-sync"
 import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -80,6 +82,7 @@ jest.mock("@/components/chat/chat-empty-hero", () => ({
 jest.mock("@/components/icons", () => ({
   getIcon: () => null,
   ProviderIcon: () => <span data-testid="provider-icon" />,
+  SlackIcon: () => <span data-testid="slack-icon" />,
 }))
 
 jest.mock("@/components/ai-elements/tool", () => ({
@@ -184,6 +187,14 @@ jest.mock("@/hooks/use-entitlements", () => ({
 jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => "locked",
 }))
+jest.mock("@/hooks/use-session-channel-sync", () => ({
+  useSessionChannelSync: jest.fn(() => ({
+    sync: undefined,
+    isLoading: false,
+    changeSync: jest.fn(),
+    isPending: false,
+  })),
+}))
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPreset: jest.fn(() => ({ preset: undefined })),
   useAgentPresets: jest.fn(() => ({
@@ -206,15 +217,17 @@ function renderChatSessionPane(
   function renderPane(nextProps = props) {
     return (
       <QueryClientProvider client={queryClient}>
-        <ChatSessionPane
-          workspaceId="workspace-1"
-          modelInfo={{ name: "gpt-test", provider: "openai" }}
-          placeholder="Ask Tracecat..."
-          inputDisabledPlaceholder="Creating chat..."
-          surface="workspace-chat"
-          toolsEnabled={false}
-          {...nextProps}
-        />
+        <TooltipProvider>
+          <ChatSessionPane
+            workspaceId="workspace-1"
+            modelInfo={{ name: "gpt-test", provider: "openai" }}
+            placeholder="Ask Tracecat..."
+            inputDisabledPlaceholder="Creating chat..."
+            surface="workspace-chat"
+            toolsEnabled={false}
+            {...nextProps}
+          />
+        </TooltipProvider>
       </QueryClientProvider>
     )
   }
@@ -1394,6 +1407,34 @@ describe("ChatSessionPane author labels", () => {
       preset.mockReturnValue({ preset: undefined } as ReturnType<
         typeof useAgentPreset
       >)
+    }
+  })
+
+  it("shows authors once a web session syncs with a channel", async () => {
+    const synced = jest.mocked(useSessionChannelSync).mockReturnValue({
+      sync: { available: true, enabled: true },
+      isLoading: false,
+      changeSync: jest.fn(),
+      isPending: false,
+    })
+    // No author id, so only the sync makes the session shared.
+    mockUseVercelChatResult.messages = [
+      {
+        ...AUTHORED,
+        metadata: { author: { email: "sam@example.com", first_name: "Sam" } },
+      },
+    ]
+    try {
+      renderChatSessionPane({ chat: webChat })
+
+      expect(await screen.findByText("Sam")).toBeInTheDocument()
+    } finally {
+      synced.mockReturnValue({
+        sync: undefined,
+        isLoading: false,
+        changeSync: jest.fn(),
+        isPending: false,
+      })
     }
   })
 })
