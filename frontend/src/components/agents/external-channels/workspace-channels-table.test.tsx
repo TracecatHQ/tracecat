@@ -68,9 +68,9 @@ describe("Workspace channels table", () => {
 
     await within(grid).findByText("soc-alerts")
     expect(
-      within(grid).getByRole("row", { name: /Tracecat for Slack/ })
+      within(grid).getByRole("row", { name: "Tracecat for Slack" })
     ).toHaveTextContent("3 channels · 2 agents")
-    const custom = within(grid).getByRole("row", { name: /Custom Slack app/ })
+    const custom = within(grid).getByRole("row", { name: "Custom Slack app" })
     expect(custom).toHaveTextContent("Custom")
     expect(custom).toHaveTextContent("1 channel · Phishing")
 
