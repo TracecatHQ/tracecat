@@ -100,7 +100,6 @@ from tracecat.agent.session.history import (
     decode_raw_session_line,
     prepare_session_history,
 )
-from tracecat.agent.session.participation import sessions_with_messages_from
 from tracecat.agent.session.results import (
     DecisionRecorded,
     DecisionRejected,
@@ -127,8 +126,10 @@ from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     PreparedAgentTurn,
+    SessionAccess,
     TurnLifecycle,
     TurnLifecycleResult,
+    is_session_owner,
 )
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
@@ -149,6 +150,7 @@ from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.chat.constants import CHANNEL_MESSAGE_DATA_PART_TYPE
@@ -702,13 +704,46 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def participated_session_ids(
-        self, session_ids: Sequence[uuid.UUID]
-    ) -> set[uuid.UUID]:
-        """The sessions among ``session_ids`` the role's user has sent a message in."""
-        return await sessions_with_messages_from(
-            self.session, self.role.user_id, session_ids
+    async def session_access(self, agent_session: AgentSession) -> SessionAccess:
+        """What the role may do in one session; see ``sessions_access``."""
+        return (await self.sessions_access([agent_session]))[agent_session.id]
+
+    async def sessions_access(
+        self, sessions: Sequence[AgentSession]
+    ) -> dict[uuid.UUID, SessionAccess]:
+        """What the role may do in each session, in one query.
+
+        A user may act on a session they own; with ``agent:execute`` they may also
+        act on a workflow session, an ownerless channel session, or one they sent
+        a message in. Deciding approvals is acting with ``agent:execute``.
+        """
+        execute = self.role.scopes is not None and has_scope(
+            self.role.scopes, "agent:execute"
         )
+        authored: set[uuid.UUID] = set()
+        if execute and self.role.user_id is not None and sessions:
+            result = await self.session.scalars(
+                select(AgentSessionHistory.session_id)
+                .where(
+                    AgentSessionHistory.author_id == self.role.user_id,
+                    AgentSessionHistory.session_id.in_([s.id for s in sessions]),
+                )
+                .distinct()
+            )
+            authored = set(result.all())
+        access: dict[uuid.UUID, SessionAccess] = {}
+        for s in sessions:
+            shared = (
+                s.entity_type == AgentSessionEntity.WORKFLOW
+                or (
+                    s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
+                    and s.created_by is None
+                )
+                or s.id in authored
+            )
+            act = is_session_owner(self.role, s.created_by) or (execute and shared)
+            access[s.id] = SessionAccess(act=act, decide=act and execute)
+        return access
 
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]
@@ -1014,13 +1049,13 @@ class AgentSessionService(BaseWorkspaceService):
             readonly_ids = await self.get_workspace_chat_session_ids(
                 [s.id for s in sessions]
             )
-        participated_ids = await self.participated_session_ids([s.id for s in sessions])
+        access = await self.sessions_access(sessions)
         items: list[AgentSessionRead | ChatReadMinimal] = [
             build_session_read(
                 s,
                 self.role,
                 readonly=s.id in readonly_ids,
-                participated=s.id in participated_ids,
+                access=access[s.id],
             )
             for s in sessions
         ]

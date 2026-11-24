@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,9 +14,8 @@ from tracecat.agent.session.activities import (
     LoadSessionMessagesInput,
     load_session_messages_activity,
 )
-from tracecat.agent.session.participation import may_act_on_session
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity, can_decide_on_session
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.db.models import AgentSession, AgentSessionHistory, User
@@ -262,16 +260,15 @@ async def test_only_a_participant_may_act_on_a_teammates_private_session(
             }
         )
 
-    async def may_act(user: User, scopes: frozenset[str], **kwargs: Any) -> bool:
+    async def access(user: User, scopes: frozenset[str]) -> tuple[bool, bool]:
         role = as_member(user, scopes)
-        sent_in = AgentSessionService(
-            session=session, role=role
-        ).participated_session_ids
-        return await may_act_on_session(role, private, sent_in=sent_in, **kwargs)
+        got = await AgentSessionService(session=session, role=role).session_access(
+            private
+        )
+        return got.act, got.decide
 
     execute = frozenset({"agent:execute", "agent:read"})
-    assert await may_act(participant, execute)
-    assert await may_act(participant, execute, check=can_decide_on_session)
-    assert not await may_act(bystander, execute)
+    assert await access(participant, execute) == (True, True)
+    assert await access(bystander, execute) == (False, False)
     # Participation shares the session only with members who may run agents.
-    assert not await may_act(participant, frozenset({"agent:read"}))
+    assert await access(participant, frozenset({"agent:read"})) == (False, False)

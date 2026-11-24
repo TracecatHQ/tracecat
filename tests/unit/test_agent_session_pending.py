@@ -21,7 +21,7 @@ from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.router import router
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, SessionAccess
 from tracecat.agent.session.views import build_session_read
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
@@ -110,22 +110,16 @@ def _get_pending(
     app.include_router(router)
     role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
     app.dependency_overrides[role_dependency] = lambda: actor
-    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    db = AsyncMock()
+    authored = [agent_session.id] if participated and agent_session else []
+    db.scalars.return_value = Mock(all=Mock(return_value=authored))
+    app.dependency_overrides[get_async_session] = lambda: db
     target = session_id or (agent_session.id if agent_session else uuid.uuid4())
     with (
         patch.object(
             AgentSessionService,
             "get_session",
             get_session or AsyncMock(return_value=agent_session),
-        ),
-        patch.object(
-            AgentSessionService,
-            "participated_session_ids",
-            AsyncMock(
-                return_value={agent_session.id}
-                if participated and agent_session
-                else set()
-            ),
         ),
         patch.object(registry, "get_agent_backends", return_value=backends),
         TestClient(app) as client,
@@ -272,7 +266,9 @@ def test_session_read_reports_the_listing_pending_capability(
         registry, "get_agent_backends", return_value={"external": backend}
     ):
         read = build_session_read(
-            agent_session, _role(agent_session.workspace_id), participated=False
+            agent_session,
+            _role(agent_session.workspace_id),
+            access=SessionAccess(act=True, decide=True),
         )
 
     assert read.capabilities.listing_pending is listing_pending
@@ -282,7 +278,9 @@ def test_session_read_reports_no_listing_pending_for_a_missing_backend() -> None
     agent_session = _session()
     with patch.object(registry, "get_agent_backends", return_value={}):
         read = build_session_read(
-            agent_session, _role(agent_session.workspace_id), participated=False
+            agent_session,
+            _role(agent_session.workspace_id),
+            access=SessionAccess(act=True, decide=True),
         )
 
     assert read.capabilities.listing_pending is False

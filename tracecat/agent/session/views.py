@@ -2,15 +2,10 @@
 
 from tracecat.agent.backends.registry import agent_backend_available, find_agent_backend
 from tracecat.agent.session.schemas import AgentSessionCapabilities, AgentSessionRead
-from tracecat.agent.session.types import (
-    AgentSessionEntity,
-    can_act_on_session,
-    can_decide_on_session,
-)
+from tracecat.agent.session.types import AgentSessionEntity, SessionAccess
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.projection import validate_artifacts
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope
 from tracecat.db.models import AgentSession
 
 
@@ -19,12 +14,9 @@ def build_session_read(
     role: Role,
     *,
     readonly: bool = False,
-    participated: bool,
+    access: SessionAccess,
 ) -> AgentSessionRead:
-    """Project persisted session data and live backend state for an actor.
-
-    ``participated``: the actor has sent a message in the session.
-    """
+    """Project persisted session data and live backend state for an actor."""
     available = agent_backend_available(session.backend_id, session.harness_type)
     backend = find_agent_backend(session.backend_id) if available else None
     blocked = readonly or session.spawned_by_session_id is not None or not available
@@ -33,16 +25,8 @@ def build_session_read(
         workspace_id=session.workspace_id,
         title=session.title,
         created_by=session.created_by,
-        is_readonly=blocked
-        or not can_act_on_session(
-            role, session.entity_type, session.created_by, participated=participated
-        ),
-        can_decide_approvals=not blocked
-        and role.scopes is not None
-        and has_scope(role.scopes, "agent:execute")
-        and can_decide_on_session(
-            role, session.entity_type, session.created_by, participated=participated
-        ),
+        is_readonly=blocked or not access.act,
+        can_decide_approvals=not blocked and access.decide,
         backend_id=session.backend_id,
         capabilities=AgentSessionCapabilities(
             steering=backend is not None and backend.steering,
