@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 
+from botocore.exceptions import ClientError
 from redis.exceptions import RedisError
 from tenacity import RetryError
 
@@ -16,7 +17,8 @@ from tracecat.redis.client import get_redis_client
 PROMPT_ORIGIN_TTL_SECONDS = 24 * 60 * 60
 """How long a Retry can still find the run that first sent its message."""
 
-_REDIS_FAILURES = (RedisError, RuntimeError, RetryError)
+# ClientError: the Redis URL's secret lookup on first use.
+_REDIS_FAILURES = (RedisError, RuntimeError, RetryError, ClientError)
 
 
 def prompt_origin_message_key(session_id: uuid.UUID, message_id: str) -> str:
