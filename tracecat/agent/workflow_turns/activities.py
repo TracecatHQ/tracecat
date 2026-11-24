@@ -19,6 +19,7 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.agent.backends.access import require_session_backend_entitlement
 from tracecat.agent.backends.base import claim_unstarted_workflow_id
 from tracecat.agent.backends.registry import DEFAULT_AGENT_BACKEND, find_agent_backend
 from tracecat.agent.backends.schemas import AgentWorkflowArgs, ChildAgentTurn
@@ -100,6 +101,22 @@ async def _turn_backend(
             or started_by_teammate
         ):
             raise_application_error_from_classification(invalid_agent_configuration())
+        if (
+            backend_id != DEFAULT_AGENT_BACKEND
+            and args.entity_type is AgentSessionEntity.EXTERNAL_CHANNEL
+        ):
+            # The turn gate checks the session's surface; an action also needs workflows.
+            try:
+                await require_session_backend_entitlement(
+                    service.session,
+                    service.organization_id,
+                    backend_id,
+                    entity_type=AgentSessionEntity.WORKFLOW,
+                )
+            except EntitlementRequired as e:
+                raise ApplicationError(
+                    str(e), e.detail, type=type(e).__name__, non_retryable=True
+                ) from e
         return backend_id, session
     if args.continue_existing_session:
         # The built-in workflow reports the missing session, as before.

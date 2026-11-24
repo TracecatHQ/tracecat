@@ -234,6 +234,7 @@ def _activity_env(service: SimpleNamespace, *, selected: str) -> Iterator[AsyncM
             "tracecat.agent.backends.turns.get_agent_backend",
             return_value=InstalledBackend(),
         ),
+        patch(f"{ACTIVITIES}.require_session_backend_entitlement", AsyncMock()),
     ):
         yield select
 
@@ -451,6 +452,31 @@ async def test_channel_reply_action_retry_adopts_its_own_session() -> None:
             await _prepare(args.model_copy(update={"continue_existing_session": True}))
         assert exc_info.value.non_retryable
     service.get_or_create_session.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_channel_reply_action_retry_needs_the_workflow_entitlement() -> None:
+    """The channel session's own turn gate checks only the preview entitlement."""
+    preset_id = uuid.uuid4()
+    existing = _existing(
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value, entity_id=preset_id
+    )
+    service = _service(existing=existing)
+    args = _args(session_id=existing.id, entity_id=preset_id).model_copy(
+        update={"entity_type": AgentSessionEntity.EXTERNAL_CHANNEL}
+    )
+    gate = AsyncMock(side_effect=EntitlementRequired("agent_runtime_workflows"))
+    with (
+        _activity_env(service, selected="external"),
+        patch(f"{ACTIVITIES}.require_session_backend_entitlement", gate),
+    ):
+        for activity_call in (_select, _prepare):
+            with pytest.raises(ApplicationError) as exc_info:
+                await activity_call(args)
+            assert exc_info.value.non_retryable
+    assert gate.await_args is not None
+    assert gate.await_args.kwargs["entity_type"] is AgentSessionEntity.WORKFLOW
+    service.prepare_new_turn.assert_not_awaited()
 
 
 @pytest.mark.anyio
