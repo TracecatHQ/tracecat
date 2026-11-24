@@ -128,6 +128,7 @@ export function WorkspaceChannelsView({
         agentName={agentName}
         routesLoading={routesLoading}
         routesError={routesError}
+        routesUnavailable={routesError !== null && !routesPage}
         listingFailures={listingFailures}
         managingBotId={managed?.id ?? null}
         onManage={(botId) => setSheet({ kind: "manage", botId })}
