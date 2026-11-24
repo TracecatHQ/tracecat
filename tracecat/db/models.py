@@ -3814,6 +3814,18 @@ class Approval(WorkspaceModel):
             "tool_call_id",
             name="uq_approval_workspace_session_tool",
         ),
+        Index(
+            "ix_approval_agent_preset_id",
+            "agent_preset_id",
+            postgresql_where=text("agent_preset_id IS NOT NULL"),
+        ),
+        # Same-workspace preset only; deleting it nulls the preset, not the workspace.
+        ForeignKeyConstraint(
+            ["agent_preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            name="fk_approval_agent_preset_id_agent_preset",
+            ondelete="SET NULL (agent_preset_id)",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -3873,6 +3885,11 @@ class Approval(WorkspaceModel):
     )
     approved_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
+    )
+    agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="Preset the paused run was configured from; its approvers decide",
     )
 
 
@@ -5960,6 +5977,50 @@ class AgentPresetSkill(WorkspaceModel):
     skill_version: Mapped[SkillVersion] = relationship(
         back_populates="preset_bindings",
         foreign_keys=[skill_version_id],
+    )
+
+
+class AgentPresetApprover(WorkspaceModel):
+    """A user, group, or role allowed to decide a preset's tool approvals.
+
+    Live workspace policy: never snapshotted into versions or workspace sync.
+    """
+
+    __tablename__ = "agent_preset_approver"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(user_id, group_id, role_id) = 1", name="one_principal"
+        ),
+        # The unset principal columns are NULL; NULLS NOT DISTINCT keeps rows unique.
+        Index(
+            "uq_agent_preset_approver_preset_principal",
+            "preset_id",
+            "user_id",
+            "group_id",
+            "role_id",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+        # An approver never targets another workspace's preset.
+        ForeignKeyConstraint(
+            ["preset_id", "workspace_id"],
+            ["agent_preset.id", "agent_preset.workspace_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("group.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    role_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
 

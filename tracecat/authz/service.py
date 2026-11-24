@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import cast, delete, exists, func, null, or_, select
+from sqlalchemy import CompoundSelect, cast, delete, exists, func, null, or_, select
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -49,6 +49,52 @@ from tracecat.workspaces.schemas import (
 )
 
 
+def effective_role_ids(
+    user_id: UserID,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID | None,
+) -> CompoundSelect:
+    """Select the ids of roles a user holds here, directly or through a group.
+
+    Org-wide grants count everywhere; workspace grants only in ``workspace_id``.
+    """
+    user_workspace_condition = (
+        or_(
+            UserRoleAssignment.workspace_id.is_(None),
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+        if workspace_id is not None
+        else UserRoleAssignment.workspace_id.is_(None)
+    )
+    group_workspace_condition = (
+        or_(
+            GroupRoleAssignment.workspace_id.is_(None),
+            GroupRoleAssignment.workspace_id == workspace_id,
+        )
+        if workspace_id is not None
+        else GroupRoleAssignment.workspace_id.is_(None)
+    )
+    user_roles = select(UserRoleAssignment.role_id).where(
+        UserRoleAssignment.user_id == user_id,
+        UserRoleAssignment.organization_id == organization_id,
+        user_workspace_condition,
+    )
+    # Manual and IdP members inherit the same group roles.
+    group_roles = (
+        select(GroupRoleAssignment.role_id)
+        .join(
+            effective_group_members,
+            effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+        )
+        .where(
+            effective_group_members.c.user_id == user_id,
+            GroupRoleAssignment.organization_id == organization_id,
+            group_workspace_condition,
+        )
+    )
+    return user_roles.union(group_roles)
+
+
 async def query_effective_scopes(
     session: SupportsExecute,
     user_id: UserID,
@@ -60,50 +106,13 @@ async def query_effective_scopes(
     Uncached. Use for authorization decisions that must not act on a stale
     snapshot, such as scope-ceiling checks on role grants.
     """
-    user_workspace_condition = (
-        or_(
-            UserRoleAssignment.workspace_id.is_(None),
-            UserRoleAssignment.workspace_id == workspace_id,
-        )
-        if workspace_id is not None
-        else UserRoleAssignment.workspace_id.is_(None)
-    )
-
-    group_workspace_condition = (
-        or_(
-            GroupRoleAssignment.workspace_id.is_(None),
-            GroupRoleAssignment.workspace_id == workspace_id,
-        )
-        if workspace_id is not None
-        else GroupRoleAssignment.workspace_id.is_(None)
-    )
-    # Direct user role assignments → Role → RoleScope → Scope
-    user_scopes = (
+    role_scopes = (
         select(Scope.name)
         .join(RoleScope, RoleScope.scope_id == Scope.id)
-        .join(DBRole, DBRole.id == RoleScope.role_id)
-        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
         .where(
-            UserRoleAssignment.user_id == user_id,
-            UserRoleAssignment.organization_id == organization_id,
-            user_workspace_condition,
-        )
-    )
-
-    # Manual and IdP members inherit the same group role scopes.
-    group_scopes = (
-        select(Scope.name)
-        .join(RoleScope, RoleScope.scope_id == Scope.id)
-        .join(DBRole, DBRole.id == RoleScope.role_id)
-        .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
-        .join(
-            effective_group_members,
-            effective_group_members.c.group_id == GroupRoleAssignment.group_id,
-        )
-        .where(
-            effective_group_members.c.user_id == user_id,
-            GroupRoleAssignment.organization_id == organization_id,
-            group_workspace_condition,
+            RoleScope.role_id.in_(
+                effective_role_ids(user_id, organization_id, workspace_id)
+            )
         )
     )
 
@@ -115,7 +124,7 @@ async def query_effective_scopes(
             OrganizationMembership.organization_id == organization_id,
         )
     )
-    combined = user_scopes.union(group_scopes, floor_scopes)
+    combined = role_scopes.union(floor_scopes)
     result = await session.execute(combined)
     return frozenset(result.scalars().all())
 

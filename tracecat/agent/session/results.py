@@ -83,11 +83,12 @@ class DecisionRejected(BaseModel):
 
     ``no_longer_active``: decided differently, or the run moved on.
     ``not_valid``: the tool call is not an approval of this session.
+    ``not_allowed``: the preset's approver policy refuses the clicker.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    reason: Literal["no_longer_active", "not_valid"]
+    reason: Literal["no_longer_active", "not_valid", "not_allowed"]
     tool_call_id: str
 
 

@@ -140,6 +140,8 @@ class ToolApprovalPayload(BaseModel):
     tool_name: str
     args: dict[str, Any] | str | None = None
     metadata: dict[str, Any] | None = None
+    # Overrides the batch's preset; set for a subagent's call under its root.
+    agent_preset_id: uuid.UUID | None = None
 
 
 class ExecuteRemoteMCPToolArgs(BaseModel):
@@ -152,6 +154,8 @@ class PersistApprovalsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
     approvals: list[ToolApprovalPayload]
+    # From the run's args, never the session row: a preset switch must not move it.
+    agent_preset_id: uuid.UUID | None = None
     # Pushed once the requests are durable; the notifier reads them.
     channel_updates: list[RunUpdate] = Field(default_factory=list)
 

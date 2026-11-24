@@ -13,10 +13,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.agent.approvals.policy import (
+    UNLINKED_APPROVER_MESSAGE,
+    ApproverNotAllowedError,
+)
 from tracecat.api import app as api_app
 from tracecat.api import common as api_common
 from tracecat.api.app import (
     _install_scim_exception_handlers,
+    approver_not_allowed_exception_handler,
     authorization_exception_handler,
     scope_denied_exception_handler,
 )
@@ -260,6 +265,23 @@ def test_temporal_rpc_errors_log_the_route_template(
     logged.warning.assert_called_once()
     assert logged.warning.call_args.kwargs["route"] == "/webhooks/{secret}"
     assert "live-webhook-secret" not in repr(logged.warning.call_args)
+
+
+def test_refused_approver_gets_the_reason_in_a_403() -> None:
+    app = create_api_app()
+    assert (
+        app.exception_handlers[ApproverNotAllowedError]
+        is approver_not_allowed_exception_handler
+    )
+    response = approver_not_allowed_exception_handler(
+        Mock(), ApproverNotAllowedError(UNLINKED_APPROVER_MESSAGE)
+    )
+
+    assert response.status_code == 403
+    assert orjson.loads(bytes(response.body)) == {
+        "detail": UNLINKED_APPROVER_MESSAGE,
+        "error": {"code": "approver_not_allowed", "message": UNLINKED_APPROVER_MESSAGE},
+    }
 
 
 def test_temporal_rpc_handler_is_registered_in_both_api_apps() -> None:

@@ -14,6 +14,10 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.approvals.policy import (
+    ApproverNotAllowedError,
+    ensure_decider_allowed,
+)
 from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.channels.handlers.slack_helpers import (
     SlackAlreadyAcknowledgedError,
@@ -33,10 +37,9 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
-from tracecat.db.models import AgentSession, AgentSessionThread
+from tracecat.db.models import AgentSession, AgentSessionThread, Approval
 from tracecat.exceptions import (
     EntitlementRequired,
-    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.logger import logger
@@ -792,15 +795,40 @@ class SlackChannelHandler:
             return
 
         session_service = AgentSessionService(self.session, role=self.role)
-        try:
-            if await session_service.get_session(session_id) is None:
-                raise TracecatNotFoundError(f"Session with ID {session_id} not found")
-        except TracecatNotFoundError:
+        agent_session = await session_service.get_session(session_id)
+        if agent_session is None:
             await self._post_ephemeral_notice(
                 slack_client,
                 channel_id=context.channel_id,
                 user_id=context.user_id,
                 text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        # Clicks here carry no Tracecat user; refuse before the card shows a decision.
+        approval = await self.session.scalar(
+            select(Approval).where(
+                Approval.workspace_id == session_service.workspace_id,
+                Approval.session_id == session_id,
+                Approval.tool_call_id == context.tool_call_id,
+            )
+        )
+        try:
+            await ensure_decider_allowed(
+                self.session,
+                organization_id=session_service.organization_id,
+                workspace_id=session_service.workspace_id,
+                agent_session=agent_session,
+                approvals=[approval],
+                approved_by=None,
+            )
+        except ApproverNotAllowedError as exc:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text=str(exc),
                 thread_ts=context.thread_ts,
             )
             return
@@ -845,7 +873,7 @@ class SlackChannelHandler:
                 context=context,
                 batch_context=batch_context,
             )
-        except ValueError as exc:
+        except (ValueError, ApproverNotAllowedError) as exc:
             await self._post_ephemeral_notice(
                 slack_client,
                 channel_id=context.channel_id,

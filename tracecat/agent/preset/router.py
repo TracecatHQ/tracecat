@@ -4,7 +4,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.agent.folders.service import AgentFolderService
+from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
+    AgentPresetApproversUpdate,
     AgentPresetCreate,
     AgentPresetMoveToFolder,
     AgentPresetRead,
@@ -138,6 +141,132 @@ async def create_agent_preset(
         return await service.build_preset_read(preset)
     except TracecatValidationError as exc:
         raise _validation_error(exc) from exc
+
+
+@router.get(
+    "/approver-options",
+    response_model=CursorPaginatedResponse[AgentPresetApproverRead],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid cursor",
+        },
+    },
+)
+@require_scope("agent:update", "workspace:member:read")
+async def list_agent_preset_approver_options(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+    search: str | None = Query(default=None, max_length=255),
+) -> CursorPaginatedResponse[AgentPresetApproverRead]:
+    """Page through the principals that already apply in this workspace."""
+    service = AgentPresetApproverService(session, role=role)
+    try:
+        return await service.list_options(
+            PageParams(limit=limit, cursor=cursor), search=search
+        )
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
+
+
+@router.get(
+    "/{preset_id}/approvers",
+    response_model=CursorPaginatedResponse[AgentPresetApproverRead],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid cursor",
+        },
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
+    },
+)
+@require_scope("agent:read")
+async def list_agent_preset_approvers(
+    *,
+    preset_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[AgentPresetApproverRead]:
+    """Page through who may approve the preset's tool calls; none = default rule."""
+    if not await AgentPresetService(session, role=role).get_preset(preset_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset {preset_id} not found",
+        )
+    service = AgentPresetApproverService(session, role=role)
+    try:
+        return await service.list_approvers(
+            preset_id, PageParams(limit=limit, cursor=cursor)
+        )
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
+
+
+@router.post(
+    "/{preset_id}/approvers",
+    response_model=list[AgentPresetApproverRead],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Approvers outside the workspace, or over the cap",
+        },
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
+    },
+)
+@require_scope("agent:update")
+async def add_agent_preset_approvers(
+    *,
+    preset_id: uuid.UUID,
+    params: AgentPresetApproversUpdate,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> list[AgentPresetApproverRead]:
+    """Add who may approve the preset's tool calls; idempotent, applies at once."""
+    service = AgentPresetApproverService(session, role=role)
+    try:
+        return await service.add_approvers(preset_id, params.approvers)
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
+@router.delete(
+    "/{preset_id}/approvers",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"}},
+)
+@require_scope("agent:update")
+async def remove_agent_preset_approvers(
+    *,
+    preset_id: uuid.UUID,
+    params: AgentPresetApproversUpdate,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> None:
+    """Remove approvers; idempotent. Removing the last restores the default rule."""
+    service = AgentPresetApproverService(session, role=role)
+    try:
+        await service.remove_approvers(preset_id, params.approvers)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)

@@ -853,6 +853,36 @@ export type AgentPreset = {
   component_id?: "agent-preset"
 }
 
+export type AgentPresetApproverKind = "user" | "group" | "role"
+
+/**
+ * An approver or approver option with its display name.
+ */
+export type AgentPresetApproverRead = {
+  kind: AgentPresetApproverKind
+  id: string
+  name: string
+  /**
+   * Set for users only.
+   */
+  email?: string | null
+}
+
+/**
+ * A user, group, or role named as an approver.
+ */
+export type AgentPresetApproverRef = {
+  kind: AgentPresetApproverKind
+  id: string
+}
+
+/**
+ * Approvers to add to or remove from a preset; repeats collapse to one.
+ */
+export type AgentPresetApproversUpdate = {
+  approvers: Array<AgentPresetApproverRef>
+}
+
 export type AgentPresetCapability =
   | "approvals"
   | "subagents"
@@ -1723,6 +1753,19 @@ export type ApprovalStatus = "pending" | "approved" | "rejected"
  */
 export type ApprovalSubmission = {
   approvals: ApprovalMap
+}
+
+export type ApproverNotAllowedErrorBody = {
+  code?: "approver_not_allowed"
+  message: string
+}
+
+/**
+ * HTTP 403 body when the agent's approver policy refuses the decider.
+ */
+export type ApproverNotAllowedResponse = {
+  detail: string
+  error: ApproverNotAllowedErrorBody
 }
 
 export type Artifact =
@@ -4707,6 +4750,30 @@ export type CursorPaginatedResponse_AgentChannelUserRead_ = {
 
 export type CursorPaginatedResponse_AgentFolderRead_ = {
   items: Array<AgentFolderRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentPresetApproverRead_ = {
+  items: Array<AgentPresetApproverRead>
   /**
    * Cursor for next page
    */
@@ -17494,6 +17561,43 @@ export type AgentPresetsPreviewToolPolicyData = {
 
 export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
+export type AgentPresetsListAgentPresetApproverOptionsData = {
+  cursor?: string | null
+  limit?: number
+  search?: string | null
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetApproverOptionsResponse =
+  CursorPaginatedResponse_AgentPresetApproverRead_
+
+export type AgentPresetsListAgentPresetApproversData = {
+  cursor?: string | null
+  limit?: number
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetApproversResponse =
+  CursorPaginatedResponse_AgentPresetApproverRead_
+
+export type AgentPresetsAddAgentPresetApproversData = {
+  presetId: string
+  requestBody: AgentPresetApproversUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsAddAgentPresetApproversResponse =
+  Array<AgentPresetApproverRead>
+
+export type AgentPresetsRemoveAgentPresetApproversData = {
+  presetId: string
+  requestBody: AgentPresetApproversUpdate
+  workspaceId: string
+}
+
+export type AgentPresetsRemoveAgentPresetApproversResponse = void
+
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
   workspaceId: string
@@ -24752,6 +24856,86 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/presets/approver-options": {
+    get: {
+      req: AgentPresetsListAgentPresetApproverOptionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentPresetApproverRead_
+        /**
+         * Invalid cursor
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers": {
+    get: {
+      req: AgentPresetsListAgentPresetApproversData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentPresetApproverRead_
+        /**
+         * Invalid cursor
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
+         * Agent preset not found
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentPresetsAddAgentPresetApproversData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentPresetApproverRead>
+        /**
+         * Approvers outside the workspace, or over the cap
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
+         * Agent preset not found
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentPresetsRemoveAgentPresetApproversData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Agent preset not found
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets/{preset_id}": {
     get: {
       req: AgentPresetsGetAgentPresetData
@@ -25830,6 +26014,10 @@ export type $OpenApiTs = {
          */
         200: unknown
         /**
+         * The agent's approver policy refuses the decider
+         */
+        403: ApproverNotAllowedResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -25935,6 +26123,10 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * The agent's approver policy refuses the decider
+         */
+        403: ApproverNotAllowedResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -25947,6 +26139,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * The agent's approver policy refuses the decider
+         */
+        403: ApproverNotAllowedResponse
         /**
          * Validation Error
          */
