@@ -310,7 +310,7 @@ async def agent_plugin_tools(role: Role, preset_id: uuid.UUID) -> AgentPluginToo
                 timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
             )
             resolved = [
-                _resolved_group(group, loaded_plugin.tool_names, loaded.tools)
+                _resolved_group(group, loaded_plugin, loaded.tools)
                 for group in answered
             ]
         except Exception as e:
@@ -332,18 +332,21 @@ async def agent_plugin_tools(role: Role, preset_id: uuid.UUID) -> AgentPluginToo
 
 def _resolved_group(
     group: PluginToolGroup,
-    own: frozenset[str],
+    loaded_plugin: _LoadedPlugin,
     tools: Mapping[str, PluginInternalTool],
 ) -> AgentPluginTools:
-    """Raises `ValueError` for a foreign tool or a namespace that is not a registry one."""
-    if foreign := sorted(set(group.tools) - own):
+    """Raises `ValueError` for a foreign tool or an undeclared or internal namespace."""
+    if foreign := sorted(set(group.tools) - loaded_plugin.tool_names):
         raise ValueError(f"Group names tools its plugin does not serve: {foreign}")
+    supersedes = _checked_namespaces(group.supersedes)
+    if undeclared := sorted(supersedes - loaded_plugin.superseded_namespaces):
+        raise ValueError(f"Supersedes undeclared namespaces: {undeclared}")
     return AgentPluginTools(
         provider=group.provider,
         title=group.title,
         label=group.label,
         tools=tuple(tools[name] for name in sorted(set(group.tools))),
-        supersedes=tuple(sorted(_checked_namespaces(group.supersedes))),
+        supersedes=tuple(sorted(supersedes)),
     )
 
 

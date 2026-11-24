@@ -313,9 +313,11 @@ async def test_an_agent_lists_only_its_connections_tool_groups(
     install(
         _Plugin(
             [_tool(READ), _tool(WRITE, requires_approval=True)],
+            declares=("tools.demo",),
             groups={connected: [_group(WRITE, READ, supersedes=("tools.demo",))]},
         ),
-        # A group naming a foreign tool or an internal namespace drops its plugin.
+        # A group naming a foreign tool, an internal namespace or an undeclared
+        # namespace drops its plugin.
         _Plugin(
             [_tool("internal.foreign.tool")],
             groups={connected: [_group("internal.demo.read")]},
@@ -326,6 +328,15 @@ async def test_an_agent_lists_only_its_connections_tool_groups(
                 connected: [_group("internal.claims.tool", supersedes=("internal",))]
             },
         ),
+        _Plugin(
+            [_tool("internal.undeclared.tool")],
+            declares=("tools.undeclared",),
+            groups={
+                connected: [
+                    _group("internal.undeclared.tool", supersedes=("tools.other",))
+                ]
+            },
+        ),
         _Plugin([_tool("internal.broken.tool")], fails=True),
         None,
     )
@@ -333,7 +344,7 @@ async def test_an_agent_lists_only_its_connections_tool_groups(
     read = await agent_plugin_tools(_role(), connected)
 
     [group] = read.groups
-    assert read.failed_plugins == ("p1", "p2", "p3", "p4")
+    assert read.failed_plugins == ("p1", "p2", "p3", "p4", "p5")
 
     assert (group.provider, group.title, group.label) == ("demo", "Demo", "as @Demo")
     assert [(t.name, t.title, t.requires_approval) for t in group.tools] == [
@@ -386,6 +397,7 @@ async def test_the_preset_service_describes_channel_tools_for_its_own_presets(
     install(
         _Plugin(
             [_tool(READ), _tool(WRITE, requires_approval=True)],
+            declares=("tools.demo",),
             groups={preset.id: [_group(READ, WRITE, supersedes=("tools.demo",))]},
         )
     )
