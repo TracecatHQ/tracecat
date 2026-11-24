@@ -169,3 +169,13 @@ describe("RunsTable thread channel", () => {
     expect(agentChannelBotsListBotChannels).not.toHaveBeenCalled()
   })
 })
+
+describe("RunsTable source", () => {
+  it("labels a channel-started session as a chat", () => {
+    mockPreview = false
+    renderRows([inboxSession("slack", null)])
+
+    expect(screen.getByText("Chat")).toBeInTheDocument()
+    expect(screen.queryByText("Workflow")).not.toBeInTheDocument()
+  })
+})
