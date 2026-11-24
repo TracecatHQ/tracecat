@@ -1,5 +1,8 @@
 # Store default tools for each entity type
-from tracecat.agent.mcp.internal_tools import BUILDER_INTERNAL_TOOL_NAMES
+from tracecat.agent.mcp.internal_tool_defs import (
+    BUILDER_INTERNAL_TOOL_NAMES,
+    WORKFLOW_INTERNAL_TOOL_SCOPES,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
@@ -101,9 +104,40 @@ def filter_workspace_chat_tools_for_scopes(
     dynamic (derived from the tool name, no hardcoded list) and uses the same
     :func:`has_scope` semantics as the executor, including the ``"*"`` superuser
     bypass and wildcard grants (``action:*:execute``, ``action:core.*:execute``).
+
+    Workflow internal tools are not registry actions. They act as the caller,
+    so they are gated on the scope the matching MCP tool requires
+    (``workflow:execute``, ``workflow:read``, ``workflow:terminate``).
     """
     granted = role.scopes or frozenset()
-    return [tool for tool in tools if has_scope(granted, f"action:{tool}:execute")]
+    return [
+        tool
+        for tool in tools
+        if has_scope(
+            granted,
+            WORKFLOW_INTERNAL_TOOL_SCOPES.get(tool, f"action:{tool}:execute"),
+        )
+    ]
+
+
+def filter_workflow_tools_for_scopes(
+    tools: list[str],
+    *,
+    role: Role,
+) -> list[str]:
+    """Drop workflow internal tools the caller lacks the workflow scope for.
+
+    The caller needs the ``workflow:*`` scope the matching MCP tool requires.
+    The tools then act as the caller, so a started run follows the caller's
+    own action scopes. Other tools pass through unchanged.
+    """
+    granted = role.scopes or frozenset()
+    return [
+        tool
+        for tool in tools
+        if (scope := WORKFLOW_INTERNAL_TOOL_SCOPES.get(tool)) is None
+        or has_scope(granted, scope)
+    ]
 
 
 def get_default_tools(entity_type: str) -> list[str]:

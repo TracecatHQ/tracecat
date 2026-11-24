@@ -166,6 +166,7 @@ from tracecat.chat.schemas import (
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
     WORKSPACE_CHAT_FORMS_TOOLS,
+    filter_workflow_tools_for_scopes,
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
@@ -2823,6 +2824,25 @@ class AgentSessionService(BaseWorkspaceService):
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(
+        self, agent_session: AgentSession
+    ) -> AsyncIterator[AgentConfig]:
+        """Build a session's agent config, gated on the caller's workflow scopes.
+
+        Workflow internal tools run under the MCP service principal, so every
+        session drops the ones the caller could not run through the MCP tools.
+        """
+        async with self._build_session_agent_config(agent_session) as config:
+            if config.actions:
+                config = replace(
+                    config,
+                    actions=filter_workflow_tools_for_scopes(
+                        config.actions, role=self.role
+                    ),
+                )
+            yield config
+
+    @contextlib.asynccontextmanager
+    async def _build_session_agent_config(
         self, agent_session: AgentSession
     ) -> AsyncIterator[AgentConfig]:
         """Build agent configuration for a session based on its entity type.

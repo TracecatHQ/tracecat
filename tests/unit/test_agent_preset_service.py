@@ -476,6 +476,25 @@ class TestAgentPresetService:
         )
         assert created_preset.actions == agent_preset_create_params.actions
 
+    async def test_create_preset_with_workflow_internal_tools(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Workflow internal tools are not registry actions but are valid tools."""
+        agent_preset_create_params.actions = [
+            "tools.test.test_action",
+            "internal.workflows.start",
+            "internal.workflows.get",
+            "internal.workflows.cancel",
+        ]
+
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        assert created_preset.actions == agent_preset_create_params.actions
+
     async def test_create_preset_with_invalid_actions(
         self,
         agent_preset_service: AgentPresetService,
