@@ -81,6 +81,12 @@ async def _turn_backend(
     user's runs, so no other surface, workflow or run writes into them. A
     channel-reply action only adopts the session its own first attempt created.
     """
+    # Channel sessions of one preset share an entity; never continue one.
+    if (
+        args.entity_type is AgentSessionEntity.EXTERNAL_CHANNEL
+        and args.continue_existing_session
+    ):
+        raise_application_error_from_classification(invalid_agent_configuration())
     if session := await service.get_session(args.agent_args.session_id):
         backend_id = session.backend_id or DEFAULT_AGENT_BACKEND
         started_by_teammate = (
@@ -89,11 +95,6 @@ async def _turn_backend(
         )
         if backend_id != DEFAULT_AGENT_BACKEND and (
             session.entity_type != args.entity_type.value
-            # Channel sessions of one preset share an entity; never continue one.
-            or (
-                args.entity_type is AgentSessionEntity.EXTERNAL_CHANNEL
-                and args.continue_existing_session
-            )
             or session.entity_id != args.entity_id
             or session.forked_from_session_id is not None
             or started_by_teammate

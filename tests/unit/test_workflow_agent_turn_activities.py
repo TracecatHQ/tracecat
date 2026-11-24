@@ -454,6 +454,28 @@ async def test_channel_reply_action_retry_adopts_its_own_session() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("backend_id", [None, "external"])
+async def test_channel_reply_action_never_continues_a_session_on_any_backend(
+    backend_id: str | None,
+) -> None:
+    """``channel`` with ``session_id`` is refused before the backend split."""
+    preset_id = uuid.uuid4()
+    existing = _existing(
+        backend_id=backend_id,
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=preset_id,
+    )
+    args = _args(
+        session_id=existing.id, entity_id=preset_id, continue_existing_session=True
+    ).model_copy(update={"entity_type": AgentSessionEntity.EXTERNAL_CHANNEL})
+    for service in (_service(existing=existing), _service()):
+        with _activity_env(service, selected="oss"):
+            with pytest.raises(ApplicationError) as exc_info:
+                await _select(args)
+            assert exc_info.value.non_retryable
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("actor", "creator", "refused"),
     [
