@@ -61,6 +61,7 @@ export function useAgentPresetChannelTools(
   presetId: string | undefined
 ): AgentPresetChannelToolGroup[] {
   const { hasEntitlement } = useEntitlements()
+  const entitled = hasEntitlement("agent_channels_preview")
   const { data } = useQuery({
     // Under the bots key, so any bot or route change refetches it.
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "preset-tools", presetId],
@@ -69,12 +70,11 @@ export function useAgentPresetChannelTools(
         workspaceId,
         presetId: presetId as string,
       }),
-    enabled:
-      Boolean(workspaceId && presetId) &&
-      hasEntitlement("agent_channels_preview"),
+    enabled: Boolean(workspaceId && presetId) && entitled,
     meta: { suppressErrorToast: true },
   })
-  return data?.groups ?? NO_CHANNEL_TOOLS
+  // A disabled query keeps its cached groups; without the entitlement, none show.
+  return (entitled && data?.groups) || NO_CHANNEL_TOOLS
 }
 
 /** Preview unsaved skill tools without surfacing validation failures as toasts. */
