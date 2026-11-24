@@ -15,6 +15,9 @@ import { renderWithClient } from "@/components/agents/external-channels/channel-
 import { useSlackPlatformAppAvailable } from "@/hooks/use-agent-channel-bots"
 
 jest.mock("@/client")
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => true,
+}))
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -46,11 +49,10 @@ describe("useAgentsChannelsHref", () => {
     )
   })
 
-  it("is undefined without a registered Slack app", async () => {
+  it("links the Channels page without a registered Slack app", async () => {
     const href = hrefOf()
-    await waitFor(() => expect(api.listPlatformApps).toHaveBeenCalled())
     await href.settled()
-    expect(href()).toBeUndefined()
+    expect(href()).toBe("/workspaces/workspace-1/agents/channels")
   })
 
   it("is undefined without the preview entitlement", async () => {

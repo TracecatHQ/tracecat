@@ -39,6 +39,7 @@ import {
   useChannelBotRoutableChannels,
   useChannelRoutesToAgent,
   usePlatformChannelBots,
+  useSlackPlatformAppAvailable,
 } from "@/hooks/use-agent-channel-bots"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { getApiErrorDetail, isEntitlementRequiredError } from "@/lib/errors"
@@ -149,14 +150,15 @@ function PlatformSlackCard({
   agentPresetId: string
 }) {
   const channelsHref = useAgentsChannelsHref(workspaceId)
+  const { slackPlatformAvailable } = useSlackPlatformAppAvailable(workspaceId)
   const { installs } = usePlatformChannelBots(
     workspaceId,
     "slack",
-    channelsHref !== undefined
+    slackPlatformAvailable
   )
   const canUpdateAgent = useScopeCheck("agent:update") === true
   // A skipped query still returns data cached before the gate closed.
-  if (channelsHref === undefined || !installs) {
+  if (!slackPlatformAvailable || channelsHref === undefined || !installs) {
     return null
   }
   const { install, state } = platformInstallState(installs)
