@@ -47,14 +47,14 @@ Start with the read-only scopes a security bot needs for triage, then add respon
 | `https://www.googleapis.com/auth/admin.reports.usage.readonly` | Customer, user, and entity usage reports | `tools.google_reports.get_*_usage_report` | `Reports` |
 | `https://www.googleapis.com/auth/apps.alerts` | Alert Center alerts, metadata, and feedback | `tools.google_alert_center.*` | `Services` > `Alert Center` |
 | `https://www.googleapis.com/auth/admin.directory.user.readonly` | User profiles, admin status, 2-Step Verification enrollment, last login | `tools.google_directory.get_user`, `list_users` | `Users` > `Read` |
-| `https://www.googleapis.com/auth/admin.directory.user.security` | Third-party OAuth tokens, app passwords, backup verification codes, sign-in sessions, 2-Step Verification | `tools.google_directory.list_tokens`, `delete_token`, `list_asps`, `sign_out_user`, `turn_off_two_step_verification` | `Security` > `User Security Management` |
 
-`admin.directory.user.security` includes write operations such as revoking tokens and signing out users. The Alert Center API exposes a single `apps.alerts` scope for both reading and updating alerts.
+The Alert Center API exposes a single `apps.alerts` scope for both reading and updating alerts.
 
 ### Optional scopes
 
 | Scope | Use it for | Actions |
 | --- | --- | --- |
+| `https://www.googleapis.com/auth/admin.directory.user.security` | List or revoke third-party OAuth tokens and app passwords, sign out users, turn off 2-Step Verification | `tools.google_directory.list_tokens`, `delete_token`, `list_asps`, `sign_out_user`, `turn_off_two_step_verification` |
 | `https://www.googleapis.com/auth/admin.directory.user` | Suspend users, reset passwords, update user fields | `tools.google_directory.patch_user` |
 | `https://www.googleapis.com/auth/admin.directory.group.readonly` | Read groups for blast-radius checks | `tools.google_directory.get_group`, `list_groups` |
 | `https://www.googleapis.com/auth/admin.directory.group.member` | Remove a compromised user from groups | `tools.google_directory.delete_member` |
@@ -62,6 +62,8 @@ Start with the read-only scopes a security bot needs for triage, then add respon
 | `https://www.googleapis.com/auth/admin.directory.device.mobile.action` | Block or wipe a managed mobile device | `tools.google_directory.action_mobile_device` |
 | `https://www.googleapis.com/auth/admin.directory.device.chromeos` | Disable or move ChromeOS devices | `tools.google_directory.batch_change_chromeos_device_status`, `move_chromeos_devices_to_ou` |
 | `https://www.googleapis.com/auth/admin.directory.orgunit.readonly` | Read organizational units | `tools.google_directory.get_orgunit`, `list_orgunits` |
+
+`admin.directory.user.security` has no read-only variant: the same scope that lists tokens also revokes them, signs users out, and turns off 2-Step Verification. Add it, and the `Security` > `User Security Management` privilege, only when your workflows run these actions. Use `tools.google_reports.list_activities` with `application_name: token` to audit third-party app grants without it.
 
 Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing email use the separate `google_gmail` integration and the `gmail.readonly` or `gmail.modify` scope. Gmail delegation impersonates the mailbox owner, not the bot user, and gives the service account access to every mailbox in the domain. Authorize those scopes on a separate service account only if your workflows remediate mailboxes.
 
@@ -104,7 +106,7 @@ Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing em
 
     - `Reports`
     - `Services` > `Alert Center` (full access to update or delete alerts, view access for read-only)
-    - `Security` > `User Security Management`
+    - `Security` > `User Security Management`, only if you delegate `admin.directory.user.security`
     - `Users` > `Read`, or `Users` > `Update` to suspend users or reset passwords
 
     Avoid the `Super Admin` role. `User Security Management` and `Users` privileges only apply to users who are not admins; only a super admin can sign out or revoke tokens for another admin.
@@ -116,7 +118,7 @@ Gmail actions (`tools.gmail`) such as pulling or trashing a reported phishing em
     Sign in as a super admin and open [Manage Domain Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) (`Security` > `Access and data control` > `API controls` > `Manage Domain Wide Delegation`). Click `Add new`, paste the client ID, and enter your scopes as a comma-separated list:
 
     ```text
-    https://www.googleapis.com/auth/admin.reports.audit.readonly,https://www.googleapis.com/auth/admin.reports.usage.readonly,https://www.googleapis.com/auth/apps.alerts,https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.user.security
+    https://www.googleapis.com/auth/admin.reports.audit.readonly,https://www.googleapis.com/auth/admin.reports.usage.readonly,https://www.googleapis.com/auth/apps.alerts,https://www.googleapis.com/auth/admin.directory.user.readonly
     ```
 
     Click `Authorize`, then hover over the client, click `View details`, and confirm every scope is listed. Changes usually apply within minutes and can take up to 24 hours. If your organization uses multi-party approval, a second super admin must approve the change.
