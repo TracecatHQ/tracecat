@@ -187,13 +187,16 @@ it("removes a removed tool's rules, retaining false rules on default-auto tools"
       { tool: "other", allow: false },
     ],
   }
-  expect(
-    removeTools(fields, new Set(fields.actions), new Set(["ask"]))
-  ).toEqual({
+  const index = buildToolIndex(
+    [registryTool("ask", { requires_approval: true }), registryTool("auto")],
+    [],
+    { filterAgentTools: false }
+  )
+  expect(removeTools(fields, new Set(fields.actions), index)).toEqual({
     actions: [],
     toolApprovals: [fields.toolApprovals[2], fields.toolApprovals[4]],
   })
-  const unchanged = removeTools(fields, new Set(["missing"]), new Set(["ask"]))
+  const unchanged = removeTools(fields, new Set(["missing"]), index)
   expect(unchanged.actions).toBe(fields.actions)
   expect(unchanged.toolApprovals).toBe(fields.toolApprovals)
 })
@@ -212,7 +215,13 @@ it("keeps approval rules for removed tools still granted by another source", () 
     removeTools(
       fields,
       new Set(fields.actions),
-      new Set(fields.actions),
+      buildToolIndex(
+        fields.actions.map((key) =>
+          registryTool(key, { requires_approval: true })
+        ),
+        [],
+        { filterAgentTools: false }
+      ),
       new Set(["retained"])
     )
   ).toEqual({

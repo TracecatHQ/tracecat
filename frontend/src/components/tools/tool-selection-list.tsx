@@ -183,15 +183,6 @@ export const ToolSelectionList = memo(function ToolSelectionList({
       ),
     [index]
   )
-  const defaultAskKeys = useMemo(
-    () =>
-      new Set(
-        index.entries
-          .filter((entry) => entry.defaultAsk)
-          .map((entry) => entry.key)
-      ),
-    [index]
-  )
   const [open, setOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -259,14 +250,16 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   }
 
   function changeApproval(key: string, ask: boolean) {
-    writeRules(setToolApproval(rules, key, ask, defaultAskKeys.has(key)))
+    writeRules(
+      setToolApproval(rules, key, ask, index.byKey.get(key)?.defaultAsk)
+    )
   }
 
   function remove(keys: string[]) {
     const next = removeTools(
       { actions, toolApprovals: rules },
       new Set(keys),
-      defaultAskKeys,
+      index,
       new Set(skillActions)
     )
     if (next.actions === actions && next.toolApprovals === rules) return
@@ -278,7 +271,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   function groupApproval(keys: string[], ask: boolean) {
     let next = rules
     for (const key of keys)
-      next = setToolApproval(next, key, ask, defaultAskKeys.has(key))
+      next = setToolApproval(next, key, ask, index.byKey.get(key)?.defaultAsk)
     writeRules(next)
   }
 

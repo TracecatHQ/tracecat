@@ -249,7 +249,7 @@ export function setToolApproval(
 export function removeTools(
   fields: Pick<PresetToolFields, "actions" | "toolApprovals">,
   removed: ReadonlySet<string>,
-  defaultAskKeys: ReadonlySet<string> = new Set(),
+  index?: ToolIndex,
   retainedKeys: ReadonlySet<string> = new Set()
 ): Pick<PresetToolFields, "actions" | "toolApprovals"> {
   const actions = fields.actions.filter((key) => !removed.has(key))
@@ -257,7 +257,7 @@ export function removeTools(
     (rule) =>
       !removed.has(rule.tool) ||
       retainedKeys.has(rule.tool) ||
-      (!rule.allow && !defaultAskKeys.has(rule.tool))
+      (!rule.allow && !index?.byKey.get(rule.tool)?.defaultAsk)
   )
   return {
     actions:

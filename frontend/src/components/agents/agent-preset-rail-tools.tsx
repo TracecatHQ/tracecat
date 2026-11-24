@@ -70,14 +70,13 @@ type RailToolsData = {
   unknown: string[]
   selectedCount: number
   approvalCount: number
-  defaultAskKeys: Set<string>
 }
 
 function useRailToolsData(
   registryActions: RegistryActionReadMinimal[] | undefined,
   mcpIntegrations: MCPIntegrationRead[],
   ready: boolean,
-  channelTools: AgentPresetChannelToolGroup[] = NO_CHANNEL_TOOLS
+  channelTools: AgentPresetChannelToolGroup[]
 ): RailToolsData & ReturnType<typeof usePresetToolFields> {
   const { value, onChange } = usePresetToolFields()
   const index = useMemo(
@@ -148,9 +147,6 @@ function useRailToolsData(
       groups.reduce((total, group) => total + group.selected.length, 0) +
       integrations.length +
       unknown.length
-    const defaultAskKeys = new Set(
-      index.entries.filter((entry) => entry.defaultAsk).map((e) => e.key)
-    )
     return {
       index,
       groups,
@@ -158,7 +154,6 @@ function useRailToolsData(
       unknown,
       selectedCount,
       approvalCount,
-      defaultAskKeys,
     }
   }, [index, ready, value])
   return { ...data, value, onChange }
@@ -199,7 +194,6 @@ export function AgentPresetRailTools({
     unknown,
     selectedCount,
     approvalCount: groupApprovalCount,
-    defaultAskKeys,
     value,
     onChange,
   } = useRailToolsData(registryActions, mcpIntegrations, ready, channelTools)
@@ -231,7 +225,7 @@ export function AgentPresetRailTools({
       value.toolApprovals,
       key,
       !ask,
-      defaultAskKeys.has(key)
+      index.byKey.get(key)?.defaultAsk
     )
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
@@ -486,36 +480,52 @@ type RailToolGroupProps = {
 
 /** Drill-in for one tool group: a selected integration or a channel connection. */
 export function AgentPresetRailToolGroup(props: RailToolGroupProps) {
+  const ready =
+    !props.registryLoading && !props.mcpLoading && !props.toolsLoadError
+  const channelTools = props.channelTools ?? NO_CHANNEL_TOOLS
+  const data = useRailToolsData(
+    props.registryActions,
+    props.mcpIntegrations,
+    ready,
+    channelTools
+  )
   if (isChannelGroupKey(props.groupKey)) {
     return (
       <ChannelToolGroupDetail
         groupKey={props.groupKey}
-        channelTools={props.channelTools ?? NO_CHANNEL_TOOLS}
+        channelTools={channelTools}
+        index={data.index}
         isSaving={props.isSaving}
       />
     )
   }
-  return <RegistryToolGroupDetail {...props} />
+  return (
+    <RegistryToolGroupDetail
+      {...props}
+      channelTools={channelTools}
+      ready={ready}
+      data={data}
+    />
+  )
 }
 
 /** Drill-in for one integration: per-tool approval and removal. */
 function RegistryToolGroupDetail({
   groupKey,
-  registryActions,
-  mcpIntegrations,
-  registryLoading,
-  mcpLoading,
   toolsLoadError,
   isSaving,
   maxTools,
   skillActions,
-  channelTools = NO_CHANNEL_TOOLS,
+  channelTools,
   onEmptied,
-}: RailToolGroupProps) {
+  ready,
+  data: { index, groups, unknown, value, onChange },
+}: RailToolGroupProps & {
+  channelTools: AgentPresetChannelToolGroup[]
+  ready: boolean
+  data: ReturnType<typeof useRailToolsData>
+}) {
   const [pickerOpen, setPickerOpen] = useState(false)
-  const ready = !registryLoading && !mcpLoading && !toolsLoadError
-  const { index, groups, unknown, value, onChange, defaultAskKeys } =
-    useRailToolsData(registryActions, mcpIntegrations, ready)
   const group = groups.find((candidate) => candidate.key === groupKey)
   const superseded = group
     ? supersededBy(group.namespace, channelTools) !== undefined
@@ -544,7 +554,7 @@ function RegistryToolGroupDetail({
       value.toolApprovals,
       key,
       !ask,
-      defaultAskKeys.has(key)
+      index.byKey.get(key)?.defaultAsk
     )
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
@@ -561,7 +571,7 @@ function RegistryToolGroupDetail({
     const next = removeTools(
       { actions: value.actions, toolApprovals: value.toolApprovals },
       new Set([key]),
-      defaultAskKeys,
+      index,
       new Set(skillActions ?? [])
     )
     onChange({ ...value, ...next })
@@ -570,7 +580,12 @@ function RegistryToolGroupDetail({
   function setAllApprovals(ask: boolean) {
     let next = value.toolApprovals
     for (const row of rows) {
-      next = setToolApproval(next, row.key, ask, defaultAskKeys.has(row.key))
+      next = setToolApproval(
+        next,
+        row.key,
+        ask,
+        index.byKey.get(row.key)?.defaultAsk
+      )
     }
     if (next !== value.toolApprovals)
       onChange({ ...value, toolApprovals: next })
@@ -580,7 +595,7 @@ function RegistryToolGroupDetail({
     const next = removeTools(
       { actions: value.actions, toolApprovals: value.toolApprovals },
       new Set(rows.map((row) => row.key)),
-      defaultAskKeys,
+      index,
       new Set(skillActions ?? [])
     )
     onChange({ ...value, ...next })

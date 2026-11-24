@@ -94,7 +94,8 @@ function Form({
 function renderTools(
   channelTools: AgentPresetChannelToolGroup[],
   onOpenGroup = jest.fn(),
-  toolApprovals: PresetToolFields["toolApprovals"] = []
+  toolApprovals: PresetToolFields["toolApprovals"] = [],
+  skillActions?: string[]
 ) {
   render(
     <Form toolApprovals={toolApprovals}>
@@ -105,6 +106,7 @@ function renderTools(
         mcpLoading={false}
         toolsLoadError={false}
         isSaving={false}
+        skillActions={skillActions}
         channelTools={channelTools}
         onOpenGroup={onOpenGroup}
       />
@@ -175,6 +177,28 @@ describe("AgentPresetRailTools approval count", () => {
     expect(screen.getByText("2 need approval")).toBeInTheDocument()
     const group = screen.getByRole("button", { name: /as @Tracecat/ })
     expect(within(group).getByTitle("2 need approval")).toBeInTheDocument()
+  })
+})
+
+describe("AgentPresetRailTools channel tool defaults", () => {
+  it("treats a requires_approval channel tool as Ask when toggled from the rail", () => {
+    const tools: AgentPresetChannelToolGroup = {
+      ...SLACK_TOOLS,
+      tools: SLACK_TOOLS.tools.map((tool) =>
+        tool.name === POST ? { ...tool, requires_approval: true } : tool
+      ),
+    }
+    renderTools([tools], jest.fn(), [], [POST])
+
+    const toggle = screen.getByRole("button", {
+      name: `Require approval for ${POST}`,
+    })
+    expect(toggle).toHaveAttribute("aria-pressed", "true")
+    // Ask -> Auto differs from the default, so an explicit rule is stored.
+    fireEvent.click(toggle)
+    expect(approvals).toEqual([{ tool: POST, allow: false }])
+    fireEvent.click(toggle)
+    expect(approvals).toEqual([])
   })
 })
 

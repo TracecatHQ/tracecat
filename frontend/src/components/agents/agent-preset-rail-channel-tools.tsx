@@ -1,7 +1,7 @@
 "use client"
 
 import { Info } from "lucide-react"
-import { useId, useMemo } from "react"
+import { useId } from "react"
 import type { AgentPresetChannelToolGroup } from "@/client"
 import {
   APPROVAL_DOT,
@@ -20,14 +20,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
-  createToolIndex,
   getToolApproval,
   isInNamespaces,
   type PresetToolFields,
   setToolApproval,
   type ToolEntry,
   type ToolIndex,
-  withChannelTools,
 } from "@/lib/agent-preset-tools"
 import { cn } from "@/lib/utils"
 
@@ -124,7 +122,6 @@ export function ChannelToolsSection({
 }: {
   channelTools: AgentPresetChannelToolGroup[]
   toolApprovals: PresetToolFields["toolApprovals"]
-  /** Must include `channelTools` via `withChannelTools`. */
   index: ToolIndex
   onOpenGroup: (groupKey: string, title: string) => void
 }) {
@@ -182,17 +179,19 @@ export function ChannelToolsSection({
 export function ChannelToolGroupDetail({
   groupKey,
   channelTools,
+  index,
   isSaving,
 }: {
   groupKey: string
   channelTools: AgentPresetChannelToolGroup[]
+  index: ToolIndex
   isSaving: boolean
 }) {
   const group = channelTools.find(
     (candidate) => channelGroupKey(candidate.provider) === groupKey
   )
   return group ? (
-    <ChannelToolList group={group} isSaving={isSaving} />
+    <ChannelToolList group={group} index={index} isSaving={isSaving} />
   ) : (
     <RailEmpty>Not connected to a channel.</RailEmpty>
   )
@@ -201,16 +200,14 @@ export function ChannelToolGroupDetail({
 /** A channel connection's tools: granted, never added or removed; Ask or Auto each. */
 function ChannelToolList({
   group,
+  index,
   isSaving,
 }: {
   group: AgentPresetChannelToolGroup
+  index: ToolIndex
   isSaving: boolean
 }) {
   const { value, onChange } = usePresetToolFields()
-  const index = useMemo(
-    () => withChannelTools(createToolIndex([]), [group]),
-    [group]
-  )
   const rows = group.tools.map((tool) => ({
     tool,
     ask: getToolApproval(value.toolApprovals, tool.name, index),
