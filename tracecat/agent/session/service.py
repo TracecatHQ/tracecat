@@ -16,6 +16,7 @@ from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from claude_agent_sdk.types import TextBlock, UserMessage
 from pydantic import ValidationError
 from sqlalchemy import (
+    Select,
     and_,
     case,
     column,
@@ -68,6 +69,8 @@ from tracecat.agent.backends.types import (
     TurnAlreadyStarted,
 )
 from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channel_users.service import linked_members
+from tracecat.agent.channel_users.types import ChannelIdentity
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
     AgentCancelControl,
@@ -94,6 +97,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     session_line_uuid,
 )
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.history import (
     SessionHistoryContent,
     decode_raw_session_line,
@@ -125,8 +129,10 @@ from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
     AgentSessionEntity,
     PreparedAgentTurn,
+    SessionAccess,
     TurnLifecycle,
     TurnLifecycleResult,
+    is_session_owner,
 )
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
@@ -147,6 +153,7 @@ from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.chat.constants import CHANNEL_MESSAGE_DATA_PART_TYPE
@@ -161,6 +168,7 @@ from tracecat.chat.schemas import (
     ChatRequest,
     ChatResponse,
     ContinueRunRequest,
+    MessageAuthor,
     VercelChatRequest,
 )
 from tracecat.chat.service import ChatService
@@ -358,9 +366,9 @@ class SessionAwaitingApprovalsError(ValueError):
     """A new message arrived while the session waits for approval decisions."""
 
 
-def _display_text(text: str, *, channel_session: bool) -> str:
+def _display_text(text: str, *, origin: UserMessageOrigin | None) -> str:
     """A user message's text as people read it: a channel message's summary."""
-    if channel_session and (message := ChannelMessage.parse(text)):
+    if origin == UserMessageOrigin.CHANNEL and (message := ChannelMessage.parse(text)):
         return message.summary_text()
     return text
 
@@ -699,23 +707,62 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def session_access(self, agent_session: AgentSession) -> SessionAccess:
+        """What the role may do in one session; see ``sessions_access``."""
+        return (await self.sessions_access([agent_session]))[agent_session.id]
+
+    async def sessions_access(
+        self, sessions: Sequence[AgentSession]
+    ) -> dict[uuid.UUID, SessionAccess]:
+        """What the role may do in each session, in at most one query.
+
+        A user may act on a session they own; with ``agent:execute`` they may also
+        act on a workflow session, an ownerless channel session, or one they sent
+        a message in. Deciding approvals is acting with ``agent:execute``.
+        """
+        execute = self.role.scopes is not None and has_scope(
+            self.role.scopes, "agent:execute"
+        )
+        acting = {
+            s.id
+            for s in sessions
+            if is_session_owner(self.role, s.created_by)
+            or (
+                execute
+                and (
+                    s.entity_type == AgentSessionEntity.WORKFLOW
+                    or (
+                        s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
+                        and s.created_by is None
+                    )
+                )
+            )
+        }
+        # Only participation can still grant the rest.
+        rest = [s.id for s in sessions if s.id not in acting]
+        if execute and self.role.user_id is not None and rest:
+            result = await self.session.scalars(
+                self._authored_session_ids(self.role.user_id)
+                .where(AgentSessionHistory.session_id.in_(rest))
+                .distinct()
+            )
+            acting.update(result.all())
+        return {
+            s.id: SessionAccess(act=s.id in acting, decide=s.id in acting and execute)
+            for s in sessions
+        }
+
+    @staticmethod
+    def _authored_session_ids(user_id: UserID) -> Select[tuple[uuid.UUID]]:
+        """Sessions this user sent a message in: what participation means."""
+        return select(AgentSessionHistory.session_id).where(
+            AgentSessionHistory.author_id == user_id
+        )
+
     async def get_workspace_chat_session_ids(
         self, session_ids: Sequence[uuid.UUID]
     ) -> set[uuid.UUID]:
         """Find sessions whose own type or ancestry requires Workspace Chat."""
-        return await self._ids_with_entity_in_ancestry(
-            session_ids, AgentSessionEntity.WORKSPACE_CHAT, via_spawn=True
-        )
-
-    async def _ids_with_entity_in_ancestry(
-        self,
-        session_ids: Sequence[uuid.UUID],
-        entity_type: AgentSessionEntity,
-        *,
-        via_spawn: bool,
-    ) -> set[uuid.UUID]:
-        """The sessions that are, or forked (or, `via_spawn`, were spawned) from,
-        an `entity_type` session."""
         if not session_ids:
             return set()
         ancestry = (
@@ -732,9 +779,6 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .cte("session_ancestry", recursive=True)
         )
-        parents = [AgentSession.id == ancestry.c.forked_from_session_id]
-        if via_spawn:
-            parents.append(AgentSession.id == ancestry.c.spawned_by_session_id)
         # UNION deduplicates visited (root, ancestor) pairs, including cycles.
         ancestry = ancestry.union(
             select(
@@ -746,13 +790,16 @@ class AgentSessionService(BaseWorkspaceService):
             )
             .join(
                 ancestry,
-                or_(*parents),
+                or_(
+                    AgentSession.id == ancestry.c.spawned_by_session_id,
+                    AgentSession.id == ancestry.c.forked_from_session_id,
+                ),
             )
             .where(AgentSession.workspace_id == self.workspace_id)
         )
         result = await self.session.scalars(
             select(ancestry.c.root_id)
-            .where(ancestry.c.entity_type == entity_type.value)
+            .where(ancestry.c.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value)
             .distinct()
         )
         return set(result.all())
@@ -932,6 +979,7 @@ class AgentSessionService(BaseWorkspaceService):
         spawned_by_session_id: uuid.UUID | None = None,
         forked_from_session_id: uuid.UUID | None = None,
         include_children: bool = False,
+        participating: bool = False,
         limit: int = 100,
     ) -> list[AgentSessionRead | ChatReadMinimal]:
         """List agent sessions and read-only legacy chats for the workspace.
@@ -945,11 +993,16 @@ class AgentSessionService(BaseWorkspaceService):
             spawned_by_session_id: Filter by spawning parent session ID.
             forked_from_session_id: Filter by history source session ID.
             include_children: Include spawned children without a parent filter.
+            participating: Only the role's chats: copilot sessions it created, and
+                copilot or channel sessions it sent a message in.
             limit: Maximum number of results.
 
         Returns:
             Agent sessions and legacy chat metadata sorted by creation time.
         """
+        viewer_id = self.role.user_id
+        if participating and viewer_id is None:
+            return []
         # Query AgentSession table
         session_stmt = select(AgentSession).where(
             AgentSession.workspace_id == self.workspace_id
@@ -982,6 +1035,27 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.forked_from_session_id == forked_from_session_id
             )
+        if participating:
+            assert viewer_id is not None
+            authored = self._authored_session_ids(viewer_id)
+            session_stmt = session_stmt.where(
+                or_(
+                    and_(
+                        AgentSession.entity_type
+                        == AgentSessionEntity.WORKSPACE_CHAT.value,
+                        AgentSession.created_by == viewer_id,
+                    ),
+                    and_(
+                        AgentSession.entity_type.in_(
+                            [
+                                AgentSessionEntity.WORKSPACE_CHAT.value,
+                                AgentSessionEntity.EXTERNAL_CHANNEL.value,
+                            ]
+                        ),
+                        AgentSession.id.in_(authored),
+                    ),
+                )
+            )
         # Bound query cost at the database layer; we still merge+sort below.
         session_stmt = session_stmt.order_by(AgentSession.created_at.desc()).limit(
             limit
@@ -999,6 +1073,11 @@ class AgentSessionService(BaseWorkspaceService):
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
+            if participating:
+                chat_stmt = chat_stmt.where(
+                    Chat.user_id == viewer_id,
+                    Chat.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value,
+                )
             if entity_type is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
             if exclude_entity_types:
@@ -1016,8 +1095,14 @@ class AgentSessionService(BaseWorkspaceService):
             readonly_ids = await self.get_workspace_chat_session_ids(
                 [s.id for s in sessions]
             )
+        access = await self.sessions_access(sessions)
         items: list[AgentSessionRead | ChatReadMinimal] = [
-            build_session_read(s, self.role, readonly=s.id in readonly_ids)
+            build_session_read(
+                s,
+                self.role,
+                readonly=s.id in readonly_ids,
+                access=access[s.id],
+            )
             for s in sessions
         ]
         items.extend(
@@ -1633,10 +1718,9 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         expected_title: str,
     ) -> None:
-        """Best-effort auto-title on the first prompt."""
+        """Best-effort auto-title on the first prompt, as people read it."""
         entity_type = agent_session.entity_type
-        channel_session = await self.is_channel_session(agent_session)
-        prompt = _display_text(user_prompt, channel_session=channel_session).strip()
+        prompt = user_prompt.strip()
         old_title = expected_title
 
         if agent_session.title != expected_title:
@@ -2002,12 +2086,21 @@ class AgentSessionService(BaseWorkspaceService):
         request_instructions: str | None = None
         page_context: ChatPageContext | None = None
         is_continuation = False
+        origin = UserMessageOrigin.TRACECAT
+        author_id: uuid.UUID | None = None
 
         match request:
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
                 page_context = request.page_context
+                # validate_turn_request let a Retry through only for a message
+                # the session received from its channel.
+                if (retried := _retried_channel_message(ui_message)) is not None:
+                    origin = UserMessageOrigin.CHANNEL
+                    author_id = await self._retried_channel_message_author(
+                        agent_session, retried
+                    )
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
                     raise ValueError(
@@ -2034,6 +2127,8 @@ class AgentSessionService(BaseWorkspaceService):
             page_context=page_context,
             is_first_prompt=is_first_prompt,
             run_id=run_id,
+            origin=origin,
+            author_id=author_id,
             # Per-turn stream id: use the HTTP-minted id when provided, else mint
             # one. Pinned into the workflow input so the worker producer writes to
             # the same per-turn Redis key the reader joins (immune to the
@@ -2060,6 +2155,8 @@ class AgentSessionService(BaseWorkspaceService):
         is_first_prompt: bool | None,
         run_id: uuid.UUID,
         stream_id: uuid.UUID,
+        origin: UserMessageOrigin,
+        author_id: uuid.UUID | None = None,
     ) -> None:
         """Build the turn's config and start it as ``run_id`` on a validated session."""
         session_id = agent_session.id
@@ -2105,6 +2202,8 @@ class AgentSessionService(BaseWorkspaceService):
                     prompt=user_prompt or "",
                     run_id=run_id,
                     stream_id=stream_id,
+                    origin=origin,
+                    author_id=author_id,
                 )
             )
 
@@ -2114,7 +2213,7 @@ class AgentSessionService(BaseWorkspaceService):
                 task = asyncio.create_task(
                     _auto_title_session(
                         session_id=session_id,
-                        user_prompt=user_prompt,
+                        user_prompt=_display_text(user_prompt, origin=origin),
                         expected_title=expected_title,
                         role=self.role,
                     )
@@ -2241,7 +2340,7 @@ class AgentSessionService(BaseWorkspaceService):
         if retried is None:
             prompt = _extract_vercel_user_prompt(request.message)
             refuse_channel_envelope(prompt or "")
-        elif not await self._holds_channel_message(agent_session, retried):
+        elif await self._received_channel_message(agent_session, retried) is None:
             raise TracecatValidationError(
                 "Only a channel message this session received can be retried"
             )
@@ -2390,11 +2489,13 @@ class AgentSessionService(BaseWorkspaceService):
         text: str,
         request_id: str,
         instructions: str | None = None,
+        author_id: uuid.UUID | None = None,
     ) -> MessageResult:
         """Start a run for the message, or steer or refuse it while one is going.
 
         ``instructions`` is model-only context for a new turn; a steer into a
-        running turn carries only ``text``. When the run that refused the start
+        running turn carries only ``text``. ``author_id`` is the linked Tracecat
+        user who sent it, recorded as the message's author either way. When the run that refused the start
         finishes before the steer, the message is reported busy for that run.
         A steered message retried once the session is free starts a new turn:
         its own run never started, so the retry reads as a new message.
@@ -2408,11 +2509,12 @@ class AgentSessionService(BaseWorkspaceService):
                 text=text,
                 request_id=request_id,
                 instructions=instructions,
+                author_id=author_id,
             )
         except SessionTurnActiveError as e:
             holder = e.run_id
         steered = await self._steer_running_turn(
-            session_id, text=text, request_id=request_id
+            session_id, text=text, request_id=request_id, author_id=author_id
         )
         if isinstance(steered, TurnLifecycle):
             return RunBusy(run_id=holder)
@@ -2425,8 +2527,9 @@ class AgentSessionService(BaseWorkspaceService):
         text: str,
         request_id: str,
         instructions: str | None = None,
+        author_id: uuid.UUID | None = None,
     ) -> RunStarted:
-        """Start a turn for the message.
+        """Start a turn for the message, recording ``author_id`` as its author.
 
         A retry of the same ``request_id`` returns the run the first attempt
         started and re-issues a start whose outcome was lost. Recovery may
@@ -2470,6 +2573,8 @@ class AgentSessionService(BaseWorkspaceService):
                     page_context=None,
                     is_first_prompt=None,
                     run_id=run_id,
+                    origin=UserMessageOrigin.CHANNEL,
+                    author_id=author_id,
                     stream_id=uuid.uuid4(),
                 )
                 return RunStarted(run_id=run_id)
@@ -2486,6 +2591,7 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         text: str,
         request_id: str,
+        author_id: uuid.UUID | None = None,
     ) -> MessageResult:
         """Steer the session's running turn with the message, or report it busy.
 
@@ -2507,7 +2613,7 @@ class AgentSessionService(BaseWorkspaceService):
                 attempt's start of the message was lost.
         """
         steered = await self._steer_running_turn(
-            session_id, text=text, request_id=request_id
+            session_id, text=text, request_id=request_id, author_id=author_id
         )
         if isinstance(steered, TurnLifecycle):
             raise TracecatConflictError(
@@ -2517,7 +2623,12 @@ class AgentSessionService(BaseWorkspaceService):
         return steered
 
     async def _steer_running_turn(
-        self, session_id: uuid.UUID, *, text: str, request_id: str
+        self,
+        session_id: uuid.UUID,
+        *,
+        text: str,
+        request_id: str,
+        author_id: uuid.UUID | None,
     ) -> MessageResult | TurnLifecycle:
         """Steer the session's running turn, or return the lifecycle seen if none."""
         agent_session, backend = await self._message_session(session_id, request_id)
@@ -2544,7 +2655,14 @@ class AgentSessionService(BaseWorkspaceService):
             return RunBusy(run_id=curr_run_id)
         try:
             # The message's run id doubles as its steer id, deduplicated per session.
-            steered = await backend.steer(curr_run_id, message_run, text)
+            steered = await backend.steer(
+                curr_run_id,
+                message_run,
+                text,
+                # A channel message never falls back to the role: its sender may be unlinked.
+                author_id=author_id,
+                origin=UserMessageOrigin.CHANNEL,
+            )
         except AgentControlRejected:
             steered = False
         return (
@@ -2635,14 +2753,13 @@ class AgentSessionService(BaseWorkspaceService):
                 "This agent backend does not support listing pending messages"
             )
         pending = await backend.list_pending(session_id)
-        channel_session = await self.is_channel_session(agent_session)
         return AgentSessionPendingRead(
             session_id=session_id,
             items=[
                 AgentPendingMessageRead(
                     id=message.id,
                     type=message.type,
-                    text=_display_text(message.text, channel_session=channel_session),
+                    text=_display_text(message.text, origin=message.origin),
                     created_at=message.created_at,
                 )
                 for message in pending
@@ -2750,7 +2867,13 @@ class AgentSessionService(BaseWorkspaceService):
         """
         refuse_channel_envelope(request.text)
         backend, run_id = await self._get_control_turn(session_id, "steer")
-        accepted = await backend.steer(run_id, request.id, request.text)
+        accepted = await backend.steer(
+            run_id,
+            request.id,
+            request.text,
+            author_id=self.role.user_id if self.role.type == "user" else None,
+            origin=UserMessageOrigin.TRACECAT,
+        )
         return AgentControlReceipt(
             id=request.id,
             type=request.type,
@@ -3147,6 +3270,8 @@ class AgentSessionService(BaseWorkspaceService):
         *,
         kinds: Sequence[MessageKind] | None = None,
         include_active: bool = False,
+        with_authors: bool = False,
+        name_linked_senders: bool = True,
     ) -> list[ChatMessage]:
         """Retrieve session messages, optionally filtered by message kind.
 
@@ -3161,6 +3286,11 @@ class AgentSessionService(BaseWorkspaceService):
                 this True: they run before ``finalize_turn`` clears
                 ``curr_run_id``, so the default filter would otherwise omit the
                 just-completed turn from the returned ``message_history``.
+            with_authors: Name each prompt's sender (name, email). Only web reads
+                ask: agent and workflow outputs must not carry them.
+            name_linked_senders: With ``with_authors``, name author-less channel
+                prompts by their sender's current link. Display only; writes
+                that copy an author must pass False.
 
         Returns:
             List of ChatMessage objects (parent messages + current if forked).
@@ -3220,33 +3350,75 @@ class AgentSessionService(BaseWorkspaceService):
                 forked_from_history_id=agent_session.forked_from_history_id,
             )
 
-        return self._render_history_entries(
+        messages = self._render_history_entries(
             entries,
             history=history,
             approvals_by_tool_id=approval_by_tool_id,
+            authors_by_id=await self._message_authors(entries) if with_authors else {},
             kinds=kinds,
-            channel_session=await self.is_channel_session(agent_session),
         )
+        if with_authors and name_linked_senders:
+            await self._name_linked_channel_senders(messages)
+        return messages
 
-    async def _holds_channel_message(
+    async def _received_channel_message(
         self, agent_session: AgentSession, message: ChannelMessage
-    ) -> bool:
-        """Whether the session's history holds ``message`` as a user prompt."""
-        history = await self.list_messages(agent_session.id)
-        return any(entry.channel_message == message for entry in history)
-
-    async def is_channel_session(self, agent_session: AgentSession) -> bool:
-        """Whether the session, or the session it was forked from, is an external
-        channel session, whose user messages may be rendered channel messages."""
-        if agent_session.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value:
-            return True
-        if agent_session.forked_from_session_id is None:
-            return False
-        return bool(
-            await self._ids_with_entity_in_ancestry(
-                [agent_session.id], AgentSessionEntity.EXTERNAL_CHANNEL, via_spawn=False
-            )
+    ) -> ChatMessage | None:
+        """The session's history entry holding ``message`` as a user prompt."""
+        history = await self.list_messages(
+            agent_session.id, with_authors=True, name_linked_senders=False
         )
+        return next(
+            (entry for entry in history if entry.channel_message == message), None
+        )
+
+    async def _retried_channel_message_author(
+        self, agent_session: AgentSession, message: ChannelMessage
+    ) -> uuid.UUID | None:
+        """Who a Retry of ``message`` credits: its original sender, never the retrier.
+
+        A fork reads its parent's rows, so a Retry there credits nobody.
+        """
+        if agent_session.forked_from_session_id is not None:
+            return None
+        received = await self._received_channel_message(agent_session, message)
+        return received.author.id if received and received.author else None
+
+    async def _message_authors(
+        self, entries: Sequence[AgentSessionHistory]
+    ) -> dict[uuid.UUID, MessageAuthor]:
+        """The users who sent the entries' user prompts, by ID."""
+        author_ids = {entry.author_id for entry in entries if entry.author_id}
+        if not author_ids:
+            return {}
+        users = await self.session.scalars(
+            select(User).where(User.id.in_(author_ids))  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        return {user.id: MessageAuthor.model_validate(user) for user in users}
+
+    async def _name_linked_channel_senders(self, messages: list[ChatMessage]) -> None:
+        """Name author-less channel prompts by their sender's linked Tracecat user.
+
+        Display only: participation still reads the stored ``author_id``.
+        """
+        by_sender: dict[ChannelIdentity, list[ChatMessage]] = {}
+        for message in messages:
+            channel = message.channel_message
+            if message.author or not channel or not channel.sender.provider_team_id:
+                continue
+            identity = ChannelIdentity(
+                provider=channel.provider.value,
+                provider_tenant_id=channel.sender.provider_team_id,
+                provider_user_id=channel.sender.provider_user_id,
+            )
+            by_sender.setdefault(identity, []).append(message)
+        members = await linked_members(
+            self.session, organization_id=self.organization_id, identities=by_sender
+        )
+        for identity, user in members.items():
+            author = MessageAuthor.model_validate(user)
+            for message in by_sender[identity]:
+                message.author = author
 
     def _render_history_entries(
         self,
@@ -3255,7 +3427,7 @@ class AgentSessionService(BaseWorkspaceService):
         approvals_by_tool_id: dict[str, Approval],
         kinds: Sequence[MessageKind] | None,
         history: SessionHistoryAdapter | None = None,
-        channel_session: bool = False,
+        authors_by_id: Mapping[uuid.UUID, MessageAuthor],
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
@@ -3338,7 +3510,10 @@ class AgentSessionService(BaseWorkspaceService):
                     message=message,
                     created_at=_session_line_time(content),
                     channel_message=_channel_message_of(message)
-                    if channel_session
+                    if entry.origin == UserMessageOrigin.CHANNEL
+                    else None,
+                    author=authors_by_id.get(entry.author_id)
+                    if entry.author_id
                     else None,
                 )
             )

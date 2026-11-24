@@ -9,7 +9,6 @@ from typing import NamedTuple
 
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope
 from tracecat.identifiers import UserID
 
 
@@ -27,36 +26,12 @@ def is_session_owner(role: Role, created_by: UserID | None) -> bool:
     return True
 
 
-def can_act_on_session(role: Role, entity_type: str, created_by: UserID | None) -> bool:
-    """Return whether an actor may act on a session: message, steer, stop it.
+@dataclass(frozen=True, slots=True)
+class SessionAccess:
+    """What an actor may do in a session: act (message, steer, stop) and decide approvals."""
 
-    WORKFLOW-typed sessions belong to the workspace, so any member with
-    ``agent:execute`` may act on them. Every other session is its owner's.
-    """
-    if is_session_owner(role, created_by):
-        return True
-    return (
-        entity_type == AgentSessionEntity.WORKFLOW
-        and role.scopes is not None
-        and has_scope(role.scopes, "agent:execute")
-    )
-
-
-def can_decide_on_session(
-    role: Role, entity_type: str, created_by: UserID | None
-) -> bool:
-    """Return whether an actor may decide a session's pending approvals.
-
-    Anyone may decide on an ownerless channel session, as anyone in the channel can.
-    """
-    return can_act_on_session(
-        role, entity_type, created_by
-    ) or is_ownerless_channel_session(entity_type, created_by)
-
-
-def is_ownerless_channel_session(entity_type: str, created_by: UserID | None) -> bool:
-    """A session started from an external channel: no creator owns it."""
-    return entity_type == AgentSessionEntity.EXTERNAL_CHANNEL and created_by is None
+    act: bool
+    decide: bool
 
 
 class TurnLifecycle(StrEnum):

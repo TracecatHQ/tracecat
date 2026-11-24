@@ -56,6 +56,7 @@ from tracecat.agent.mcp.stdio_runner import (
     StdioMCPServer,
 )
 from tracecat.agent.references.contracts import ReferenceCapabilities
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.stream.feed import SessionFeedEventType, publish_session_event
 from tracecat.concurrency import rejoin_future_on_cancel
@@ -473,6 +474,8 @@ class AgentBackend[InputT, OutputT](ABC):
                     prompt=context.prompt,
                     run_id=context.run_id,
                     stream_id=context.stream_id,
+                    origin=context.origin,
+                    author_id=context.author_id,
                 )
             )
             search_attributes = self._search_attributes(context)
@@ -698,8 +701,19 @@ class AgentBackend[InputT, OutputT](ABC):
         )
         return resumed is not False
 
-    async def steer(self, run_id: UUID, message_id: UUID, text: str) -> bool:
+    async def steer(
+        self,
+        run_id: UUID,
+        message_id: UUID,
+        text: str,
+        *,
+        author_id: UUID | None,
+        origin: UserMessageOrigin,
+    ) -> bool:
         """Deliver a message to a running turn; False means the turn refused it.
+
+        ``author_id`` and ``origin`` belong to this message, not the turn: record
+        them on the message's own history row.
 
         Idempotency is session-scoped: a ``message_id`` reaches at most one turn
         of the session. A retry returns the first outcome, even when a later

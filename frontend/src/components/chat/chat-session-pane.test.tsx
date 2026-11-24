@@ -24,7 +24,12 @@ import {
   agentSessionsListPendingMessages,
 } from "@/client"
 
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -164,6 +169,11 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: jest.fn(() => true),
 }))
+jest.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: { id: "user-1", email: "al@example.com", firstName: "Al" },
+  }),
+}))
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: jest.fn(() => ({
     hasEntitlement: () => false,
@@ -175,6 +185,7 @@ jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => "locked",
 }))
 jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPreset: jest.fn(() => ({ preset: undefined })),
   useAgentPresets: jest.fn(() => ({
     presets: [],
     presetsIsLoading: false,
@@ -1097,6 +1108,42 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     }
   })
 
+  it("names the missing scope when a shared session is read-only", async () => {
+    jest.mocked(useScopeCheck).mockReturnValue(false)
+    try {
+      renderChatSessionPane({
+        chat: {
+          id: "channel-session",
+          workspace_id: "workspace-1",
+          title: "Slack thread",
+          created_by: null,
+          is_readonly: true,
+          entity_type: "external_channel",
+          entity_id: "preset-1",
+          channel_context: null,
+          tools: [],
+          mcp_integrations: [],
+          agent_preset_id: "preset-1",
+          agent_preset_version_id: null,
+          harness_type: "pi",
+          created_at: "2026-09-25T00:00:00Z",
+          updated_at: "2026-09-25T00:00:00Z",
+          messages: [],
+        },
+      })
+
+      const badge = await screen.findByText("Read only")
+      expect(badge.parentElement).toHaveTextContent(
+        AGENT_EXECUTE_REQUIRED_MESSAGE
+      )
+      expect(
+        screen.getByPlaceholderText(AGENT_EXECUTE_REQUIRED_MESSAGE)
+      ).toBeDisabled()
+    } finally {
+      jest.mocked(useScopeCheck).mockReturnValue(true)
+    }
+  })
+
   it("lets a member decide a read-only channel session's approvals", async () => {
     const channel = { is_readonly: true, can_decide_approvals: true }
     mockUseVercelChatResult.messages = [PROMPT, ...STORED_PAUSED]
@@ -1248,6 +1295,106 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     expect(
       card("second").queryByRole("button", { name: "Approve" })
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("ChatSessionPane author labels", () => {
+  const AUTHORED: UIMessage = {
+    id: "authored",
+    role: "user",
+    metadata: {
+      author: { id: "user-2", email: "sam@example.com", first_name: "Sam" },
+    },
+    parts: [{ type: "text", text: "triage this" }],
+  }
+  const webChat = {
+    id: "web-session",
+    workspace_id: "workspace-1",
+    title: "Chat",
+    created_by: "user-1",
+    is_readonly: false,
+    entity_type: "agent_preset",
+    entity_id: "preset-1",
+    channel_context: null,
+    tools: [],
+    mcp_integrations: [],
+    agent_preset_id: "preset-1",
+    agent_preset_version_id: null,
+    harness_type: "pi",
+    created_at: "2026-09-25T00:00:00Z",
+    updated_at: "2026-09-25T00:00:00Z",
+    messages: [],
+  } as Parameters<typeof ChatSessionPane>[0]["chat"]
+
+  beforeEach(() => {
+    mockUseVercelChatResult.messages = [AUTHORED]
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("hides authors in a private web session", async () => {
+    mockUseVercelChatResult.messages = [
+      {
+        ...AUTHORED,
+        metadata: { author: { id: "user-1", email: "al@example.com" } },
+      },
+    ]
+    renderChatSessionPane({ chat: webChat })
+
+    await screen.findByText("triage this")
+    expect(screen.queryByText("al@example.com")).not.toBeInTheDocument()
+  })
+
+  it("shows authors once a teammate sent in a private web session", async () => {
+    renderChatSessionPane({ chat: webChat })
+
+    expect(await screen.findByText("Sam")).toBeInTheDocument()
+  })
+
+  it("shows authors in a workflow session", async () => {
+    const workflowChat = {
+      ...webChat,
+      entity_type: "workflow",
+      entity_id: "wf-1",
+    } as Parameters<typeof ChatSessionPane>[0]["chat"]
+    renderChatSessionPane({ chat: workflowChat })
+
+    expect(await screen.findByText("Sam")).toBeInTheDocument()
+  })
+
+  it("draws the agent's avatar and name beside its turn in a shared session", async () => {
+    const preset = jest
+      .mocked(useAgentPreset)
+      .mockReturnValue({ preset: { name: "Triage bot" } } as ReturnType<
+        typeof useAgentPreset
+      >)
+    mockUseVercelChatResult.messages = [
+      AUTHORED,
+      {
+        id: "reply",
+        role: "assistant",
+        parts: [{ type: "text", text: "on it" }],
+      },
+    ]
+    try {
+      renderChatSessionPane({
+        chat: {
+          ...webChat,
+          entity_type: "workflow",
+          entity_id: "wf-1",
+        } as Parameters<typeof ChatSessionPane>[0]["chat"],
+      })
+
+      expect(await screen.findByText("on it")).toBeInTheDocument()
+      expect(
+        screen.getByRole("img", { name: "Triage bot" })
+      ).toBeInTheDocument()
+      expect(screen.getByText("Triage bot")).toBeInTheDocument()
+      expect(screen.getByRole("img", { name: "Sam" })).toBeInTheDocument()
+    } finally {
+      preset.mockReturnValue({ preset: undefined } as ReturnType<
+        typeof useAgentPreset
+      >)
+    }
   })
 })
 

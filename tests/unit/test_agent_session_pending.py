@@ -18,9 +18,10 @@ from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import AgentControlRejected, PendingMessage
 from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.router import router
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, SessionAccess
 from tracecat.agent.session.views import build_session_read
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
@@ -101,6 +102,7 @@ def _get_pending(
     session_id: uuid.UUID | None = None,
     role: Role | None = None,
     get_session: AsyncMock | None = None,
+    participated: bool = False,
 ):
     workspace_id = agent_session.workspace_id if agent_session else uuid.uuid4()
     actor = role or _role(workspace_id)
@@ -108,7 +110,10 @@ def _get_pending(
     app.include_router(router)
     role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
     app.dependency_overrides[role_dependency] = lambda: actor
-    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    db = AsyncMock()
+    authored = [agent_session.id] if participated and agent_session else []
+    db.scalars.return_value = Mock(all=Mock(return_value=authored))
+    app.dependency_overrides[get_async_session] = lambda: db
     target = session_id or (agent_session.id if agent_session else uuid.uuid4())
     with (
         patch.object(
@@ -195,23 +200,30 @@ def test_pending_route_lets_the_owner_read_their_pending_messages() -> None:
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "scopes", "visible"),
+    ("entity_type", "scopes", "participated", "visible"),
     [
         # A teammate's unread messages stay theirs until the model reads them.
-        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, False),
+        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, False, False),
+        # Once they sent a message there, the session is theirs too.
+        (AgentSessionEntity.WORKSPACE_CHAT, EXECUTE, True, True),
         # A workflow session is shared with members who may act on it.
-        (AgentSessionEntity.WORKFLOW, EXECUTE, True),
-        (AgentSessionEntity.WORKFLOW, frozenset({"agent:read"}), False),
+        (AgentSessionEntity.WORKFLOW, EXECUTE, False, True),
+        (AgentSessionEntity.WORKFLOW, frozenset({"agent:read"}), False, False),
     ],
 )
 def test_pending_route_shows_pending_messages_only_on_shared_sessions(
-    entity_type: AgentSessionEntity, scopes: frozenset[str], visible: bool
+    entity_type: AgentSessionEntity,
+    scopes: frozenset[str],
+    participated: bool,
+    visible: bool,
 ) -> None:
     agent_session = _session(created_by=uuid.uuid4(), entity_type=entity_type)
     backend = PendingBackend()
     role = _role(agent_session.workspace_id, user_id=uuid.uuid4(), scopes=scopes)
 
-    response = _get_pending(agent_session, {"external": backend}, role=role)
+    response = _get_pending(
+        agent_session, {"external": backend}, role=role, participated=participated
+    )
 
     if visible:
         assert response.status_code == 200
@@ -253,7 +265,11 @@ def test_session_read_reports_the_listing_pending_capability(
     with patch.object(
         registry, "get_agent_backends", return_value={"external": backend}
     ):
-        read = build_session_read(agent_session, _role(agent_session.workspace_id))
+        read = build_session_read(
+            agent_session,
+            _role(agent_session.workspace_id),
+            access=SessionAccess(act=True, decide=True),
+        )
 
     assert read.capabilities.listing_pending is listing_pending
 
@@ -261,7 +277,11 @@ def test_session_read_reports_the_listing_pending_capability(
 def test_session_read_reports_no_listing_pending_for_a_missing_backend() -> None:
     agent_session = _session()
     with patch.object(registry, "get_agent_backends", return_value={}):
-        read = build_session_read(agent_session, _role(agent_session.workspace_id))
+        read = build_session_read(
+            agent_session,
+            _role(agent_session.workspace_id),
+            access=SessionAccess(act=True, decide=True),
+        )
 
     assert read.capabilities.listing_pending is False
 
@@ -317,21 +337,34 @@ def test_discovery_accepts_a_backend_that_lists_pending_messages() -> None:
 
 
 def test_pending_route_shows_a_channel_message_as_what_its_sender_asked() -> None:
-    """A queued channel message lists its text, not the rendered envelope."""
+    """A queued channel message lists its text; the same text sent from Tracecat
+    lists as typed, whatever the session."""
     rendered = ChannelMessage(
         provider=ChannelBotProvider.SLACK,
         text="and check db-2",
         sender=ChannelMessageSender(provider_user_id="U1"),
     ).render()
     sent = datetime.now(UTC)
-    pending = [
-        PendingMessage(id=uuid.uuid4(), type="steer", text=rendered, created_at=sent)
-    ]
-    channel = _session(entity_type=AgentSessionEntity.EXTERNAL_CHANNEL)
+
+    def pending(origin: UserMessageOrigin) -> list[PendingMessage]:
+        return [
+            PendingMessage(
+                id=uuid.uuid4(),
+                type="steer",
+                text=rendered,
+                created_at=sent,
+                origin=origin,
+            )
+        ]
+
     workspace = _session()
 
-    channel_response = _get_pending(channel, {"external": PendingBackend(pending)})
-    workspace_response = _get_pending(workspace, {"external": PendingBackend(pending)})
+    from_channel = _get_pending(
+        workspace, {"external": PendingBackend(pending(UserMessageOrigin.CHANNEL))}
+    )
+    typed = _get_pending(
+        workspace, {"external": PendingBackend(pending(UserMessageOrigin.TRACECAT))}
+    )
 
-    assert channel_response.json()["items"][0]["text"] == "and check db-2"
-    assert workspace_response.json()["items"][0]["text"] == rendered
+    assert from_channel.json()["items"][0]["text"] == "and check db-2"
+    assert typed.json()["items"][0]["text"] == rendered

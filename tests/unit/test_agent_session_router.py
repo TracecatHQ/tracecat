@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import nullcontext
@@ -57,7 +58,12 @@ from tracecat.agent.session.schemas import (
     AgentSessionForkRequest,
     AgentSessionUpdate,
 )
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    SessionAccess,
+    TurnLifecycle,
+)
 from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.feed import SessionFeedSnapshot
 from tracecat.api.app import (
@@ -84,6 +90,8 @@ from tracecat.exceptions import (
     TracecatServiceError,
     TracecatValidationError,
 )
+
+OWNER_ACCESS = SessionAccess(act=True, decide=True)
 
 
 async def _empty_event_stream() -> AsyncIterator[None]:
@@ -223,6 +231,7 @@ def test_list_sessions_http_fork_filter_compatibility(
         spawned_by_session_id=None,
         forked_from_session_id=source_id if filter_names else None,
         include_children=False,
+        participating=False,
         limit=1,
     )
 
@@ -250,6 +259,7 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
             spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
+            participating=False,
             limit=100,
         )
 
@@ -262,6 +272,7 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
         spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
+        participating=False,
         limit=100,
     )
 
@@ -296,6 +307,7 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
             spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
+            participating=False,
             limit=100,
         )
 
@@ -308,6 +320,7 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
         spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
+        participating=False,
         limit=100,
     )
 
@@ -328,6 +341,7 @@ async def test_update_session_rejects_teammate_session() -> None:
         created_by=uuid.uuid4(),
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=session_stub),
         update_session=AsyncMock(),
@@ -358,6 +372,7 @@ async def test_update_session_rejects_teammate_session() -> None:
 async def test_get_session_includes_agents_binding(endpoint: Any) -> None:
     session_stub = _agent_session_stub()
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
         build_initial_artifact=AsyncMock(return_value=None),
@@ -390,6 +405,7 @@ async def test_get_session_vercel_includes_persisted_artifacts() -> None:
     )
     session_stub.artifacts = [artifact.model_dump(mode="json")]
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
         list_artifacts=Mock(return_value=[artifact]),
@@ -434,6 +450,7 @@ async def test_session_history_remains_readable_without_entitlement(
         forked_from_session_id=uuid.uuid4() if related else None,
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=session_stub),
         get_workspace_chat_session_ids=AsyncMock(return_value={session_stub.id}),
         list_messages=AsyncMock(return_value=[]),
@@ -450,7 +467,7 @@ async def test_session_history_remains_readable_without_entitlement(
             session=AsyncMock(),
         )
     assert response.is_readonly is True
-    fake_svc.list_messages.assert_awaited_once_with(session_stub.id)
+    fake_svc.list_messages.assert_awaited_once_with(session_stub.id, with_authors=True)
     fake_svc.get_workspace_chat_session_ids.assert_awaited_once_with([session_stub.id])
 
 
@@ -464,6 +481,7 @@ async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
         status=CaseStatus.NEW,
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=session_stub),
         remove_artifact=AsyncMock(return_value=[artifact]),
@@ -578,8 +596,8 @@ async def test_send_message_continue_attaches_rotated_stream_or_finishes(
         source="inbox",
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -662,8 +680,8 @@ async def test_send_message_new_turn_uses_fresh_per_turn_stream(
         model_provider="openai",
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -754,8 +772,8 @@ async def test_send_message_new_turn_preserves_only_uncertain_dispatch(
     )
 
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -832,8 +850,8 @@ async def test_send_message_maps_conflicting_decision_to_409() -> None:
     )
 
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=Mock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(
             return_value=_agent_session_stub(curr_run_id=None, created_by=None)
@@ -913,8 +931,8 @@ async def test_send_message_maps_missing_provider_credentials_to_409(
     )
 
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         get_session=AsyncMock(return_value=agent_session),
@@ -974,11 +992,12 @@ async def test_send_message_rejects_teammate_session() -> None:
         source="inbox",
     )
     fake_svc = SimpleNamespace(
+        session_access=_session_access(role),
         session=Mock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(
             return_value=SimpleNamespace(
+                id=session_id,
                 curr_run_id=None,
                 created_by=uuid.uuid4(),
                 entity_type=AgentSessionEntity.AGENT_PRESET,
@@ -1016,8 +1035,8 @@ async def test_send_message_rejects_teammate_session() -> None:
 @pytest.mark.parametrize(
     ("entity_type", "ownerless", "may_message", "may_decide"),
     [
-        # Anyone in a channel may decide on its session, but only decide.
-        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True),
+        # A channel-started session belongs to the workspace.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, True, True),
         (AgentSessionEntity.EXTERNAL_CHANNEL, False, False, False),
         # A workflow-started session belongs to the workspace.
         (AgentSessionEntity.WORKFLOW, True, True, True),
@@ -1046,8 +1065,8 @@ async def test_a_teammate_may_message_or_decide_only_on_shared_sessions(
     )
     allowed = may_decide if deciding else may_message
     fake_svc = SimpleNamespace(
+        session_access=_session_access(role),
         session=Mock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         # Reaching the turn is enough: the access gate already passed.
@@ -1112,6 +1131,7 @@ async def test_send_message_does_not_reset_stream_when_validation_fails(
     )
 
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(side_effect=error),
         run_turn=AsyncMock(return_value=None),
@@ -1168,6 +1188,7 @@ async def test_send_message_refuses_a_revoked_backend_with_403_and_no_stream() -
         "agent_runtime_preview", message=SESSION_BACKEND_NOT_ENTITLED_MESSAGE
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(side_effect=refusal),
         run_turn=AsyncMock(return_value=None),
@@ -1252,8 +1273,8 @@ async def test_send_message_requires_entitlement_for_workspace_chat_parent(
     )
 
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=child_session),
         get_session=AsyncMock(return_value=parent_session),
@@ -1305,6 +1326,7 @@ async def test_fork_session_requires_entitlement_for_workspace_chat_parent() -> 
         scopes=frozenset({"agent:execute"}),
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=parent_session),
         fork_session=AsyncMock(return_value=None),
     )
@@ -1344,6 +1366,7 @@ async def test_fork_session_maps_backend_rejection_to_bad_request() -> None:
         scopes=frozenset({"agent:execute"}),
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=source_session),
         fork_session=AsyncMock(
             side_effect=TracecatValidationError("Pi sessions do not support forks yet")
@@ -1387,6 +1410,7 @@ async def test_cancel_session_requires_entitlement_for_workspace_chat_parent() -
         scopes=frozenset({"agent:execute"}),
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=agent_session),
         request_cancel=AsyncMock(return_value=None),
     )
@@ -1499,8 +1523,8 @@ async def test_stream_session_events_lifecycle(
         curr_run_id=run_id,
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=fake_session),
         get_stream_resume_state=AsyncMock(
             return_value=_stream_state(
@@ -1576,8 +1600,8 @@ async def test_stream_session_events_reads_legacy_workspace_chat_without_entitle
         last_stream_id="1234-0",
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=None),
         get_legacy_chat=AsyncMock(return_value=legacy_chat),
     )
@@ -1618,6 +1642,7 @@ async def test_session_read_surfaces_history_failure(endpoint) -> None:
         backend_id="uninstalled", harness_type="custom_harness"
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(
             side_effect=TracecatServiceError(
@@ -1757,6 +1782,7 @@ async def test_session_responses_derive_readonly_from_backend_state(
     )
     provider = DefaultBackend()
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=session_stub),
         create_session=AsyncMock(return_value=session_stub),
@@ -1847,6 +1873,7 @@ def test_control_session_dispatches_each_type_to_the_service(
         status="accepted",
     )
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=agent_session),
         control=AsyncMock(return_value=receipt),
     )
@@ -1912,6 +1939,7 @@ async def test_control_session_maps_control_outcomes(
 ) -> None:
     agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=agent_session),
         control=AsyncMock(side_effect=error),
     )
@@ -1942,6 +1970,7 @@ async def test_control_session_maps_control_outcomes(
 async def test_deprecated_cancel_route_calls_request_cancel() -> None:
     agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=agent_session),
         request_cancel=AsyncMock(return_value=None),
     )
@@ -1991,7 +2020,9 @@ def test_session_read_reports_backend_controls(
         patch.object(provider, "withdrawing", withdrawing),
     ):
         read = build_session_read(
-            cast(Any, session_stub), _control_role(session_stub.workspace_id)
+            cast(Any, session_stub),
+            _control_role(session_stub.workspace_id),
+            access=SessionAccess(act=True, decide=True),
         )
     # A disabled backend controls nothing.
     assert read.capabilities.steering is (enabled and steering)
@@ -2010,9 +2041,21 @@ def _teammate_role(workspace_id: uuid.UUID, scopes: frozenset[str] | None) -> Ro
     )
 
 
+def _session_access(role: Role, authored: tuple[uuid.UUID, ...] = ()) -> Any:
+    """The real access rule over a database that finds ``authored`` sessions."""
+    db = AsyncMock()
+    db.scalars.return_value = Mock(all=Mock(return_value=list(authored)))
+    return AgentSessionService(cast(Any, db), role).session_access
+
+
 def _session_read(
-    session_stub: SimpleNamespace, role: Role, *, enabled: bool = True
+    session_stub: SimpleNamespace,
+    role: Role,
+    *,
+    enabled: bool = True,
+    participated: bool = False,
 ) -> Any:
+    authored = (session_stub.id,) if participated else ()
     provider = DefaultBackend()
     with (
         patch.object(
@@ -2020,15 +2063,20 @@ def _session_read(
         ),
         patch.object(provider, "is_enabled", return_value=enabled),
     ):
-        return build_session_read(cast(Any, session_stub), role)
+        access = _session_access(role, authored)
+        return build_session_read(
+            cast(Any, session_stub), role, access=asyncio.run(access(session_stub))
+        )
 
 
 @pytest.mark.parametrize(
     ("entity_type", "ownerless", "subagent", "enabled", "readonly", "can_decide"),
     [
-        # Anyone in a channel may decide on its session, but only decide.
-        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True, True, True),
+        # A channel-started session belongs to the workspace.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, True, False, True),
         (AgentSessionEntity.EXTERNAL_CHANNEL, True, False, False, True, False),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, True, True, True, False),
+        # A fork of one has a creator and stays theirs.
         (AgentSessionEntity.EXTERNAL_CHANNEL, False, False, True, True, False),
         # A workflow-started session belongs to the workspace.
         (AgentSessionEntity.WORKFLOW, True, False, True, False, True),
@@ -2063,9 +2111,65 @@ def test_a_teammate_may_act_only_on_shared_sessions(
     )
     assert read.is_readonly is readonly
     assert read.can_decide_approvals is can_decide
+    # Acting on a session never makes the actor its creator.
+    assert read.created_by == session_stub.created_by
 
 
-@pytest.mark.parametrize("teammate", [False, True])
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity_type", "ownerless", "queried"),
+    [
+        (AgentSessionEntity.WORKFLOW, False, False),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, False),
+        (AgentSessionEntity.AGENT_PRESET, False, True),
+    ],
+)
+async def test_participation_is_read_only_when_it_can_change_the_answer(
+    entity_type: AgentSessionEntity, ownerless: bool, queried: bool
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        entity_type=entity_type,
+        created_by=None if ownerless else uuid.uuid4(),
+    )
+    role = _teammate_role(session_stub.workspace_id, EXECUTE_ONLY)
+    db = AsyncMock()
+    db.scalars.return_value = Mock(all=Mock(return_value=[]))
+    await AgentSessionService(cast(Any, db), role).session_access(
+        cast(Any, session_stub)
+    )
+    assert db.scalars.await_count == (1 if queried else 0)
+
+
+@pytest.mark.parametrize(
+    ("scopes", "readonly"),
+    [(frozenset({"agent:execute"}), False), (frozenset({"agent:read"}), True)],
+)
+def test_a_teammate_who_sent_a_message_may_act_on_a_private_session(
+    scopes: frozenset[str], readonly: bool
+) -> None:
+    session_stub = _agent_session_stub(
+        backend_id="external",
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        created_by=uuid.uuid4(),
+    )
+    role = _teammate_role(session_stub.workspace_id, scopes)
+
+    read = _session_read(session_stub, role, participated=True)
+
+    assert read.is_readonly is readonly
+    assert read.can_decide_approvals is not readonly
+    assert _session_read(session_stub, role).is_readonly is True
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "teammate"),
+    [
+        (AgentSessionEntity.AGENT_PRESET, False),
+        (AgentSessionEntity.WORKFLOW, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True),
+    ],
+)
 @pytest.mark.parametrize(
     ("scopes", "can_decide"),
     [
@@ -2075,21 +2179,21 @@ def test_a_teammate_may_act_only_on_shared_sessions(
     ],
 )
 def test_deciding_approvals_needs_the_execute_scope(
-    scopes: frozenset[str] | None, can_decide: bool, teammate: bool
+    scopes: frozenset[str] | None,
+    can_decide: bool,
+    entity_type: AgentSessionEntity,
+    teammate: bool,
 ) -> None:
-    """Holds for the owner of any session and for a teammate on a workflow one."""
-    session_stub = _agent_session_stub(
-        backend_id="external",
-        entity_type=(
-            AgentSessionEntity.WORKFLOW if teammate else AgentSessionEntity.AGENT_PRESET
-        ),
-    )
+    """Holds for the owner of any session and for a teammate on a shared one."""
+    session_stub = _agent_session_stub(backend_id="external", entity_type=entity_type)
     role = _teammate_role(session_stub.workspace_id, scopes)
-    if not teammate:
+    if entity_type == AgentSessionEntity.EXTERNAL_CHANNEL:
+        session_stub.created_by = None
+    elif not teammate:
         session_stub.created_by = role.user_id
     read = _session_read(session_stub, role)
     assert read.can_decide_approvals is can_decide
-    # A workflow session is shared only with members who may run the agent.
+    # A shared session is shared only with members who may run the agent.
     assert read.is_readonly is (teammate and not can_decide)
 
 
@@ -2154,8 +2258,8 @@ def test_stream_session_events_releases_request_session_before_streaming() -> No
     )
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=agent_session),
-        is_channel_session=AsyncMock(return_value=False),
         get_stream_resume_state=AsyncMock(
             return_value=_stream_state(
                 lifecycle=TurnLifecycle.RUNNING,
@@ -2238,8 +2342,8 @@ def test_send_message_releases_request_session_before_streaming() -> None:
     )
     agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=AsyncMock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(
@@ -2347,7 +2451,10 @@ def test_creating_a_builder_session_requires_agent_update(
     entity_type: AgentSessionEntity, scopes: frozenset[str], allowed: bool
 ) -> None:
     session_stub = _agent_session_stub(entity_type=entity_type)
-    fake_svc = SimpleNamespace(create_session=AsyncMock(return_value=session_stub))
+    fake_svc = SimpleNamespace(
+        create_session=AsyncMock(return_value=session_stub),
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
+    )
     app = _scoped_app(_scoped_role(session_stub.workspace_id, scopes))
     with (
         patch(
@@ -2389,8 +2496,8 @@ def test_messaging_a_builder_session_requires_agent_update(
     app, _ = _session_release_app(tracked, role)
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         session=Mock(),
-        is_channel_session=AsyncMock(return_value=False),
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=session_stub),
         run_turn=AsyncMock(
@@ -2445,6 +2552,7 @@ async def test_other_builder_session_writes_require_agent_update(
     )
     role = _scoped_role(builder.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=builder),
         update_session=AsyncMock(),
@@ -2509,6 +2617,7 @@ async def test_a_builder_session_owner_can_always_cancel(surface: str) -> None:
     )
     cancel = AgentCancelControl(type="cancel", id=uuid.uuid4())
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         get_session=AsyncMock(return_value=builder),
         request_cancel=AsyncMock(),
         control=AsyncMock(
@@ -2547,7 +2656,9 @@ async def test_forking_into_a_builder_session_requires_agent_update() -> None:
     source = _agent_session_stub(entity_type=AgentSessionEntity.AGENT_PRESET)
     role = _scoped_role(source.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
-        get_session=AsyncMock(return_value=source), fork_session=AsyncMock()
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
+        get_session=AsyncMock(return_value=source),
+        fork_session=AsyncMock(),
     )
     with (
         patch(
@@ -2571,9 +2682,20 @@ async def test_forking_into_a_builder_session_requires_agent_update() -> None:
 
 
 SHARING = pytest.mark.parametrize(
-    ("entity_type", "shared"),
-    [(AgentSessionEntity.WORKFLOW, True), (AgentSessionEntity.CASE, False)],
+    ("entity_type", "ownerless", "shared"),
+    [
+        (AgentSessionEntity.WORKFLOW, False, True),
+        # A channel-started session has no creator and belongs to the workspace.
+        (AgentSessionEntity.EXTERNAL_CHANNEL, True, True),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, False, False),
+        (AgentSessionEntity.CASE, False, False),
+    ],
 )
+
+
+def _creator(ownerless: bool) -> uuid.UUID | None:
+    """No creator for an ownerless session, else someone other than the actor."""
+    return None if ownerless else uuid.uuid4()
 
 
 def _refused_unless(shared: bool) -> Any:
@@ -2594,12 +2716,19 @@ def _refused_unless(shared: bool) -> Any:
     ids=["steer", "withdraw", "cancel"],
 )
 def test_a_teammate_may_control_only_shared_sessions(
-    entity_type: AgentSessionEntity, shared: bool, body: dict[str, str]
+    entity_type: AgentSessionEntity,
+    ownerless: bool,
+    shared: bool,
+    body: dict[str, str],
 ) -> None:
     agent_session = _agent_session_stub(
-        entity_type=entity_type, curr_run_id=uuid.uuid4()
+        entity_type=entity_type,
+        created_by=_creator(ownerless),
+        curr_run_id=uuid.uuid4(),
     )
+    role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
+        session_access=_session_access(role),
         get_session=AsyncMock(return_value=agent_session),
         control=AsyncMock(
             return_value=AgentControlReceipt(
@@ -2610,7 +2739,7 @@ def test_a_teammate_may_control_only_shared_sessions(
             )
         ),
     )
-    app = _scoped_app(_teammate_role(agent_session.workspace_id, EXECUTE_ONLY))
+    app = _scoped_app(role)
     with (
         patch(
             "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
@@ -2627,15 +2756,59 @@ def test_a_teammate_may_control_only_shared_sessions(
     assert fake_svc.control.await_count == (1 if shared else 0)
 
 
+def test_a_teammate_who_sent_in_a_private_session_may_control_it() -> None:
+    agent_session = _agent_session_stub(
+        entity_type=AgentSessionEntity.CASE,
+        created_by=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    control_id = uuid.UUID(int=4)
+    role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
+    fake_svc = SimpleNamespace(
+        session_access=_session_access(role, (agent_session.id,)),
+        get_session=AsyncMock(return_value=agent_session),
+        control=AsyncMock(
+            return_value=AgentControlReceipt(
+                id=control_id,
+                type="cancel",
+                run_id=agent_session.curr_run_id,
+                status="accepted",
+            )
+        ),
+    )
+    app = _scoped_app(role)
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            f"/agent/sessions/{agent_session.id}/control",
+            json={"type": "cancel", "id": str(control_id)},
+        )
+
+    assert response.status_code == 200
+    fake_svc.control.assert_awaited_once()
+
+
 @SHARING
 @pytest.mark.anyio
 async def test_a_teammate_may_cancel_only_shared_sessions(
-    entity_type: AgentSessionEntity, shared: bool
+    entity_type: AgentSessionEntity, ownerless: bool, shared: bool
 ) -> None:
-    agent_session = _agent_session_stub(entity_type=entity_type)
+    agent_session = _agent_session_stub(
+        entity_type=entity_type, created_by=_creator(ownerless)
+    )
     role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
-        get_session=AsyncMock(return_value=agent_session), request_cancel=AsyncMock()
+        session_access=_session_access(role),
+        get_session=AsyncMock(return_value=agent_session),
+        request_cancel=AsyncMock(),
     )
     with (
         patch(
@@ -2656,10 +2829,12 @@ async def test_a_teammate_may_cancel_only_shared_sessions(
 @SHARING
 @pytest.mark.anyio
 async def test_a_teammate_may_fork_only_shared_sessions(
-    entity_type: AgentSessionEntity, shared: bool
+    entity_type: AgentSessionEntity, ownerless: bool, shared: bool
 ) -> None:
     """The inbox sends a follow-up on a workflow session by forking it."""
-    source = _agent_session_stub(entity_type=entity_type)
+    source = _agent_session_stub(
+        entity_type=entity_type, created_by=_creator(ownerless)
+    )
     role = _teammate_role(source.workspace_id, EXECUTE_ONLY)
     forked = _agent_session_stub(
         workspace_id=source.workspace_id,
@@ -2668,6 +2843,7 @@ async def test_a_teammate_may_fork_only_shared_sessions(
         forked_from_session_id=source.id,
     )
     fake_svc = SimpleNamespace(
+        session_access=_session_access(role),
         get_session=AsyncMock(return_value=source),
         fork_session=AsyncMock(return_value=forked),
     )
@@ -2700,6 +2876,7 @@ async def test_a_teammate_still_cannot_manage_a_workflow_session() -> None:
     agent_session = _agent_session_stub(entity_type=AgentSessionEntity.WORKFLOW)
     role = _teammate_role(agent_session.workspace_id, EXECUTE_ONLY)
     fake_svc = SimpleNamespace(
+        session_access=AsyncMock(return_value=OWNER_ACCESS),
         is_legacy_session=AsyncMock(return_value=False),
         get_session=AsyncMock(return_value=agent_session),
         update_session=AsyncMock(),

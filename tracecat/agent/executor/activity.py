@@ -113,6 +113,7 @@ from tracecat.agent.sandbox.otel_relay import (
     OtelSocketReceiver,
     PlatformTraceParent,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.builtin import (
@@ -234,6 +235,10 @@ class AgentExecutorInput(BaseModel):
     # history rows, letting mid-turn loads hide the active run's partial rows.
     curr_run_id: uuid.UUID | None = None
     user_prompt: str
+    # Where the prompt entered the session, recorded on its history row.
+    origin: UserMessageOrigin | None = None
+    # The prompt's author when it is not the role's user: a linked channel sender.
+    author_id: uuid.UUID | None = None
     config: AgentConfig
     # Role for context
     role: Role
@@ -323,6 +328,16 @@ def _record_failure(
     result.error = message
     result.classification = classification
     result.diagnostic = diagnostic
+
+
+def prompt_author_id(input: AgentExecutorInput) -> uuid.UUID | None:
+    """The prompt's author: a linked channel sender, else the role's user.
+
+    A channel message never falls back to the role: its sender may be unlinked.
+    """
+    if input.author_id is not None or input.origin == UserMessageOrigin.CHANNEL:
+        return input.author_id
+    return input.role.user_id if input.role.type == "user" else None
 
 
 def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
@@ -720,6 +735,8 @@ class SandboxedAgentExecutor:
                 workspace_id=self.input.workspace_id,
                 active_stream_id=self.input.active_stream_id,
                 curr_run_id=self.input.curr_run_id,
+                author_id=prompt_author_id(self.input),
+                origin=self.input.origin,
             )
             handler = LoopbackHandler(input=loopback_input)
 

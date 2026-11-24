@@ -67,6 +67,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.channel_users.enums import ChannelAccessPolicy
 from tracecat.agent.control.enums import CommandState, CommandType
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -178,6 +179,14 @@ MANAGED_REFERENCE_KIND_ENUM = Enum(
 CASE_VIEW_VISIBILITY_ENUM = Enum(
     CaseViewVisibility,
     name="caseviewvisibility",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [member.value for member in enum],
+    validate_strings=True,
+)
+USER_MESSAGE_ORIGIN_ENUM = Enum(
+    UserMessageOrigin,
+    name="usermessageorigin",
     native_enum=False,
     length=32,
     values_callable=lambda enum: [member.value for member in enum],
@@ -4294,6 +4303,14 @@ class AgentSessionHistory(WorkspaceModel):
     """
 
     __tablename__ = "agent_session_history"
+    __table_args__ = (
+        # Serves the ON DELETE SET NULL lookup when a user is deleted.
+        Index(
+            "ix_agent_session_history_author_id",
+            "author_id",
+            postgresql_where=text("author_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -4330,6 +4347,17 @@ class AgentSessionHistory(WorkspaceModel):
         nullable=True,
         index=True,
         doc="Workflow run that produced this row; used to hide active-turn rows mid-stream",
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Tracecat user who sent this user prompt; null for every other row",
+    )
+    origin: Mapped[UserMessageOrigin | None] = mapped_column(
+        USER_MESSAGE_ORIGIN_ENUM,
+        nullable=True,
+        doc="UserMessageOrigin of this user prompt; null for every other row",
     )
 
     session: Mapped[AgentSession] = relationship(

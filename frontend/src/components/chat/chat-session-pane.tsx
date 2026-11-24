@@ -32,7 +32,11 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
-import { Message, MessageContent } from "@/components/ai-elements/message"
+import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+} from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputBody,
@@ -74,6 +78,8 @@ import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
 import { extensions } from "@/extensions"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
+import { useAuth } from "@/hooks/use-auth"
 import {
   makeContinueMessage,
   parseChatError,
@@ -100,6 +106,7 @@ import {
   CHANNEL_MESSAGE_DATA_PART_TYPE,
   collectCancelledTurns,
   ENTITY_TO_INVALIDATION,
+  getAuthorId,
   getPendingApprovalIds,
   getSessionLastError,
   isApprovalCardArray,
@@ -387,17 +394,24 @@ export function ChatSessionPane({
   // Sending, retrying and approving all run the agent. `undefined` means the
   // scopes are still loading, which must not disable anything.
   const cannotExecuteAgents = useScopeCheck("agent:execute") === false
+  const { user } = useAuth()
+  // Labels the sender's own message until history reloads with its author.
+  const authorMetadata = useMemo(
+    () =>
+      user
+        ? {
+            author: {
+              id: user.id,
+              email: user.email,
+              first_name: user.firstName,
+              last_name: user.lastName,
+            },
+          }
+        : undefined,
+    [user]
+  )
   const cannotDecideApprovals =
     !canDecideApprovals || approvalsDisabled || cannotExecuteAgents
-  let readonlyDescription =
-    chat && "user_id" in chat
-      ? "This legacy conversation is read-only."
-      : "This conversation is read-only."
-  if (chat && "spawned_by_session_id" in chat && chat.spawned_by_session_id) {
-    readonlyDescription =
-      "This subagent conversation is read-only. Message the parent conversation instead."
-  }
-
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
@@ -442,6 +456,44 @@ export function ChatSessionPane({
     pageContext,
     resume: resume && !openedToSend.value,
   })
+  // A teammate who joined a private chat makes it shared too (J2).
+  const teammateSent = messages.some((message) => {
+    const metadata = message.metadata
+    const author =
+      metadata && typeof metadata === "object" && "author" in metadata
+        ? metadata.author
+        : null
+    const authorId = getAuthorId(author)
+    return authorId !== null && authorId !== user?.id
+  })
+  // Author labels are noise in a private chat; show them where several people talk.
+  const showMessageAuthors = Boolean(
+    teammateSent ||
+      (chat &&
+        "entity_type" in chat &&
+        (chat.entity_type === "workflow" ||
+          chat.entity_type === "external_channel" ||
+          ("channel_context" in chat && chat.channel_context)))
+  )
+  const { preset: agentPreset } = useAgentPreset(
+    workspaceId,
+    chat && "agent_preset_id" in chat ? chat.agent_preset_id : null,
+    { enabled: showMessageAuthors }
+  )
+  const agentName = agentPreset?.name ?? "Agent"
+  // Name the missing scope only where it is why a shared session is read-only.
+  let readonlyDescription =
+    cannotExecuteAgents && showMessageAuthors
+      ? AGENT_EXECUTE_REQUIRED_MESSAGE
+      : "This conversation is read-only."
+  if (chat && "user_id" in chat) {
+    readonlyDescription = "This legacy conversation is read-only."
+  }
+  if (chat && "spawned_by_session_id" in chat && chat.spawned_by_session_id) {
+    readonlyDescription =
+      "This subagent conversation is read-only. Message the parent conversation instead."
+  }
+
   const [verbosity] = useChatVerbosityPreference()
   const verbosityPolicy = getChatVerbosityPolicy(verbosity)
   const subagentStreamContext = useMemo(
@@ -523,9 +575,10 @@ export function ChatSessionPane({
 
     pendingMessageSentRef.current = messageKey
     clearError()
-    sendMessage({ text: pendingMessage })
+    sendMessage({ text: pendingMessage, metadata: authorMetadata })
     onPendingMessageSent?.()
   }, [
+    authorMetadata,
     pendingMessage,
     isReadonly,
     cannotExecuteAgents,
@@ -1421,6 +1474,7 @@ export function ChatSessionPane({
       clearError()
       sendMessage({
         text: messageText,
+        metadata: authorMetadata,
         ...(message.files?.length ? { files: message.files } : {}),
       })
     } catch (error) {
@@ -1622,6 +1676,8 @@ export function ChatSessionPane({
                         isLastMessage={message.id === lastMessageId}
                         turnCancelled={cancelledTurnMessageIds.has(message.id)}
                         interruptedToolCallIds={interruptedToolCallIds}
+                        showAuthor={showMessageAuthors}
+                        currentUserId={user?.id ?? null}
                       />
                     </div>
                   )
@@ -1653,24 +1709,30 @@ export function ChatSessionPane({
                           </SourcesContent>
                         </Sources>
                       )}
-                    <AgentTurn
-                      messages={block.messages}
-                      startedAt={block.startedAt}
-                      status={status}
-                      isLive={
-                        blockIndex === threadBlocks.length - 1 &&
-                        isGeneratingTurn
-                      }
-                      isSuperseded={blockIndex < threadBlocks.length - 1}
-                      lastMessageId={lastMessageId}
-                      cancelledMessageIds={cancelledTurnMessageIds}
-                      interruptedToolCallIds={interruptedToolCallIds}
-                      onSubmitApprovals={
-                        cannotDecideApprovals
-                          ? undefined
-                          : handleSubmitApprovals
-                      }
-                    />
+                    <AgentTurnFrame
+                      agentName={showMessageAuthors ? agentName : null}
+                    >
+                      <AgentTurn
+                        messages={block.messages}
+                        startedAt={block.startedAt}
+                        status={status}
+                        isLive={
+                          blockIndex === threadBlocks.length - 1 &&
+                          isGeneratingTurn
+                        }
+                        isSuperseded={blockIndex < threadBlocks.length - 1}
+                        lastMessageId={lastMessageId}
+                        cancelledMessageIds={cancelledTurnMessageIds}
+                        interruptedToolCallIds={interruptedToolCallIds}
+                        showAuthor={showMessageAuthors}
+                        currentUserId={user?.id ?? null}
+                        onSubmitApprovals={
+                          cannotDecideApprovals
+                            ? undefined
+                            : handleSubmitApprovals
+                        }
+                      />
+                    </AgentTurnFrame>
                     {/* A failed turn's Retry sits with its error below. */}
                     {holdsLatestResponse && canRetry && !displayedError && (
                       <RetryAction onRetry={handleRetry} />
@@ -1961,5 +2023,29 @@ function isShownPart(part: UIMessage["parts"][number]): boolean {
     !part.type.startsWith("data-") ||
     part.type === CANCELLED_DATA_PART_TYPE ||
     part.type === "data-approval-request"
+  )
+}
+
+/** An agent's turn, with its avatar and name where several people talk. */
+function AgentTurnFrame({
+  agentName,
+  children,
+}: {
+  agentName: string | null
+  children: ReactNode
+}) {
+  if (!agentName) return <>{children}</>
+  return (
+    <div className="flex items-start gap-2.5">
+      <MessageAvatar
+        name={agentName}
+        aria-label={agentName}
+        icon={<MousePointerClickIcon className="size-4" />}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="pt-1.5 text-xs font-medium">{agentName}</span>
+        {children}
+      </div>
+    </div>
   )
 }

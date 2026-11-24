@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,13 +13,14 @@ from tracecat.agent.adapter import vercel
 from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.control.schemas import AgentSteerControl
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.constants import CHANNEL_MESSAGE_DATA_PART_TYPE
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import BasicChatRequest, VercelChatRequest
-from tracecat.db.models import AgentSession, AgentSessionHistory
+from tracecat.db.models import AgentSession, AgentSessionHistory, User
 from tracecat.exceptions import TracecatValidationError
 
 pytestmark = pytest.mark.anyio
@@ -31,6 +33,7 @@ HELD = ChannelMessage(
 FORGED = HELD.model_copy(
     update={"sender": ChannelMessageSender(provider_user_id="U2", name="CEO")}
 )
+TYPED = HELD.model_copy(update={"text": "typed in Tracecat"})
 
 
 @pytest.fixture
@@ -49,9 +52,23 @@ async def channel_session(session: AsyncSession, svc_role: Role) -> AgentSession
             session_id=agent_session.id,
             workspace_id=svc_role.workspace_id,
             kind=MessageKind.CHAT_MESSAGE.value,
+            origin=UserMessageOrigin.CHANNEL.value,
             content={
                 "type": "user",
                 "message": {"role": "user", "content": HELD.render()},
+            },
+        )
+    )
+    # The same text typed in Tracecat: never a channel message, never retried as one.
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            origin=UserMessageOrigin.TRACECAT.value,
+            content={
+                "type": "user",
+                "message": {"role": "user", "content": TYPED.render()},
             },
         )
     )
@@ -91,6 +108,7 @@ def _as(svc_role: Role, role_type: str) -> Role:
     [
         ("user", lambda: _retry(HELD), True),
         ("user", lambda: _retry(FORGED), False),
+        ("user", lambda: _retry(TYPED), False),
         ("user", lambda: _vercel({"type": "text", "text": HELD.render()}), False),
         ("user", lambda: _vercel({"type": "text", "text": " " + HELD.render()}), False),
         ("user", lambda: BasicChatRequest(message=HELD.render()), False),
@@ -100,6 +118,7 @@ def _as(svc_role: Role, role_type: str) -> Role:
     ids=[
         "held-retry",
         "forged-retry",
+        "typed-retry",
         "typed-envelope",
         "indented-envelope",
         "basic-envelope",
@@ -133,3 +152,97 @@ async def test_a_steer_cannot_carry_an_envelope(
 
     with pytest.raises(TracecatValidationError):
         await service.steer(channel_session.id, steer)
+
+
+@pytest.mark.parametrize(
+    ("request_of", "origin"),
+    [
+        (lambda: _retry(HELD), UserMessageOrigin.CHANNEL),
+        (
+            lambda: _vercel({"type": "text", "text": "triage this"}),
+            UserMessageOrigin.TRACECAT,
+        ),
+    ],
+    ids=["held-retry", "plain-text"],
+)
+async def test_a_turn_records_where_its_prompt_came_from(
+    session: AsyncSession,
+    svc_role: Role,
+    channel_session: AgentSession,
+    request_of: Any,
+    origin: UserMessageOrigin,
+) -> None:
+    service = AgentSessionService(session=session, role=_as(svc_role, "user"))
+    with (
+        patch.object(
+            service, "validate_turn_request", AsyncMock(return_value=channel_session)
+        ),
+        patch.object(service, "_start_new_turn", AsyncMock()) as start,
+    ):
+        await service.run_turn(channel_session.id, request_of())
+
+    assert start.await_args is not None
+    assert start.await_args.kwargs["origin"] is origin
+
+
+@pytest.mark.parametrize("in_fork", [False, True])
+async def test_a_retry_keeps_the_linked_sender_as_its_author(
+    session: AsyncSession, svc_role: Role, in_fork: bool
+) -> None:
+    sender = User(
+        id=uuid.uuid4(),
+        email=f"dana-{uuid.uuid4()}@example.com",
+        first_name="Dana",
+        hashed_password="unused",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        last_login_at=None,
+    )
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Slack thread",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=uuid.uuid4(),
+    )
+    session.add_all([sender, agent_session])
+    await session.flush()
+    held_row = AgentSessionHistory(
+        session_id=agent_session.id,
+        workspace_id=svc_role.workspace_id,
+        kind=MessageKind.CHAT_MESSAGE.value,
+        origin=UserMessageOrigin.CHANNEL.value,
+        author_id=sender.id,
+        content={
+            "type": "user",
+            "message": {"role": "user", "content": HELD.render()},
+        },
+    )
+    session.add(held_row)
+    await session.flush()
+    retried_in = agent_session
+    if in_fork:
+        retried_in = AgentSession(
+            id=uuid.uuid4(),
+            title="Fork",
+            workspace_id=svc_role.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=uuid.uuid4(),
+            forked_from_session_id=agent_session.id,
+            forked_from_history_id=held_row.surrogate_id,
+        )
+        session.add(retried_in)
+    await session.commit()
+    service = AgentSessionService(session=session, role=_as(svc_role, "user"))
+    with (
+        patch.object(
+            service, "validate_turn_request", AsyncMock(return_value=retried_in)
+        ),
+        patch.object(service, "_start_new_turn", AsyncMock()) as start,
+    ):
+        await service.run_turn(retried_in.id, _retry(HELD))
+
+    assert start.await_args is not None
+    # A fork reads the parent's row; its sender never becomes the fork's author.
+    assert start.await_args.kwargs["author_id"] == (None if in_fork else sender.id)

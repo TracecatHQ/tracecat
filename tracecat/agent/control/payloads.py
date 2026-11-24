@@ -1,10 +1,12 @@
 """Typed payloads of session commands, one per ``CommandType``."""
 
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import ConfigDict, Field, JsonValue, TypeAdapter
 
 from tracecat.agent.control.enums import CommandType
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.core.schemas import Variant
 
 
@@ -24,6 +26,12 @@ class SteerPayload(CommandPayloadBase):
 
     type: Literal[CommandType.STEER] = CommandType.STEER
     text: str = Field(min_length=1, max_length=100_000)
+    # The message's own sender and origin, recorded on its history row. Left out
+    # when unset, so a steer without them keeps its stored digest.
+    author_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    origin: UserMessageOrigin | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
 
 class DecidePayload(CommandPayloadBase):

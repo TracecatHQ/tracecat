@@ -51,6 +51,8 @@ class ChannelPerson(BaseModel):
 
     provider_user_id: str
     name: str
+    linked: bool = False
+    """The name is the linked Tracecat member's, not the provider's display name."""
 
 
 class EarlierThreadMessage(BaseModel):

@@ -47,6 +47,7 @@ from tracecat.agent.backends.types import (
     SessionTurnActiveError,
     SessionTurnContext,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.results import (
     MessageResult,
     RunAlreadyFinished,
@@ -562,6 +563,60 @@ async def test_instructions_reach_every_start_of_the_turn(
         )
         assert args.agent_args.config.instructions == sent["instructions"]
         assert args.agent_args.user_prompt == "Investigate this alert"
+        # Only channel ingress starts turns here; the prompt row records it.
+        assert args.agent_args.origin is UserMessageOrigin.CHANNEL
+
+
+@pytest.mark.parametrize("author_id", [uuid4(), None], ids=["linked", "unlinked"])
+async def test_a_channel_message_credits_its_linked_sender(
+    connection: AsyncConnection, author_id: UUID | None
+) -> None:
+    """A linked sender becomes the prompt's author; an unlinked one stays NULL."""
+    starts: list[StartWorkflowExecutionRequest] = []
+
+    async def record(req: StartWorkflowExecutionRequest) -> None:
+        starts.append(req)
+
+    fake = FakeTemporal(on_start=record)
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        with temporal(fake):
+            async with channel_service(db, context) as service:
+                sent = message(context.session.id, author_id=author_id)
+                assert isinstance(await service.send_message(**sent), RunStarted)
+
+    [req] = starts
+    (args,) = await get_data_converter().decode(
+        list(req.input.payloads), [AgentWorkflowArgs]
+    )
+    assert args.role.type == "service"
+    assert args.agent_args.author_id == author_id
+
+
+async def test_a_steer_from_a_linked_sender_credits_them(
+    connection: AsyncConnection,
+) -> None:
+    steer = AsyncMock(return_value=True)
+    author_id = uuid4()
+    fake = FakeTemporal()
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with temporal(fake), steering(steer):
+            async with channel_service(db, context) as service:
+                first = await service.start_message(**message(session_id))
+                steered = await service.send_message(
+                    **message(session_id, "slack:Ev2", author_id=author_id)
+                )
+
+    assert steered == RunSteered(run_id=first.run_id)
+    steer.assert_awaited_once_with(
+        first.run_id,
+        message_run_id(session_id, "slack:Ev2", 0),
+        "Investigate this alert",
+        author_id=author_id,
+        origin=UserMessageOrigin.CHANNEL,
+    )
 
 
 async def test_message_while_another_run_is_going_is_busy_on_claude(
@@ -675,6 +730,8 @@ async def test_a_message_to_a_running_turn_steers_or_is_busy(
             first.run_id,
             message_run_id(session_id, "slack:Ev2", 0),
             "Investigate this alert",
+            author_id=None,
+            origin=UserMessageOrigin.CHANNEL,
         )
 
 
@@ -827,6 +884,8 @@ async def test_a_steer_after_a_lost_start_uses_the_replacement_run_as_steer_id(
         first.run_id,
         message_run_id(session_id, "slack:Ev2", 1),
         "Investigate this alert",
+        author_id=None,
+        origin=UserMessageOrigin.CHANNEL,
     )
 
 
@@ -890,6 +949,8 @@ async def test_steer_never_reaches_a_run_that_released_the_session(
         newer.run_id,
         message_run_id(session_id, "slack:Ev3", 0),
         "Investigate this alert",
+        author_id=None,
+        origin=UserMessageOrigin.CHANNEL,
     )
 
 

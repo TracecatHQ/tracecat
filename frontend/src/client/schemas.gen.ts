@@ -15110,6 +15110,11 @@ export const $ChannelPerson = {
       type: "string",
       title: "Name",
     },
+    linked: {
+      type: "boolean",
+      title: "Linked",
+      default: false,
+    },
   },
   type: "object",
   required: ["provider_user_id", "name"],
@@ -15229,6 +15234,17 @@ export const $ChatMessage = {
         },
       ],
       description: "The channel message a user message's text renders, decoded",
+    },
+    author: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MessageAuthor",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The Tracecat user who sent a user message, when recorded",
     },
   },
   type: "object",
@@ -28428,6 +28444,46 @@ Only \`\`AGENT\`\` is supported today. The finite set lives here (rather than
 as a bare \`\`str\`\` checked at runtime) so every mention-aware call site —
 the parser, persistence, and API read schema — shares one exhaustive,
 type-checked domain of valid target kinds.`,
+} as const
+
+export const $MessageAuthor = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "MessageAuthor",
+  description: "The Tracecat user who sent a message.",
 } as const
 
 export const $MessageKind = {
@@ -44764,6 +44820,13 @@ export const $UserMessage = {
   type: "object",
   required: ["content"],
   title: "UserMessage",
+} as const
+
+export const $UserMessageOrigin = {
+  type: "string",
+  enum: ["tracecat", "channel"],
+  title: "UserMessageOrigin",
+  description: "Where a user message entered the session.",
 } as const
 
 export const $UserRead = {

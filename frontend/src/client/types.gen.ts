@@ -4087,6 +4087,7 @@ export type ChannelMessageSender = {
 export type ChannelPerson = {
   provider_user_id: string
   name: string
+  linked?: boolean
 }
 
 /**
@@ -4148,6 +4149,10 @@ export type ChatMessage = {
    * The channel message a user message's text renders, decoded
    */
   channel_message?: ChannelMessage | null
+  /**
+   * The Tracecat user who sent a user message, when recorded
+   */
+  author?: MessageAuthor | null
 }
 
 /**
@@ -8711,6 +8716,16 @@ export type MemberRoleSourceType = "direct" | "group" | "idp_group"
  * type-checked domain of valid target kinds.
  */
 export type MentionTargetType = "agent"
+
+/**
+ * The Tracecat user who sent a message.
+ */
+export type MessageAuthor = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
 
 /**
  * The type/kind of message stored in the chat.
@@ -13624,6 +13639,11 @@ export type UserMessage = {
   origin?: MessageOrigin | null
 }
 
+/**
+ * Where a user message entered the session.
+ */
+export type UserMessageOrigin = "tracecat" | "channel"
+
 export type UserRead = {
   id: string
   email: string
@@ -18155,6 +18175,10 @@ export type AgentSessionsListSessionsData = {
    * @deprecated
    */
   parentSessionId?: string | null
+  /**
+   * Only your chats: copilot sessions you created, and copilot or channel sessions you sent a message in.
+   */
+  participating?: boolean
   /**
    * Filter by spawning parent session ID
    */

@@ -122,7 +122,14 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
   ),
 }))
 jest.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { firstName: "Daryl" } }),
+  useAuth: () => ({
+    user: {
+      id: "user-1",
+      email: "daryl@example.com",
+      firstName: "Daryl",
+      lastName: "Dixon",
+    },
+  }),
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
@@ -135,6 +142,7 @@ jest.mock("@/hooks/use-entitlements", () => ({
 }))
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPresets: jest.fn(),
+  useAgentPreset: jest.fn(() => ({ preset: undefined })),
 }))
 
 const mockUseVercelChat = useVercelChat as jest.MockedFunction<
@@ -635,7 +643,17 @@ describe("ChatSessionPane", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ text: "Hello" })
+      expect(sendMessage).toHaveBeenCalledWith({
+        text: "Hello",
+        metadata: {
+          author: {
+            id: "user-1",
+            email: "daryl@example.com",
+            first_name: "Daryl",
+            last_name: "Dixon",
+          },
+        },
+      })
     })
 
     expect(console.error).toHaveBeenCalledWith(
@@ -1247,7 +1265,9 @@ describe("ChatSessionPane", () => {
       screen.queryByText(AGENT_EXECUTE_REQUIRED_MESSAGE)
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
-    expect(sendMessage).toHaveBeenCalledWith({ text: "Queued message" })
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Queued message" })
+    )
   })
 
   describe("failed turns", () => {
@@ -1890,7 +1910,9 @@ describe("ChatSessionPane", () => {
 
     toolWrite.resolve()
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "hello" })
+      )
     })
   })
 
@@ -1961,7 +1983,9 @@ describe("ChatSessionPane", () => {
 
     mcpWrite.resolve()
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "hello" })
+      )
     })
   })
 
@@ -2765,7 +2789,9 @@ describe("ChatSessionPane", () => {
       })
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "hello" })
+        )
       )
       expect(onSelect).not.toHaveBeenCalled()
     })
@@ -2866,7 +2892,9 @@ describe("ChatSessionPane", () => {
       onSelect.mockClear()
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({ text: "next question" })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "next question" })
+        )
       )
       expect(onSelect).not.toHaveBeenCalled()
     })
@@ -3034,9 +3062,9 @@ describe("ChatSessionPane", () => {
 
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("preset-1"))
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({
-          text: "@Triage agent hello",
-        })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "@Triage agent hello" })
+        )
       )
     })
 
@@ -3102,9 +3130,9 @@ describe("ChatSessionPane", () => {
       onSelect.mockResolvedValue(true)
       fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
       await waitFor(() =>
-        expect(sendMessage).toHaveBeenCalledWith({
-          text: "@Triage agent hello",
-        })
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "@Triage agent hello" })
+        )
       )
     })
 

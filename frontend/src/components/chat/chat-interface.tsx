@@ -68,6 +68,7 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { INBOX_POLL_MS } from "@/hooks/use-inbox"
 import {
   type ChatModelNotice,
   getModelUnavailableMessage,
@@ -178,12 +179,25 @@ export function ChatInterface({
     }
   }, [chatId])
 
-  const { chats, chatsLoading, chatsError } = useListChats({
-    workspaceId: workspaceId,
-    entityType,
-    entityId,
-    createdBy: historyScope === "mine" ? user?.id : undefined,
-  })
+  // Workspace chat (full page or docked) is where Slack-started sessions land.
+  const isWorkspaceChat = entityType === "copilot"
+  // "Mine" in workspace chat also lists channel sessions the viewer sent in.
+  const mineAcrossChannels = historyScope === "mine" && isWorkspaceChat
+  const { chats, chatsLoading, chatsError } = useListChats(
+    {
+      workspaceId: workspaceId,
+      entityType: mineAcrossChannels ? undefined : entityType,
+      entityId: mineAcrossChannels ? undefined : entityId,
+      createdBy:
+        historyScope === "mine" && !mineAcrossChannels ? user?.id : undefined,
+      participantId: mineAcrossChannels ? user?.id : undefined,
+    },
+    {
+      // Without a viewer id the "mine" list would widen to every chat.
+      enabled: !mineAcrossChannels || user?.id !== undefined,
+      pollMs: isWorkspaceChat ? INBOX_POLL_MS : undefined,
+    }
+  )
 
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)

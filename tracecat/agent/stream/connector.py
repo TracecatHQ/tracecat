@@ -382,7 +382,6 @@ class AgentStream:
         *,
         message_id: str | None = None,
         resume_from: str | None = None,
-        channel_session: bool = False,
     ) -> AsyncIterable[str]:
         cursor = parse_vercel_frame_cursor(resume_from)
         # Strip any composite ``<redis-id>:<frame-index>`` suffix so Redis XREAD
@@ -420,7 +419,6 @@ class AgentStream:
                     ),
                     message_id=message_id,
                     resume_from=effective_resume_from,
-                    channel_session=channel_session,
                 )
             case "basic":
                 return self.simple_sse(stop_condition, last_id)

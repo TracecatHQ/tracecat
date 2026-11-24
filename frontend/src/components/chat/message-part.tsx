@@ -39,11 +39,8 @@ import {
 } from "@/components/ai-elements/tool"
 import { ApprovalRequestPart } from "@/components/chat/approval-request-part"
 import { AgentReplyText } from "@/components/chat/artifact-mention"
-import {
-  ChannelMessageContext,
-  withChannelMentionNames,
-} from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
+import { UserBubble } from "@/components/chat/user-bubble"
 import { getIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -62,16 +59,18 @@ import { useSubagentTranscript } from "@/hooks/use-subagent-stream"
 import {
   CANCELLED_DATA_PART_TYPE,
   CHANNEL_MESSAGE_DATA_PART_TYPE,
-  type ChannelMessageData,
   type CompactionData,
   collectInterruptedToolCallIds,
   getChannelMessageData,
   getCompactionData,
+  getMessageAuthorId,
+  getMessageAuthorName,
   getToolDenial,
   getUserMessageData,
   isApprovalCardArray,
   isInterruptArtifactError,
   isUserPrompt,
+  type MessageActor,
   type ToolDenial,
   USER_MESSAGE_DATA_PART_TYPE,
 } from "@/lib/chat"
@@ -104,6 +103,10 @@ type MessagePartProps = {
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
   /** How long a reloaded thought took, from history timestamps. */
   reasoningSeconds?: number
+  /** Who sent a user message, when recorded. */
+  author?: MessageActor | null
+  /** The viewer wrote this user message. */
+  own?: boolean
 }
 
 type DerivedToolState = {
@@ -167,6 +170,8 @@ export function MessagePart({
   interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
   reasoningSeconds,
+  author = null,
+  own = false,
 }: MessagePartProps) {
   const { expandSteps } = useChatVerbosityPolicy()
   // Steps remount on a level change, since defaultOpen applies only on mount.
@@ -225,6 +230,8 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={message.text}
         channelMessage={message.channelMessage}
+        author={author}
+        own={own}
       />
     )
   }
@@ -237,6 +244,20 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         text={channelMessage.text}
         channelMessage={channelMessage}
+        author={author}
+        own={own}
+      />
+    )
+  }
+
+  if (part.type === "text" && role === "user") {
+    return (
+      <UserBubble
+        key={`${id}-${partIdx}`}
+        text={part.text}
+        channelMessage={null}
+        author={author}
+        own={own}
       />
     )
   }
@@ -341,9 +362,13 @@ export function MessagePart({
 
 type MessagePartsProps = Omit<
   MessagePartProps,
-  "part" | "partIdx" | "id" | "role"
+  "part" | "partIdx" | "id" | "role" | "author" | "own"
 > & {
-  message: Pick<UIMessage, "id" | "role" | "parts">
+  message: Pick<UIMessage, "id" | "role" | "parts" | "metadata">
+  /** Label web prompts with their author; only shared sessions need it. */
+  showAuthor?: boolean
+  /** The viewer's user ID, so their own messages drop the avatar. */
+  currentUserId?: string | null
 }
 
 type IndexedPart = { part: UIMessage["parts"][number]; partIdx: number }
@@ -367,33 +392,6 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
     part.type === "step-start" ||
     part.type === "source-url" ||
     part.type === ARTIFACT_DATA_PART_TYPE
-  )
-}
-
-/** A user's message: its text, and a channel message's forwards and thread. */
-function UserBubble({
-  text,
-  channelMessage,
-}: {
-  text: string
-  channelMessage: ChannelMessageData | null
-}) {
-  return (
-    <Message from="user">
-      <MessageContent variant="flat">
-        {text && (
-          <SmoothResponse
-            text={
-              channelMessage
-                ? withChannelMentionNames(text, channelMessage)
-                : text
-            }
-            animate={false}
-          />
-        )}
-        {channelMessage && <ChannelMessageContext message={channelMessage} />}
-      </MessageContent>
-    </Message>
   )
 }
 
@@ -476,11 +474,19 @@ export function MessageParts({
   interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
   reasoningSeconds,
+  showAuthor = false,
+  currentUserId = null,
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
 
   function renderPart({ part, partIdx }: IndexedPart) {
+    const sender = partSender(part, message)
+    const author = showAuthor ? webActor(sender) : null
+    const own =
+      showAuthor &&
+      currentUserId !== null &&
+      getMessageAuthorId(sender) === currentUserId
     return (
       <MemoizedMessagePart
         key={`${message.id}-${part.type}-${partIdx}`}
@@ -494,6 +500,8 @@ export function MessageParts({
         interruptedToolCallIds={interruptedToolCallIds}
         onSubmitApprovals={onSubmitApprovals}
         reasoningSeconds={reasoningSeconds}
+        author={author}
+        own={own}
       />
     )
   }
@@ -948,7 +956,9 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.turnCancelled !== next.turnCancelled ||
     prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals ||
-    prev.reasoningSeconds !== next.reasoningSeconds
+    prev.reasoningSeconds !== next.reasoningSeconds ||
+    !sameActor(prev.author, next.author) ||
+    prev.own !== next.own
   ) {
     return false
   }
@@ -985,3 +995,30 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
   return prevPart === nextPart
 })
 MemoizedMessagePart.displayName = "MessagePart"
+
+/** A message that joined the turn names its own sender, as a prompt does. */
+function partSender(
+  part: UIMessage["parts"][number],
+  message: Pick<UIMessage, "role" | "metadata">
+): unknown {
+  if (part.type === USER_MESSAGE_DATA_PART_TYPE) return part.data
+  if (message.role === "user") return message.metadata
+  return null
+}
+
+/** A message's recorded author, labelled as a Tracecat member. */
+function webActor(metadata: unknown): MessageActor | null {
+  const name = getMessageAuthorName(metadata)
+  return name ? { name, fromSlack: false, linked: true } : null
+}
+
+function sameActor(
+  a: MessageActor | null | undefined,
+  b: MessageActor | null | undefined
+): boolean {
+  return (
+    a?.name === b?.name &&
+    a?.fromSlack === b?.fromSlack &&
+    a?.linked === b?.linked
+  )
+}

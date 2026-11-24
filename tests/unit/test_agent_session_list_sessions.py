@@ -34,7 +34,11 @@ def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
         organization_id=uuid.uuid4(),
         scopes=frozenset({"agent:read"}),
     )
-    session = SimpleNamespace(execute=AsyncMock())
+    # No history rows: the participation read finds nothing.
+    session = SimpleNamespace(
+        execute=AsyncMock(),
+        scalars=AsyncMock(return_value=Mock(all=Mock(return_value=[]))),
+    )
     return AgentSessionService(cast(Any, session), role), session, role
 
 

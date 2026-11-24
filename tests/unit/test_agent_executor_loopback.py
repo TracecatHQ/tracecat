@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
-from typing import cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -27,13 +27,16 @@ from tracecat.agent.error_policy import (
     agent_executor_unclassified,
     user_agent_execution_failed,
 )
+from tracecat.agent.executor.activity import AgentExecutorInput, prompt_author_id
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
     RuntimeEnvelopeProtocolError,
     _runtime_envelope_from_json,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.types import AgentConfig
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
@@ -333,6 +336,109 @@ async def test_persist_session_line_preserves_raw_nul_content(
     )
     assert handler._persisted_line_uuids == {"line-uuid"}
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize("role_type", ["user", "service"])
+@pytest.mark.parametrize("linked", [True, False], ids=["linked", "unlinked"])
+def test_prompt_author_is_the_linked_sender_else_the_role_user(
+    role_type: Literal["user", "service"], linked: bool
+) -> None:
+    user_id, sender_id = uuid.uuid4(), uuid.uuid4()
+    role = (
+        Role(type="user", user_id=user_id, service_id="tracecat-api")
+        if role_type == "user"
+        else Role(type="service", service_id="tracecat-api")
+    )
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="triage this",
+        author_id=sender_id if linked else None,
+        config=AgentConfig(model_name="test", model_provider="anthropic"),
+        role=role,
+        mcp_auth_token="mcp",
+        llm_gateway_auth_token="llm",
+    )
+
+    expected = sender_id if linked else (user_id if role_type == "user" else None)
+    assert prompt_author_id(executor_input) == expected
+
+
+def test_an_unlinked_channel_prompt_never_credits_the_role_user() -> None:
+    """A web user retrying an unlinked sender's channel message is not its author."""
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="triage this",
+        origin=UserMessageOrigin.CHANNEL,
+        config=AgentConfig(model_name="test", model_provider="anthropic"),
+        role=Role(type="user", user_id=uuid.uuid4(), service_id="tracecat-api"),
+        mcp_auth_token="mcp",
+        llm_gateway_auth_token="llm",
+    )
+
+    assert prompt_author_id(executor_input) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("line", "internal", "authored"),
+    [
+        pytest.param({"content": "triage this"}, False, True, id="text-prompt"),
+        pytest.param(
+            {"content": [{"type": "text", "text": "triage this"}]},
+            False,
+            True,
+            id="block-prompt",
+        ),
+        pytest.param(
+            {"content": [{"type": "tool_result", "tool_use_id": "t1"}]},
+            False,
+            False,
+            id="tool-result",
+        ),
+        pytest.param(
+            {"content": "skill text", "isMeta": True}, False, False, id="meta"
+        ),
+        pytest.param({"content": "triage this"}, True, False, id="internal"),
+    ],
+)
+async def test_persist_session_line_records_the_prompt_author_and_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    line: dict[str, Any],
+    internal: bool,
+    authored: bool,
+) -> None:
+    author_id = uuid.uuid4()
+    handler = LoopbackHandler(
+        input=LoopbackInput(
+            session_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            author_id=author_id,
+            origin=UserMessageOrigin.CHANNEL,
+        )
+    )
+    handler._sdk_session_id = "sdk-session"
+    session = _FakeHistoryPersistenceSession()
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_tenant_context_manager",
+        _tenant_session_for(handler.input.workspace_id, session),
+    )
+    content = line.pop("content")
+    raw_line = orjson.dumps(
+        {
+            "type": "user",
+            "uuid": "line-uuid",
+            "message": {"role": "user", "content": content},
+            **line,
+        }
+    ).decode()
+
+    await handler._persist_session_line("sdk-session", raw_line, internal=internal)
+
+    [entry] = session.entries
+    assert entry.author_id == (author_id if authored else None)
+    assert entry.origin == (UserMessageOrigin.CHANNEL if authored else None)
 
 
 @pytest.mark.parametrize(

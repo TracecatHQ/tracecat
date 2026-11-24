@@ -270,15 +270,23 @@ export function useListChats(
     entityType,
     entityId,
     createdBy,
+    participantId,
     limit = 50,
   }: {
     workspaceId: string
     entityType?: AgentSessionEntity
     entityId?: string
     createdBy?: string
+    /** Only the viewer's chats: created by them or sent a message in. The
+     * server reads the viewer from the session; the id keys the cache per user. */
+    participantId?: string
     limit?: number
   },
-  options?: { enabled?: boolean }
+  options?: {
+    enabled?: boolean
+    /** Poll while the page is visible, so sessions started elsewhere appear. */
+    pollMs?: number
+  }
 ): {
   chats: AgentSessionsListSessionsResponse | undefined
   chatsLoading: boolean
@@ -294,18 +302,28 @@ export function useListChats(
     error: chatsError,
     refetch,
   } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
-    queryKey: ["chats", workspaceId, entityType, entityId, createdBy, limit],
+    queryKey: [
+      "chats",
+      workspaceId,
+      entityType,
+      entityId,
+      createdBy,
+      participantId,
+      limit,
+    ],
     queryFn: () =>
       agentSessionsListSessions({
         workspaceId,
         entityType: entityType || null,
         entityId: entityId || null,
         createdBy: createdBy || null,
+        participating: participantId !== undefined,
         limit,
       }),
     enabled: options?.enabled ?? true,
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: options?.pollMs ?? false,
   })
 
   return { chats, chatsLoading, chatsError, refetchChats: refetch }

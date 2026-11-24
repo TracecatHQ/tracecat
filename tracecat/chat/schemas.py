@@ -235,6 +235,17 @@ class ApprovalRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MessageAuthor(BaseModel):
+    """The Tracecat user who sent a message."""
+
+    id: uuid.UUID
+    email: str
+    first_name: str | None = None
+    last_name: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class ChatMessage(BaseModel):
     """Model for a chat message with typed message payload.
 
@@ -273,6 +284,10 @@ class ChatMessage(BaseModel):
     channel_message: ChannelMessage | None = Field(
         default=None,
         description="The channel message a user message's text renders, decoded",
+    )
+    author: MessageAuthor | None = Field(
+        default=None,
+        description="The Tracecat user who sent a user message, when recorded",
     )
 
     @classmethod

@@ -60,6 +60,7 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     create_session_activity,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
@@ -953,7 +954,14 @@ async def test_steer_control_delegates_to_the_backend(accepted: bool):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     ctx.session.curr_run_id = ctx.run_id
-    service = AgentSessionService(ctx.db, ctx.role)
+    user = Role(
+        type="user",
+        user_id=uuid4(),
+        service_id="tracecat-api",
+        organization_id=ctx.role.organization_id,
+        workspace_id=ctx.role.workspace_id,
+    )
+    service = AgentSessionService(ctx.db, user)
     provider = _control_provider()
     provider.steer = AsyncMock(return_value=accepted)
     request = AgentSteerControl(
@@ -969,7 +977,14 @@ async def test_steer_control_delegates_to_the_backend(accepted: bool):
     # A workspace chat steers only with the Workspace Chat entitlement.
     require_entitlement.assert_awaited_once_with(Entitlement.WORKSPACE_CHAT)
     # Session-scoped idempotency belongs to the backend; no steer-to-run binding.
-    provider.steer.assert_awaited_once_with(ctx.run_id, request.id, request.text)
+    # The steer carries its own sender and origin, not the turn's.
+    provider.steer.assert_awaited_once_with(
+        ctx.run_id,
+        request.id,
+        request.text,
+        author_id=user.user_id,
+        origin=UserMessageOrigin.TRACECAT,
+    )
     assert receipt == AgentControlReceipt(
         id=request.id,
         type="steer",
@@ -1144,7 +1159,9 @@ async def test_backends_do_not_steer_or_withdraw_by_default():
     assert DefaultBackend.steering is False
     assert DefaultBackend.withdrawing is False
     with pytest.raises(AgentControlRejected):
-        await DefaultBackend().steer(uuid4(), uuid4(), "Stop")
+        await DefaultBackend().steer(
+            uuid4(), uuid4(), "Stop", author_id=None, origin=UserMessageOrigin.TRACECAT
+        )
     with pytest.raises(AgentControlRejected):
         await DefaultBackend().withdraw(uuid4(), uuid4(), None)
 

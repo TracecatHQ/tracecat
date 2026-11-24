@@ -159,6 +159,9 @@ type AgentTurnProps = {
   interruptedToolCallIds?: ReadonlySet<string>
   /** Resolves with the tool call IDs whose decisions it sent. */
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
+  /** Name who sent each message that joined the turn; shared sessions only. */
+  showAuthor?: boolean
+  currentUserId?: string | null
 }
 
 /**
@@ -176,6 +179,8 @@ export function AgentTurn({
   cancelledMessageIds,
   interruptedToolCallIds,
   onSubmitApprovals,
+  showAuthor = false,
+  currentUserId = null,
 }: AgentTurnProps) {
   const { foldFinishedTurns } = useChatVerbosityPolicy()
   const split =
@@ -231,6 +236,8 @@ export function AgentTurn({
         interruptedToolCallIds={interruptedToolCallIds}
         onSubmitApprovals={onSubmitApprovals}
         reasoningSeconds={reasoningSeconds.get(message.id)}
+        showAuthor={showAuthor}
+        currentUserId={currentUserId}
       />
     ))
   }

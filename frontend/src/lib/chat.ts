@@ -8,8 +8,10 @@ import type {
   ChannelMessage,
   ChatReadMinimal,
   ChatReadVercel,
+  MessageAuthor,
   UIMessage,
 } from "@/client"
+import { getDisplayName } from "@/lib/auth"
 import { invalidateCaseCommentQueries } from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { QueryClient } from "@/lib/query"
@@ -612,6 +614,38 @@ export function getChannelMessageData(
     return null
   }
   return data as ChannelMessageData
+}
+
+/** The id of a recorded message author, or null if none was recorded. */
+export function getAuthorId(author: unknown): string | null {
+  if (!author || typeof author !== "object") return null
+  return "id" in author && typeof author.id === "string" ? author.id : null
+}
+
+/** Who sent a user message, as the chat labels them. */
+export type MessageActor = {
+  name: string
+  /** Sent from Slack rather than typed in Tracecat. */
+  fromSlack: boolean
+  /** The name is a Tracecat member's: a web author or a linked Slack sender. */
+  linked: boolean
+}
+
+/** The Tracecat user ID of a user message's author, or null if none was recorded. */
+export function getMessageAuthorId(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null
+  const author = "author" in metadata ? metadata.author : undefined
+  if (!author || typeof author !== "object") return null
+  return "id" in author && typeof author.id === "string" ? author.id : null
+}
+
+/** The display name of a user message's author, or null if none was recorded. */
+export function getMessageAuthorName(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null
+  const author = "author" in metadata ? metadata.author : undefined
+  if (!author || typeof author !== "object") return null
+  if (!("email" in author) || typeof author.email !== "string") return null
+  return getDisplayName(author as MessageAuthor)
 }
 
 /**

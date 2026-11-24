@@ -29,9 +29,10 @@ from tracecat.agent.channel_bots.messages import (
 )
 from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import _extract_vercel_user_prompt
 from tracecat.chat.enums import MessageKind
-from tracecat.chat.schemas import ApprovalRead, ChatMessage
+from tracecat.chat.schemas import ApprovalRead, ChatMessage, MessageAuthor
 
 
 def _approval_message(
@@ -66,6 +67,19 @@ def test_convert_chat_messages_to_ui_carries_message_time() -> None:
     [ui_message] = convert_chat_messages_to_ui([message])
 
     assert ui_message.metadata == {"created_at": recorded.isoformat()}
+
+
+def test_convert_chat_messages_to_ui_carries_the_author() -> None:
+    author = MessageAuthor(id=uuid4(), email="sam@example.com", first_name="Sam")
+    message = ChatMessage(
+        id=str(uuid4()),
+        message=UserMessage(content="triage this"),
+        author=author,
+    )
+
+    [ui_message] = convert_chat_messages_to_ui([message])
+
+    assert ui_message.metadata == {"author": author.model_dump(mode="json")}
 
 
 def _decided_call(
@@ -366,26 +380,68 @@ def test_convert_chat_messages_to_ui_shows_a_channel_message_and_its_context(
     assert data["sender"]["name"] == "Dana"
 
 
+def test_a_channel_message_carries_its_author() -> None:
+    author = MessageAuthor(id=uuid4(), email="sam@example.com", first_name="Sam")
+    channel_message = _channel_message("triage this")
+    [ui_message] = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(content=channel_message.render()),
+                channel_message=channel_message,
+                author=author,
+            )
+        ]
+    )
+
+    assert ui_message.metadata == {"author": author.model_dump(mode="json")}
+
+
 @pytest.mark.anyio
-@pytest.mark.parametrize("channel_session", [True, False])
-async def test_a_steered_channel_message_decodes_only_in_a_channel_session(
-    channel_session: bool,
+@pytest.mark.parametrize(
+    "origin", [UserMessageOrigin.CHANNEL, UserMessageOrigin.TRACECAT, None]
+)
+async def test_a_steered_message_decodes_only_when_sent_from_a_channel(
+    origin: UserMessageOrigin | None,
 ) -> None:
     rendered = _channel_message("and db-2").render()
-    context = VercelStreamContext(
-        message_id="msg_test", channel_session=channel_session
+    context = VercelStreamContext(message_id="msg_test")
+    event = UnifiedStreamEvent.user_message_event(
+        rendered, message_id="steer-1", origin=origin
     )
-    event = UnifiedStreamEvent.user_message_event(rendered, message_id="steer-1")
 
     payloads = [payload async for payload in context.handle_event(event)]
 
     payload = payloads[0]
     assert isinstance(payload, DataEventPayload)
-    if channel_session:
+    if origin is UserMessageOrigin.CHANNEL:
         assert payload.data["text"] == "and db-2"
         assert payload.data["channel_message"]["quoted"][0]["author"] == "alice"
     else:
         assert payload.data == {"id": "steer-1", "text": rendered}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "origin", [UserMessageOrigin.CHANNEL, UserMessageOrigin.TRACECAT]
+)
+async def test_a_steered_message_carries_its_sender(
+    origin: UserMessageOrigin,
+) -> None:
+    author = MessageAuthor(id=uuid4(), email="sam@example.com", first_name="Sam")
+    context = VercelStreamContext(message_id="msg_test")
+    event = UnifiedStreamEvent.user_message_event(
+        _channel_message("and db-2").render(),
+        message_id="steer-1",
+        origin=origin,
+        author=author,
+    )
+
+    [payload] = [payload async for payload in context.handle_event(event)]
+
+    assert isinstance(payload, DataEventPayload)
+    assert payload.data["author"] == author.model_dump(mode="json")
+    assert ("channel_message" in payload.data) is (origin is UserMessageOrigin.CHANNEL)
 
 
 def test_quoted_interrupt_markers_do_not_hide_a_channel_message() -> None:

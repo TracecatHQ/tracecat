@@ -137,7 +137,6 @@ const GRID_SCROLL = "min-w-[48rem]"
 function getSourceType(entityType: string): SourceType {
   switch (entityType) {
     case "workflow":
-    case "external_channel":
       return "workflow"
     case "case":
       return "case"
@@ -145,10 +144,11 @@ function getSourceType(entityType: string): SourceType {
       return "test"
     case "agent_preset_builder":
       return "assistant"
-    // copilot (workspace chat) and approval (inbox continuation) are both
-    // chat-shaped sessions; the default covers them and any future entity type.
+    // Workspace chat, inbox continuations, and channel threads are all chats;
+    // the default covers any future entity type.
     case "copilot":
     case "approval":
+    case "external_channel":
       return "chat"
     default:
       return "chat"
