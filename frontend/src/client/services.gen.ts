@@ -9395,6 +9395,7 @@ export const agentSessionsCreateSession = (
  * @param data.excludeEntityTypes Entity types to exclude from results
  * @param data.spawnedBySessionId Filter by spawning parent session ID
  * @param data.includeChildren Include spawned children without a parent filter
+ * @param data.participating Only your chats: copilot sessions you created, and copilot or channel sessions you sent a message in.
  * @param data.limit Maximum number of sessions to return
  * @param data.forkedFromSessionId Filter by history source session ID
  * @param data.parentSessionId Legacy alias for forked_from_session_id
@@ -9417,6 +9418,7 @@ export const agentSessionsListSessions = (
       exclude_entity_types: data.excludeEntityTypes,
       spawned_by_session_id: data.spawnedBySessionId,
       include_children: data.includeChildren,
+      participating: data.participating,
       limit: data.limit,
       forked_from_session_id: data.forkedFromSessionId,
       parent_session_id: data.parentSessionId,

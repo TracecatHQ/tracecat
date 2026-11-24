@@ -603,10 +603,10 @@ describe("message authors", () => {
     expect(screen.queryByText("Alice Doe")).not.toBeInTheDocument()
   })
 
-  it("never treats an unlinked Slack sender as the viewer", () => {
+  it("trusts the recorded author over the envelope's link at send time", () => {
     render(
       <MessageParts
-        message={slackMessage("u-unlinked", false, ALICE_AUTHOR)}
+        message={slackMessage("u-linked-later", false, ALICE_AUTHOR)}
         status="ready"
         isLastMessage
         showAuthor
@@ -614,8 +614,8 @@ describe("message authors", () => {
       />
     )
 
-    expect(screen.getByRole("img", { name: "Alice Doe" })).toBeInTheDocument()
-    expect(screen.queryByText("From Slack")).not.toBeInTheDocument()
+    expect(screen.getByText("From Slack")).toBeInTheDocument()
+    expect(screen.queryByRole("img")).not.toBeInTheDocument()
   })
 
   it("mutes an unlinked Slack sender's name and highlights a linked one", () => {
@@ -739,11 +739,10 @@ describe("message authors", () => {
     expect(screen.queryByText("dana.slack")).not.toBeInTheDocument()
   })
 
-  it("labels a nameless channel sender as a Slack user, not the turn's author", () => {
+  it("labels a nameless channel sender with no author as a Slack user", () => {
     const message: UIMessage = {
       id: "u2-nameless",
       role: "user",
-      metadata: ALICE_AUTHOR,
       parts: [
         {
           type: "data-channel-message",
@@ -767,7 +766,24 @@ describe("message authors", () => {
     )
 
     expect(screen.getByText("Slack user")).toBeInTheDocument()
-    expect(screen.queryByText("Alice Doe")).not.toBeInTheDocument()
+  })
+
+  it("names a channel message by its recorded author, with the Slack badge", () => {
+    render(
+      <MessageParts
+        message={slackMessage("u-author", false, ALICE_AUTHOR)}
+        status="ready"
+        isLastMessage
+        showAuthor
+        currentUserId="user-2"
+      />
+    )
+
+    const avatar = screen.getByRole("img", { name: "Alice Doe" })
+    expect(avatar.parentElement).toContainElement(
+      screen.getByTestId("slack-icon")
+    )
+    expect(screen.getByText("Alice Doe")).toHaveClass("text-foreground")
   })
 
   it("draws no label when no author was recorded", () => {

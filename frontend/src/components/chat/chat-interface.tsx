@@ -178,11 +178,16 @@ export function ChatInterface({
     }
   }, [chatId])
 
+  // "Mine" in workspace chat also lists channel sessions the viewer sent in.
+  const mineAcrossChannels =
+    historyScope === "mine" && surface === "workspace-chat"
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
-    entityType,
-    entityId,
-    createdBy: historyScope === "mine" ? user?.id : undefined,
+    entityType: mineAcrossChannels ? undefined : entityType,
+    entityId: mineAcrossChannels ? undefined : entityId,
+    createdBy:
+      historyScope === "mine" && !mineAcrossChannels ? user?.id : undefined,
+    participating: mineAcrossChannels,
   })
 
   // Create chat mutation

@@ -270,12 +270,15 @@ export function useListChats(
     entityType,
     entityId,
     createdBy,
+    participating = false,
     limit = 50,
   }: {
     workspaceId: string
     entityType?: AgentSessionEntity
     entityId?: string
     createdBy?: string
+    /** Only the viewer's chats: created by them or sent a message in. */
+    participating?: boolean
     limit?: number
   },
   options?: { enabled?: boolean }
@@ -294,13 +297,22 @@ export function useListChats(
     error: chatsError,
     refetch,
   } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
-    queryKey: ["chats", workspaceId, entityType, entityId, createdBy, limit],
+    queryKey: [
+      "chats",
+      workspaceId,
+      entityType,
+      entityId,
+      createdBy,
+      participating,
+      limit,
+    ],
     queryFn: () =>
       agentSessionsListSessions({
         workspaceId,
         entityType: entityType || null,
         entityId: entityId || null,
         createdBy: createdBy || null,
+        participating,
         limit,
       }),
     enabled: options?.enabled ?? true,

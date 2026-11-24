@@ -144,13 +144,13 @@ async def resolve_channel_actor(
     return _actor(user)
 
 
-async def linked_member_names(
+async def linked_members(
     session: AsyncSession,
     *,
     organization_id: OrganizationID,
     identities: Collection[ChannelIdentity],
-) -> dict[ChannelIdentity, str]:
-    """Display names of the current org members these identities are linked to."""
+) -> dict[ChannelIdentity, User]:
+    """The current org members these identities are linked to."""
     if not identities:
         return {}
     rows = await session.execute(
@@ -177,8 +177,24 @@ async def linked_member_names(
         )
     )
     return {
-        ChannelIdentity(provider, tenant_id, user_id): name
+        ChannelIdentity(provider, tenant_id, user_id): user
         for provider, tenant_id, user_id, user in rows.tuples()
+    }
+
+
+async def linked_member_names(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    identities: Collection[ChannelIdentity],
+) -> dict[ChannelIdentity, str]:
+    """Display names of the current org members these identities are linked to."""
+    members = await linked_members(
+        session, organization_id=organization_id, identities=identities
+    )
+    return {
+        identity: name
+        for identity, user in members.items()
         if (name := _actor(user).name)
     }
 

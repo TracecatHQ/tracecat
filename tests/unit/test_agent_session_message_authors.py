@@ -7,18 +7,29 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.adapter.vercel import convert_chat_messages_to_ui
+from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider
 from tracecat.agent.session.activities import (
     LoadSessionMessagesInput,
     load_session_messages_activity,
 )
+from tracecat.agent.session.enums import UserMessageOrigin
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
+from tracecat.authz.membership import ensure_member
+from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.chat.enums import MessageKind
-from tracecat.db.models import AgentSession, AgentSessionHistory, User
+from tracecat.db.models import (
+    AgentChannelUser,
+    AgentSession,
+    AgentSessionHistory,
+    User,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -272,3 +283,130 @@ async def test_only_a_participant_may_act_on_a_teammates_private_session(
     assert await access(bystander, execute) == (False, False)
     # Participation shares the session only with members who may run agents.
     assert await access(participant, frozenset({"agent:read"})) == (False, False)
+
+
+def _envelope(provider_user_id: str) -> str:
+    return ChannelMessage(
+        provider=ChannelBotProvider.SLACK,
+        text="triage this",
+        sender=ChannelMessageSender(
+            provider_user_id=provider_user_id, provider_team_id="T1", name="Dana"
+        ),
+    ).render()
+
+
+async def test_list_messages_names_a_linked_channel_sender_at_read_time(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    assert svc_role.organization_id is not None
+    await seed_system_scopes(session)
+    await seed_system_roles_for_org(session, svc_role.organization_id)
+    linked = _user("dana")
+    session.add(linked)
+    await session.flush()
+    await ensure_member(session, svc_role.organization_id, linked.id)
+    session.add(
+        AgentChannelUser(
+            organization_id=svc_role.organization_id,
+            provider="slack",
+            provider_tenant_id="T1",
+            provider_user_id="U1",
+            user_id=linked.id,
+        )
+    )
+    channel = AgentSession(
+        id=uuid.uuid4(),
+        title="Slack thread",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.EXTERNAL_CHANNEL.value,
+        entity_id=uuid.uuid4(),
+    )
+    session.add(channel)
+    await session.flush()
+    session.add_all(
+        AgentSessionHistory(
+            session_id=channel.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            origin=UserMessageOrigin.CHANNEL.value,
+            content={
+                "type": "user",
+                "message": {"role": "user", "content": _envelope(sender)},
+            },
+        )
+        for sender in ("U1", "U2")
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    messages = await service.list_messages(channel.id, with_authors=True)
+
+    # Linked before or after the message: named now. Unlinked: no author.
+    assert [m.author and m.author.id for m in messages] == [linked.id, None]
+    # Display only: participation still reads the stored author.
+    stored = await session.scalars(
+        select(AgentSessionHistory.author_id).where(
+            AgentSessionHistory.session_id == channel.id
+        )
+    )
+    assert set(stored) == {None}
+    # A Retry copies the stored author, never the read-time name.
+    held = messages[0].channel_message
+    assert held is not None
+    received = await service._received_channel_message(channel, held)
+    assert received is not None and received.author is None
+
+
+async def test_participating_lists_my_chats_and_channel_sessions_i_sent_in(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    me, teammate = _user("me"), _user("al")
+    session.add_all([me, teammate])
+    await session.flush()
+
+    def _session(title: str, entity: AgentSessionEntity, creator: User | None):
+        return AgentSession(
+            id=uuid.uuid4(),
+            title=title,
+            workspace_id=svc_role.workspace_id,
+            entity_type=entity.value,
+            entity_id=uuid.uuid4(),
+            created_by=creator.id if creator else None,
+        )
+
+    copilot, channel = (
+        AgentSessionEntity.WORKSPACE_CHAT,
+        AgentSessionEntity.EXTERNAL_CHANNEL,
+    )
+    sessions = [
+        _session("Mine", copilot, me),
+        _session("Joined chat", copilot, teammate),
+        _session("Joined thread", channel, None),
+        _session("Teammate's chat", copilot, teammate),
+        _session("Silent thread", channel, None),
+        _session("Joined workflow", AgentSessionEntity.WORKFLOW, None),
+    ]
+    session.add_all(sessions)
+    await session.flush()
+    session.add_all(
+        AgentSessionHistory(
+            session_id=sent_in.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            author_id=me.id,
+            content={"type": "user", "message": {"role": "user", "content": "hi"}},
+        )
+        for sent_in in (sessions[1], sessions[2], sessions[5])
+    )
+    await session.commit()
+    role = svc_role.model_copy(update={"user_id": me.id})
+
+    listed = await AgentSessionService(session=session, role=role).list_sessions(
+        participating=True
+    )
+
+    assert {item.title for item in listed} == {
+        "Mine",
+        "Joined chat",
+        "Joined thread",
+    }

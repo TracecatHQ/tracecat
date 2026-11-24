@@ -317,6 +317,13 @@ async def list_sessions(
     include_children: bool = Query(
         False, description="Include spawned children without a parent filter"
     ),
+    participating: bool = Query(
+        False,
+        description=(
+            "Only your chats: copilot sessions you created, and copilot or "
+            "channel sessions you sent a message in."
+        ),
+    ),
     limit: int = Query(
         config.TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -339,6 +346,7 @@ async def list_sessions(
         spawned_by_session_id=spawned_by_session_id,
         forked_from_session_id=forked_from_session_id,
         include_children=include_children,
+        participating=participating,
         limit=limit,
     )
 

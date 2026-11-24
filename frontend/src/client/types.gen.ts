@@ -18176,6 +18176,10 @@ export type AgentSessionsListSessionsData = {
    */
   parentSessionId?: string | null
   /**
+   * Only your chats: copilot sessions you created, and copilot or channel sessions you sent a message in.
+   */
+  participating?: boolean
+  /**
    * Filter by spawning parent session ID
    */
   spawnedBySessionId?: string | null

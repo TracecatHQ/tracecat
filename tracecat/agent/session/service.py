@@ -68,6 +68,8 @@ from tracecat.agent.backends.types import (
     TurnAlreadyStarted,
 )
 from tracecat.agent.channel_bots.messages import ChannelMessage
+from tracecat.agent.channel_users.service import linked_members
+from tracecat.agent.channel_users.types import ChannelIdentity
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.control.schemas import (
     AgentCancelControl,
@@ -972,6 +974,7 @@ class AgentSessionService(BaseWorkspaceService):
         spawned_by_session_id: uuid.UUID | None = None,
         forked_from_session_id: uuid.UUID | None = None,
         include_children: bool = False,
+        participating: bool = False,
         limit: int = 100,
     ) -> list[AgentSessionRead | ChatReadMinimal]:
         """List agent sessions and read-only legacy chats for the workspace.
@@ -985,11 +988,15 @@ class AgentSessionService(BaseWorkspaceService):
             spawned_by_session_id: Filter by spawning parent session ID.
             forked_from_session_id: Filter by history source session ID.
             include_children: Include spawned children without a parent filter.
+            participating: Only the role's chats: copilot sessions it created, and
+                copilot or channel sessions it sent a message in.
             limit: Maximum number of results.
 
         Returns:
             Agent sessions and legacy chat metadata sorted by creation time.
         """
+        if participating and self.role.user_id is None:
+            return []
         # Query AgentSession table
         session_stmt = select(AgentSession).where(
             AgentSession.workspace_id == self.workspace_id
@@ -1022,6 +1029,29 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.forked_from_session_id == forked_from_session_id
             )
+        if participating:
+            # Same author rows sessions_access reads for participation.
+            authored = select(AgentSessionHistory.session_id).where(
+                AgentSessionHistory.author_id == self.role.user_id
+            )
+            session_stmt = session_stmt.where(
+                or_(
+                    and_(
+                        AgentSession.entity_type
+                        == AgentSessionEntity.WORKSPACE_CHAT.value,
+                        AgentSession.created_by == self.role.user_id,
+                    ),
+                    and_(
+                        AgentSession.entity_type.in_(
+                            [
+                                AgentSessionEntity.WORKSPACE_CHAT.value,
+                                AgentSessionEntity.EXTERNAL_CHANNEL.value,
+                            ]
+                        ),
+                        AgentSession.id.in_(authored),
+                    ),
+                )
+            )
         # Bound query cost at the database layer; we still merge+sort below.
         session_stmt = session_stmt.order_by(AgentSession.created_at.desc()).limit(
             limit
@@ -1039,6 +1069,11 @@ class AgentSessionService(BaseWorkspaceService):
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
+            if participating:
+                chat_stmt = chat_stmt.where(
+                    Chat.user_id == self.role.user_id,
+                    Chat.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value,
+                )
             if entity_type is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
             if exclude_entity_types:
@@ -3235,6 +3270,7 @@ class AgentSessionService(BaseWorkspaceService):
         kinds: Sequence[MessageKind] | None = None,
         include_active: bool = False,
         with_authors: bool = False,
+        name_linked_senders: bool = True,
     ) -> list[ChatMessage]:
         """Retrieve session messages, optionally filtered by message kind.
 
@@ -3251,6 +3287,9 @@ class AgentSessionService(BaseWorkspaceService):
                 just-completed turn from the returned ``message_history``.
             with_authors: Name each prompt's sender (name, email). Only web reads
                 ask: agent and workflow outputs must not carry them.
+            name_linked_senders: With ``with_authors``, name author-less channel
+                prompts by their sender's current link. Display only; writes
+                that copy an author must pass False.
 
         Returns:
             List of ChatMessage objects (parent messages + current if forked).
@@ -3310,19 +3349,24 @@ class AgentSessionService(BaseWorkspaceService):
                 forked_from_history_id=agent_session.forked_from_history_id,
             )
 
-        return self._render_history_entries(
+        messages = self._render_history_entries(
             entries,
             history=history,
             approvals_by_tool_id=approval_by_tool_id,
             authors_by_id=await self._message_authors(entries) if with_authors else {},
             kinds=kinds,
         )
+        if with_authors and name_linked_senders:
+            await self._name_linked_channel_senders(messages)
+        return messages
 
     async def _received_channel_message(
         self, agent_session: AgentSession, message: ChannelMessage
     ) -> ChatMessage | None:
         """The session's history entry holding ``message`` as a user prompt."""
-        history = await self.list_messages(agent_session.id, with_authors=True)
+        history = await self.list_messages(
+            agent_session.id, with_authors=True, name_linked_senders=False
+        )
         return next(
             (entry for entry in history if entry.channel_message == message), None
         )
@@ -3338,6 +3382,30 @@ class AgentSessionService(BaseWorkspaceService):
             select(User).where(User.id.in_(author_ids))  # pyright: ignore[reportAttributeAccessIssue]
         )
         return {user.id: MessageAuthor.model_validate(user) for user in users}
+
+    async def _name_linked_channel_senders(self, messages: list[ChatMessage]) -> None:
+        """Name author-less channel prompts by their sender's linked Tracecat user.
+
+        Display only: participation still reads the stored ``author_id``.
+        """
+        by_sender: dict[ChannelIdentity, list[ChatMessage]] = {}
+        for message in messages:
+            channel = message.channel_message
+            if message.author or not channel or not channel.sender.provider_team_id:
+                continue
+            identity = ChannelIdentity(
+                provider=channel.provider.value,
+                provider_tenant_id=channel.sender.provider_team_id,
+                provider_user_id=channel.sender.provider_user_id,
+            )
+            by_sender.setdefault(identity, []).append(message)
+        members = await linked_members(
+            self.session, organization_id=self.organization_id, identities=by_sender
+        )
+        for identity, user in members.items():
+            author = MessageAuthor.model_validate(user)
+            for message in by_sender[identity]:
+                message.author = author
 
     def _render_history_entries(
         self,

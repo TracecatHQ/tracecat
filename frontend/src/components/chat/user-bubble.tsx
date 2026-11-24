@@ -15,7 +15,7 @@ import type { ChannelMessageData, MessageActor } from "@/lib/chat"
 
 /**
  * A user's message: its author, text, and a channel message's forwards and thread.
- * A channel message names its sender; any other message its recorded author.
+ * The recorded author names it; else a channel message's envelope sender.
  */
 export function UserBubble({
   text,
@@ -29,7 +29,12 @@ export function UserBubble({
   /** The viewer wrote this message. */
   own?: boolean
 }) {
-  const actor = (channelMessage && channelActor(channelMessage)) ?? author
+  // A recorded author (a linked sender) outranks the envelope's label.
+  const actor = channelMessage
+    ? author
+      ? { ...author, fromSlack: channelMessage.provider === "slack" }
+      : channelActor(channelMessage)
+    : author
   const content = (
     <MessageContent variant="flat">
       {text && (
@@ -45,10 +50,7 @@ export function UserBubble({
       {channelMessage && <ChannelMessageContext message={channelMessage} />}
     </MessageContent>
   )
-  // An unlinked channel sender is never the viewer, whatever the turn's author.
-  const viewerWrote =
-    own && (!channelMessage || channelSender(channelMessage).linked)
-  if (viewerWrote) {
+  if (own) {
     // No channel name reaches the chat yet, so the line names the provider.
     const fromSlack = channelMessage?.provider === "slack"
     return (
