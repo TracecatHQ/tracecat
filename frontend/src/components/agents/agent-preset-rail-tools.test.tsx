@@ -5,10 +5,10 @@ import type {
   AgentPresetChannelToolGroup,
   RegistryActionReadMinimal,
 } from "@/client"
+import { channelGroupKey } from "@/components/agents/agent-preset-rail-channel-tools"
 import {
   AgentPresetRailToolGroup,
   AgentPresetRailTools,
-  channelGroupKey,
 } from "@/components/agents/agent-preset-rail-tools"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { PresetToolFields } from "@/lib/agent-preset-tools"
@@ -163,6 +163,19 @@ describe("AgentPresetRailTools approval count", () => {
     renderTools([SLACK_TOOLS], jest.fn(), rules)
     expect(screen.queryByText(/needs? approval/)).toBeNull()
   })
+
+  it("counts channel tools from their rule or requires_approval default", () => {
+    const tools: AgentPresetChannelToolGroup = {
+      ...SLACK_TOOLS,
+      tools: SLACK_TOOLS.tools.map((tool) =>
+        tool.name === LIST ? { ...tool, requires_approval: true } : tool
+      ),
+    }
+    renderTools([tools], jest.fn(), [{ tool: POST, allow: true }])
+    expect(screen.getByText("2 need approval")).toBeInTheDocument()
+    const group = screen.getByRole("button", { name: /as @Tracecat/ })
+    expect(within(group).getByTitle("2 need approval")).toBeInTheDocument()
+  })
 })
 
 describe("AgentPresetRailToolGroup channel drill-in", () => {
@@ -205,6 +218,40 @@ describe("AgentPresetRailToolGroup channel drill-in", () => {
 
     // Back to the plugin's default: no rule is stored.
     fireEvent.click(screen.getByRole("button", { name: "Auto" }))
+    expect(approvals).toEqual([])
+  })
+
+  it("stores no rule when a choice matches requires_approval", () => {
+    render(
+      <Form>
+        <AgentPresetRailToolGroup
+          groupKey={channelGroupKey("slack")}
+          registryActions={REGISTRY}
+          mcpIntegrations={[]}
+          registryLoading={false}
+          mcpLoading={false}
+          toolsLoadError={false}
+          isSaving={false}
+          channelTools={[
+            {
+              ...SLACK_TOOLS,
+              tools: SLACK_TOOLS.tools.map((tool) => ({
+                ...tool,
+                requires_approval: true,
+              })),
+            },
+          ]}
+        />
+      </Form>
+    )
+
+    const post = screen.getByRole("button", {
+      name: `Require approval for ${POST}`,
+    })
+    expect(post).toHaveAttribute("aria-pressed", "true")
+    fireEvent.click(post)
+    expect(approvals).toEqual([{ tool: POST, allow: false }])
+    fireEvent.click(screen.getByRole("button", { name: "Needs approval" }))
     expect(approvals).toEqual([])
   })
 

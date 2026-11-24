@@ -1,5 +1,9 @@
 import fuzzysort from "fuzzysort"
-import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import type {
+  AgentPresetChannelToolGroup,
+  MCPIntegrationRead,
+  RegistryActionReadMinimal,
+} from "@/client"
 import { isCustomRegistryOrigin } from "@/components/registry/utils"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 
@@ -33,7 +37,7 @@ export interface ToolEntry {
   defaultAsk: boolean
   locked: boolean
   namespace: string
-  section: "mcp" | "tracecat" | "custom"
+  section: "mcp" | "tracecat" | "custom" | "channel"
   preparedTitle: Fuzzysort.Prepared
   preparedKey: Fuzzysort.Prepared
   integration?: MCPIntegrationRead
@@ -89,7 +93,7 @@ export function createToolIndex(
     }
     group.entries.push(entry)
   }
-  const sectionOrder = { mcp: 0, tracecat: 1, custom: 2 }
+  const sectionOrder = { mcp: 0, tracecat: 1, custom: 2, channel: 3 }
   const displayGroups = [...groups.values()].sort(
     (a, b) =>
       sectionOrder[a.section] - sectionOrder[b.section] ||
@@ -153,6 +157,33 @@ export function buildToolIndex(
     )
   }
   return createToolIndex(entries, groupTitles)
+}
+
+/** Add channel-granted tools to key lookups only; search and groups never list them. */
+export function withChannelTools(
+  index: ToolIndex,
+  channelGroups: readonly AgentPresetChannelToolGroup[]
+): ToolIndex {
+  if (!channelGroups.length) return index
+  const byKey = new Map(index.byKey)
+  for (const group of channelGroups) {
+    for (const tool of group.tools) {
+      byKey.set(tool.name, {
+        id: tool.name,
+        key: tool.name,
+        target: "actions",
+        title: tool.title,
+        description: tool.description,
+        defaultAsk: tool.requires_approval,
+        locked: false,
+        namespace: group.provider,
+        section: "channel",
+        preparedTitle: fuzzysort.prepare(tool.title),
+        preparedKey: fuzzysort.prepare(tool.name),
+      })
+    }
+  }
+  return { ...index, byKey }
 }
 
 /** Search prepared titles and keys without mounting the catalog. */

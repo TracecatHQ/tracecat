@@ -7,6 +7,7 @@ import {
   removeTools,
   searchTools,
   setToolApproval,
+  withChannelTools,
 } from "@/lib/agent-preset-tools"
 import {
   mcpIntegration,
@@ -230,5 +231,45 @@ describe("isInNamespaces", () => {
       false
     )
     expect(isInNamespaces("core.http_request", [])).toBe(false)
+  })
+})
+
+describe("withChannelTools", () => {
+  const channelGroup = {
+    provider: "slack",
+    title: "Slack",
+    label: "as @Tracecat",
+    tools: [
+      {
+        name: "internal.slack.post_message",
+        title: "Post message",
+        description: "Post a message.",
+        requires_approval: true,
+      },
+      {
+        name: "internal.slack.list_channels",
+        title: "List channels",
+        description: "List channels.",
+        requires_approval: false,
+      },
+    ],
+  }
+
+  it("resolves channel tool approvals from requires_approval and stored rules", () => {
+    const base = buildToolIndex([registryTool("core.http_request")])
+    const index = withChannelTools(base, [channelGroup])
+    const post = "internal.slack.post_message"
+    const list = "internal.slack.list_channels"
+
+    expect(getToolApproval([], post, index)).toBe(true)
+    expect(getToolApproval([], list, index)).toBe(false)
+    expect(getToolApproval([{ tool: post, allow: false }], post, index)).toBe(
+      false
+    )
+    // Search and groups never list channel tools.
+    expect(index.entries).toBe(base.entries)
+    expect(index.groups).toBe(base.groups)
+    expect(searchTools(index, "post")).toEqual([])
+    expect(withChannelTools(base, [])).toBe(base)
   })
 })
