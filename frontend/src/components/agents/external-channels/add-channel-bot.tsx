@@ -106,16 +106,19 @@ function MenuOption({
 /** Every way to add a bot: Tracecat, a custom Slack app, and later Teams. */
 export function AddChannelBotMenu({
   platform,
+  disabled,
   onChoose,
 }: {
   platform: PlatformOption
+  /** A switch mid-request would unmount the open sheet and drop its redirect. */
+  disabled: boolean
   onChoose: (choice: ChannelBotChoice) => void
 }) {
   const slackIcon = <ProviderIcon providerId="slack" className="size-4 p-0" />
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" size="sm">
+        <Button type="button" size="sm" disabled={disabled}>
           <Plus className="mr-2 size-4" />
           Add bot
         </Button>
@@ -154,10 +157,13 @@ export function AddChannelBotMenu({
 export function NoChannelBots({
   platform,
   canUpdateAgent,
+  disabled,
   onChoose,
 }: {
   platform: PlatformOption
   canUpdateAgent: boolean
+  /** As the Add bot menu's. */
+  disabled: boolean
   onChoose: (choice: ChannelBotChoice) => void
 }) {
   return (
@@ -173,7 +179,7 @@ export function NoChannelBots({
               <Button
                 type="button"
                 size="sm"
-                disabled={platform !== "ready"}
+                disabled={disabled || platform !== "ready"}
                 onClick={() => onChoose("tracecat")}
               >
                 Add Tracecat
@@ -190,6 +196,7 @@ export function NoChannelBots({
                 type="button"
                 size="sm"
                 variant="outline"
+                disabled={disabled}
                 onClick={() => onChoose("custom")}
               >
                 Create custom bot

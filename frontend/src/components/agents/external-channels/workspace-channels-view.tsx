@@ -26,6 +26,7 @@ import {
   useAllWorkspaceChannelRoutes,
   useChannelBotInstallResult,
   useChannelBotReadsAllowed,
+  useChannelBotsBusy,
   usePlatformChannelBots,
   useSlackPlatformAppAvailable,
   useWorkspaceChannelBots,
@@ -71,6 +72,7 @@ export function WorkspaceChannelsView({
     isLoading: routesLoading,
   } = useAllWorkspaceChannelRoutes(workspaceId, enabled)
   const [sheet, setSheet] = useState<SheetTarget | null>(null)
+  const busy = useChannelBotsBusy(workspaceId)
 
   if (slackPlatformIsLoading) {
     return <CenteredSpinner />
@@ -112,6 +114,7 @@ export function WorkspaceChannelsView({
       <NoChannelBots
         platform={platform}
         canUpdateAgent={canUpdateAgent}
+        disabled={busy}
         onChoose={(kind) => setSheet({ kind })}
       />
     )
@@ -177,6 +180,7 @@ export function WorkspaceChannelsView({
             {entitled && canUpdateAgent ? (
               <AddChannelBotMenu
                 platform={platform}
+                disabled={busy}
                 onChoose={(kind) => setSheet({ kind })}
               />
             ) : null}
