@@ -333,7 +333,7 @@ export function ChannelBotDialog({
 }
 
 /** Pausing, resuming and disconnecting a bot, with their toasts. */
-function useChannelBotLifecycle(
+export function useChannelBotLifecycle(
   workspaceId: string,
   bot: AgentChannelBotRead,
   onDisconnected?: () => void
@@ -370,10 +370,12 @@ function useChannelBotLifecycle(
   return { busy, providerName, setRunState, disconnect }
 }
 
-const DEFAULT_DISCONNECT_DESCRIPTION =
+/** What disconnecting a bot does, unless its card says otherwise. */
+export const DEFAULT_DISCONNECT_DESCRIPTION =
   "The stored credentials are deleted and the bot stops answering until you connect it again."
 
-function DisconnectConfirm({
+/** Confirms disconnecting a bot. */
+export function DisconnectConfirm({
   open,
   onOpenChange,
   providerName,

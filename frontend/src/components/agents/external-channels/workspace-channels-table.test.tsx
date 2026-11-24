@@ -89,13 +89,12 @@ describe("Workspace channels table", () => {
     expect(rowOf(grid, "phishing-reports")).toHaveTextContent("Phishing")
     expect(api.listWorkspaceRoutes).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
-      q: undefined,
       limit: 200,
       cursor: null,
     })
   })
 
-  it("searches channel names on the server and hides bots without a match", async () => {
+  it("searches channel names in the browser and hides bots without a match", async () => {
     renderChannelsPage()
     const grid = await table()
     await within(grid).findByText("soc-alerts")
@@ -105,11 +104,6 @@ describe("Workspace channels table", () => {
       "#phish"
     )
 
-    await waitFor(() =>
-      expect(api.listWorkspaceRoutes).toHaveBeenLastCalledWith(
-        expect.objectContaining({ q: "#phish" })
-      )
-    )
     await waitFor(() =>
       expect(within(grid).queryByText("soc-alerts")).toBeNull()
     )
@@ -158,9 +152,7 @@ describe("Workspace channels table", () => {
     const grid = await table()
 
     expect(
-      await within(grid).findByText(
-        /in a channel, then give it its own agent below/
-      )
+      await within(grid).findByText(/in a channel, then give it its own agent/)
     ).toBeInTheDocument()
     expect(within(grid).getByText("/invite @Tracecat")).toBeInTheDocument()
     expect(rowOf(grid, "Everywhere else")).toHaveTextContent("Triage")
@@ -182,18 +174,7 @@ describe("Workspace channels table", () => {
     expect(within(grid).queryByText(/Not in any channel yet/)).toBeNull()
   })
 
-  it("waits for every page before saying a bot is in no channel", async () => {
-    api.listWorkspaceRoutes.mockResolvedValue(
-      routePage([workspaceRoute()], "next")
-    )
-    renderChannelsPage()
-    const grid = await table()
-    await within(grid).findByText("soc-alerts")
-
-    expect(within(grid).queryByText(/Not in any channel yet/)).toBeNull()
-  })
-
-  it("pages in more channels", async () => {
+  it("reads every page of channels", async () => {
     api.listWorkspaceRoutes
       .mockResolvedValueOnce(routePage([workspaceRoute()], "next"))
       .mockResolvedValueOnce(
@@ -203,15 +184,12 @@ describe("Workspace channels table", () => {
       )
     renderChannelsPage()
     const grid = await table()
-    await within(grid).findByText("soc-alerts")
-
-    await userEvent.click(screen.getByRole("button", { name: "Load more" }))
 
     expect(await within(grid).findByText("later")).toBeInTheDocument()
+    expect(within(grid).getByText("soc-alerts")).toBeInTheDocument()
     expect(api.listWorkspaceRoutes).toHaveBeenLastCalledWith(
       expect.objectContaining({ cursor: "next" })
     )
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull()
   })
 
   it("says when the workspace's bots could not be loaded", async () => {

@@ -8,19 +8,11 @@ import {
   channelBotReturnUrl,
   goToChannelBotAuthorization,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { ChannelsSideSheet } from "@/components/agents/external-channels/channels-side-sheet"
 import { AgentSelect } from "@/components/agents/external-channels/platform-channel-routes"
 import { ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -207,7 +199,8 @@ export function NoChannelBots({
   )
 }
 
-function PickAgentDialog({
+/** The side sheet's add-a-bot body: one agent, then on to the install. */
+function PickAgentSheet({
   title,
   description,
   label,
@@ -241,51 +234,14 @@ function PickAgentDialog({
     ? (chosen ?? "")
     : initialAgentId
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) {
-          onClose()
-        }
-      }}
-    >
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <p className="text-xs font-medium">{label}</p>
-              {labelTip ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={labelTip}
-                      className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                    >
-                      <Info className="size-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-60">
-                    {labelTip}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
-            <AgentSelect
-              label={label}
-              value={agentId}
-              agents={agents}
-              disabled={busy}
-              onChange={setChosen}
-            />
-            <p className="text-xs text-muted-foreground">{hint}</p>
-          </div>
-        </DialogBody>
-        <DialogFooter>
+    <ChannelsSideSheet
+      label={title}
+      providerId="slack"
+      title={title}
+      onClose={onClose}
+      closeDisabled={busy}
+      footer={
+        <>
           <Button
             type="button"
             size="sm"
@@ -306,14 +262,46 @@ function PickAgentDialog({
             ) : null}
             {submitLabel}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <p className="text-xs text-muted-foreground">{description}</p>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-medium">{label}</p>
+            {labelTip ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={labelTip}
+                    className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    <Info className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-60">{labelTip}</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
+          <AgentSelect
+            label={label}
+            value={agentId}
+            agents={agents}
+            disabled={busy}
+            onChange={setChosen}
+            className="w-full"
+          />
+          <p className="text-xs text-muted-foreground">{hint}</p>
+        </div>
+      </div>
+    </ChannelsSideSheet>
   )
 }
 
 /** Picks the agent for DMs and unlisted channels, then sends the browser to Slack. */
-export function AddTracecatDialog({
+export function AddTracecatSheet({
   workspaceId,
   install,
   onClose,
@@ -335,7 +323,7 @@ export function AddTracecatDialog({
       ? install.agent_preset_id
       : ""
   return (
-    <PickAgentDialog
+    <PickAgentSheet
       title="Add Tracecat"
       description="People talk to your agents as @Tracecat. You approve the install in Slack, then come back here."
       label="Agent for DMs and unlisted channels"
@@ -376,7 +364,7 @@ export function AddTracecatDialog({
 }
 
 /** Picks the agent a custom Slack app answers for, then opens its Channels tab. */
-export function CustomSlackAppDialog({
+export function CustomSlackAppSheet({
   workspaceId,
   onClose,
 }: {
@@ -386,8 +374,8 @@ export function CustomSlackAppDialog({
   const router = useRouter()
   const { presets } = useAgentPresets(workspaceId)
   return (
-    <PickAgentDialog
-      title="Use a custom Slack app"
+    <PickAgentSheet
+      title="Custom Slack app"
       description="The app gets its own name and icon, and answers only for one agent. You create it in Slack from that agent's Channels tab."
       label="Agent"
       hint="The app answers for this agent in every channel it is in."

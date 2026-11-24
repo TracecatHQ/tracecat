@@ -68,16 +68,12 @@ const INSTALL_MESSAGE_LIMIT = 200
 const BOT_CHANNEL_LIMIT = 100
 // The API's cap; a tenant's channels are paged in for the route picker.
 const ROUTABLE_CHANNEL_PAGE_LIMIT = 200
-// The API's cap; every workspace route is read for the Agents list.
+// The API's cap; every workspace route is read for the Channels table and Agents list.
 const ROUTE_PAGE_LIMIT = 200
-// Defensive bound on workspace route pages followed for the Agents list.
+// Defensive bound on workspace route pages followed.
 const MAX_ROUTE_PAGES = 50
 // Channel listings call Slack per bot, so mounts and focus reuse them briefly.
 const CHANNEL_LIST_STALE_TIME = 60_000
-// Names come from Slack on every read, so a search keeps its results a while.
-const WORKSPACE_ROUTES_GC_TIME = 5 * 60_000
-// The search box is typed live; the list refetches once it settles.
-const ROUTE_SEARCH_DEBOUNCE_MS = 300
 // The app name is typed live; the manifest refetches once it settles.
 const APP_NAME_DEBOUNCE_MS = 300
 
@@ -265,57 +261,6 @@ export function useWorkspaceChannelBots(workspaceId: string, enabled: boolean) {
     retry: retryHandler,
     meta: { suppressErrorToast: true },
   })
-}
-
-/**
- * Every channel the workspace's bots answer in, named by Slack at read time.
- * `search` is matched server side once typing settles; results stay cached
- * client side only.
- */
-export function useWorkspaceChannelRoutes(
-  workspaceId: string,
-  search: string,
-  enabled: boolean
-) {
-  const [q] = useDebounce(search.trim(), ROUTE_SEARCH_DEBOUNCE_MS)
-  const query = useInfiniteQuery({
-    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "workspace-routes", q],
-    queryFn: async ({ pageParam }) =>
-      await agentChannelBotsListWorkspaceRoutes({
-        workspaceId,
-        q: q || undefined,
-        limit: ROUTE_PAGE_LIMIT,
-        cursor: pageParam,
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (page) =>
-      page.has_more ? (page.next_cursor ?? undefined) : undefined,
-    enabled,
-    staleTime: CHANNEL_LIST_STALE_TIME,
-    gcTime: WORKSPACE_ROUTES_GC_TIME,
-    placeholderData: (previous) => previous,
-    retry: retryHandler,
-    meta: { suppressErrorToast: true },
-  })
-  const routes: AgentChannelWorkspaceRouteRead[] | undefined =
-    query.data?.pages.flatMap((page) => page.items)
-  // Running bots Slack would not list, keyed by bot ID.
-  const listingFailures = new Map(
-    (query.data?.pages ?? []).flatMap((page) =>
-      (page.listing_failures ?? []).map((f) => [f.bot_id, f] as const)
-    )
-  )
-  return {
-    routes,
-    listingFailures,
-    routesIsLoading: query.isLoading,
-    routesError: query.error as TracecatApiError | null,
-    // The shown rows are for an earlier search until this one settles.
-    searching: q !== search.trim() || query.isPlaceholderData,
-    hasMoreRoutes: query.hasNextPage,
-    loadingMoreRoutes: query.isFetchingNextPage,
-    loadMoreRoutes: () => void query.fetchNextPage(),
-  }
 }
 
 /** The workspace's installs of the platform app for `provider`, any agent. */
@@ -507,10 +452,15 @@ export function useChannelBotRoutableChannels(
   }
 }
 
-/** Every page of the workspace's channel routes, unfiltered, with its listing failures. */
-function useAllWorkspaceChannelRoutes(workspaceId: string, enabled: boolean) {
+/**
+ * Every page of the workspace's channel routes, named by Slack at read time,
+ * with its listing failures. The Channels table filters and groups them client side.
+ */
+export function useAllWorkspaceChannelRoutes(
+  workspaceId: string,
+  enabled: boolean
+) {
   return useQuery<AgentChannelWorkspaceRoutesPage, TracecatApiError>({
-    // Apart from the searched key, which a search for "all" would otherwise hit.
     queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "workspace-routes-all"],
     queryFn: async () => {
       const items: AgentChannelWorkspaceRouteRead[] = []
@@ -839,21 +789,22 @@ export function useAddChannelBotRoute(
   workspaceId: string,
   provider: ChannelBotProvider
 ) {
-  const { mutate: addRoute } = useChannelBotMutation(
-    workspaceId,
-    provider,
-    async ({
-      botId,
-      requestBody,
-    }: {
-      botId: string
-      requestBody: AgentChannelRouteSet
-    }) =>
-      await agentChannelBotsAddBotRoute({ workspaceId, botId, requestBody }),
-    "route a channel for",
-    "This channel is already routed. Change its agent in the list instead."
-  )
-  return { addRoute }
+  const { mutate: addRoute, isPending: addRouteIsPending } =
+    useChannelBotMutation(
+      workspaceId,
+      provider,
+      async ({
+        botId,
+        requestBody,
+      }: {
+        botId: string
+        requestBody: AgentChannelRouteSet
+      }) =>
+        await agentChannelBotsAddBotRoute({ workspaceId, botId, requestBody }),
+      "route a channel for",
+      "This channel is already routed. Change its agent in the list instead."
+    )
+  return { addRoute, addRouteIsPending }
 }
 
 /** Changes the agent a routed channel's new threads go to. */

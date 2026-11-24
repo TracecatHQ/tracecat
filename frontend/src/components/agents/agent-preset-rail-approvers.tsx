@@ -40,7 +40,8 @@ import { useDebounce } from "@/hooks/use-debounce"
 
 const APPROVER_KIND_ORDER = ["user", "group", "role"] as const
 
-const APPROVER_KINDS: Record<
+/** Each approver kind's heading, label and icon. */
+export const APPROVER_KINDS: Record<
   AgentPresetApproverKind,
   { heading: string; label: string; Icon: LucideIcon }
 > = {
@@ -49,14 +50,16 @@ const APPROVER_KINDS: Record<
   role: { heading: "Roles", label: "Role", Icon: ShieldIcon },
 }
 
-const DEFAULT_RULE =
+/** What an empty approver list means. */
+export const DEFAULT_APPROVER_RULE =
   "No approvers listed: anyone who can reach an approval, here or in the agent's channel, can decide."
 
 function approverKey(approver: AgentPresetApproverRef): string {
   return `${approver.kind}:${approver.id}`
 }
 
-function approverDetail(approver: AgentPresetApproverRead): string {
+/** An approver's email, else its kind. */
+export function approverDetail(approver: AgentPresetApproverRead): string {
   if (approver.email && approver.email !== approver.name) return approver.email
   return APPROVER_KINDS[approver.kind].label
 }
@@ -105,7 +108,7 @@ export function AgentPresetApproversPanel({
     addDisabledReason = "Saving approvers..."
   }
 
-  let body = <RailEmpty>{DEFAULT_RULE}</RailEmpty>
+  let body = <RailEmpty>{DEFAULT_APPROVER_RULE}</RailEmpty>
   if (approversQuery.isError) {
     body = <RailEmpty>Approvers could not be loaded.</RailEmpty>
   } else if (presetId && approversQuery.isPending) {
