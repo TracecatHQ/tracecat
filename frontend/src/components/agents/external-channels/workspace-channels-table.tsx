@@ -254,18 +254,19 @@ export function WorkspaceChannelsTable({
     <div className="space-y-3">
       <div
         ref={toolbarRef}
-        className="relative flex items-center justify-between gap-2"
+        className="relative flex flex-wrap items-center justify-between gap-2"
       >
-        {/* Off-screen copy of the facets, measured to decide whether they fit. */}
+        {/* Clipped copy of the facets, measured to decide whether they fit. */}
         <div
-          ref={facetsRef}
           aria-hidden
-          inert
-          className="invisible absolute left-0 top-0 flex items-center gap-2"
+          className="invisible absolute inset-x-0 top-0 h-0 overflow-hidden"
         >
-          {facetFilters}
+          <div ref={facetsRef} className="flex w-max items-center gap-2">
+            {facetFilters}
+          </div>
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        {/* Room for the search box and Filters; the trailing controls wrap below that. */}
+        <div className="flex min-w-0 flex-1 basis-[280px] items-center gap-2">
           <Input
             type="search"
             placeholder="Search channels..."
@@ -362,7 +363,8 @@ function useFacetsOverflow(
     if (!toolbar || !facets || !trailing) {
       return
     }
-    const gaps = 3 * 8
+    // Search to facets, and facets to the trailing controls.
+    const gaps = 2 * 8
     const measure = () =>
       setCompact(
         SEARCH_MIN_WIDTH + facets.offsetWidth + trailing.offsetWidth + gaps >
