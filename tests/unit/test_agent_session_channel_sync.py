@@ -533,6 +533,7 @@ async def test_a_linked_session_names_its_thread_channel(
 ) -> None:
     assert svc_role.workspace_id is not None
     bot = await _bot(session, svc_role.workspace_id)
+    bot.provider_bot_user_id = "UBOT"
     web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
     await _link(session, bot, web.id, synced=True)
     admin = Mock(thread_channel_id=Mock(return_value="C1"))
@@ -545,7 +546,10 @@ async def test_a_linked_session_names_its_thread_channel(
     result = await get_channel_sync(svc, web.id)
 
     assert result.thread == InboxChannelThread(
-        bot_id=bot.id, provider=ChannelBotProvider.SLACK, provider_channel_id="C1"
+        bot_id=bot.id,
+        provider=ChannelBotProvider.SLACK,
+        provider_channel_id="C1",
+        provider_bot_user_id="UBOT",
     )
     admin.thread_channel_id.assert_called_once_with(ChannelBotProvider.SLACK, THREAD)
 

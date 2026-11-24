@@ -7479,6 +7479,10 @@ export type InboxChannelThread = {
    * The provider's channel ID
    */
   provider_channel_id: string
+  /**
+   * The bot's own provider user ID, as mentions name it
+   */
+  provider_bot_user_id?: string | null
 }
 
 /**

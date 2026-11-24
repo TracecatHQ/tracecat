@@ -320,3 +320,6 @@ class InboxChannelThread(BaseModel):
     bot_id: uuid.UUID = Field(..., description="Channel bot the thread is linked on")
     provider: ChannelBotProvider = Field(..., description="The bot's provider")
     provider_channel_id: str = Field(..., description="The provider's channel ID")
+    provider_bot_user_id: str | None = Field(
+        default=None, description="The bot's own provider user ID, as mentions name it"
+    )

@@ -117,6 +117,29 @@ export function ChannelMentionText({
   return <>{nodes}</>
 }
 
+/**
+ * Splits off the earlier-thread lines that mention the bot: each reads as its own
+ * message. The rest stay folded under the message that triggered the turn.
+ */
+export function splitBotMentions(
+  message: ChannelMessageData,
+  botUserId: string
+): { mentions: EarlierThreadMessage[]; rest: ChannelMessageData } {
+  const lines = message.thread?.messages ?? []
+  const mentions = lines.filter((line) =>
+    Array.from(line.text.matchAll(SLACK_MENTION)).some(
+      (match) => match[1] === botUserId
+    )
+  )
+  if (!message.thread || mentions.length === 0)
+    return { mentions, rest: message }
+  const messages = lines.filter((line) => !mentions.includes(line))
+  return {
+    mentions,
+    rest: { ...message, thread: { ...message.thread, messages } },
+  }
+}
+
 /** The forwards and earlier thread a channel message carried. */
 export function ChannelMessageContext({
   message,

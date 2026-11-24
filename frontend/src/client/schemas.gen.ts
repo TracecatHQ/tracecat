@@ -24300,6 +24300,18 @@ export const $InboxChannelThread = {
       title: "Provider Channel Id",
       description: "The provider's channel ID",
     },
+    provider_bot_user_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Bot User Id",
+      description: "The bot's own provider user ID, as mentions name it",
+    },
   },
   type: "object",
   required: ["bot_id", "provider", "provider_channel_id"],

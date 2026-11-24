@@ -912,6 +912,51 @@ describe("a message that joined the turn", () => {
     }
   )
 
+  it("lifts earlier-thread lines that mention the bot into their own messages", () => {
+    const thread = {
+      bot_id: "bot-1",
+      provider: "slack" as const,
+      provider_channel_id: "C1",
+      provider_bot_user_id: "UBOT0000",
+    }
+    const caughtUp = {
+      ...slackSteer,
+      channel_message: {
+        ...slackSteer.channel_message,
+        thread: {
+          messages: [
+            { author: "U2BOB000", text: "@UBOT0000 check db-3" },
+            { author: "U2BOB000", text: "lunch?" },
+          ],
+        },
+        people: [
+          ...slackSteer.channel_message.people,
+          { provider_user_id: "U2BOB000", name: "Bob Lee" },
+          { provider_user_id: "UBOT0000", name: "Tracecat" },
+        ],
+      },
+    }
+    render(
+      <SessionChannelThreadContext.Provider value={thread}>
+        <MessageParts
+          message={joined(caughtUp)}
+          status="streaming"
+          isLastMessage
+          showAuthor
+          currentUserId="user-2"
+        />
+      </SessionChannelThreadContext.Provider>
+    )
+
+    const lifted = screen.getByText("@Tracecat check db-3")
+    expect(screen.getByRole("img", { name: "Bob Lee" })).toBeInTheDocument()
+    expect(
+      lifted.compareDocumentPosition(screen.getByText("and db-2")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(screen.getByText(/Earlier thread · 1/)).toBeInTheDocument()
+  })
+
   it("marks another person's Slack message by the badge on their avatar", () => {
     render(
       <MessageParts

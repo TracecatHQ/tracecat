@@ -7,8 +7,10 @@ import {
 } from "@/components/ai-elements/message"
 import {
   ChannelMessageContext,
+  channelPerson,
   channelPersonClassName,
   channelSender,
+  splitBotMentions,
   withChannelMentionNames,
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
@@ -23,9 +25,37 @@ export const SessionChannelThreadContext =
 
 /**
  * A user's message: its author, text, and a channel message's forwards and thread.
- * The recorded author names it; else a channel message's envelope sender.
+ * Earlier-thread lines that mention the bot come first, each as its own message.
  */
-export function UserBubble({
+export function UserBubble(props: Parameters<typeof MessageBubble>[0]) {
+  const { channelMessage } = props
+  const botUserId = useContext(
+    SessionChannelThreadContext
+  )?.provider_bot_user_id
+  if (!channelMessage || !botUserId) return <MessageBubble {...props} />
+  const { mentions, rest } = splitBotMentions(channelMessage, botUserId)
+  return (
+    <>
+      {mentions.map((line, index) => (
+        <MessageBubble
+          key={index}
+          text={withChannelMentionNames(line.text, channelMessage)}
+          channelMessage={null}
+          author={{
+            ...(line.is_bot
+              ? { name: line.author, linked: false }
+              : channelPerson(channelMessage, line.author)),
+            fromSlack: channelMessage.provider === "slack",
+          }}
+        />
+      ))}
+      <MessageBubble {...props} channelMessage={rest} />
+    </>
+  )
+}
+
+/** One message: the recorded author names it; else a channel message's envelope sender. */
+function MessageBubble({
   text,
   channelMessage,
   author,
