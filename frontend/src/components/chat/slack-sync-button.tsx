@@ -82,13 +82,21 @@ export function SlackSyncButton({
     }
   }
 
+  const inactive = disabled || isPending
+
   function handleSelect(destination: ChannelDestination) {
     setPickerOpen(false)
-    changeSync({ enabled: true, destination })
+    if (!inactive) {
+      changeSync({ enabled: true, destination })
+    }
   }
 
   return (
-    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+    // The trigger is a span, so a disabled button alone does not keep the picker shut.
+    <Popover
+      open={pickerOpen && !inactive}
+      onOpenChange={(open) => setPickerOpen(open && !inactive)}
+    >
       <PickerAnchor asChild>
         <span className="inline-flex">
           <Tooltip>
@@ -98,7 +106,7 @@ export function SlackSyncButton({
                 aria-pressed={state === "unlinked" ? undefined : state === "on"}
                 aria-expanded={state === "unlinked" ? pickerOpen : undefined}
                 data-state-sync={state}
-                disabled={disabled || isPending}
+                disabled={inactive}
                 onClick={handleClick}
                 className={cn("h-7", pickerOpen && "bg-accent")}
               >

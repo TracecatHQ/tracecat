@@ -28,14 +28,18 @@ const listDestinations = jest.mocked(
 const updateSync = jest.mocked(agentSessionsUpdateSessionChannelSync)
 const mockToast = jest.mocked(toast)
 
-function renderButton() {
+function renderButton({ disabled = false }: { disabled?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <SlackSyncButton workspaceId="ws-1" sessionId="session-1" />
+        <SlackSyncButton
+          workspaceId="ws-1"
+          sessionId="session-1"
+          disabled={disabled}
+        />
       </TooltipProvider>
     </QueryClientProvider>
   )
@@ -169,6 +173,20 @@ test("clicking the button again closes the picker", async () => {
     ).not.toBeInTheDocument()
   )
   expect(updateSync).not.toHaveBeenCalled()
+})
+
+test("a disabled button never opens the picker", async () => {
+  getSync.mockResolvedValue({ available: true, enabled: false, linked: false })
+  renderButton({ disabled: true })
+  const button = await screen.findByRole("button", { name: "Sync with Slack" })
+
+  // The span trigger still takes the click a disabled button lets through.
+  await userEvent.click(button.parentElement as HTMLElement)
+
+  expect(
+    screen.queryByPlaceholderText("Search in Slack…")
+  ).not.toBeInTheDocument()
+  expect(listDestinations).not.toHaveBeenCalled()
 })
 
 test("the picker selects with the keyboard", async () => {

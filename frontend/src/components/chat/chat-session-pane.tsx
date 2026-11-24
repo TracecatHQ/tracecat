@@ -476,10 +476,10 @@ export function ChatSessionPane({
         chat.entity_type === "external_channel" ||
         ("channel_context" in chat && chat.channel_context))
   )
-  // A web session is shared while it syncs with a channel thread.
+  // A web session is shared while it syncs with a channel thread; legacy chats have none.
   const { sync: channelSync } = useSessionChannelSync(
     workspaceId,
-    sharedByType ? undefined : chat?.id
+    !sharedByType && chat && "channel_context" in chat ? chat.id : undefined
   )
   const showMessageAuthors =
     sharedByType || teammateSent || Boolean(channelSync?.enabled)
@@ -1580,7 +1580,7 @@ export function ChatSessionPane({
                 <SlackSyncButton
                   workspaceId={workspaceId}
                   sessionId={chat.id}
-                  disabled={inputDisabled || cannotExecuteAgents}
+                  disabled={cannotExecuteAgents}
                 />
               ) : null}
               {!isReadonly && modelInfo ? (
