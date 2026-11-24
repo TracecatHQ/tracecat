@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from opentelemetry import context as otel_context
@@ -519,6 +519,58 @@ class TestBuildToolDefinitionsActivity:
         # The compile never rewrites the selection it was given.
         assert args.tool_filters.actions == selected
         assert args.tool_tunnels == tunnels
+
+    @pytest.mark.anyio
+    async def test_subagent_scopes_drop_the_roots_superseded_actions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        built: list[list[str]] = []
+
+        async def build_tools(
+            *, actions: list[str] | None, **_kwargs: Any
+        ) -> BuildToolsResult:
+            built.append(actions or [])
+            return BuildToolsResult(
+                tools=[
+                    await create_tool_from_registry(
+                        name, _indexed_action(name), tool_approvals=None
+                    )
+                    for name in actions or []
+                ],
+                collected_secrets=set(),
+            )
+
+        root_session_id = uuid.uuid4()
+        grant = AsyncMock(
+            return_value=SessionPluginGrant(
+                superseded_namespaces=frozenset({"tools.slack"})
+            )
+        )
+        monkeypatch.setattr(agent_activities, "session_plugin_grant", grant)
+        _patch_registry(monkeypatch, build_tools=build_tools)
+        selected = ["tools.slack.post_message", "core.http_request"]
+
+        result = await AgentActivities().build_agent_tool_definitions(
+            BuildAgentToolDefsArgs(
+                role=Role(type="service", service_id="tracecat-api"),
+                scopes=[
+                    BuildAgentScopeToolDefsArgs(
+                        scope="root",
+                        tool_filters=ToolFilters(actions=selected),
+                        session_id=root_session_id,
+                    ),
+                    BuildAgentScopeToolDefsArgs(
+                        scope="child",
+                        tool_filters=ToolFilters(actions=selected),
+                    ),
+                ],
+            )
+        )
+
+        # One plugin call, for the root's session, serves every scope.
+        grant.assert_awaited_once_with(ANY, root_session_id)
+        assert built == [["core.http_request"], ["core.http_request"]]
+        assert set(result.scopes["child"].tool_definitions) == {"core.http_request"}
 
     @pytest.mark.anyio
     async def test_records_registry_default_approvals_per_agent_scope(

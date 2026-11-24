@@ -89,7 +89,8 @@ class BuildToolDefsArgs(BaseModel):
     """Context for internal tools (e.g., preset_id for builder assistant)."""
     session_id: uuid.UUID | None = None
     """The root agent's session, which plugins grant internal tools by.
-    Unset for subagent scopes, which never get plugin tools."""
+    Unset for subagent scopes, which get no plugin tools but drop the root's
+    superseded namespaces."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
     include_stdio_mcp_servers: bool = False
@@ -112,7 +113,8 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     """Context for internal tools (e.g., preset_id for builder assistant)."""
     session_id: uuid.UUID | None = None
     """The root agent's session, which plugins grant internal tools by.
-    Unset for subagent scopes, which never get plugin tools."""
+    Unset for subagent scopes, which get no plugin tools but drop the root's
+    superseded namespaces."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
     include_stdio_mcp_servers: bool = False
@@ -898,6 +900,14 @@ class AgentActivities:
         # Compile all agent scopes in one activity while preserving partitioned
         # outputs for MCP tokens, approvals, user MCP claims, and registry locks.
         ctx_role.set(args.role)
+        root_session_id = next(
+            (scope.session_id for scope in args.scopes if scope.session_id), None
+        )
+        root_grant = await _plugin_grant_or_empty(args.role, root_session_id)
+        # Subagents get no plugin tools, but drop what the root's connection supersedes.
+        subagent_grant = SessionPluginGrant(
+            superseded_namespaces=root_grant.superseded_namespaces
+        )
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:
@@ -907,7 +917,7 @@ class AgentActivities:
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,
                 role=args.role,
-                plugin_grant=await _plugin_grant_or_empty(args.role, scope.session_id),
+                plugin_grant=root_grant if scope.session_id else subagent_grant,
             )
 
         return BuildAgentToolDefsResult(scopes=results)
