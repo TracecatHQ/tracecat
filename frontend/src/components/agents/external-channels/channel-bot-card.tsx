@@ -6,7 +6,6 @@ import {
   CirclePause,
   Loader2,
   type LucideIcon,
-  MoreHorizontal,
   Pause,
   Play,
   TriangleAlert,
@@ -46,12 +45,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -532,101 +525,5 @@ export function ChannelBotLifecycleActions({
         onDisconnect={disconnect}
       />
     </div>
-  )
-}
-
-/** Resumes a paused bot. */
-export function ChannelBotResumeButton({
-  workspaceId,
-  bot,
-}: {
-  workspaceId: string
-  bot: AgentChannelBotRead
-}) {
-  const { busy, setRunState } = useChannelBotLifecycle(workspaceId, bot)
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onClick={() => setRunState("active")}
-      disabled={busy}
-    >
-      <Play className="mr-2 size-4" />
-      Resume
-    </Button>
-  )
-}
-
-/** Pause, resume and disconnect for an installed bot, in a menu beside its status. */
-export function ChannelBotActionsMenu({
-  workspaceId,
-  bot,
-  state,
-  offerResume,
-  disconnectDescription = DEFAULT_DISCONNECT_DESCRIPTION,
-}: {
-  workspaceId: string
-  bot: AgentChannelBotRead
-  state: ChannelBotState
-  /** Whether a paused bot's Resume lives here rather than beside its status. */
-  offerResume: boolean
-  disconnectDescription?: string
-}) {
-  const { busy, providerName, setRunState, disconnect } =
-    useChannelBotLifecycle(workspaceId, bot)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            className="size-8"
-            aria-label="More actions"
-            disabled={busy}
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="shadow-none">
-          {state === "active" ? (
-            <DropdownMenuItem
-              className="text-xs"
-              onSelect={() => setRunState("paused")}
-            >
-              <Pause className="mr-2 size-4" />
-              Pause
-            </DropdownMenuItem>
-          ) : null}
-          {state === "paused" && offerResume ? (
-            <DropdownMenuItem
-              className="text-xs"
-              onSelect={() => setRunState("active")}
-            >
-              <Play className="mr-2 size-4" />
-              Resume
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem
-            className="text-xs"
-            onSelect={() => setConfirmOpen(true)}
-          >
-            <Unplug className="mr-2 size-4" />
-            Disconnect
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <DisconnectConfirm
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        providerName={providerName}
-        description={disconnectDescription}
-        onDisconnect={disconnect}
-      />
-    </>
   )
 }
