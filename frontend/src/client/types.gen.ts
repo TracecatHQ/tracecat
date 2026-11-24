@@ -1301,6 +1301,10 @@ export type AgentSessionChannelSyncRead = {
    * The session has a channel thread already
    */
   linked?: boolean
+  /**
+   * The linked thread's channel; None without a thread or channel bot reads
+   */
+  thread?: InboxChannelThread | null
 }
 
 /**

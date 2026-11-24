@@ -8,12 +8,19 @@ import {
   getRunningLineLabel,
   MessageParts,
 } from "@/components/chat/message-part"
+import { SessionChannelThreadContext } from "@/components/chat/user-bubble"
+import { useChannelThreadChannel } from "@/hooks/use-agent-channel-bots"
 import {
   type ChatVerbosity,
   ChatVerbosityContext,
   getChatVerbosityPolicy,
 } from "@/hooks/use-chat-verbosity"
 import { transformMessages } from "@/lib/chat"
+import { WorkspaceIdProvider } from "@/providers/workspace-id"
+
+jest.mock("@/hooks/use-agent-channel-bots", () => ({
+  useChannelThreadChannel: jest.fn(),
+}))
 
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: () => true,
@@ -869,6 +876,41 @@ describe("a message that joined the turn", () => {
     expect(screen.getByText("From Slack")).toBeInTheDocument()
     expect(screen.queryByRole("img")).not.toBeInTheDocument()
   })
+
+  it.each([
+    [{ id: "C1", name: "general" }, "From #general"],
+    [undefined, "From Slack"],
+  ])(
+    "names the thread's channel above the viewer's own Slack message",
+    (channel, line) => {
+      const thread = {
+        bot_id: "bot-1",
+        provider: "slack" as const,
+        provider_channel_id: "C1",
+      }
+      jest
+        .mocked(useChannelThreadChannel)
+        .mockReturnValue(
+          channel && { ...channel, is_private: false, is_member: true }
+        )
+      render(
+        <WorkspaceIdProvider workspaceId="ws-1">
+          <SessionChannelThreadContext.Provider value={thread}>
+            <MessageParts
+              message={joined(slackSteer)}
+              status="streaming"
+              isLastMessage
+              showAuthor
+              currentUserId="user-1"
+            />
+          </SessionChannelThreadContext.Provider>
+        </WorkspaceIdProvider>
+      )
+
+      expect(screen.getByText(line)).toBeInTheDocument()
+      expect(useChannelThreadChannel).toHaveBeenCalledWith("ws-1", thread)
+    }
+  )
 
   it("marks another person's Slack message by the badge on their avatar", () => {
     render(

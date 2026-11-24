@@ -4886,6 +4886,18 @@ export const $AgentSessionChannelSyncRead = {
       description: "The session has a channel thread already",
       default: false,
     },
+    thread: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/InboxChannelThread",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The linked thread's channel; None without a thread or channel bot reads",
+    },
   },
   type: "object",
   required: ["available", "enabled"],

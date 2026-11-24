@@ -10,6 +10,7 @@ import uuid
 
 from sqlalchemy import select, update
 
+from tracecat.agent.channel_bots.channel_threads import channel_threads
 from tracecat.agent.channel_notifier import (
     ChannelDestinationRef,
     can_open_channel_thread,
@@ -32,7 +33,11 @@ async def get_channel_sync(
     """The session's sync state; a session without a thread asks the notifier."""
     enabled = await get_channel_sync_enabled(svc, session_id)
     if enabled is not None:
-        return AgentSessionChannelSyncRead(available=True, enabled=enabled, linked=True)
+        return await with_channel_thread(
+            svc,
+            session_id,
+            AgentSessionChannelSyncRead(available=True, enabled=enabled, linked=True),
+        )
     # End the read transaction: no connection sits idle across the notifier's calls.
     await svc.session.commit()
     available = await can_open_channel_thread(svc.role, session_id)
@@ -60,7 +65,11 @@ async def set_channel_sync(
             raise ChannelThreadUnavailable(
                 "No channel thread can be opened for this session"
             )
-        return AgentSessionChannelSyncRead(available=True, enabled=True, linked=True)
+        return await with_channel_thread(
+            svc,
+            session_id,
+            AgentSessionChannelSyncRead(available=True, enabled=True, linked=True),
+        )
     changed = await svc.session.scalar(
         update(AgentSessionThread)
         .where(
@@ -76,11 +85,27 @@ async def set_channel_sync(
         # After the commit: the thread is told once, by the request that stopped it.
         await notify_sync_stopped(svc.role, session_id)
     current = await get_channel_sync_enabled(svc, session_id)
-    return AgentSessionChannelSyncRead(
-        available=current is not None,
-        enabled=bool(current),
-        linked=current is not None,
+    return await with_channel_thread(
+        svc,
+        session_id,
+        AgentSessionChannelSyncRead(
+            available=current is not None,
+            enabled=bool(current),
+            linked=current is not None,
+        ),
     )
+
+
+async def with_channel_thread(
+    svc: AgentSessionService,
+    session_id: uuid.UUID,
+    sync: AgentSessionChannelSyncRead,
+) -> AgentSessionChannelSyncRead:
+    """``sync`` with its linked thread's channel, which names Slack-sent messages."""
+    if not sync.linked:
+        return sync
+    threads = await channel_threads(svc.session, svc.role, [session_id])
+    return sync.model_copy(update={"thread": threads.get(session_id)})
 
 
 async def get_channel_sync_enabled(

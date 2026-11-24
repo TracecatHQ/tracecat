@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends.types import PendingMessageType
+from tracecat.agent.channel_bots.schemas import InboxChannelThread
 from tracecat.agent.channel_notifier import ChannelDestination, ChannelDestinationRef
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
@@ -262,6 +263,10 @@ class AgentSessionChannelSyncRead(BaseModel):
     )
     linked: bool = Field(
         default=False, description="The session has a channel thread already"
+    )
+    thread: InboxChannelThread | None = Field(
+        default=None,
+        description="The linked thread's channel; None without a thread or channel bot reads",
     )
 
 

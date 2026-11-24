@@ -26,11 +26,20 @@ async def channel_threads_by_session(
     role: Role,
     sessions: Sequence[AgentSession],
 ) -> dict[uuid.UUID, InboxChannelThread]:
-    """The linked thread's channel by session ID, in one query; empty without the
-    channel bots preview or `agent:read`, which the channel bot API requires."""
+    """The linked thread's channel by external-channel session ID, in one query."""
     session_ids = [
         s.id for s in sessions if s.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL
     ]
+    return await channel_threads(session, role, session_ids)
+
+
+async def channel_threads(
+    session: AsyncSession,
+    role: Role,
+    session_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, InboxChannelThread]:
+    """The linked thread's channel by session ID, for any session type; empty without
+    the channel bots preview or `agent:read`, which the channel bot API requires."""
     if (
         not session_ids
         or role.workspace_id is None

@@ -35,6 +35,7 @@ from tracecat.agent.session.channel_sync import (
     get_channel_sync,
     get_channel_sync_enabled,
     set_channel_sync,
+    with_channel_thread,
 )
 from tracecat.agent.session.schemas import (
     AgentBackendRead,
@@ -1008,8 +1009,12 @@ async def get_session_channel_sync(
         )
     if not (await svc.session_access(agent_session)).act:
         enabled = await get_channel_sync_enabled(svc, session_id)
-        return AgentSessionChannelSyncRead(
-            available=False, enabled=bool(enabled), linked=enabled is not None
+        return await with_channel_thread(
+            svc,
+            session_id,
+            AgentSessionChannelSyncRead(
+                available=False, enabled=bool(enabled), linked=enabled is not None
+            ),
         )
     return await get_channel_sync(svc, session_id)
 

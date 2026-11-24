@@ -72,6 +72,7 @@ import {
   RunningLine,
 } from "@/components/chat/message-part"
 import { SlackSyncButton } from "@/components/chat/slack-sync-button"
+import { SessionChannelThreadContext } from "@/components/chat/user-bubble"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
@@ -476,10 +477,10 @@ export function ChatSessionPane({
         chat.entity_type === "external_channel" ||
         ("channel_context" in chat && chat.channel_context))
   )
-  // A web session is shared while it syncs with a channel thread; legacy chats have none.
+  // A web session is shared while it syncs; the thread names Slack messages' channel.
   const { sync: channelSync } = useSessionChannelSync(
     workspaceId,
-    !sharedByType && chat && "channel_context" in chat ? chat.id : undefined
+    chat && "channel_context" in chat ? chat.id : undefined
   )
   const showMessageAuthors =
     sharedByType || teammateSent || Boolean(channelSync?.enabled)
@@ -1669,105 +1670,111 @@ export function ChatSessionPane({
             resize={status === "streaming" ? "instant" : "smooth"}
           >
             <ConversationContent className={chatContentCenterClass}>
-              {optimisticMessageText ? (
-                <OptimisticPendingMessage text={optimisticMessageText} />
-              ) : null}
-              {emptyState && isEmptyConversation ? (
-                <div className="flex min-h-[50vh] items-center justify-center">
-                  {emptyState}
-                </div>
-              ) : null}
-              {threadBlocks.map((block, blockIndex) => {
-                if (block.kind === "prompt") {
-                  const { message } = block
-                  if (!messageHasVisibleParts(message)) {
-                    return null
+              <SessionChannelThreadContext.Provider
+                value={channelSync?.thread ?? null}
+              >
+                {optimisticMessageText ? (
+                  <OptimisticPendingMessage text={optimisticMessageText} />
+                ) : null}
+                {emptyState && isEmptyConversation ? (
+                  <div className="flex min-h-[50vh] items-center justify-center">
+                    {emptyState}
+                  </div>
+                ) : null}
+                {threadBlocks.map((block, blockIndex) => {
+                  if (block.kind === "prompt") {
+                    const { message } = block
+                    if (!messageHasVisibleParts(message)) {
+                      return null
+                    }
+                    return (
+                      <div key={message.id} className="group relative">
+                        <MessageParts
+                          message={message}
+                          status={status}
+                          isLastMessage={message.id === lastMessageId}
+                          turnCancelled={cancelledTurnMessageIds.has(
+                            message.id
+                          )}
+                          interruptedToolCallIds={interruptedToolCallIds}
+                          showAuthor={showMessageAuthors}
+                          currentUserId={user?.id ?? null}
+                        />
+                      </div>
+                    )
                   }
+                  // Keep the latest response's actions visible.
+                  const holdsLatestResponse =
+                    latestResponseIndex >= block.startIndex &&
+                    latestResponseIndex <= block.endIndex
+                  const sourceUrlParts = block.messages.flatMap((message) =>
+                    message.parts.filter((part) => part.type === "source-url")
+                  )
                   return (
-                    <div key={message.id} className="group relative">
-                      <MessageParts
-                        message={message}
-                        status={status}
-                        isLastMessage={message.id === lastMessageId}
-                        turnCancelled={cancelledTurnMessageIds.has(message.id)}
-                        interruptedToolCallIds={interruptedToolCallIds}
-                        showAuthor={showMessageAuthors}
-                        currentUserId={user?.id ?? null}
-                      />
+                    <div
+                      key={`turn-${block.startIndex}`}
+                      className="group relative"
+                    >
+                      {verbosityPolicy.showSources &&
+                        sourceUrlParts.length > 0 && (
+                          <Sources className="py-1">
+                            <SourcesTrigger count={sourceUrlParts.length} />
+                            <SourcesContent>
+                              {sourceUrlParts.map((part) => (
+                                <Source
+                                  key={part.sourceId}
+                                  href={part.url}
+                                  title={part.title ?? part.url}
+                                />
+                              ))}
+                            </SourcesContent>
+                          </Sources>
+                        )}
+                      <AgentTurnFrame
+                        agentName={showMessageAuthors ? agentName : null}
+                      >
+                        <AgentTurn
+                          messages={block.messages}
+                          startedAt={block.startedAt}
+                          status={status}
+                          isLive={
+                            blockIndex === threadBlocks.length - 1 &&
+                            isGeneratingTurn
+                          }
+                          isSuperseded={blockIndex < threadBlocks.length - 1}
+                          lastMessageId={lastMessageId}
+                          cancelledMessageIds={cancelledTurnMessageIds}
+                          interruptedToolCallIds={interruptedToolCallIds}
+                          showAuthor={showMessageAuthors}
+                          currentUserId={user?.id ?? null}
+                          onSubmitApprovals={
+                            cannotDecideApprovals
+                              ? undefined
+                              : handleSubmitApprovals
+                          }
+                        />
+                      </AgentTurnFrame>
+                      {/* A failed turn's Retry sits with its error below. */}
+                      {holdsLatestResponse && canRetry && !displayedError && (
+                        <RetryAction onRetry={handleRetry} />
+                      )}
                     </div>
                   )
-                }
-                // Keep the latest response's actions visible.
-                const holdsLatestResponse =
-                  latestResponseIndex >= block.startIndex &&
-                  latestResponseIndex <= block.endIndex
-                const sourceUrlParts = block.messages.flatMap((message) =>
-                  message.parts.filter((part) => part.type === "source-url")
-                )
-                return (
-                  <div
-                    key={`turn-${block.startIndex}`}
-                    className="group relative"
-                  >
-                    {verbosityPolicy.showSources &&
-                      sourceUrlParts.length > 0 && (
-                        <Sources className="py-1">
-                          <SourcesTrigger count={sourceUrlParts.length} />
-                          <SourcesContent>
-                            {sourceUrlParts.map((part) => (
-                              <Source
-                                key={part.sourceId}
-                                href={part.url}
-                                title={part.title ?? part.url}
-                              />
-                            ))}
-                          </SourcesContent>
-                        </Sources>
-                      )}
-                    <AgentTurnFrame
-                      agentName={showMessageAuthors ? agentName : null}
-                    >
-                      <AgentTurn
-                        messages={block.messages}
-                        startedAt={block.startedAt}
-                        status={status}
-                        isLive={
-                          blockIndex === threadBlocks.length - 1 &&
-                          isGeneratingTurn
-                        }
-                        isSuperseded={blockIndex < threadBlocks.length - 1}
-                        lastMessageId={lastMessageId}
-                        cancelledMessageIds={cancelledTurnMessageIds}
-                        interruptedToolCallIds={interruptedToolCallIds}
-                        showAuthor={showMessageAuthors}
-                        currentUserId={user?.id ?? null}
-                        onSubmitApprovals={
-                          cannotDecideApprovals
-                            ? undefined
-                            : handleSubmitApprovals
-                        }
-                      />
-                    </AgentTurnFrame>
-                    {/* A failed turn's Retry sits with its error below. */}
-                    {holdsLatestResponse && canRetry && !displayedError && (
-                      <RetryAction onRetry={handleRetry} />
-                    )}
-                  </div>
-                )
-              })}
-              {displayedError && (
-                <TurnErrorLine
-                  error={displayedError}
-                  dropped={lastErrorDisconnected}
-                  // A drop reconnects, so it needs no message to resend.
-                  onRetry={
-                    canRetry && (lastErrorDisconnected || messages.length > 0)
-                      ? handleRetry
-                      : undefined
-                  }
-                />
-              )}
-              {runningLineLabel && <ThinkingLine label={runningLineLabel} />}
+                })}
+                {displayedError && (
+                  <TurnErrorLine
+                    error={displayedError}
+                    dropped={lastErrorDisconnected}
+                    // A drop reconnects, so it needs no message to resend.
+                    onRetry={
+                      canRetry && (lastErrorDisconnected || messages.length > 0)
+                        ? handleRetry
+                        : undefined
+                    }
+                  />
+                )}
+                {runningLineLabel && <ThinkingLine label={runningLineLabel} />}
+              </SessionChannelThreadContext.Provider>
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>

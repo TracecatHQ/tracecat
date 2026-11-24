@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent import channel_notifier
 from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.backends.types import SessionWorkflowContext
+from tracecat.agent.channel_bots import channel_threads
 from tracecat.agent.channel_bots.messages import ChannelMessage, ChannelMessageSender
-from tracecat.agent.channel_bots.schemas import ChannelBotProvider
+from tracecat.agent.channel_bots.schemas import ChannelBotProvider, InboxChannelThread
 from tracecat.agent.channel_notifier import (
     ChannelDestination,
     ChannelDestinationRef,
@@ -526,6 +527,29 @@ async def test_turning_sync_back_on_reuses_the_thread(
     assert await _flag(session, started.id) is True
 
 
+@pytest.mark.anyio
+async def test_a_linked_session_names_its_thread_channel(
+    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert svc_role.workspace_id is not None
+    bot = await _bot(session, svc_role.workspace_id)
+    web = await _session(session, svc_role, entity_type=AgentSessionEntity.AGENT_PRESET)
+    await _link(session, bot, web.id, synced=True)
+    admin = Mock(thread_channel_id=Mock(return_value="C1"))
+    monkeypatch.setattr(channel_threads, "get_channel_bot_admin", lambda: admin)
+    monkeypatch.setattr(
+        channel_threads, "is_org_entitled", AsyncMock(return_value=True)
+    )
+    svc = AgentSessionService(session, svc_role)
+
+    result = await get_channel_sync(svc, web.id)
+
+    assert result.thread == InboxChannelThread(
+        bot_id=bot.id, provider=ChannelBotProvider.SLACK, provider_channel_id="C1"
+    )
+    admin.thread_channel_id.assert_called_once_with(ChannelBotProvider.SLACK, THREAD)
+
+
 # Who may toggle: whoever may talk to the agent.
 
 
@@ -620,7 +644,12 @@ def test_reading_a_session_the_actor_cannot_toggle_hides_the_toggle() -> None:
         response = client.get(f"/agent/sessions/{agent_session.id}/channel-sync")
 
     assert response.status_code == 200
-    assert response.json() == {"available": False, "enabled": True, "linked": True}
+    assert response.json() == {
+        "available": False,
+        "enabled": True,
+        "linked": True,
+        "thread": None,
+    }
 
 
 def test_opting_in_without_a_channel_is_a_conflict() -> None:

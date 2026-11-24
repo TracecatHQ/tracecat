@@ -1,3 +1,5 @@
+import { createContext, useContext } from "react"
+import type { InboxChannelThread } from "@/client"
 import {
   Message,
   MessageAvatar,
@@ -11,7 +13,13 @@ import {
 } from "@/components/chat/channel-message-context"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import { SlackIcon } from "@/components/icons"
+import { useChannelThreadChannel } from "@/hooks/use-agent-channel-bots"
 import type { ChannelMessageData, MessageActor } from "@/lib/chat"
+import { useOptionalWorkspaceId } from "@/providers/workspace-id"
+
+/** The session's linked channel thread, which names where Slack messages came from. */
+export const SessionChannelThreadContext =
+  createContext<InboxChannelThread | null>(null)
 
 /**
  * A user's message: its author, text, and a channel message's forwards and thread.
@@ -51,16 +59,10 @@ export function UserBubble({
     </MessageContent>
   )
   if (own) {
-    // No channel name reaches the chat yet, so the line names the provider.
     const fromSlack = channelMessage?.provider === "slack"
     return (
       <Message from="user" className="flex-col items-end gap-1">
-        {fromSlack && (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <SlackIcon className="size-3.5" aria-hidden="true" />
-            From Slack
-          </span>
-        )}
+        {fromSlack && <FromSlackLine />}
         {content}
       </Message>
     )
@@ -101,4 +103,31 @@ function channelActor(message: ChannelMessageData): MessageActor {
     fromSlack: message.provider === "slack",
     linked: sender.linked,
   }
+}
+
+/** "From #channel" above the viewer's own Slack message; "From Slack" when unnamed. */
+function FromSlackLine() {
+  const thread = useContext(SessionChannelThreadContext)
+  const workspaceId = useOptionalWorkspaceId()
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <SlackIcon className="size-3.5" aria-hidden="true" />
+      {thread?.provider === "slack" && workspaceId ? (
+        <ChannelName workspaceId={workspaceId} thread={thread} />
+      ) : (
+        "From Slack"
+      )}
+    </span>
+  )
+}
+
+function ChannelName({
+  workspaceId,
+  thread,
+}: {
+  workspaceId: string
+  thread: InboxChannelThread
+}) {
+  const channel = useChannelThreadChannel(workspaceId, thread)
+  return channel ? `From #${channel.name}` : "From Slack"
 }
