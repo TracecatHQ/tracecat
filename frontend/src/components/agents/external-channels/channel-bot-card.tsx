@@ -13,7 +13,10 @@ import {
 } from "lucide-react"
 import { type ReactNode, useId, useState } from "react"
 import type { AgentChannelBotRead, ChannelBotProvider } from "@/client"
-import { StatusLabel } from "@/components/agents/external-channels/channel-bot-fields"
+import {
+  StatusDot,
+  StatusLabel,
+} from "@/components/agents/external-channels/channel-bot-fields"
 import {
   CHANNEL_BOT_PROVIDER_NAMES,
   CHANNEL_BOT_STATES,
@@ -112,7 +115,21 @@ const STATE_ICONS: Record<ChannelBotState, LucideIcon> = {
 }
 
 /** A bot's state as an icon and label, or nothing before it is reserved. */
-export function ChannelBotStatus({ state }: { state: ChannelBotState }) {
+export function ChannelBotStatus({
+  state,
+  updateNeeded = false,
+}: {
+  state: ChannelBotState
+  /** The install lacks scopes; shown over its run state. */
+  updateNeeded?: boolean
+}) {
+  if (updateNeeded) {
+    return (
+      <StatusLabel icon={TriangleAlert} destructive>
+        Update needed
+      </StatusLabel>
+    )
+  }
   const { label } = CHANNEL_BOT_STATES[state]
   if (!label) {
     return null
@@ -127,19 +144,38 @@ export function ChannelBotStatus({ state }: { state: ChannelBotState }) {
   )
 }
 
-/** A provider row's icon, title, state and actions; wraps on narrow panels. */
+/** A bot's status as a dot, for the Channels table and its sheet. */
+export function ChannelBotStatusDot({
+  state,
+  updateNeeded = false,
+}: {
+  state: ChannelBotState
+  updateNeeded?: boolean
+}) {
+  if (updateNeeded) {
+    return <StatusDot tone="attention">Update needed</StatusDot>
+  }
+  const { label } = CHANNEL_BOT_STATES[state]
+  if (!label) {
+    return null
+  }
+  return <StatusDot tone={CHANNEL_BOT_STATES[state].tone}>{label}</StatusDot>
+}
+
+/** A provider row's icon, title, status and actions; wraps on narrow panels. */
 export function ChannelBotHeader({
   providerId,
   title,
   description,
-  state,
+  status,
   children,
 }: {
   providerId: string
   title: string
   description: ReactNode
-  state: ChannelBotState
-  /** The row's actions, after the state. */
+  /** Usually a `ChannelBotStatus`; null shows none. */
+  status: ReactNode
+  /** The row's actions, after the status. */
   children?: ReactNode
 }) {
   return (
@@ -147,10 +183,10 @@ export function ChannelBotHeader({
       <ProviderIcon providerId={providerId} className="size-10 p-2" />
       <div className="min-w-48 flex-1">
         <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <div className="text-xs text-muted-foreground">{description}</div>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-3">
-        <ChannelBotStatus state={state} />
+        {status}
         {children}
       </div>
     </div>
@@ -185,7 +221,7 @@ export function ChannelBotCard({
   title,
   description,
   state,
-  reconnectHint,
+  status,
   onManage,
   opening = false,
   children,
@@ -194,8 +230,8 @@ export function ChannelBotCard({
   title: string
   description: ReactNode
   state: ChannelBotState
-  /** What restores a bot that needs reconnecting. */
-  reconnectHint: string
+  /** Replaces the state's own status; notices own any reconnect action. */
+  status?: ReactNode
   onManage: () => void
   opening?: boolean
   /** Provider notices and the provider's dialog. */
@@ -210,11 +246,12 @@ export function ChannelBotCard({
         providerId={providerId}
         title={title}
         description={description}
-        state={state}
+        status={status ?? <ChannelBotStatus state={state} />}
       >
         <Button
           type="button"
           size="sm"
+          variant="outline"
           onClick={onManage}
           disabled={opening || !canUpdateAgent}
         >
@@ -223,14 +260,7 @@ export function ChannelBotCard({
         </Button>
       </ChannelBotHeader>
       {/* The dialog portals out, so a row with no notices stays empty. */}
-      <div className="space-y-3 px-4 pb-4 empty:hidden">
-        {state === "needs_reconnect" ? (
-          <ChannelBotNotice title="Reconnect needed">
-            {canUpdateAgent ? reconnectHint : ASK_AN_AGENT_EDITOR}
-          </ChannelBotNotice>
-        ) : null}
-        {children}
-      </div>
+      <div className="space-y-3 px-4 pb-4 empty:hidden">{children}</div>
     </div>
   )
 }
@@ -316,27 +346,18 @@ export function ChannelBotDialog({
   )
 }
 
-/** Pause, resume and disconnect for an installed bot. */
-export function ChannelBotLifecycleActions({
-  workspaceId,
-  bot,
-  state,
-  onDisconnected,
-  disconnectDescription = "The stored credentials are deleted and the bot stops answering until you connect it again.",
-}: {
-  workspaceId: string
-  bot: AgentChannelBotRead
-  state: ChannelBotState
+/** Pausing, resuming and disconnecting a bot, with their toasts. */
+function useChannelBotLifecycle(
+  workspaceId: string,
+  bot: AgentChannelBotRead,
   onDisconnected?: () => void
-  disconnectDescription?: string
-}) {
+) {
   const { updateBot } = useUpdateAgentChannelBot(workspaceId, bot.provider)
   const { disconnectBot } = useDisconnectAgentChannelBot(
     workspaceId,
     bot.provider
   )
   const busy = useChannelBotsBusy(workspaceId)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const providerName = CHANNEL_BOT_PROVIDER_NAMES[bot.provider]
 
   function setRunState(status: "active" | "paused"): void {
@@ -360,58 +381,140 @@ export function ChannelBotLifecycleActions({
     })
   }
 
+  return { busy, providerName, setRunState, disconnect }
+}
+
+const DEFAULT_DISCONNECT_DESCRIPTION =
+  "The stored credentials are deleted and the bot stops answering until you connect it again."
+
+function DisconnectConfirm({
+  open,
+  onOpenChange,
+  providerName,
+  description,
+  onDisconnect,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  providerName: string
+  description: string
+  onDisconnect: () => void
+}) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {state === "active" ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setRunState("paused")}
-          disabled={busy}
-        >
-          <Pause className="mr-2 size-4" />
-          Pause
-        </Button>
-      ) : null}
-      {state === "paused" ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setRunState("active")}
-          disabled={busy}
-        >
-          <Play className="mr-2 size-4" />
-          Resume
-        </Button>
-      ) : null}
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Disconnect {providerName}?</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onDisconnect}>
+            Disconnect
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * Pause, resume and disconnect for an installed bot. `split` puts Disconnect
+ * on the right as a quiet destructive link, after `leading` and the run toggle.
+ */
+export function ChannelBotLifecycleActions({
+  workspaceId,
+  bot,
+  state,
+  onDisconnected,
+  disconnectDescription = DEFAULT_DISCONNECT_DESCRIPTION,
+  layout = "row",
+  leading,
+}: {
+  workspaceId: string
+  bot: AgentChannelBotRead
+  state: ChannelBotState
+  onDisconnected?: () => void
+  disconnectDescription?: string
+  layout?: "row" | "split"
+  /** Actions before Pause or Resume, such as Reconnect. */
+  leading?: ReactNode
+}) {
+  const { busy, providerName, setRunState, disconnect } =
+    useChannelBotLifecycle(workspaceId, bot, onDisconnected)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const split = layout === "split"
+  const icons = !split
+
+  let runToggle: ReactNode = null
+  if (state === "active") {
+    runToggle = (
       <Button
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => setConfirmOpen(true)}
+        onClick={() => setRunState("paused")}
         disabled={busy}
       >
-        <Unplug className="mr-2 size-4" />
-        Disconnect
+        {icons ? <Pause className="mr-2 size-4" /> : null}
+        Pause
       </Button>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect {providerName}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {disconnectDescription}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={disconnect}>
-              Disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+    )
+  } else if (state === "paused") {
+    runToggle = (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => setRunState("active")}
+        disabled={busy}
+      >
+        {icons ? <Play className="mr-2 size-4" /> : null}
+        Resume
+      </Button>
+    )
+  }
+  const disconnectButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant={split ? "ghost" : "outline"}
+      className={split ? "text-destructive hover:text-destructive" : undefined}
+      onClick={() => setConfirmOpen(true)}
+      disabled={busy}
+    >
+      {icons ? <Unplug className="mr-2 size-4" /> : null}
+      Disconnect
+    </Button>
+  )
+
+  return (
+    <div
+      className={
+        split
+          ? "flex items-center justify-between gap-2"
+          : "flex flex-wrap gap-2"
+      }
+    >
+      {split ? (
+        <div className="flex items-center gap-2">
+          {leading}
+          {runToggle}
+        </div>
+      ) : (
+        <>
+          {leading}
+          {runToggle}
+        </>
+      )}
+      {disconnectButton}
+      <DisconnectConfirm
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        providerName={providerName}
+        description={disconnectDescription}
+        onDisconnect={disconnect}
+      />
     </div>
   )
 }

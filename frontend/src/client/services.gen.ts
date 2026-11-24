@@ -181,6 +181,8 @@ import type {
   AgentChannelBotsListBotsResponse,
   AgentChannelBotsListPlatformAppsData,
   AgentChannelBotsListPlatformAppsResponse,
+  AgentChannelBotsListWorkspaceRoutesData,
+  AgentChannelBotsListWorkspaceRoutesResponse,
   AgentChannelBotsRotateBotEndpointData,
   AgentChannelBotsRotateBotEndpointResponse,
   AgentChannelBotsSetBotRouteData,
@@ -7208,6 +7210,37 @@ export const agentChannelBotsGetBotAppManifest = (
     },
     query: {
       app_name: data.appName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Routes
+ * Every channel the workspace's bots answer in, across bots, with its agent.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.q
+ * @param data.limit
+ * @param data.cursor
+ * @returns AgentChannelWorkspaceRoutesPage Successful Response
+ * @throws ApiError
+ */
+export const agentChannelBotsListWorkspaceRoutes = (
+  data: AgentChannelBotsListWorkspaceRoutesData
+): CancelablePromise<AgentChannelBotsListWorkspaceRoutesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/channel-bots/routes",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      q: data.q,
+      limit: data.limit,
+      cursor: data.cursor,
     },
     errors: {
       422: "Validation Error",

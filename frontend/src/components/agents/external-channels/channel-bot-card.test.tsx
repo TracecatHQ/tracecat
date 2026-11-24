@@ -161,9 +161,16 @@ describe.each(PROVIDERS)(
       serveBots([installed({ status: "needs_reconnect" })])
       renderPanel()
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Ask someone who can edit this agent"
-      )
+      const row = await screen.findByRole("group", { name: title })
+      expect(
+        within(row).getByText(
+          "Ask someone who can edit this agent to connect it again."
+        )
+      ).toBeInTheDocument()
+      expect(
+        within(row).queryByRole("button", { name: "Reconnect" })
+      ).toBeNull()
+      expect(within(row).getByRole("button", { name: "Manage" })).toBeDisabled()
     })
 
     it("flags a bot that needs reconnecting", async () => {
@@ -171,8 +178,18 @@ describe.each(PROVIDERS)(
       renderPanel()
       const row = await screen.findByRole("group", { name: title })
 
-      expect(within(row).getByText("Needs reconnect")).toBeInTheDocument()
-      expect(screen.getByRole("alert")).toHaveTextContent(/reconnect/i)
+      expect(within(row).getByText("Disconnected")).toBeInTheDocument()
+      expect(
+        within(row).getByText("Disconnected from Slack.")
+      ).toBeInTheDocument()
+      // One notice owns the reconnect; Manage stays secondary.
+      expect(within(row).getAllByRole("status")).toHaveLength(1)
+      expect(
+        within(row).getByRole("button", { name: "Reconnect" })
+      ).toBeEnabled()
+      expect(
+        within(row).queryByRole("button", { name: "Copy app manifest" })
+      ).toBeNull()
     })
   }
 )

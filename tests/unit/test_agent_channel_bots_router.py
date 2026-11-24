@@ -28,10 +28,13 @@ from tracecat.agent.channel_bots.schemas import (
     AgentChannelBotUpdate,
     AgentChannelRouteRead,
     AgentChannelRouteSet,
+    AgentChannelWorkspaceRouteRead,
+    AgentChannelWorkspaceRoutesPage,
     ChannelBotAppManifest,
     ChannelBotAppOwner,
     ChannelBotChannel,
     ChannelBotInstallResult,
+    ChannelBotListingFailure,
     ChannelBotOAuthCallback,
     ChannelBotOAuthResult,
     ChannelBotPlatformApp,
@@ -306,6 +309,7 @@ WORKSPACE_ROUTES = [
         "agent:read",
         id="app_manifest",
     ),
+    pytest.param("GET", "/routes", None, "agent:read", id="workspace_routes"),
     pytest.param("GET", f"/{uuid.uuid4()}/routes", None, "agent:read", id="routes"),
     pytest.param("GET", f"/{uuid.uuid4()}/channels", None, "agent:read", id="channels"),
     pytest.param(
@@ -339,6 +343,7 @@ ADMIN_METHODS = (
     "list_platform_apps",
     "install_platform",
     "app_manifest",
+    "list_workspace_routes",
     "list_routes",
     "add_route",
     "list_channels",
@@ -786,6 +791,50 @@ def test_routes_list_hands_the_page_to_the_admin(
         agent_preset_id=preset_id,
         page=PageParams(limit=2, cursor="c"),
     )
+
+
+def test_workspace_routes_hand_the_search_and_page_to_the_admin(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    row = AgentChannelWorkspaceRouteRead(
+        bot_id=uuid.uuid4(),
+        provider=ChannelBotProvider.SLACK,
+        app_owner=ChannelBotAppOwner.PLATFORM,
+        provider_channel_id="C1",
+        routed=True,
+        agent_preset_id=uuid.uuid4(),
+        agent_name="Triage",
+        channel_name=None,
+        is_private=None,
+        is_member=None,
+        name_unavailable=True,
+    )
+    failure = ChannelBotListingFailure(bot_id=uuid.uuid4(), needs_reinstall=True)
+    admin.list_workspace_routes.return_value = AgentChannelWorkspaceRoutesPage(
+        items=[row], next_cursor="next", has_more=True, listing_failures=[failure]
+    )
+
+    response = client.get(
+        "/agent/channel-bots/routes",
+        params={"q": "#alerts", "limit": 2, "cursor": "c"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [row.model_dump(mode="json")]
+    assert response.json()["next_cursor"] == "next"
+    assert response.json()["listing_failures"] == [failure.model_dump(mode="json")]
+    admin.list_workspace_routes.assert_awaited_once_with(
+        SESSION, ROLE, q="#alerts", page=PageParams(limit=2, cursor="c")
+    )
+
+
+def test_workspace_routes_refuse_an_overlong_search(
+    client: TestClient, admin: AsyncMock
+) -> None:
+    response = client.get("/agent/channel-bots/routes", params={"q": "x" * 256})
+
+    assert response.status_code == 422
+    assert admin.mock_calls == []
 
 
 @pytest.mark.parametrize("limit", [0, 201])

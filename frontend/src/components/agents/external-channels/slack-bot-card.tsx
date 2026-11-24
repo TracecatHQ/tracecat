@@ -1,7 +1,7 @@
 "use client"
 
-import { ExternalLink } from "lucide-react"
-import { useState } from "react"
+import { ExternalLink, TriangleAlert } from "lucide-react"
+import { Fragment, useState } from "react"
 import { flushSync } from "react-dom"
 import type {
   AgentChannelBotRead,
@@ -16,10 +16,13 @@ import {
   ChannelBotCard,
   ChannelBotDialog,
   ChannelBotLifecycleActions,
-  ChannelBotNotice,
   useChannelBotDialog,
 } from "@/components/agents/external-channels/channel-bot-card"
-import { CredentialField } from "@/components/agents/external-channels/channel-bot-fields"
+import {
+  AppManifestButton,
+  CredentialField,
+  StatusLabel,
+} from "@/components/agents/external-channels/channel-bot-fields"
 import {
   byChannelName,
   CHANNEL_BOT_STATES,
@@ -29,9 +32,12 @@ import {
   channelBotReturnUrl,
   channelBotState,
   channelLabel,
+  channelSummary,
   goToChannelBotAuthorization,
+  groupSlackScopes,
   httpsUrlOrNull,
 } from "@/components/agents/external-channels/channel-bot-utils"
+import { slackAppSettingsUrl } from "@/components/agents/external-channels/slack-manifest"
 import {
   CreateInSlackButton,
   CustomSlackAppDocsLink,
@@ -80,9 +86,12 @@ export function SlackBotCard({
   const state = channelBotState(bot, details?.has_bot_token === true)
   const missingScopes = details?.missing_scopes ?? []
   const canUpdateAgent = useScopeCheck("agent:update") === true
-  const updateNeeded =
+  const disconnected = state === "needs_reconnect"
+  // Unlike the platform card, a disconnected custom app can be stale too: reconnecting grants only what the app declares.
+  const outdated =
     CHANNEL_BOT_STATES[state].installed &&
     (details?.update_needed === true || missingScopes.length > 0)
+  const [reconnectOnOpen, setReconnectOnOpen] = useState(false)
   const { channels, hasMoreChannels } = useChannelBotChannels(
     workspaceId,
     bot?.id ?? "",
@@ -93,7 +102,11 @@ export function SlackBotCard({
   const channelLabels = (state === "active" ? [...(channels ?? [])] : [])
     .sort(byChannelName)
     .map((channel) => channelLabel("slack", channel))
-  const hiddenChannels = channelLabels.length - CHANNEL_SUMMARY_CAP
+  const summary = channelSummary(
+    channelLabels,
+    CHANNEL_SUMMARY_CAP,
+    hasMoreChannels
+  )
 
   return (
     <ChannelBotCard
@@ -106,7 +119,13 @@ export function SlackBotCard({
         </>
       }
       state={state}
-      reconnectHint="Connect to Slack again to restore this bot."
+      status={
+        disconnected || outdated ? (
+          <StatusLabel icon={TriangleAlert} warning>
+            {disconnected ? "Disconnected" : "Update available"}
+          </StatusLabel>
+        ) : undefined
+      }
       onManage={dialog.openDialog}
       opening={dialog.opening}
     >
@@ -119,26 +138,24 @@ export function SlackBotCard({
       ) : null}
       {channelLabels.length > 0 ? (
         <p className="truncate text-xs text-muted-foreground">
-          In {channelLabels.slice(0, CHANNEL_SUMMARY_CAP).join(", ")}
-          {hiddenChannels > 0
-            ? ` +${hiddenChannels}${hasMoreChannels ? "+" : ""}`
-            : ""}
+          In {summary.shown.join(", ")}
+          {summary.overflow}
         </p>
       ) : null}
-      {updateNeeded ? (
-        <ChannelBotNotice title="Update needed">
-          {canUpdateAgent ? (
-            <>
-              Update the Slack app from the latest manifest, then connect again
-              {missingScopes.length > 0
-                ? ` to grant: ${missingScopes.join(", ")}`
-                : ""}
-              .
-            </>
-          ) : (
-            ASK_AN_AGENT_EDITOR
-          )}
-        </ChannelBotNotice>
+      {bot && (disconnected || outdated) ? (
+        <CustomAppNotice
+          bot={bot}
+          appName={preset.name}
+          disconnected={disconnected}
+          outdated={outdated}
+          missingScopes={missingScopes}
+          canUpdate={canUpdateAgent}
+          opening={dialog.opening}
+          onReconnect={() => {
+            setReconnectOnOpen(true)
+            dialog.openDialog()
+          }}
+        />
       ) : null}
       {dialog.open && bot && details ? (
         <SlackBotDialog
@@ -148,10 +165,128 @@ export function SlackBotCard({
           bot={bot}
           details={details}
           state={state}
-          onClose={dialog.close}
+          reconnect={disconnected || reconnectOnOpen}
+          onClose={() => {
+            setReconnectOnOpen(false)
+            dialog.close()
+          }}
         />
       ) : null}
     </ChannelBotCard>
+  )
+}
+
+/** One notice for a stale or disconnected app, ending in Reconnect. */
+function CustomAppNotice({
+  bot,
+  appName,
+  disconnected,
+  outdated,
+  missingScopes,
+  canUpdate,
+  opening,
+  onReconnect,
+}: {
+  bot: AgentChannelBotRead
+  appName: string
+  disconnected: boolean
+  outdated: boolean
+  missingScopes: string[]
+  canUpdate: boolean
+  opening: boolean
+  onReconnect: () => void
+}) {
+  let title = "Disconnected from Slack."
+  let body = "Reconnect to restore the bot."
+  if (outdated) {
+    title = disconnected
+      ? "Slack app is out of date and disconnected."
+      : "Slack app is out of date."
+    body = disconnected
+      ? "Paste the new manifest into the app in Slack, then reconnect. Until then the bot doesn't answer."
+      : "The bot still answers. Paste the new manifest into the app in Slack, then reconnect to turn on new tools."
+  }
+  if (!canUpdate) {
+    body = outdated
+      ? "Ask someone who can edit this agent to update it."
+      : ASK_AN_AGENT_EDITOR
+  }
+  return (
+    <div role="status" className="space-y-2.5 text-xs">
+      <p className="text-muted-foreground">
+        <span className="font-semibold text-foreground">{title}</span> {body}
+      </p>
+      <div className="space-y-2.5">
+        {canUpdate ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {outdated ? (
+              <OutdatedAppActions bot={bot} appName={appName} />
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              onClick={onReconnect}
+              disabled={opening}
+            >
+              Reconnect
+            </Button>
+          </div>
+        ) : null}
+        {outdated && missingScopes.length > 0 ? (
+          <details>
+            <summary className="cursor-pointer text-muted-foreground">
+              What the agent gains ({missingScopes.length}{" "}
+              {missingScopes.length === 1 ? "permission" : "permissions"})
+            </summary>
+            <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-[max-content_1fr]">
+              {groupSlackScopes(missingScopes).map((group) => (
+                <Fragment key={group.label}>
+                  <dt className="font-medium">{group.label}</dt>
+                  <dd className="text-muted-foreground">
+                    {group.scopes.join(", ")}
+                  </dd>
+                </Fragment>
+              ))}
+            </dl>
+          </details>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** Copy the current manifest and open the app, to update it in Slack. */
+function OutdatedAppActions({
+  bot,
+  appName,
+}: {
+  bot: AgentChannelBotRead
+  appName: string
+}) {
+  const { appManifest, appManifestError } = useChannelBotAppManifest(
+    bot,
+    appName.trim() || TITLE
+  )
+  return (
+    <>
+      <AppManifestButton manifest={appManifest} />
+      <Button type="button" size="sm" variant="outline" asChild>
+        <a
+          href={slackAppSettingsUrl(bot.provider_app_id)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open app in Slack
+          <ExternalLink className="ml-2 size-4" />
+        </a>
+      </Button>
+      {appManifestError ? (
+        <p className="basis-full text-destructive">
+          {getApiErrorDetail(appManifestError) ??
+            "Could not load the Slack app manifest."}
+        </p>
+      ) : null}
+    </>
   )
 }
 
@@ -174,6 +309,7 @@ function SlackBotDialog({
   bot,
   details,
   state,
+  reconnect,
   onClose,
 }: {
   workspaceId: string
@@ -181,6 +317,8 @@ function SlackBotDialog({
   bot: AgentChannelBotRead
   details: ChannelBotDetailsOf<"slack">
   state: ChannelBotState
+  /** Opens straight to reconnecting. */
+  reconnect: boolean
   onClose: () => void
 }) {
   const { installBot, installBotIsPending } = useInstallAgentChannelBot(
@@ -193,7 +331,7 @@ function SlackBotDialog({
   )
   const busy = useChannelBotsBusy(workspaceId)
 
-  const [reconnecting, setReconnecting] = useState(state === "needs_reconnect")
+  const [reconnecting, setReconnecting] = useState(reconnect)
   const [botName, setBotName] = useState(preset.name)
   const [appCreated, setAppCreated] = useState(false)
   const [clientId, setClientId] = useState(details.client_id ?? "")

@@ -9,16 +9,18 @@ import {
   TriangleAlert,
 } from "lucide-react"
 import { type FormEvent, type ReactNode, useState } from "react"
-import type { SlackPlatformAppRead } from "@/client"
+import type {
+  SlackPlatformAppRead,
+  SlackPlatformAppSetupStepsUpdate,
+} from "@/client"
 import {
   CredentialField,
   StatusLabel,
 } from "@/components/agents/external-channels/channel-bot-fields"
+import { PLATFORM_SLACK_TITLE } from "@/components/agents/external-channels/channel-bot-utils"
 import { slackAppSettingsUrl } from "@/components/agents/external-channels/slack-manifest"
 import {
   CreateInSlackButton,
-  SetupDoneLine,
-  SLACK_CREDENTIAL_HINTS,
   SLACK_SAVED_SECRET_PLACEHOLDER,
   SlackAppTokenFields,
   SlackClientCredentialFields,
@@ -37,6 +39,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useAdminSlackApp } from "@/hooks/use-admin"
 import { getApiErrorDetail } from "@/lib/errors"
 
@@ -115,17 +118,15 @@ export function PlatformSlackAppSettings() {
               Create the Tracecat app in Slack
             </h4>
             <p className="text-xs text-muted-foreground">
-              Slack opens with the name, permissions,{" "}
-              {slackApp.setup.transport === "socket"
-                ? "Socket Mode"
-                : "event URLs"}{" "}
-              and token rotation already filled in. Pick a workspace your team
-              owns and click Create.
+              Slack opens with everything filled in. Choose a Slack workspace
+              your team owns, then click Create.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            {/* Once opened, Save is the one primary action. */}
             <CreateInSlackButton
               createUrl={manifest.create_url}
+              variant={created ? "outline" : "default"}
               onOpen={() => setCreated(true)}
             />
             {created ? null : (
@@ -144,7 +145,6 @@ export function PlatformSlackAppSettings() {
         </div>
         {created ? (
           <div className="space-y-4 p-4">
-            <SetupDoneLine>Slack app ready</SetupDoneLine>
             <SlackAppCredentials
               slackApp={slackApp}
               onSave={saveSlackApp}
@@ -162,10 +162,10 @@ export function PlatformSlackAppSettings() {
         status={
           slackApp.unreadable ? (
             <StatusLabel icon={TriangleAlert} destructive>
-              Needs credentials
+              Can&apos;t read credentials
             </StatusLabel>
           ) : (
-            <StatusLabel icon={CircleCheck}>Registered</StatusLabel>
+            <StatusLabel icon={CircleCheck}>Ready</StatusLabel>
           )
         }
       >
@@ -185,21 +185,19 @@ export function PlatformSlackAppSettings() {
     )
   }
 
+  const mark = (step: SlackPlatformAppSetupStepsUpdate) =>
+    void markSlackAppSetupSteps(step).catch(() => undefined)
   return (
-    <SlackAppCard
-      status={<StatusLabel icon={CircleCheck}>Registered</StatusLabel>}
-    >
-      <div className="space-y-2 p-4">
-        <SetupDoneLine>App created in Slack</SetupDoneLine>
-        <SetupDoneLine>Credentials saved</SetupDoneLine>
-        <FinishInSlack
-          slackApp={slackApp}
-          onMark={markSlackAppSetupSteps}
-          marking={markSlackAppSetupStepsIsPending}
-        />
-      </div>
+    <SlackAppCard status={<StatusLabel icon={CircleCheck}>Ready</StatusLabel>}>
+      <FinishInSlack
+        slackApp={slackApp}
+        onMark={mark}
+        marking={markSlackAppSetupStepsIsPending}
+      />
       <SlackAppSummary
         slackApp={slackApp}
+        onMark={mark}
+        marking={markSlackAppSetupStepsIsPending}
         onReplace={() => setEditing(true)}
         removeAction={removeAction}
       >
@@ -221,15 +219,14 @@ function SlackAppCard({
   return (
     <section
       className="divide-y rounded-md border"
-      aria-label="Tracecat for Slack"
+      aria-label={PLATFORM_SLACK_TITLE}
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
         <ProviderIcon providerId="slack" className="size-10 p-2" />
         <div className="min-w-48 flex-1 space-y-0.5">
-          <h3 className="text-sm font-semibold">Tracecat for Slack</h3>
+          <h3 className="text-sm font-semibold">{PLATFORM_SLACK_TITLE}</h3>
           <p className="text-xs text-muted-foreground">
-            Workspaces with Agent Channels see Add to Slack on their Channels
-            page.
+            Organizations add it to Slack in one click.
           </p>
         </div>
         {status}
@@ -239,89 +236,49 @@ function SlackAppCard({
   )
 }
 
-/** The settings only Slack can change; ticks are saved with the app. */
+type MarkSetupSteps = (step: SlackPlatformAppSetupStepsUpdate) => void
+
+/** The settings only Slack can change, each ticked once it's set. */
 function FinishInSlack({
   slackApp,
   onMark,
   marking,
 }: {
   slackApp: SlackPlatformAppRead
-  onMark: AdminSlackApp["markSlackAppSetupSteps"]
+  onMark: MarkSetupSteps
   marking: boolean
 }) {
-  const appId = slackApp.app_id
-  const iconDone = slackApp.icon_uploaded
-  const distributionDone = slackApp.distribution_enabled
-  const mark = (step: Parameters<typeof onMark>[0]) =>
-    void onMark(step).catch(() => undefined)
-
-  const iconStep = (
-    <TickOff
-      title="Upload the Tracecat icon (optional)"
-      done={iconDone}
-      disabled={marking}
-      onToggle={() => mark({ icon_uploaded: !iconDone })}
-      actions={
-        <>
-          <Button type="button" size="sm" variant="outline" asChild>
-            <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
-              <Download className="mr-2 size-4" />
-              Download logo
-            </a>
-          </Button>
-          <Button type="button" size="sm" variant="outline" asChild>
-            <a
-              href={slackAppSettingsUrl(appId, "general")}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Basic Information
-              <ExternalLink className="ml-2 size-4" />
-            </a>
-          </Button>
-        </>
-      }
-    >
-      Basic Information → Display Information → App icon.
-    </TickOff>
-  )
-
-  if (distributionDone && iconDone) {
-    return (
-      <>
-        <SetupDoneLine>Tracecat icon uploaded</SetupDoneLine>
-        <SetupDoneLine>Public distribution on</SetupDoneLine>
-      </>
-    )
-  }
-  // The icon is optional, so it stays open to tick off after distribution.
-  if (distributionDone) {
-    return (
-      <>
-        <SetupDoneLine>Public distribution on</SetupDoneLine>
-        <div className="pt-4">{iconStep}</div>
-      </>
-    )
+  if (slackApp.distribution_enabled && slackApp.icon_uploaded) {
+    return null
   }
   return (
-    <div className="space-y-4 pt-4">
-      <div className="space-y-1">
-        <h4 className="text-sm font-medium">Finish in Slack</h4>
-        <p className="text-xs text-muted-foreground">
-          Tracecat can&apos;t check these settings, so mark each one done once
-          it&apos;s set.
-        </p>
-      </div>
-      {iconStep}
-      <TickOff
-        title="Turn on public distribution"
-        done={distributionDone}
-        disabled={marking}
-        onToggle={() => mark({ distribution_enabled: !distributionDone })}
-        actions={
+    <div className="space-y-4 p-4">
+      {slackApp.distribution_enabled ? null : (
+        <div
+          className="flex flex-wrap items-start gap-x-3 gap-y-2"
+          role="group"
+          aria-label="Turn on public distribution"
+        >
+          <Checkbox
+            className="mt-0.5"
+            checked={false}
+            disabled={marking}
+            aria-labelledby="slack-step-distribution"
+            onCheckedChange={() => onMark({ distribution_enabled: true })}
+          />
+          <div className="min-w-48 flex-1 space-y-0.5">
+            <h4 id="slack-step-distribution" className="text-sm font-medium">
+              Turn on public distribution (optional)
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              Until it&apos;s on, workspaces outside the one the app was created
+              in can&apos;t add Tracecat. Slack doesn&apos;t report this, so
+              tick it once it&apos;s on.
+            </p>
+          </div>
           <Button type="button" size="sm" variant="outline" asChild>
             <a
-              href={slackAppSettingsUrl(appId, "distribute")}
+              href={slackAppSettingsUrl(slackApp.app_id, "distribute")}
               target="_blank"
               rel="noreferrer"
             >
@@ -329,70 +286,83 @@ function FinishInSlack({
               <ExternalLink className="ml-2 size-4" />
             </a>
           </Button>
-        }
-      >
-        Manage Distribution → Activate Public Distribution. Without it, only
-        your own Slack workspace can install the app.
-      </TickOff>
+        </div>
+      )}
+      {slackApp.icon_uploaded ? null : (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-2"
+          role="group"
+          aria-label="Upload the Tracecat icon"
+        >
+          <Checkbox
+            checked={false}
+            disabled={marking}
+            aria-labelledby="slack-step-icon"
+            onCheckedChange={() => onMark({ icon_uploaded: true })}
+          />
+          <p
+            id="slack-step-icon"
+            className="min-w-48 flex-1 text-xs text-muted-foreground"
+          >
+            Optional: upload the Tracecat icon under Display Information.
+          </p>
+          <Button type="button" size="sm" variant="ghost" asChild>
+            <a href={TRACECAT_ICON_URL} download="tracecat-icon.png">
+              <Download className="mr-2 size-4" />
+              Download logo
+            </a>
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
 
-function TickOff({
-  title,
-  done,
-  disabled,
-  onToggle,
-  actions,
+/** A setup step ticked done, as a summary row; unticking undoes it. */
+function MarkedStep({
+  id,
+  label,
+  checkboxLabel,
   children,
+  disabled,
+  onUntick,
 }: {
-  title: string
-  done: boolean
-  disabled: boolean
-  onToggle: () => void
-  actions?: ReactNode
+  id: string
+  label: string
+  checkboxLabel: string
   children: ReactNode
+  disabled: boolean
+  onUntick: () => void
 }) {
-  const StateIcon = done ? CircleCheck : CircleDashed
   return (
-    <div
-      className="flex flex-wrap items-start gap-x-3 gap-y-2"
-      role="group"
-      aria-label={title}
-    >
-      <StateIcon
-        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-        aria-hidden
-      />
-      <div className="min-w-48 flex-1 space-y-0.5">
-        <p className="text-sm">{title}</p>
-        <p className="text-xs text-muted-foreground">{children}</p>
-      </div>
-      <div className="ml-7 flex flex-wrap items-center gap-2">
-        {actions}
-        <Button
-          type="button"
-          size="sm"
-          variant={done ? "secondary" : "outline"}
-          aria-pressed={done}
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="flex items-center gap-1.5">
+        <Checkbox
+          id={id}
+          checked
           disabled={disabled}
-          onClick={onToggle}
-        >
-          {done ? "Done" : "Mark done"}
-        </Button>
-      </div>
-    </div>
+          aria-label={checkboxLabel}
+          onCheckedChange={onUntick}
+        />
+        <label htmlFor={id}>{children}</label>
+      </dd>
+    </>
   )
 }
 
 /** The registered app at a glance, with its replace and remove actions. */
 function SlackAppSummary({
   slackApp,
+  onMark,
+  marking,
   onReplace,
   removeAction,
   children,
 }: {
   slackApp: SlackPlatformAppRead
+  onMark: MarkSetupSteps
+  marking: boolean
   onReplace: () => void
   removeAction: ReactNode
   /** The remove error, under the actions. */
@@ -419,10 +389,30 @@ function SlackAppSummary({
         </dd>
         <dt className="text-muted-foreground">Slack events</dt>
         <dd>{socket ? "Socket Mode" : "HTTP"}</dd>
-        <dt className="text-muted-foreground">Token rotation</dt>
-        <dd>On</dd>
+        {slackApp.distribution_enabled ? (
+          <MarkedStep
+            id="slack-summary-distribution"
+            label="Distribution"
+            checkboxLabel="Public distribution on"
+            disabled={marking}
+            onUntick={() => onMark({ distribution_enabled: false })}
+          >
+            On
+          </MarkedStep>
+        ) : null}
+        {slackApp.icon_uploaded ? (
+          <MarkedStep
+            id="slack-summary-icon"
+            label="App icon"
+            checkboxLabel="Tracecat icon uploaded"
+            disabled={marking}
+            onUntick={() => onMark({ icon_uploaded: false })}
+          >
+            Uploaded
+          </MarkedStep>
+        ) : null}
       </dl>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap justify-between gap-2">
         <Button type="button" size="sm" variant="outline" onClick={onReplace}>
           Replace credentials
         </Button>
@@ -443,9 +433,15 @@ function RemoveSlackApp({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline" disabled={removing}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="text-muted-foreground"
+          disabled={removing}
+        >
           <Trash2 className="mr-2 size-4" />
-          Remove
+          Remove app
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -537,11 +533,13 @@ function SlackAppCredentials({
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-48 flex-1 space-y-1">
           <h4 className="text-sm font-medium">
-            Paste the app&apos;s credentials
+            {slackApp.unreadable
+              ? "Paste the app's credentials again"
+              : "Paste the app's credentials"}
           </h4>
           <p className="text-xs text-muted-foreground">
-            In the Slack app, open Basic Information. Everything below is on
-            that page.
+            {slackApp.unreadable ? "The saved ones can't be read. " : null}
+            All four are under Basic Information → App Credentials.
           </p>
         </div>
         <Button type="button" size="sm" variant="outline" asChild>
@@ -555,13 +553,6 @@ function SlackAppCredentials({
           </a>
         </Button>
       </div>
-      {slackApp.unreadable ? (
-        <p className="flex items-start gap-2 text-sm text-destructive">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          The saved Slack app no longer decrypts. Enter its credentials and save
-          it again.
-        </p>
-      ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <CredentialField
           id="slack-app-id"
@@ -570,7 +561,6 @@ function SlackAppCredentials({
           onChange={setAppId}
           disabled={saving}
           placeholder="A0123456789"
-          help={SLACK_CREDENTIAL_HINTS.appId}
         />
         <SlackClientCredentialFields
           idPrefix="slack-app"
@@ -599,15 +589,24 @@ function SlackAppCredentials({
           )}
         />
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm" disabled={!canSave || saving}>
-          {saving ? "Saving..." : "Save"}
-        </Button>
-        {onCancel ? (
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-            Keep current credentials
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" size="sm" disabled={!canSave || saving}>
+            {saving ? "Saving..." : "Save"}
           </Button>
-        ) : null}
+          {onCancel ? (
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+              Keep current credentials
+            </Button>
+          ) : null}
+          {canSave ? null : (
+            <span className="text-xs text-muted-foreground">
+              {socket
+                ? "Fill in the credentials above to save."
+                : "Fill in all four to save."}
+            </span>
+          )}
+        </div>
         {extraActions}
       </div>
     </form>

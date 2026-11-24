@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat.agent.channel_users.enums import ChannelAccessPolicy
+from tracecat.pagination import CursorPaginatedResponse
 
 CHANNEL_BOTS_PREFIX = "/agent/channel-bots"
 OAUTH_CALLBACK_ROUTE = f"{CHANNEL_BOTS_PREFIX}/{{provider}}/oauth/callback"
@@ -284,6 +285,48 @@ class AgentChannelRouteRead(BaseModel):
     agent_preset_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+class AgentChannelWorkspaceRouteRead(BaseModel):
+    """A channel a workspace bot answers in, and the agent that answers there."""
+
+    bot_id: uuid.UUID
+    provider: ChannelBotProvider
+    app_owner: ChannelBotAppOwner
+    provider_channel_id: str
+    routed: bool = Field(
+        description="A platform install's route; False for a channel the bot is in without one, answered by its default agent."
+    )
+    agent_preset_id: uuid.UUID
+    agent_name: str
+    channel_name: str | None = Field(
+        description="The channel's name in the provider now; None when the lookup did not find it."
+    )
+    is_private: bool | None
+    is_member: bool | None = Field(
+        description="Whether the bot is in the channel; None when the lookup could not tell."
+    )
+    name_unavailable: bool = Field(
+        description="The bot's channels were not looked up: it is not running, or the provider call failed."
+    )
+
+
+class ChannelBotListingFailure(BaseModel):
+    """A running bot whose channels the provider would not list, so it has no channel rows."""
+
+    bot_id: uuid.UUID
+    needs_reinstall: bool = Field(
+        description="The bot's app lacks the scopes to list channels until it is reinstalled."
+    )
+
+
+class AgentChannelWorkspaceRoutesPage(
+    CursorPaginatedResponse[AgentChannelWorkspaceRouteRead]
+):
+    listing_failures: list[ChannelBotListingFailure] = Field(
+        default_factory=list,
+        description="Running bots whose channels could not be listed; the same on every page.",
+    )
 
 
 class ChannelBotInstallResult(BaseModel):

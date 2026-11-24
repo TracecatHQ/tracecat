@@ -5,6 +5,7 @@ import type {
   ChannelBotDetails,
   ChannelBotProvider,
 } from "@/client"
+import type { StatusTone } from "@/components/agents/external-channels/channel-bot-fields"
 import { downloadBlob } from "@/lib/download"
 import { getErrorStatus } from "@/lib/errors"
 import { copyToClipboard } from "@/lib/utils"
@@ -88,6 +89,9 @@ export function channelLabel(
   return channelName({ ...channel, name: `${prefix}${channel.name}` })
 }
 
+/** The platform Slack app's name wherever a screen shows it. */
+export const PLATFORM_SLACK_TITLE = "Tracecat for Slack"
+
 /** What a provider card shows for its bot. */
 export type ChannelBotState =
   | "not_connected"
@@ -103,13 +107,22 @@ export const CHANNEL_BOT_STATES: Record<
     label: string | null
     /** Installed, so it can be managed and disconnected. */
     installed: boolean
+    tone: StatusTone
   }
 > = {
-  not_connected: { label: null, installed: false },
-  not_installed: { label: "Not installed", installed: false },
-  active: { label: "Active", installed: true },
-  paused: { label: "Paused", installed: true },
-  needs_reconnect: { label: "Needs reconnect", installed: true },
+  not_connected: { label: null, installed: false, tone: "attention" },
+  not_installed: {
+    label: "Not installed",
+    installed: false,
+    tone: "attention",
+  },
+  active: { label: "Active", installed: true, tone: "ok" },
+  paused: { label: "Paused", installed: true, tone: "attention" },
+  needs_reconnect: {
+    label: "Needs reconnect",
+    installed: true,
+    tone: "action",
+  },
 }
 
 /** The card state; `installed` is false until a provider's browser step ends. */
@@ -124,6 +137,89 @@ export function channelBotState(
     return "not_installed"
   }
   return bot.status
+}
+
+/**
+ * Whether an installed Slack bot lacks scopes the current manifest needs. A bot
+ * that needs reconnecting is left out: its reconnect requests every scope.
+ */
+export function slackUpdateNeeded(
+  details: ChannelBotDetailsOf<"slack"> | null,
+  state: ChannelBotState
+): boolean {
+  return (
+    CHANNEL_BOT_STATES[state].installed &&
+    state !== "needs_reconnect" &&
+    (details?.update_needed === true ||
+      (details?.missing_scopes.length ?? 0) > 0)
+  )
+}
+
+/** Slack scopes by what they let the agent do. */
+const SLACK_SCOPE_GROUPS: { label: string; scopes: readonly string[] }[] = [
+  { label: "Run war rooms", scopes: ["channels:manage", "groups:write"] },
+  {
+    label: "DMs and group DMs",
+    scopes: ["im:read", "im:write", "mpim:read", "mpim:write"],
+  },
+  {
+    label: "Search Slack",
+    scopes: ["search:read.public", "search:read.files", "search:read.users"],
+  },
+  {
+    label: "Canvases, bookmarks, pins",
+    scopes: [
+      "canvases:read",
+      "canvases:write",
+      "bookmarks:read",
+      "bookmarks:write",
+      "pins:read",
+      "pins:write",
+    ],
+  },
+  { label: "Link previews", scopes: ["links:read", "links:write"] },
+  {
+    label: "People and groups",
+    scopes: ["users.profile:read", "usergroups:read"],
+  },
+]
+
+/** `scopes` grouped by what they unlock; scopes no group names go last, under "Other". */
+export function groupSlackScopes(
+  scopes: string[]
+): { label: string; scopes: string[] }[] {
+  const wanted = new Set(scopes)
+  const groups = SLACK_SCOPE_GROUPS.map(({ label, scopes: known }) => ({
+    label,
+    scopes: known.filter((scope) => wanted.has(scope)),
+  })).filter((group) => group.scopes.length > 0)
+  const grouped = new Set(groups.flatMap((group) => group.scopes))
+  const other = scopes.filter((scope) => !grouped.has(scope))
+  return other.length > 0
+    ? [...groups, { label: "Other", scopes: other }]
+    : groups
+}
+
+/** A routed channel's label: its name when listed, else its ID. */
+export function routeChannelLabel(
+  provider: ChannelBotProvider,
+  providerChannelId: string,
+  known: ChannelBotChannel | undefined
+): string {
+  return known ? channelLabel(provider, known) : providerChannelId
+}
+
+/** The first `cap` channels, and ` +N` (`+N+` when more are unloaded) for the rest. */
+export function channelSummary<T>(
+  channels: T[],
+  cap: number,
+  hasMore: boolean
+): { shown: T[]; overflow: string | null } {
+  const hidden = channels.length - cap
+  return {
+    shown: channels.slice(0, cap),
+    overflow: hidden > 0 ? ` +${hidden}${hasMore ? "+" : ""}` : null,
+  }
 }
 
 /** One provider's member of the bot details union. */

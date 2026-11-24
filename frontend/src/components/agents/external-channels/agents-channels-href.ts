@@ -1,11 +1,10 @@
 "use client"
 
-import { useSlackPlatformAppAvailable } from "@/hooks/use-agent-channel-bots"
+import { useChannelBotReadsAllowed } from "@/hooks/use-agent-channel-bots"
 
-/** The workspace Channels page, when Tracecat for Slack is available there. */
+/** The workspace Channels page, which lists custom bots even without Tracecat for Slack. */
 export function useAgentsChannelsHref(workspaceId: string): string | undefined {
-  const { slackPlatformAvailable } = useSlackPlatformAppAvailable(workspaceId)
-  return slackPlatformAvailable
+  return useChannelBotReadsAllowed()
     ? `/workspaces/${workspaceId}/agents/channels`
     : undefined
 }
