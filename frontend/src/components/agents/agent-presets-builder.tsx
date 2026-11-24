@@ -41,6 +41,7 @@ import {
 import { z } from "zod"
 import type {
   AgentPresetCapability,
+  AgentPresetChannelToolGroup,
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetReadMinimal,
@@ -150,6 +151,7 @@ import {
 } from "@/components/ui/tooltip"
 import {
   useAgentPreset,
+  useAgentPresetChannelTools,
   useAgentPresets,
   useAgentPresetToolPolicyPreview,
   useAgentPresetVersion,
@@ -2359,6 +2361,8 @@ function AgentPresetRail({
     savedSkillActions: preset?.tool_policy?.skill_actions,
     maxTools: preset?.tool_policy?.max_tools,
   })
+  const { groups: channelTools, failedPlugins: failedChannelPlugins } =
+    useAgentPresetChannelTools(workspaceId, preset?.id)
   const back = () => onDrillChange(null)
   // Drill-ins belong to the tab that opened them.
   const activeDrill =
@@ -2436,6 +2440,7 @@ function AgentPresetRail({
                       isSaving={isSaving}
                       maxTools={toolPolicy.maxTools}
                       skillActions={toolPolicy.skillActions}
+                      channelTools={channelTools}
                       onEmptied={back}
                     />
                   ) : (
@@ -2482,6 +2487,8 @@ function AgentPresetRail({
                       mcpLoading={mcpLoading}
                       toolsLoadError={toolsLoadError}
                       mcpIntegrations={mcpIntegrations}
+                      channelTools={channelTools}
+                      failedChannelPlugins={failedChannelPlugins}
                       onOpenGroup={(groupKey, title) =>
                         onDrillChange({ kind: "tools", groupKey, title })
                       }
@@ -2944,6 +2951,8 @@ export function AgentPresetConfigurationPanel({
   mcpIntegrations,
   maxTools,
   savedSkillActions,
+  channelTools,
+  failedChannelPlugins,
   onOpenGroup,
 }: {
   workspaceId: string
@@ -2958,6 +2967,8 @@ export function AgentPresetConfigurationPanel({
   mcpIntegrations: MCPIntegrationRead[]
   maxTools?: number | null
   savedSkillActions?: string[] | null
+  channelTools?: AgentPresetChannelToolGroup[]
+  failedChannelPlugins?: string[]
   onOpenGroup: (groupKey: string, title: string) => void
 }) {
   const policy = useLiveToolPolicy({
@@ -2978,6 +2989,8 @@ export function AgentPresetConfigurationPanel({
       isSaving={isSaving}
       maxTools={policy.maxTools}
       skillActions={policy.skillActions}
+      channelTools={channelTools}
+      failedChannelPlugins={failedChannelPlugins}
       onOpenGroup={onOpenGroup}
     />
   )

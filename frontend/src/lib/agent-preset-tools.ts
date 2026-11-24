@@ -1,5 +1,9 @@
 import fuzzysort from "fuzzysort"
-import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import type {
+  AgentPresetChannelToolGroup,
+  MCPIntegrationRead,
+  RegistryActionReadMinimal,
+} from "@/client"
 import { isCustomRegistryOrigin } from "@/components/registry/utils"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 
@@ -33,7 +37,7 @@ export interface ToolEntry {
   defaultAsk: boolean
   locked: boolean
   namespace: string
-  section: "mcp" | "tracecat" | "custom"
+  section: "mcp" | "tracecat" | "custom" | "channel"
   preparedTitle: Fuzzysort.Prepared
   preparedKey: Fuzzysort.Prepared
   integration?: MCPIntegrationRead
@@ -89,7 +93,7 @@ export function createToolIndex(
     }
     group.entries.push(entry)
   }
-  const sectionOrder = { mcp: 0, tracecat: 1, custom: 2 }
+  const sectionOrder = { mcp: 0, tracecat: 1, custom: 2, channel: 3 }
   const displayGroups = [...groups.values()].sort(
     (a, b) =>
       sectionOrder[a.section] - sectionOrder[b.section] ||
@@ -155,6 +159,33 @@ export function buildToolIndex(
   return createToolIndex(entries, groupTitles)
 }
 
+/** Add channel-granted tools to key lookups only; search and groups never list them. */
+export function withChannelTools(
+  index: ToolIndex,
+  channelGroups: readonly AgentPresetChannelToolGroup[]
+): ToolIndex {
+  if (!channelGroups.length) return index
+  const byKey = new Map(index.byKey)
+  for (const group of channelGroups) {
+    for (const tool of group.tools) {
+      byKey.set(tool.name, {
+        id: tool.name,
+        key: tool.name,
+        target: "actions",
+        title: tool.title,
+        description: tool.description,
+        defaultAsk: tool.requires_approval,
+        locked: false,
+        namespace: group.provider,
+        section: "channel",
+        preparedTitle: fuzzysort.prepare(tool.title),
+        preparedKey: fuzzysort.prepare(tool.name),
+      })
+    }
+  }
+  return { ...index, byKey }
+}
+
 /** Search prepared titles and keys without mounting the catalog. */
 export function searchTools(index: ToolIndex, query: string): ToolEntry[] {
   return fuzzysort
@@ -200,25 +231,28 @@ export function setToolApproval(
   rules: PresetToolFields["toolApprovals"],
   key: string,
   ask: boolean,
-  defaultAsk = false
+  index: ToolIndex
 ): PresetToolFields["toolApprovals"] {
-  const index = rules.findIndex((rule) => rule.tool === key)
+  const defaultAsk = index.byKey.get(key)?.defaultAsk ?? false
+  const position = rules.findIndex((rule) => rule.tool === key)
   if (ask === defaultAsk) {
     const next = rules.filter(
       (rule) => rule.tool !== key || rule.allow === defaultAsk
     )
     return next.length === rules.length ? rules : next
   }
-  if (index < 0) return [...rules, { tool: key, allow: ask }]
-  if (rules[index].allow === ask) return rules
-  return rules.map((rule, i) => (i === index ? { ...rule, allow: ask } : rule))
+  if (position < 0) return [...rules, { tool: key, allow: ask }]
+  if (rules[position].allow === ask) return rules
+  return rules.map((rule, i) =>
+    i === position ? { ...rule, allow: ask } : rule
+  )
 }
 
 /** Remove tools, keeping rules for retained grants or false rules that restate an auto default. */
 export function removeTools(
   fields: Pick<PresetToolFields, "actions" | "toolApprovals">,
   removed: ReadonlySet<string>,
-  defaultAskKeys: ReadonlySet<string> = new Set(),
+  index: ToolIndex,
   retainedKeys: ReadonlySet<string> = new Set()
 ): Pick<PresetToolFields, "actions" | "toolApprovals"> {
   const actions = fields.actions.filter((key) => !removed.has(key))
@@ -226,7 +260,7 @@ export function removeTools(
     (rule) =>
       !removed.has(rule.tool) ||
       retainedKeys.has(rule.tool) ||
-      (!rule.allow && !defaultAskKeys.has(rule.tool))
+      (!rule.allow && !index.byKey.get(rule.tool)?.defaultAsk)
   )
   return {
     actions:
@@ -236,6 +270,14 @@ export function removeTools(
         ? fields.toolApprovals
         : rules,
   }
+}
+
+/** Whether `key` sits in one of `namespaces`, matched by whole segments. */
+export function isInNamespaces(
+  key: string,
+  namespaces: readonly string[]
+): boolean {
+  return namespaces.some((ns) => key === ns || key.startsWith(`${ns}.`))
 }
 
 /** Namespace prefixes filter existing grants; they never grant additional tools. */

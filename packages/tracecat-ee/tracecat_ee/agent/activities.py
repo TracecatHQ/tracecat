@@ -36,6 +36,11 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.plugin_tools import (
+    SessionPluginGrant,
+    is_superseded,
+    session_plugin_grant,
+)
 from tracecat.agent.mcp.stdio_runner import (
     stdio_mcp_tool_definition,
     usable_stdio_mcp_tools,
@@ -82,6 +87,10 @@ class BuildToolDefsArgs(BaseModel):
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
     """Context for internal tools (e.g., preset_id for builder assistant)."""
+    session_id: uuid.UUID | None = None
+    """The root agent's session, which plugins grant internal tools by.
+    Unset for subagent scopes, which get no plugin tools but drop the root's
+    superseded namespaces."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
     include_stdio_mcp_servers: bool = False
@@ -102,6 +111,10 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
     """Context for internal tools (e.g., preset_id for builder assistant)."""
+    session_id: uuid.UUID | None = None
+    """The root agent's session, which plugins grant internal tools by.
+    Unset for subagent scopes, which get no plugin tools but drop the root's
+    superseded namespaces."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
     include_stdio_mcp_servers: bool = False
@@ -368,6 +381,14 @@ async def _build_stdio_mcp_tool_definitions(
     )
 
 
+async def _plugin_grant_or_empty(
+    role: Role, session_id: uuid.UUID | None
+) -> SessionPluginGrant:
+    if session_id is None:
+        return SessionPluginGrant()
+    return await session_plugin_grant(role, session_id)
+
+
 class AgentActivities:
     """Activities for agent execution."""
 
@@ -379,6 +400,7 @@ class AgentActivities:
         args: BuildAgentScopeToolDefsArgs,
         *,
         role: Role,
+        plugin_grant: SessionPluginGrant,
     ) -> BuildToolDefsResult:
         if any(is_http_mcp_server(server) for server in args.mcp_servers or ()):
             # Authored approval rules may still use an HTTP integration's old
@@ -428,6 +450,20 @@ class AgentActivities:
                 if action not in actions_to_build:
                     actions_to_build.append(action)
 
+        tool_tunnels = dict(args.tool_tunnels or {})
+        if superseded := plugin_grant.superseded_namespaces:
+            # A plugin connection replaces these; the preset keeps its selection.
+            actions_to_build = [
+                action
+                for action in actions_to_build
+                if not is_superseded(action, superseded)
+            ]
+            tool_tunnels = {
+                tool: tunnel
+                for tool, tunnel in tool_tunnels.items()
+                if not is_superseded(tool, superseded)
+            }
+
         try:
             result = await build_agent_tools(
                 namespaces=args.tool_filters.namespaces,
@@ -463,6 +499,14 @@ class AgentActivities:
                 tool_count=len(internal_defs),
                 tools=list(internal_defs.keys()),
             )
+        for plugin_tool in plugin_grant.tools:
+            defs[plugin_tool.name] = plugin_tool.definition
+            allowed_internal_tools = [
+                *(allowed_internal_tools or []),
+                plugin_tool.name,
+            ]
+            if plugin_tool.requires_approval:
+                effective_tool_approvals.setdefault(plugin_tool.name, True)
 
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
@@ -796,9 +840,7 @@ class AgentActivities:
                 e.detail,
             )
 
-        if unknown_tunnel_tools := sorted(
-            set(args.tool_tunnels or {}) - registry_tool_names
-        ):
+        if unknown_tunnel_tools := sorted(set(tool_tunnels) - registry_tool_names):
             raise_application_error_from_classification(
                 RuntimeErrorClassification.user(
                     kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
@@ -817,7 +859,7 @@ class AgentActivities:
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             tool_approvals=effective_tool_approvals or None,
-            tool_tunnels=args.tool_tunnels or None,
+            tool_tunnels=tool_tunnels or None,
         )
 
     @activity.defn
@@ -827,7 +869,14 @@ class AgentActivities:
     ) -> BuildToolDefsResult:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
+        return await self.build_tool_definitions_with_grant(
+            args, await _plugin_grant_or_empty(args.role, args.session_id)
+        )
 
+    async def build_tool_definitions_with_grant(
+        self, args: BuildToolDefsArgs, plugin_grant: SessionPluginGrant
+    ) -> BuildToolDefsResult:
+        """Build the root scope from a plugin grant the caller already resolved."""
         return await self._build_scope_tool_definitions(
             BuildAgentScopeToolDefsArgs(
                 scope="root",
@@ -840,6 +889,7 @@ class AgentActivities:
                 include_stdio_mcp_servers=args.include_stdio_mcp_servers,
             ),
             role=args.role,
+            plugin_grant=plugin_grant,
         )
 
     @activity.defn
@@ -850,6 +900,14 @@ class AgentActivities:
         # Compile all agent scopes in one activity while preserving partitioned
         # outputs for MCP tokens, approvals, user MCP claims, and registry locks.
         ctx_role.set(args.role)
+        root_session_id = next(
+            (scope.session_id for scope in args.scopes if scope.session_id), None
+        )
+        root_grant = await _plugin_grant_or_empty(args.role, root_session_id)
+        # Subagents get no plugin tools, but drop what the root's connection supersedes.
+        subagent_grant = SessionPluginGrant(
+            superseded_namespaces=root_grant.superseded_namespaces
+        )
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:
@@ -859,6 +917,7 @@ class AgentActivities:
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,
                 role=args.role,
+                plugin_grant=root_grant if scope.session_id else subagent_grant,
             )
 
         return BuildAgentToolDefsResult(scopes=results)

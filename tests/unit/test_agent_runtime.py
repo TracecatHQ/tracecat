@@ -53,6 +53,7 @@ from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
 )
+from tracecat.agent.mcp.utils import REGISTRY_MCP_SERVER_NAME
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
     TRUSTED_MCP_BRIDGE_URL,
@@ -2464,6 +2465,56 @@ class TestClaudeAgentRuntimePreToolUseHook:
         assert "cannot invoke other subagents" in (
             hook_output.get("permissionDecisionReason") or ""
         )
+
+    @pytest.mark.anyio
+    async def test_child_cannot_call_root_only_plugin_tool(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        slack_tool = "internal.slack.list_channels"
+        payload = RuntimeInitPayload.from_dict(
+            {
+                **sample_init_payload.to_dict(),
+                "root_only_actions": [slack_tool],
+            }
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._configure_runtime_state(payload)
+        mcp_name = ClaudeAgentRuntime._mcp_tool_name_for_action(
+            REGISTRY_MCP_SERVER_NAME, slack_tool
+        )
+
+        child = get_hook_output(
+            await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=mcp_name,
+                    tool_input={},
+                    tool_use_id="call-child",
+                    agent_id="child-agent-id",
+                    agent_type="general-purpose",
+                ),
+                tool_use_id="call-child",
+                context=make_hook_context(),
+            )
+        )
+        root = get_hook_output(
+            await runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name=mcp_name, tool_input={}, tool_use_id="call-root"
+                ),
+                tool_use_id="call-root",
+                context=make_hook_context(),
+            )
+        )
+
+        assert child.get("permissionDecision") == "deny"
+        assert child.get("permissionDecisionReason") == (
+            f"Tool '{slack_tool}' is not available to subagents."
+        )
+        assert root.get("permissionDecision") == "allow"
 
     @pytest.mark.anyio
     async def test_agent_tool_denies_undeclared_subagent(

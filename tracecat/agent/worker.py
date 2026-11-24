@@ -26,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.agent.mcp.activities import persist_stdio_mcp_connection_activity
+    from tracecat.agent.mcp.plugin_tools import log_loaded_internal_tool_plugins
     from tracecat.agent.preset.activities import (
         resolve_agent_config_activity,
         resolve_agent_preset_config_activity,
@@ -136,6 +137,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     )
 
     logger.info("Starting AgentWorker")
+    log_loaded_internal_tool_plugins()
     await verify_rls_enforceable_login()
 
     initialize_platform_tracing("tracecat-agent-worker")

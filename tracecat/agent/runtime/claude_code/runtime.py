@@ -368,6 +368,7 @@ class ClaudeAgentRuntime:
         self._session_id: uuid.UUID | None = None
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
+        self._root_only_actions: frozenset[str] = frozenset()
         self.tool_approvals: dict[str, bool] | None = None
         self._stdio_approval_blocked_tools: set[str] = set()
         self._runtime_internet_access_enabled: bool = False
@@ -706,6 +707,18 @@ class ClaudeAgentRuntime:
             value = tool_input.get(key)
             if isinstance(value, str) and value:
                 return value
+        return None
+
+    def _subagent_tool_denial(
+        self, input_data: HookInput, action_name: str
+    ) -> str | None:
+        """Return denial reason for a subagent calling a root-only tool, else None."""
+        # Native children share the root's MCP token, so the hook is the gate.
+        if (
+            self._is_subagent_scope(input_data)
+            and action_name in self._root_only_actions
+        ):
+            return f"Tool '{action_name}' is not available to subagents."
         return None
 
     def _validate_agent_tool_call(
@@ -1285,11 +1298,9 @@ class ClaudeAgentRuntime:
         tool_input: dict[str, Any] = input_data.get("tool_input", {})
 
         action_name = normalize_mcp_tool_name(tool_name)
-        if denial_reason := self._validate_agent_tool_call(
-            input_data,
-            tool_name,
-            tool_input,
-        ):
+        if denial_reason := self._subagent_tool_denial(
+            input_data, action_name
+        ) or self._validate_agent_tool_call(input_data, tool_name, tool_input):
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -1534,6 +1545,7 @@ class ClaudeAgentRuntime:
         self._client_connected_event = asyncio.Event()
         self._query_sent_event = asyncio.Event()
         self.registry_tools = payload.allowed_actions
+        self._root_only_actions = frozenset(payload.root_only_actions)
         self.tool_approvals = payload.config.tool_approvals
         self._stdio_approval_blocked_tools = set()
         self._explicit_subagent_aliases = {

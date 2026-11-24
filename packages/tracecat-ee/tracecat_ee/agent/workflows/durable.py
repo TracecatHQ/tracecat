@@ -292,6 +292,17 @@ def _approved_user_mcp_tool_name(tool_name: str) -> str | None:
     return action_name_to_mcp_tool_name(tool_name)
 
 
+def _approved_internal_tool_name(tool_name: str) -> str | None:
+    """Resolve an approved internal tool call to its trusted MCP router name.
+
+    Internal tools run in the trusted MCP server, not the registry executor.
+    """
+    action_name = normalize_mcp_tool_name(tool_name)
+    if not action_name.startswith("internal."):
+        return None
+    return action_name_to_mcp_tool_name(action_name)
+
+
 def _apply_tool_approvals(
     spec: AgentScopeSpec, build_result: BuildToolDefsResult
 ) -> None:
@@ -429,6 +440,7 @@ class AgentScopeSpec(BaseModel):
     name: str
     config: AgentConfig
     internal_tool_context: InternalToolContext | None = None
+    session_id: uuid.UUID | None = None
     fail_on_mcp_discovery_error: bool = False
 
     def to_tool_defs_arg(self) -> BuildAgentScopeToolDefsArgs:
@@ -442,6 +454,7 @@ class AgentScopeSpec(BaseModel):
             tool_tunnels=self.config.tool_tunnels,
             mcp_servers=self.config.mcp_servers,
             internal_tool_context=self.internal_tool_context,
+            session_id=self.session_id,
             fail_on_mcp_discovery_error=self.fail_on_mcp_discovery_error,
         )
 
@@ -823,6 +836,7 @@ class DurableAgentWorkflow:
             name=ROOT_AGENT_SCOPE,
             config=cfg,
             internal_tool_context=internal_tool_context,
+            session_id=self.session_id,
         )
         if not workflow.patched(DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS):
             try:
@@ -838,6 +852,7 @@ class DurableAgentWorkflow:
                         tool_tunnels=cfg.tool_tunnels,
                         mcp_servers=cfg.mcp_servers,
                         internal_tool_context=internal_tool_context,
+                        session_id=self.session_id,
                     ),
                     start_to_close_timeout=timedelta(seconds=120),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -2153,6 +2168,13 @@ class DurableAgentWorkflow:
                 )
                 break
             remote_mcp_tool_name = _approved_user_mcp_tool_name(tool_call.tool_name)
+            if remote_mcp_tool_name is None and (
+                internal_tool_name := _approved_internal_tool_name(tool_call.tool_name)
+            ):
+                if workflow.patched(
+                    DurableAgentWorkflowPatch.APPROVED_INTERNAL_TOOLS_VIA_MCP
+                ):
+                    remote_mcp_tool_name = internal_tool_name
             try:
                 if remote_mcp_tool_name is not None:
                     # Approved tools run sequentially and can each consume the

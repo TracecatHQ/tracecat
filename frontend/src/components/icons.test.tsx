@@ -363,6 +363,7 @@ describe("icon source identities", () => {
     "tools.slack_sdk",
     "tools.slack_blocks",
     "tools.slack.post_message",
+    "internal.slack.post_message",
   ])("shares the Slack icon with %s", (key) => {
     expect(getIconSource(key)).toBe(getIconSource("tools.slack"))
   })

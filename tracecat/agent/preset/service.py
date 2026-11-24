@@ -30,9 +30,13 @@ from tracecat.agent.common.types import (
     MCPStdioServerConfig,
     is_stdio_mcp_server,
 )
+from tracecat.agent.mcp.plugin_tools import agent_plugin_tools
 from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
+    AgentPresetChannelTool,
+    AgentPresetChannelToolGroup,
+    AgentPresetChannelToolsRead,
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetReadMinimal,
@@ -452,6 +456,39 @@ class AgentPresetService(BaseWorkspaceService):
         policy = await self.tool_policy.resolve(inputs, metadata)
         self._validate_effective_tool_count(policy)
         return self._tool_policy_read(policy)
+
+    async def list_channel_tools(
+        self, preset_id: uuid.UUID
+    ) -> AgentPresetChannelToolsRead:
+        """Tools the agent's channel connections grant, as plugins describe them.
+
+        Raises:
+            TracecatNotFoundError: If the preset is not in this workspace.
+        """
+        if await self.get_preset(preset_id) is None:
+            raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
+        plugin_groups = await agent_plugin_tools(self.role, preset_id)
+        return AgentPresetChannelToolsRead(
+            groups=[
+                AgentPresetChannelToolGroup(
+                    provider=group.provider,
+                    title=group.title,
+                    label=group.label,
+                    tools=[
+                        AgentPresetChannelTool(
+                            name=tool.name,
+                            title=tool.title,
+                            description=tool.definition.description,
+                            requires_approval=tool.requires_approval,
+                        )
+                        for tool in group.tools
+                    ],
+                    supersedes=list(group.supersedes),
+                )
+                for group in plugin_groups.groups
+            ],
+            failed_plugins=list(plugin_groups.failed_plugins),
+        )
 
     async def build_preset_list_reads(
         self, presets: Sequence[AgentPreset]

@@ -51,6 +51,8 @@ class RuntimeInitPayload:
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     subagents: list[SandboxSubagentConfig] = field(default_factory=list)
+    root_only_actions: list[str] = field(default_factory=list)
+    """Granted actions a subagent may not call, such as plugin internal tools."""
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
@@ -94,6 +96,7 @@ class RuntimeInitPayload:
                 SandboxSubagentConfig.model_validate(item)
                 for item in data.get("subagents", [])
             ],
+            root_only_actions=data.get("root_only_actions", []),
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
@@ -122,6 +125,8 @@ class RuntimeInitPayload:
                 subagent.model_dump(mode="json", exclude_none=True)
                 for subagent in self.subagents
             ]
+        if self.root_only_actions:
+            result["root_only_actions"] = self.root_only_actions
         if self.sdk_session_id is not None:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:

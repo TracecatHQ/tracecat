@@ -73,6 +73,10 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
+from tracecat.agent.mcp.internal_tools import (
+    INTERNAL_TOOL_HANDLERS,
+    INTERNAL_TOOL_PREFIX,
+)
 from tracecat.agent.mcp.stdio_probe_types import (
     StdioMCPProbeInput,
     StdioMCPProbeResult,
@@ -661,6 +665,13 @@ class SandboxedAgentExecutor:
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
             subagents=self.input.subagents,
+            # Plugin tools are root-only; named without loading plugins so a broken one fails closed.
+            root_only_actions=sorted(
+                name
+                for name in self.input.allowed_actions or {}
+                if name.startswith(INTERNAL_TOOL_PREFIX)
+                and name not in INTERNAL_TOOL_HANDLERS
+            ),
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,

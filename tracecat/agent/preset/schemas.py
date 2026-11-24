@@ -400,6 +400,40 @@ class AgentPresetToolPolicyRead(Schema):
     internet_sources: list[PresetToolSourceRead] = Field(default_factory=list)
 
 
+class AgentPresetChannelTool(Schema):
+    """One tool an agent's channel connection grants."""
+
+    name: str
+    title: str
+    description: str
+    requires_approval: bool = Field(
+        description="Default when `tool_approvals` has no rule for `name`."
+    )
+
+
+class AgentPresetChannelToolGroup(Schema):
+    """Tools one provider connection grants the agent in channel conversations."""
+
+    provider: str = Field(description="Provider id, such as `slack`.")
+    title: str = Field(description="Provider display name.")
+    label: str = Field(description="Which connection, such as `as @Tracecat`.")
+    tools: list[AgentPresetChannelTool]
+    supersedes: list[str] = Field(
+        default_factory=list,
+        description="Registry action namespaces the agent does not use while connected.",
+    )
+
+
+class AgentPresetChannelToolsRead(Schema):
+    """Tools granted by the agent's channel connections; empty when it has none."""
+
+    groups: list[AgentPresetChannelToolGroup] = Field(default_factory=list)
+    failed_plugins: list[str] = Field(
+        default_factory=list,
+        description="Plugins that failed to load or answer; their groups are missing.",
+    )
+
+
 class AgentPresetToolPolicyPreview(Schema):
     """Unsaved tool selections to evaluate using the runtime policy pipeline."""
 

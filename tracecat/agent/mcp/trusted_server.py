@@ -56,6 +56,10 @@ from tracecat.agent.mcp.metadata import (
     build_registry_tool_schema,
     extract_proxy_tool_call_id,
 )
+from tracecat.agent.mcp.plugin_tools import (
+    plugin_internal_tool_definitions,
+    plugin_internal_tool_handler,
+)
 from tracecat.agent.mcp.stdio_runner import (
     StdioMCPCallUnsupportedError,
     StdioMCPServer,
@@ -752,7 +756,10 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
             )
             registry_tool_count += 1
 
-    internal_definitions = get_builder_internal_tool_definitions()
+    internal_definitions = {
+        **get_builder_internal_tool_definitions(),
+        **plugin_internal_tool_definitions(),
+    }
     for tool_name in _internal_tool_names(claims):
         if definition := internal_definitions.get(tool_name):
             tools.append(
@@ -996,7 +1003,9 @@ async def _execute_internal(
         )
         raise ToolError(f"Tool '{tool_name}' not authorized")
 
-    handler = INTERNAL_TOOL_HANDLERS.get(tool_name)
+    handler = INTERNAL_TOOL_HANDLERS.get(tool_name) or plugin_internal_tool_handler(
+        tool_name
+    )
     if not handler:
         logger.warning("Unknown internal tool", tool_name=tool_name)
         raise ToolError(f"Unknown internal tool: {tool_name}")

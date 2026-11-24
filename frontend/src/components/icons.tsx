@@ -797,6 +797,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       "bg-primary/10 text-primary"
     ),
     "ai.slackbot": createIconRenderer(SlackIcon),
+    "internal.slack": createIconRenderer(SlackIcon),
   }
 
 /**

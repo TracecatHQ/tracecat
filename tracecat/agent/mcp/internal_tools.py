@@ -42,6 +42,8 @@ from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
+INTERNAL_TOOL_PREFIX = "internal."
+
 # Tool name constants - these are the canonical names for internal tools
 BUILDER_INTERNAL_TOOL_NAMES = [
     "internal.builder.get_preset_summary",

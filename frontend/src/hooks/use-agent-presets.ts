@@ -3,6 +3,7 @@ import {
   type AgentFolderCreate,
   type AgentFolderDirectoryItem,
   type AgentFolderRead,
+  type AgentPresetChannelToolGroup,
   type AgentPresetCreate,
   type AgentPresetDirectoryItem,
   type AgentPresetMoveToFolder,
@@ -25,6 +26,7 @@ import {
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
   agentPresetsGetAgentPresetVersion,
+  agentPresetsListAgentPresetChannelTools,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
   agentPresetsListAgentPresetWorkflowReferences,
@@ -41,6 +43,8 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { CHANNEL_BOTS_QUERY_KEY } from "@/hooks/use-agent-channel-bots"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import {
   getApiErrorDetail,
@@ -48,6 +52,34 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
+
+const NO_CHANNEL_TOOLS: AgentPresetChannelToolGroup[] = []
+const NO_FAILED_PLUGINS: string[] = []
+
+/** Tools the agent's channel connections grant; empty until it is connected. */
+export function useAgentPresetChannelTools(
+  workspaceId: string,
+  presetId: string | undefined
+): { groups: AgentPresetChannelToolGroup[]; failedPlugins: string[] } {
+  const { hasEntitlement } = useEntitlements()
+  const entitled = hasEntitlement("agent_channels_preview")
+  const { data } = useQuery({
+    // Under the bots key, so any bot or route change refetches it.
+    queryKey: [CHANNEL_BOTS_QUERY_KEY, workspaceId, "preset-tools", presetId],
+    queryFn: () =>
+      agentPresetsListAgentPresetChannelTools({
+        workspaceId,
+        presetId: presetId as string,
+      }),
+    enabled: Boolean(workspaceId && presetId) && entitled,
+    meta: { suppressErrorToast: true },
+  })
+  // A disabled query keeps its cached groups; without the entitlement, none show.
+  return {
+    groups: (entitled && data?.groups) || NO_CHANNEL_TOOLS,
+    failedPlugins: (entitled && data?.failed_plugins) || NO_FAILED_PLUGINS,
+  }
+}
 
 /** Preview unsaved skill tools without surfacing validation failures as toasts. */
 export function useAgentPresetToolPolicyPreview(

@@ -17,6 +17,7 @@ from tracecat.agent.executor.activity import (
     probe_stdio_mcp_connection_activity,
     run_agent_activity,
 )
+from tracecat.agent.mcp.plugin_tools import log_loaded_internal_tool_plugins
 from tracecat.agent.runtime_services import (
     start_claude_runtime_broker,
     start_mcp_server,
@@ -112,6 +113,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
             max_concurrent_activities=max_concurrent,
         )
+        log_loaded_internal_tool_plugins()
         initialize_platform_tracing("tracecat-agent-executor")
         initialize_platform_metrics()
         initialize_worker_sentry_from_environment()

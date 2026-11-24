@@ -414,11 +414,7 @@ function PickerBody({
       toolApprovals = removeTools(
         { actions: current.actions, toolApprovals },
         removed,
-        new Set(
-          index.entries
-            .filter((entry) => entry.defaultAsk)
-            .map((entry) => entry.key)
-        ),
+        index,
         new Set(skillActions)
       ).toolApprovals
     }

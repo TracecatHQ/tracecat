@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from opentelemetry import context as otel_context
@@ -82,7 +82,13 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
-from tracecat.agent.mcp import user_client
+from tracecat.agent.mcp import plugin_tools, user_client
+from tracecat.agent.mcp.plugin_tools import (
+    PluginInternalTool,
+    PluginToolGroup,
+    SessionPluginGrant,
+    SessionPluginTools,
+)
 from tracecat.agent.metrics import TurnOutcome
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
 from tracecat.agent.otel_delivery import OtelDeliveryPool
@@ -282,24 +288,28 @@ REGISTRY_APPROVAL_DEFAULTS = {
 }
 
 
+def _indexed_action(name: str, requires_approval: bool = False) -> IndexedActionResult:
+    manifest_action = SimpleNamespace(
+        description=f"Synthetic {name}",
+        interface={"expects": {"type": "object"}},
+    )
+    return cast(
+        IndexedActionResult,
+        SimpleNamespace(
+            index_entry=SimpleNamespace(
+                options={"requires_approval": requires_approval}
+            ),
+            manifest=SimpleNamespace(actions={name: manifest_action}),
+        ),
+    )
+
+
 @pytest.fixture
 def registry_default_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Build tools from REGISTRY_APPROVAL_DEFAULTS through the real tool factory."""
 
     def indexed(name: str) -> IndexedActionResult:
-        manifest_action = SimpleNamespace(
-            description=f"Synthetic {name}",
-            interface={"expects": {"type": "object"}},
-        )
-        return cast(
-            IndexedActionResult,
-            SimpleNamespace(
-                index_entry=SimpleNamespace(
-                    options={"requires_approval": REGISTRY_APPROVAL_DEFAULTS[name]}
-                ),
-                manifest=SimpleNamespace(actions={name: manifest_action}),
-            ),
-        )
+        return _indexed_action(name, REGISTRY_APPROVAL_DEFAULTS[name])
 
     async def mock_build_agent_tools(
         *,
@@ -393,6 +403,183 @@ class TestBuildToolDefinitionsActivity:
             "custom.delete": True,
             "custom.waived": False,
         }
+
+    @pytest.mark.anyio
+    async def test_records_plugin_tool_approval_defaults_unless_overridden(
+        self,
+        registry_default_tools: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def plugin_tool(name: str, requires_approval: bool) -> PluginInternalTool:
+            return PluginInternalTool(
+                definition=MCPToolDefinition(
+                    name=name, description=name, parameters_json_schema={}
+                ),
+                handler=AsyncMock(),
+                requires_approval=requires_approval,
+                title=name,
+            )
+
+        grant = AsyncMock(
+            return_value=SessionPluginGrant(
+                tools=(
+                    plugin_tool("internal.demo.read", False),
+                    plugin_tool("internal.demo.waived", True),
+                    plugin_tool("internal.demo.write", True),
+                )
+            )
+        )
+        monkeypatch.setattr(agent_activities, "session_plugin_grant", grant)
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=Role(type="service", service_id="tracecat-api"),
+                tool_filters=ToolFilters(actions=[]),
+                tool_approvals={"internal.demo.waived": False},
+                session_id=uuid.uuid4(),
+            )
+        )
+
+        plugin_names = [
+            "internal.demo.read",
+            "internal.demo.waived",
+            "internal.demo.write",
+        ]
+        assert sorted(result.allowed_internal_tools or []) == plugin_names
+        assert sorted(result.tool_definitions) == plugin_names
+        assert result.tool_approvals == {
+            "internal.demo.waived": False,
+            "internal.demo.write": True,
+        }
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("connected", [True, False])
+    async def test_drops_superseded_actions_only_while_connected(
+        self, monkeypatch: pytest.MonkeyPatch, connected: bool
+    ) -> None:
+        built: list[str] = []
+
+        async def build_tools(
+            *, actions: list[str] | None, **_kwargs: Any
+        ) -> BuildToolsResult:
+            built.extend(actions or [])
+            return BuildToolsResult(
+                tools=[
+                    await create_tool_from_registry(
+                        name, _indexed_action(name), tool_approvals=None
+                    )
+                    for name in actions or []
+                ],
+                collected_secrets=set(),
+            )
+
+        calls: list[str] = []
+
+        class Plugin:
+            def tools(self) -> list[PluginInternalTool]:
+                return []
+
+            def superseded_namespaces(self) -> list[str]:
+                return ["tools.slack"]
+
+            async def session_tools(
+                self, role: Role, session_id: uuid.UUID
+            ) -> SessionPluginTools:
+                calls.append("session_tools")
+                return SessionPluginTools(
+                    superseded_namespaces=("tools.slack",) if connected else ()
+                )
+
+            async def agent_tool_groups(
+                self, role: Role, preset_id: uuid.UUID
+            ) -> list[PluginToolGroup]:
+                calls.append("agent_tool_groups")
+                return []
+
+        entry_point = SimpleNamespace(name="plugin", load=lambda: Plugin)
+        plugin_tools._loaded_plugins.cache_clear()
+        monkeypatch.setattr(plugin_tools, "entry_points", lambda group: [entry_point])
+        _patch_registry(monkeypatch, build_tools=build_tools)
+        selected = [
+            "tools.slack.post_message",
+            "tools.slack_bot.post",
+            "core.http_request",
+        ]
+        tunnels = {"tools.slack.post_message": "t1", "core.http_request": "t2"}
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=selected),
+            tool_tunnels=tunnels,
+            session_id=uuid.uuid4(),
+        )
+
+        try:
+            result = await AgentActivities().build_tool_definitions(args)
+        finally:
+            plugin_tools._loaded_plugins.cache_clear()
+
+        # One plugin call per turn serves both the superseded drop and the grant.
+        assert calls == ["session_tools"]
+        assert built == (selected[1:] if connected else selected)
+        # A superseded tool's tunnel goes with it instead of failing the turn.
+        assert result.tool_tunnels == (
+            {"core.http_request": "t2"} if connected else tunnels
+        )
+        # The compile never rewrites the selection it was given.
+        assert args.tool_filters.actions == selected
+        assert args.tool_tunnels == tunnels
+
+    @pytest.mark.anyio
+    async def test_subagent_scopes_drop_the_roots_superseded_actions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        built: list[list[str]] = []
+
+        async def build_tools(
+            *, actions: list[str] | None, **_kwargs: Any
+        ) -> BuildToolsResult:
+            built.append(actions or [])
+            return BuildToolsResult(
+                tools=[
+                    await create_tool_from_registry(
+                        name, _indexed_action(name), tool_approvals=None
+                    )
+                    for name in actions or []
+                ],
+                collected_secrets=set(),
+            )
+
+        root_session_id = uuid.uuid4()
+        grant = AsyncMock(
+            return_value=SessionPluginGrant(
+                superseded_namespaces=frozenset({"tools.slack"})
+            )
+        )
+        monkeypatch.setattr(agent_activities, "session_plugin_grant", grant)
+        _patch_registry(monkeypatch, build_tools=build_tools)
+        selected = ["tools.slack.post_message", "core.http_request"]
+
+        result = await AgentActivities().build_agent_tool_definitions(
+            BuildAgentToolDefsArgs(
+                role=Role(type="service", service_id="tracecat-api"),
+                scopes=[
+                    BuildAgentScopeToolDefsArgs(
+                        scope="root",
+                        tool_filters=ToolFilters(actions=selected),
+                        session_id=root_session_id,
+                    ),
+                    BuildAgentScopeToolDefsArgs(
+                        scope="child",
+                        tool_filters=ToolFilters(actions=selected),
+                    ),
+                ],
+            )
+        )
+
+        # One plugin call, for the root's session, serves every scope.
+        grant.assert_awaited_once_with(ANY, root_session_id)
+        assert built == [["core.http_request"], ["core.http_request"]]
+        assert set(result.scopes["child"].tool_definitions) == {"core.http_request"}
 
     @pytest.mark.anyio
     async def test_records_registry_default_approvals_per_agent_scope(
