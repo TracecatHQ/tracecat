@@ -59,6 +59,7 @@ import {
   findEnabledModelOption,
 } from "@/components/agents/agent-model-combobox"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
+import { AgentPresetApproversPanel } from "@/components/agents/agent-preset-rail-approvers"
 import {
   LogoTile,
   RAIL_LIST_ROW,
@@ -2255,6 +2256,7 @@ const RAIL_TABS = [
   { value: "skills", label: "Skills" },
   { value: "subagents", label: "Subagents" },
   { value: "output", label: "Output" },
+  { value: "approvals", label: "Approvals" },
 ] as const
 
 type AgentPresetRailTab = (typeof RAIL_TABS)[number]["value"]
@@ -2327,10 +2329,18 @@ function AgentPresetRail({
   subagentFields: Array<{ id: string }>
   onAddSubagent: (subagent: SubagentFormValue) => void
   onRemoveSubagent: (index: number) => void
-  /** Lock every tab except Skills on a managed preset. */
+  /** Lock every tab except Skills and Approvals on a managed preset. */
   readOnly?: boolean
 }) {
   const subagents = useWatch({ control: form.control, name: "subagents" })
+  const { hasEntitlement } = useEntitlements()
+  // Approver policy is enterprise; tool approvals themselves stay open.
+  const approversEnabled = hasEntitlement("rbac_addons")
+  const railTabs = RAIL_TABS.filter(
+    (option) => approversEnabled || option.value !== "approvals"
+  )
+  const activeTab: AgentPresetRailTab =
+    tab === "approvals" && !approversEnabled ? "tools" : tab
   const { getManaged } = useManagedResources(workspaceId)
   // The package's own skills stay bound to a managed preset; only skills the
   // customer added can be removed.
@@ -2353,10 +2363,10 @@ function AgentPresetRail({
   // Drill-ins belong to the tab that opened them.
   const activeDrill =
     drill?.kind === "subagent" &&
-    tab === "subagents" &&
+    activeTab === "subagents" &&
     subagentFields[drill.index] !== undefined
       ? drill
-      : drill?.kind === "tools" && tab === "tools"
+      : drill?.kind === "tools" && activeTab === "tools"
         ? drill
         : null
   let drillTitle = ""
@@ -2367,7 +2377,7 @@ function AgentPresetRail({
       ? getSubagentFormAlias(subagent) || "Subagent"
       : "Subagent"
   }
-  const tabLabel = RAIL_TABS.find((option) => option.value === tab)?.label
+  const tabLabel = RAIL_TABS.find((option) => option.value === activeTab)?.label
 
   return (
     <aside
@@ -2375,7 +2385,7 @@ function AgentPresetRail({
       className={cn("flex h-full min-h-0 flex-col", RAIL_SURFACE)}
     >
       <Tabs
-        value={tab}
+        value={activeTab}
         onValueChange={(value) => {
           if (isAgentPresetRailTab(value)) onTabChange(value)
         }}
@@ -2383,7 +2393,7 @@ function AgentPresetRail({
       >
         <div className="flex h-12 shrink-0 items-stretch border-b border-border/60 px-3">
           <TabsList className="h-full gap-1 rounded-none bg-transparent p-0">
-            {RAIL_TABS.map((option) => (
+            {railTabs.map((option) => (
               <TabsTrigger
                 key={option.value}
                 value={option.value}
@@ -2513,6 +2523,15 @@ function AgentPresetRail({
                     />
                   </ReadOnlyFieldset>
                 </TabsContent>
+                {/* Workspace policy, not package config: editable on managed presets. */}
+                {approversEnabled ? (
+                  <TabsContent value="approvals" className="mt-0">
+                    <AgentPresetApproversPanel
+                      workspaceId={workspaceId}
+                      presetId={preset?.id ?? null}
+                    />
+                  </TabsContent>
+                ) : null}
               </>
             )}
           </div>

@@ -361,6 +361,7 @@ class ApprovalManager:
         *,
         request_metadata: dict[str, dict[str, Any]] | None = None,
         push_to: uuid.UUID | None = None,
+        agent_preset_id: uuid.UUID | None = None,
     ) -> None:
         """Persist the requests, then post them to the run's linked channel, if any."""
         self._approvals.clear()
@@ -377,6 +378,7 @@ class ApprovalManager:
                 tool_name=approval.name,
                 args=approval.input,
                 metadata=(request_metadata or {}).get(approval.id),
+                agent_preset_id=approval.agent_preset_id,
             )
             for approval in approvals
         ]
@@ -397,6 +399,7 @@ class ApprovalManager:
                 role=self.role,
                 session_id=self.session_id,
                 approvals=approval_payloads,
+                agent_preset_id=agent_preset_id,
                 channel_updates=updates,
             ),
             start_to_close_timeout=timedelta(seconds=30) + push_budget(updates),
@@ -695,6 +698,7 @@ class ApprovalManager:
                     "tool_name": payload.tool_name,
                     "tool_call_args": approval_args,
                     "status": ApprovalStatus.PENDING,
+                    "agent_preset_id": payload.agent_preset_id or input.agent_preset_id,
                 }
 
             # Lock rows in ApprovalSubmissionService's order (tool call id).
@@ -704,6 +708,7 @@ class ApprovalManager:
                 set_={
                     "tool_name": stmt.excluded.tool_name,
                     "tool_call_args": stmt.excluded.tool_call_args,
+                    "agent_preset_id": stmt.excluded.agent_preset_id,
                     # onupdate does not fire for ON CONFLICT DO UPDATE.
                     "updated_at": func.now(),
                 },

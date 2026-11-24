@@ -2796,6 +2796,79 @@ export const $AgentPreset = {
   title: "AgentPreset",
 } as const
 
+export const $AgentPresetApproverKind = {
+  type: "string",
+  enum: ["user", "group", "role"],
+} as const
+
+export const $AgentPresetApproverRead = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/AgentPresetApproverKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+      description: "Set for users only.",
+    },
+  },
+  type: "object",
+  required: ["kind", "id", "name"],
+  title: "AgentPresetApproverRead",
+  description: "An approver or approver option with its display name.",
+} as const
+
+export const $AgentPresetApproverRef = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/AgentPresetApproverKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+  },
+  type: "object",
+  required: ["kind", "id"],
+  title: "AgentPresetApproverRef",
+  description: "A user, group, or role named as an approver.",
+} as const
+
+export const $AgentPresetApproversUpdate = {
+  properties: {
+    approvers: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetApproverRef",
+      },
+      type: "array",
+      maxItems: 10000,
+      title: "Approvers",
+    },
+  },
+  type: "object",
+  required: ["approvers"],
+  title: "AgentPresetApproversUpdate",
+  description:
+    "Approvers to add to or remove from a preset; repeats collapse to one.",
+} as const
+
 export const $AgentPresetCapability = {
   type: "string",
   enum: ["approvals", "subagents", "internet_access"],
@@ -6471,6 +6544,41 @@ export const $ApprovalSubmission = {
   required: ["approvals"],
   title: "ApprovalSubmission",
   description: "Request model for submitting approval decisions.",
+} as const
+
+export const $ApproverNotAllowedErrorBody = {
+  properties: {
+    code: {
+      type: "string",
+      const: "approver_not_allowed",
+      title: "Code",
+      default: "approver_not_allowed",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "ApproverNotAllowedErrorBody",
+} as const
+
+export const $ApproverNotAllowedResponse = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+    },
+    error: {
+      $ref: "#/components/schemas/ApproverNotAllowedErrorBody",
+    },
+  },
+  type: "object",
+  required: ["detail", "error"],
+  title: "ApproverNotAllowedResponse",
+  description:
+    "HTTP 403 body when the agent's approver policy refuses the decider.",
 } as const
 
 export const $Artifact = {
@@ -16704,6 +16812,69 @@ export const $CursorPaginatedResponse_AgentFolderRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentFolderRead]",
+} as const
+
+export const $CursorPaginatedResponse_AgentPresetApproverRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetApproverRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetApproverRead]",
 } as const
 
 export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {

@@ -5,6 +5,7 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -143,6 +144,8 @@ class ToolCallContent:
     """Persisted decision payload, when one exists."""
     reason: str | None = None
     """Persisted rejection reason, when one exists."""
+    agent_preset_id: uuid.UUID | None = None
+    """Preset whose approvers decide this call; None uses the run's."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ToolCallContent:

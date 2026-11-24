@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.policy import ApproverNotAllowedError
+from tracecat.agent.approvals.schemas import APPROVER_NOT_ALLOWED_RESPONSES
 from tracecat.agent.backends.types import AgentControlUncertain
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import TurnLifecycle
@@ -73,7 +75,11 @@ def _to_approval_decisions(approvals: ApprovalMap) -> list[ApprovalDecision]:
     return decisions
 
 
-@router.post("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=APPROVER_NOT_ALLOWED_RESPONSES,
+)
 @require_scope("agent:update")
 async def submit_approvals(
     *,
@@ -95,6 +101,7 @@ async def submit_approvals(
 
     Raises:
         HTTPException 400: If the approval submission fails validation.
+        HTTPException 403: If the agent's approver policy refuses the caller.
         HTTPException 404: If the agent session/workflow is not found.
         HTTPException 500: For unexpected errors.
     """
@@ -132,6 +139,8 @@ async def submit_approvals(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+    except ApproverNotAllowedError:
+        raise
     except TracecatConflictError as exc:
         # Contradicts a decision already recorded: the caller holds stale state.
         logger.warning(
@@ -164,7 +173,11 @@ async def submit_approvals(
         ) from exc
 
 
-@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=APPROVER_NOT_ALLOWED_RESPONSES,
+)
 @require_scope("agent:delete")
 async def delete_approval(
     *,
@@ -218,6 +231,9 @@ async def delete_approval(
             ContinueRunRequest(decisions=decisions, source="inbox"),
         )
         return
+    except ApproverNotAllowedError:
+        # A refused decider never falls through to deleting the rows.
+        raise
     except Exception as exc:
         # Delete only once the run is over: a live or unknown run may still
         # wait on these rows, or hold decisions they have not caught up to.

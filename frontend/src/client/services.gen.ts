@@ -237,6 +237,8 @@ import type {
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentPresetsAddAgentPresetApproversData,
+  AgentPresetsAddAgentPresetApproversResponse,
   AgentPresetsAddPresetTagData,
   AgentPresetsAddPresetTagResponse,
   AgentPresetsCompareAgentPresetVersionsData,
@@ -251,6 +253,10 @@ import type {
   AgentPresetsGetAgentPresetResponse,
   AgentPresetsGetAgentPresetVersionData,
   AgentPresetsGetAgentPresetVersionResponse,
+  AgentPresetsListAgentPresetApproverOptionsData,
+  AgentPresetsListAgentPresetApproverOptionsResponse,
+  AgentPresetsListAgentPresetApproversData,
+  AgentPresetsListAgentPresetApproversResponse,
   AgentPresetsListAgentPresetsData,
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
@@ -263,6 +269,8 @@ import type {
   AgentPresetsMoveAgentPresetToFolderResponse,
   AgentPresetsPreviewToolPolicyData,
   AgentPresetsPreviewToolPolicyResponse,
+  AgentPresetsRemoveAgentPresetApproversData,
+  AgentPresetsRemoveAgentPresetApproversResponse,
   AgentPresetsRemovePresetTagData,
   AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
@@ -7499,6 +7507,130 @@ export const agentPresetsPreviewToolPolicy = (
 }
 
 /**
+ * List Agent Preset Approver Options
+ * Page through the principals that already apply in this workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.search
+ * @returns CursorPaginatedResponse_AgentPresetApproverRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetApproverOptions = (
+  data: AgentPresetsListAgentPresetApproverOptionsData
+): CancelablePromise<AgentPresetsListAgentPresetApproverOptionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/approver-options",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      search: data.search,
+    },
+    errors: {
+      400: "Invalid cursor",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Approvers
+ * Page through who may approve the preset's tool calls; none = default rule.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentPresetApproverRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetApprovers = (
+  data: AgentPresetsListAgentPresetApproversData
+): CancelablePromise<AgentPresetsListAgentPresetApproversResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      400: "Invalid cursor",
+      404: "Agent preset not found",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Agent Preset Approvers
+ * Add who may approve the preset's tool calls; idempotent, applies at once.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentPresetApproverRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsAddAgentPresetApprovers = (
+  data: AgentPresetsAddAgentPresetApproversData
+): CancelablePromise<AgentPresetsAddAgentPresetApproversResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      400: "Approvers outside the workspace, or over the cap",
+      404: "Agent preset not found",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Agent Preset Approvers
+ * Remove approvers; idempotent. Removing the last restores the default rule.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsRemoveAgentPresetApprovers = (
+  data: AgentPresetsRemoveAgentPresetApproversData
+): CancelablePromise<AgentPresetsRemoveAgentPresetApproversResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/presets/{preset_id}/approvers",
+    path: {
+      preset_id: data.presetId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "Agent preset not found",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Agent Preset
  * Retrieve an agent preset by ID.
  * @param data The data for the request.
@@ -9461,6 +9593,7 @@ export const agentSessionsSendMessage = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "The agent's approver policy refuses the decider",
       422: "Validation Error",
     },
   })
@@ -9665,6 +9798,7 @@ export const agentSessionsControlSession = (
  *
  * Raises:
  * HTTPException 400: If the approval submission fails validation.
+ * HTTPException 403: If the agent's approver policy refuses the caller.
  * HTTPException 404: If the agent session/workflow is not found.
  * HTTPException 500: For unexpected errors.
  * @param data The data for the request.
@@ -9687,6 +9821,7 @@ export const approvalsSubmitApprovals = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "The agent's approver policy refuses the decider",
       422: "Validation Error",
     },
   })
@@ -9716,6 +9851,7 @@ export const approvalsDeleteApproval = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      403: "The agent's approver policy refuses the decider",
       422: "Validation Error",
     },
   })

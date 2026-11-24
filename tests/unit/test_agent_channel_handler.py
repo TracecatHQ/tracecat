@@ -5,16 +5,18 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from slack_sdk.errors import SlackApiError
 
 from tracecat import config
+from tracecat.agent.approvals.policy import UNLINKED_APPROVER_MESSAGE
 from tracecat.agent.backends.access import SESSION_BACKEND_NOT_ENTITLED_MESSAGE
 from tracecat.agent.channels.handlers.slack import (
     BOT_LINKED_THREAD_MESSAGE,
     SLACK_EVENT_DEDUP_TTL_SECONDS,
+    SlackApprovalActionContext,
     SlackChannelHandler,
     SlackMentioningUserProfile,
 )
@@ -652,3 +654,83 @@ async def test_handle_falls_back_to_user_id_when_profile_lookup_missing_scope(
     assert request.instructions is not None
     assert '- Slack user ID: "U1"' in request.instructions
     assert "Slack email:" not in request.instructions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("has_policy", [True, False])
+async def test_approval_click_with_no_tracecat_user_needs_an_empty_policy(
+    handler: SlackChannelHandler,
+    token: ValidatedChannelToken,
+    workspace_id: uuid.UUID,
+    has_policy: bool,
+) -> None:
+    session_id = uuid.uuid4()
+    context = SlackApprovalActionContext(
+        batch_id="batch-1",
+        tool_call_id="tool-1",
+        action="approve",
+        channel_id="C1",
+        thread_ts="1700000000.100",
+        message_ts="1700000000.111",
+        user_id="U1",
+    )
+    batch_context = {
+        "channel_id": "C1",
+        "workspace_id": str(workspace_id),
+        "tool_call_ids": ["tool-1"],
+        "session_id": str(session_id),
+    }
+    slack_client = _FakeSlackClient(token="xoxb-test")
+    record = AsyncMock(return_value=False)
+    # The session switched away after the pause; the run's stamped preset decides.
+    cast(AsyncMock, handler.session).scalar.return_value = SimpleNamespace(
+        agent_preset_id=token.agent_preset_id
+    )
+    with (
+        patch(f"{_SLACK}.AsyncWebClient", return_value=slack_client),
+        patch(f"{_SLACK}.get_redis_client", new_callable=AsyncMock),
+        patch.object(
+            SlackChannelHandler,
+            "_parse_approval_action_context",
+            return_value=context,
+        ),
+        patch.object(
+            handler, "_load_batch_context", AsyncMock(return_value=batch_context)
+        ),
+        patch(
+            f"{_SLACK}.AgentSessionService.get_session",
+            new_callable=AsyncMock,
+            return_value=SimpleNamespace(agent_preset_id=None),
+        ),
+        patch(
+            "tracecat.agent.approvals.policy._listed_approver_matches",
+            new_callable=AsyncMock,
+            return_value={token.agent_preset_id: False} if has_policy else {},
+        ) as listed_approver_matches,
+        patch(
+            "tracecat.agent.approvals.policy.is_org_entitled",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch.object(handler, "_record_tool_decision", record),
+    ):
+        await handler._handle_approval_action(payload={}, token=token)
+
+    listed_approver_matches.assert_awaited_once_with(
+        handler.session,
+        organization_id=ANY,
+        workspace_id=workspace_id,
+        preset_ids={token.agent_preset_id},
+        approved_by=None,
+    )
+    notices = [
+        payload["text"]
+        for method, payload in slack_client.calls
+        if method == "chat.postEphemeral"
+    ]
+    if has_policy:
+        record.assert_not_awaited()
+        assert notices == [UNLINKED_APPROVER_MESSAGE]
+    else:
+        record.assert_awaited_once()
+        assert UNLINKED_APPROVER_MESSAGE not in notices

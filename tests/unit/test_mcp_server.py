@@ -34,7 +34,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.preset.schemas import AgentPresetRead
+from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
+    AgentPresetApproverRef,
+    AgentPresetRead,
+)
 from tracecat.agent.skill.schemas import (
     SkillDownloadPreparedFile,
     SkillDownloadPreparedResponse,
@@ -72,7 +76,7 @@ from tracecat.managed_resources.guard import (
     LOCKED_MESSAGE,
     ManagedResourceLockedError,
 )
-from tracecat.pagination import CursorPaginatedResponse
+from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
@@ -7691,6 +7695,185 @@ async def test_update_agent_preset_requires_existing_slug(
             workspace_id=str(workspace_id),
             preset_slug="missing-preset",
             instructions="Updated prompt",
+        )
+
+
+_APPROVER_SCOPES = frozenset({"agent:read", "agent:update", "workspace:member:read"})
+
+
+def _patch_approver_services(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_id: uuid.UUID,
+    approver_service: Any,
+    *,
+    scopes: frozenset[str] = _APPROVER_SCOPES,
+) -> uuid.UUID:
+    preset_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, scopes=scopes)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService:
+        session = object()
+
+        async def get_preset_by_slug(self, preset_slug: str) -> Any:
+            return SimpleNamespace(id=preset_id) if preset_slug == "triage" else None
+
+    approver_service_class = MagicMock(return_value=approver_service)
+    approver_service_class.with_session.return_value = _AsyncContext(approver_service)
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+    monkeypatch.setattr(
+        mcp_server, "AgentPresetApproverService", approver_service_class
+    )
+    return preset_id
+
+
+@pytest.mark.anyio
+async def test_agent_preset_approver_tools_call_the_approver_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    user = AgentPresetApproverRead(kind="user", id=uuid.uuid4(), name="Ana")
+    ref = AgentPresetApproverRef(kind="user", id=user.id)
+    service = SimpleNamespace(
+        list_options=AsyncMock(
+            return_value=CursorPaginatedResponse(items=[user], next_cursor="next")
+        ),
+        list_approvers=AsyncMock(
+            return_value=CursorPaginatedResponse(items=[user], next_cursor="more")
+        ),
+        add_approvers=AsyncMock(return_value=[user]),
+        remove_approvers=AsyncMock(return_value=None),
+    )
+    preset_id = _patch_approver_services(monkeypatch, workspace_id, service)
+
+    options = await _tool(mcp_server.list_agent_preset_approver_options)(
+        workspace_id=str(workspace_id)
+    )
+    listed = await _tool(mcp_server.list_agent_preset_approvers)(
+        workspace_id=str(workspace_id), preset_slug="triage", limit=5, cursor="c1"
+    )
+    added = await _tool(mcp_server.add_agent_preset_approvers)(
+        workspace_id=str(workspace_id), preset_slug="triage", approvers=[ref]
+    )
+    removed = await _tool(mcp_server.remove_agent_preset_approvers)(
+        workspace_id=str(workspace_id), preset_slug="triage", approvers=[ref]
+    )
+
+    assert options.items == [user] and options.next_cursor == "next"
+    assert listed.items == [user] and listed.next_cursor == "more"
+    assert added == [user] and "no longer listed" in removed
+    service.list_approvers.assert_awaited_once_with(
+        preset_id, PageParams(limit=5, cursor="c1")
+    )
+    service.add_approvers.assert_awaited_once_with(preset_id, [ref])
+    service.remove_approvers.assert_awaited_once_with(preset_id, [ref])
+
+
+_APPROVER_TOOL_CALLS: list[tuple[str, dict[str, Any], str]] = [
+    ("list_agent_preset_approver_options", {}, "agent:update"),
+    ("list_agent_preset_approvers", {"preset_slug": "triage"}, "agent:read"),
+    (
+        "add_agent_preset_approvers",
+        {"preset_slug": "triage", "approvers": []},
+        "agent:update",
+    ),
+    (
+        "remove_agent_preset_approvers",
+        {"preset_slug": "triage", "approvers": []},
+        "agent:update",
+    ),
+]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("tool_name", "kwargs", "scope"), _APPROVER_TOOL_CALLS)
+async def test_agent_preset_approver_tools_require_the_route_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    kwargs: dict[str, Any],
+    scope: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    service = MagicMock()
+    _patch_approver_services(monkeypatch, workspace_id, service, scopes=frozenset())
+
+    with pytest.raises(ToolError, match=f"Missing required scope: .*{scope}"):
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id), **kwargs
+        )
+    assert not service.mock_calls
+
+
+@pytest.mark.anyio
+async def test_approver_options_tool_refuses_read_only_viewers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    service = MagicMock()
+    _patch_approver_services(
+        monkeypatch,
+        workspace_id,
+        service,
+        scopes=frozenset({"agent:read", "workspace:member:read"}),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: .*agent:update"):
+        await _tool(mcp_server.list_agent_preset_approver_options)(
+            workspace_id=str(workspace_id)
+        )
+    assert not service.mock_calls
+
+
+@pytest.mark.anyio
+async def test_agent_preset_approver_tools_need_rbac_addons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    refused = AsyncMock(side_effect=EntitlementRequired("rbac_addons"))
+    service = SimpleNamespace(
+        list_options=refused,
+        list_approvers=refused,
+        add_approvers=refused,
+        remove_approvers=refused,
+    )
+    _patch_approver_services(monkeypatch, workspace_id, service)
+
+    for tool_name, kwargs, _ in _APPROVER_TOOL_CALLS:
+        with pytest.raises(ToolError, match="RBAC add-ons entitlement"):
+            await _tool(getattr(mcp_server, tool_name))(
+                workspace_id=str(workspace_id), **kwargs
+            )
+
+
+@pytest.mark.anyio
+async def test_add_agent_preset_approvers_validates_like_the_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    service = SimpleNamespace(
+        add_approvers=AsyncMock(
+            side_effect=TracecatValidationError(
+                "Approvers must be members, groups, or roles of this workspace"
+            )
+        )
+    )
+    _patch_approver_services(monkeypatch, workspace_id, service)
+    ref = AgentPresetApproverRef(kind="group", id=uuid.uuid4())
+
+    with pytest.raises(ToolError, match="Agent preset 'missing' not found"):
+        await _tool(mcp_server.add_agent_preset_approvers)(
+            workspace_id=str(workspace_id), preset_slug="missing", approvers=[ref]
+        )
+    with pytest.raises(ToolError, match="roles of this workspace"):
+        await _tool(mcp_server.add_agent_preset_approvers)(
+            workspace_id=str(workspace_id), preset_slug="triage", approvers=[ref]
         )
 
 

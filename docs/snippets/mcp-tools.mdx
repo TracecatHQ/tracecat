@@ -721,6 +721,30 @@
   Get the full configuration for a saved agent preset by slug.
 </ResponseField>
 
+<ResponseField name="list_agent_preset_approver_options" type="tool">
+  List the members, groups, and roles of this workspace that can approve.
+
+  Pass picked entries' `kind` and `id` to `add_agent_preset_approvers`.
+</ResponseField>
+
+<ResponseField name="list_agent_preset_approvers" type="tool">
+  List who may approve an agent preset's tool calls.
+
+  No approvers means the default rule: anyone who may run the agent decides.
+</ResponseField>
+
+<ResponseField name="add_agent_preset_approvers" type="tool">
+  Add who may approve an agent preset's tool calls; applies at once.
+
+  Each approver is `{kind, id}` from `list_agent_preset_approver_options`, with `kind` one of `user`, `group`, or `role`. Already-listed approvers and repeats are ignored. Once any approver is listed, only listed approvers and workspace admins can decide the agent's tool calls.
+</ResponseField>
+
+<ResponseField name="remove_agent_preset_approvers" type="tool">
+  Remove approvers from an agent preset; applies at once.
+
+  Each approver is `{kind, id}`. Approvers not listed are ignored. Removing the last approver restores the default rule: anyone who may run the agent decides.
+</ResponseField>
+
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 

@@ -549,3 +549,33 @@ class AgentPresetVersionDiff(BaseModel):
     tool_tunnel_changes: list[ToolTunnelFieldChange] = Field(default_factory=list)
     skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0
+
+
+type AgentPresetApproverKind = Literal["user", "group", "role"]
+
+# Cap on a preset's total grants and on one request body; far above any org's headcount.
+MAX_AGENT_PRESET_APPROVERS = 10_000
+
+
+class AgentPresetApproverRef(BaseModel):
+    """A user, group, or role named as an approver."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: AgentPresetApproverKind
+    id: uuid.UUID
+
+
+class AgentPresetApproverRead(AgentPresetApproverRef):
+    """An approver or approver option with its display name."""
+
+    name: str
+    email: str | None = Field(default=None, description="Set for users only.")
+
+
+class AgentPresetApproversUpdate(BaseModel):
+    """Approvers to add to or remove from a preset; repeats collapse to one."""
+
+    approvers: list[AgentPresetApproverRef] = Field(
+        max_length=MAX_AGENT_PRESET_APPROVERS
+    )

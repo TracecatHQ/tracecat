@@ -35,6 +35,7 @@ import tracecat.artifacts.projection as artifact_projection
 from tracecat.agent.adapter.vercel import is_text_ui_part
 from tracecat.agent.approvals.decisions import submitted_decision
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.policy import ApproverNotAllowedError
 from tracecat.agent.approvals.submission import (
     ApprovalDecisionInvalidError,
     ApprovalNoLongerActiveError,
@@ -2370,6 +2371,10 @@ class AgentSessionService(BaseWorkspaceService):
         except ApprovalDecisionInvalidError:
             return DecisionRejected(
                 reason="not_valid", tool_call_id=decision.tool_call_id
+            )
+        except ApproverNotAllowedError:
+            return DecisionRejected(
+                reason="not_allowed", tool_call_id=decision.tool_call_id
             )
         return DecisionRecorded(
             pending_tool_call_ids=submission.pending_tool_call_ids,

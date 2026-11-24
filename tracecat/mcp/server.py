@@ -86,7 +86,11 @@ from tracecat.agent.authoring_context import (
 )
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.folders.service import AgentFolderService
+from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
+    AgentPresetApproverRead,
+    AgentPresetApproverRef,
+    AgentPresetApproversUpdate,
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetSkillBindingBase,
@@ -12370,6 +12374,210 @@ async def get_agent_preset(
             "Failed to get agent preset", error=str(e), preset_slug=preset_slug
         )
         raise ToolError(f"Failed to get agent preset: {e}") from None
+
+
+@mcp.tool()
+async def list_agent_preset_approver_options(
+    workspace_id: uuid.UUID,
+    search: str | None = None,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[AgentPresetApproverRead]:
+    """List the members, groups, and roles of this workspace that can approve.
+
+    Pass picked entries' `kind` and `id` to `add_agent_preset_approvers`.
+
+    Args:
+        workspace_id: The workspace ID.
+        search: Match names, and emails for people.
+        limit: Maximum number of entries to return.
+        cursor: `next_cursor` from a previous page.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:update", "workspace:member:read")
+        page = PageParams(
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+        async with AgentPresetApproverService.with_session(role=role) as svc:
+            options = await svc.list_options(page, search=search)
+        return MCPPaginatedResponse(
+            items=options.items,
+            next_cursor=options.next_cursor,
+            prev_cursor=options.prev_cursor,
+            has_more=options.has_more,
+            has_previous=options.has_previous,
+        )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list agent preset approver options", error=str(e))
+        raise ToolError(f"Failed to list agent preset approver options: {e}") from None
+
+
+@mcp.tool()
+async def list_agent_preset_approvers(
+    workspace_id: uuid.UUID,
+    preset_slug: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[AgentPresetApproverRead]:
+    """List who may approve an agent preset's tool calls.
+
+    No approvers means the default rule: anyone who may run the agent decides.
+
+    Args:
+        workspace_id: The workspace ID.
+        preset_slug: The agent preset slug.
+        limit: Maximum number of approvers to return.
+        cursor: `next_cursor` from a previous page.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:read")
+        page = PageParams(
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+            approvers_service = AgentPresetApproverService(svc.session, role=role)
+            approvers = await approvers_service.list_approvers(preset.id, page)
+        return MCPPaginatedResponse(
+            items=approvers.items,
+            next_cursor=approvers.next_cursor,
+            prev_cursor=approvers.prev_cursor,
+            has_more=approvers.has_more,
+            has_previous=approvers.has_previous,
+        )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(
+            "Failed to list agent preset approvers",
+            error=str(e),
+            preset_slug=preset_slug,
+        )
+        raise ToolError(f"Failed to list agent preset approvers: {e}") from None
+
+
+@mcp.tool()
+async def add_agent_preset_approvers(
+    workspace_id: uuid.UUID,
+    preset_slug: str,
+    approvers: list[AgentPresetApproverRef],
+) -> list[AgentPresetApproverRead]:
+    """Add who may approve an agent preset's tool calls; applies at once.
+
+    Each approver is `{kind, id}` from `list_agent_preset_approver_options`,
+    with `kind` one of `user`, `group`, or `role`. Already-listed approvers
+    and repeats are ignored. Once any approver is listed, only listed
+    approvers and workspace admins can decide the agent's tool calls.
+    """
+    try:
+        params = AgentPresetApproversUpdate(approvers=approvers)
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:update")
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+            approvers_service = AgentPresetApproverService(svc.session, role=role)
+            return await approvers_service.add_approvers(preset.id, params.approvers)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
+    except (ValidationError, TracecatValidationError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(
+            "Failed to add agent preset approvers",
+            error=str(e),
+            preset_slug=preset_slug,
+        )
+        raise ToolError(f"Failed to add agent preset approvers: {e}") from None
+
+
+@mcp.tool()
+async def remove_agent_preset_approvers(
+    workspace_id: uuid.UUID,
+    preset_slug: str,
+    approvers: list[AgentPresetApproverRef],
+) -> str:
+    """Remove approvers from an agent preset; applies at once.
+
+    Each approver is `{kind, id}`. Approvers not listed are ignored. Removing
+    the last approver restores the default rule: anyone who may run the agent
+    decides.
+    """
+    try:
+        params = AgentPresetApproversUpdate(approvers=approvers)
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "agent:update")
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+            approvers_service = AgentPresetApproverService(svc.session, role=role)
+            await approvers_service.remove_approvers(preset.id, params.approvers)
+        return f"Approvers no longer listed on '{preset_slug}'"
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except EntitlementRequired as e:
+        raise ToolError(
+            "Agent approvers need the RBAC add-ons entitlement on this "
+            "organization's plan"
+        ) from e
+    except (ValidationError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(
+            "Failed to remove agent preset approvers",
+            error=str(e),
+            preset_slug=preset_slug,
+        )
+        raise ToolError(f"Failed to remove agent preset approvers: {e}") from None
 
 
 @mcp.tool()
