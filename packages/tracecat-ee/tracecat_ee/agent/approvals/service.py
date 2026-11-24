@@ -378,6 +378,7 @@ class ApprovalManager:
                 tool_name=approval.name,
                 args=approval.input,
                 metadata=(request_metadata or {}).get(approval.id),
+                agent_preset_id=approval.agent_preset_id,
             )
             for approval in approvals
         ]
@@ -697,7 +698,7 @@ class ApprovalManager:
                     "tool_name": payload.tool_name,
                     "tool_call_args": approval_args,
                     "status": ApprovalStatus.PENDING,
-                    "agent_preset_id": input.agent_preset_id,
+                    "agent_preset_id": payload.agent_preset_id or input.agent_preset_id,
                 }
 
             # Lock rows in ApprovalSubmissionService's order (tool call id).

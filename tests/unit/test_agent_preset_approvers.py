@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ from tracecat_ee.agent.activities import (
     ToolApprovalPayload,
 )
 from tracecat_ee.agent.approvals.service import ApprovalManager
+from tracecat_ee.agent.context import AgentContext
 
 from tests.support.membership import grant_workspace_membership
 from tests.unit.test_agent_channel_users import _identity, _link, _Org
@@ -38,6 +39,7 @@ from tracecat.agent.approvals.policy import (
     ensure_decider_allowed,
 )
 from tracecat.agent.channel_users.service import resolve_channel_actor
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.preset.approvers import AgentPresetApproverService
 from tracecat.agent.preset.schemas import (
     MAX_AGENT_PRESET_APPROVERS,
@@ -435,6 +437,47 @@ async def test_switching_presets_after_the_pause_keeps_the_runs_policy(
     row = await _row(session, agent_session, "tool_call_123")
     assert row.agent_preset_id == preset.id
     assert row.approved_by == listed.id
+
+
+async def test_an_items_own_preset_overrides_the_batch_preset(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    root = await _preset(session, svc_role)
+    child = await _preset(session, svc_role)
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        agent_preset_id=root.id,
+    )
+    session.add(agent_session)
+    await session.commit()
+
+    async def execute_activity(activity: Any, arg: Any, **_: Any) -> Any:
+        return await activity(arg)
+
+    AgentContext.set(session_id=agent_session.id)
+    with (
+        _approval_service_on(session, svc_role),
+        patch("temporalio.workflow.execute_activity", execute_activity),
+    ):
+        # A subagent's call rides in its root's batch with its own preset.
+        await ApprovalManager(role=svc_role).prepare(
+            [
+                ToolCallContent(id="root_call", name="core.http_request"),
+                ToolCallContent(
+                    id="child_call", name="core.http_request", agent_preset_id=child.id
+                ),
+            ],
+            agent_preset_id=root.id,
+        )
+
+    root_row = await _row(session, agent_session, "root_call")
+    child_row = await _row(session, agent_session, "child_call")
+    assert root_row.agent_preset_id == root.id
+    assert child_row.agent_preset_id == child.id
 
 
 async def test_web_continuation_outside_the_policy_is_refused(

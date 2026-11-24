@@ -140,6 +140,8 @@ class ToolApprovalPayload(BaseModel):
     tool_name: str
     args: dict[str, Any] | str | None = None
     metadata: dict[str, Any] | None = None
+    # Overrides the batch's preset; set for a subagent's call under its root.
+    agent_preset_id: uuid.UUID | None = None
 
 
 class ExecuteRemoteMCPToolArgs(BaseModel):
