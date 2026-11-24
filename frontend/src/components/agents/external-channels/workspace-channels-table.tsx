@@ -54,14 +54,20 @@ function channelCount(n: number): string {
 export function WorkspaceChannelsTable({
   workspaceId,
   empty,
+  errorShownBelow,
 }: {
   workspaceId: string
-  /** Shown in place of the table once the workspace is known to have no bots. */
+  /** The Tracecat for Slack card reports, or may yet report, a failed bot list. */
+  errorShownBelow: boolean
+  /** Shown in place of the table once the workspace is known to have no connected bots. */
   empty: ReactNode
 }) {
   const [search, setSearch] = useState("")
   const enabled = useChannelBotReadsAllowed()
-  const { data: bots } = useWorkspaceChannelBots(workspaceId, enabled)
+  const { data: bots, error: botsError } = useWorkspaceChannelBots(
+    workspaceId,
+    enabled
+  )
   const { presets } = useAgentPresets(workspaceId, { enabled })
   const {
     routes,
@@ -74,8 +80,15 @@ export function WorkspaceChannelsTable({
     loadMoreRoutes,
   } = useWorkspaceChannelRoutes(workspaceId, search, enabled)
 
-  // A disconnected bot answers nowhere; a failed bot list shows in the card below.
+  // A disconnected bot answers nowhere.
   const shown = (bots ?? []).filter((bot) => bot.status !== "disconnected")
+  if (enabled && botsError && !errorShownBelow) {
+    return (
+      <p className="text-sm text-destructive">
+        {getApiErrorDetail(botsError) ?? "Failed to load the workspace's bots."}
+      </p>
+    )
+  }
   if (!enabled || !bots) {
     return null
   }

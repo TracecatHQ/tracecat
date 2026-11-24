@@ -35,7 +35,7 @@ export function WorkspaceChannelsView({
   const installFailure = useChannelBotInstallResult()
   const { slackPlatformAvailable, slackPlatformIsLoading, slackPlatformError } =
     useSlackPlatformAppAvailable(workspaceId)
-  const { installs } = usePlatformChannelBots(
+  const { installs, installsError } = usePlatformChannelBots(
     workspaceId,
     "slack",
     slackPlatformAvailable
@@ -51,7 +51,12 @@ export function WorkspaceChannelsView({
   const entitled = hasEntitlement("agent_channels_preview")
   const { install, state } = platformInstallState(installs)
   let platform: PlatformOption = slackPlatformError ? "failed" : "missing"
-  if (slackPlatformAvailable) {
+  // Tracecat is offered only once the install list says it isn't there yet.
+  if (slackPlatformAvailable && installsError) {
+    platform = "failed"
+  } else if (slackPlatformAvailable && !installs) {
+    platform = "checking"
+  } else if (slackPlatformAvailable) {
     platform = CHANNEL_BOT_STATES[state].installed ? "installed" : "ready"
   }
 
@@ -78,6 +83,7 @@ export function WorkspaceChannelsView({
         ) : null}
         <WorkspaceChannelsTable
           workspaceId={workspaceId}
+          errorShownBelow={slackPlatformAvailable && !installs}
           empty={
             <NoChannelBots
               platform={platform}

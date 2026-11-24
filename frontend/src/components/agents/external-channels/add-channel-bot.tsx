@@ -36,13 +36,19 @@ import { useAgentPresets } from "@/hooks/use-agent-presets"
 export type ChannelBotChoice = "tracecat" | "custom"
 
 /** Whether this workspace can add Tracecat for Slack now. */
-export type PlatformOption = "ready" | "missing" | "installed" | "failed"
+export type PlatformOption =
+  | "ready"
+  | "checking"
+  | "missing"
+  | "installed"
+  | "failed"
 
 const PLATFORM_HELP: Record<PlatformOption, string> = {
   ready: "One click. Answers as @Tracecat; pick agents per channel.",
   missing:
     "Not set up on this Tracecat. A platform admin sets it up in Admin › Slack app.",
   installed: "Already added to this workspace's Slack.",
+  checking: "Checking whether Tracecat is already added…",
   failed: "Couldn't check whether Tracecat is set up here.",
 }
 

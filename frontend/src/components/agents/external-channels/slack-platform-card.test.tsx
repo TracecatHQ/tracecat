@@ -139,6 +139,9 @@ describe("Channels page", () => {
       await screen.findByRole("button", { name: "Add bot" })
     )
     expect(
+      screen.getByRole("menuitem", { name: /Tracecat/ })
+    ).not.toHaveAttribute("aria-disabled")
+    expect(
       screen.getByRole("menuitem", { name: /Microsoft Teams/ })
     ).toHaveAttribute("aria-disabled", "true")
     await userEvent.click(

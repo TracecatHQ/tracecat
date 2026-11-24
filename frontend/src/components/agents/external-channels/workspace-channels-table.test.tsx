@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   api,
+  apiError,
   platformSlackBot,
   routePage,
   serveBots,
@@ -211,6 +212,19 @@ describe("Workspace channels table", () => {
       expect.objectContaining({ cursor: "next" })
     )
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull()
+  })
+
+  it("says when the workspace's bots could not be loaded", async () => {
+    const listBots = api.listBots.getMockImplementation()
+    api.listBots.mockImplementation((params) => {
+      if (params.appOwner || params.agentPresetId) {
+        return listBots!(params)
+      }
+      throw apiError(400, { detail: "Bots unavailable" })
+    })
+    renderChannelsPage()
+    expect(await screen.findByText("Bots unavailable")).toBeInTheDocument()
+    expect(screen.queryByRole("table", { name: "Channels" })).toBeNull()
   })
 
   it("is not shown without the preview entitlement", async () => {
