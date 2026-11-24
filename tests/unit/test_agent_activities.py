@@ -1412,7 +1412,9 @@ class TestCreateSessionActivity:
         relayed: bool,
     ):
         """A synced thread sees the web message before the agent's status."""
-        assert mock_role.user_id is not None
+        # Only a user role authors a prompt; a service role's user_id is delegated.
+        user_role = mock_role.model_copy(update={"type": "user"})
+        assert user_role.user_id is not None
         run_id = uuid.uuid4()
         session_service.get_or_create_session.return_value = (_agent_session(), False)
         session_service.get_session.return_value = _agent_session()
@@ -1442,7 +1444,7 @@ class TestCreateSessionActivity:
         ):
             result = await create_session_activity(
                 CreateSessionInput(
-                    role=mock_role,
+                    role=user_role,
                     session_id=mock_session_id,
                     require_existing=require_existing,
                     entity_type=AgentSessionEntity.AGENT_PRESET,
@@ -1457,7 +1459,7 @@ class TestCreateSessionActivity:
         sent = MessageSent(
             session_id=mock_session_id,
             run_id=run_id,
-            user_id=mock_role.user_id,
+            user_id=user_role.user_id,
             text="Check the alert",
         )
         assert pushed == ([sent, started] if relayed else [started])
