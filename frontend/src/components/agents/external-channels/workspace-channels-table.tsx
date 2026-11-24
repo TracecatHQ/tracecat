@@ -121,7 +121,7 @@ export function WorkspaceChannelsTable({
   agentName,
   routesLoading,
   routesError,
-  routesUnavailable,
+  routesLoaded,
   listingFailures,
   managingBotId,
   onManage,
@@ -135,8 +135,8 @@ export function WorkspaceChannelsTable({
   agentName: (id: string) => string
   routesLoading: boolean
   routesError: TracecatApiError | null
-  /** No routes loaded; a failed refetch keeps the last ones. */
-  routesUnavailable: boolean
+  /** A failed refetch keeps the last routes, so only a failed first load hides them. */
+  routesLoaded: boolean
   /** Running bots Slack would not list, by bot ID. */
   listingFailures: Map<string, ChannelBotListingFailure>
   managingBotId: string | null
@@ -227,7 +227,7 @@ export function WorkspaceChannelsTable({
           onToggle={() => toggle(`bot:${bot.id}`)}
           filtering={filtering}
           loading={routesLoading}
-          unavailable={routesUnavailable}
+          unavailable={routesError !== null && !routesLoaded}
           listingFailure={listingFailures.get(bot.id) ?? null}
           onAddChannel={() => setAddingTo(bot)}
           context={context}
