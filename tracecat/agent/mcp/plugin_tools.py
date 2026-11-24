@@ -65,7 +65,7 @@ class PluginToolGroup:
 class SessionPluginTools:
     """What one plugin gives a session's turn."""
 
-    tools: tuple[str, ...] = ()
+    tool_names: tuple[str, ...] = ()
     """Names of this plugin's tools the session gets."""
     superseded_namespaces: tuple[str, ...] = ()
     """Registry action namespaces the session's agent stops using while connected."""
@@ -93,9 +93,10 @@ class AgentPluginTools:
 class InternalToolPlugin(Protocol):
     """Registers internal tools and grants them per session.
 
-    `tools` is read once per process. `session_tools` runs once per turn and
+    `tools` is read once per process. `session_tools` runs once per scope compile and
     `agent_tool_groups` per builder read; both run under the caller's role and
-    must not block the event loop.
+    must not block the event loop. A session's superseded namespaces must match
+    the `supersedes` of its agent's groups.
     """
 
     def tools(self) -> Sequence[PluginInternalTool]:
@@ -209,7 +210,7 @@ async def session_plugin_grant(role: Role, session_id: uuid.UUID) -> SessionPlug
                 plugin.session_tools(role, session_id),
                 timeout=PLUGIN_GRANT_TIMEOUT_SECONDS,
             )
-            names = frozenset(answered.tools)
+            names = frozenset(answered.tool_names)
             superseded = _checked_namespaces(answered.superseded_namespaces)
         except Exception as e:
             logger.warning(

@@ -81,7 +81,7 @@ class _Plugin:
         if self._fails:
             raise RuntimeError("boom")
         return SessionPluginTools(
-            tools=cast(tuple[str, ...], self._granted),
+            tool_names=cast(tuple[str, ...], self._granted),
             superseded_namespaces=self._supersedes,
         )
 

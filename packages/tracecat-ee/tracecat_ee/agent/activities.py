@@ -379,7 +379,7 @@ async def _build_stdio_mcp_tool_definitions(
     )
 
 
-async def _session_plugin_grant(
+async def _plugin_grant_or_empty(
     role: Role, session_id: uuid.UUID | None
 ) -> SessionPluginGrant:
     if session_id is None:
@@ -868,7 +868,7 @@ class AgentActivities:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
         return await self.build_tool_definitions_with_grant(
-            args, await _session_plugin_grant(args.role, args.session_id)
+            args, await _plugin_grant_or_empty(args.role, args.session_id)
         )
 
     async def build_tool_definitions_with_grant(
@@ -907,7 +907,7 @@ class AgentActivities:
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,
                 role=args.role,
-                plugin_grant=await _session_plugin_grant(args.role, scope.session_id),
+                plugin_grant=await _plugin_grant_or_empty(args.role, scope.session_id),
             )
 
         return BuildAgentToolDefsResult(scopes=results)
